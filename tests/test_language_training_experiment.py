@@ -68,6 +68,10 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     assert report["training"]["recurrent_gradient_horizon"] == 0
     assert report["training"]["truncated_recurrent_bptt"] is False
     assert report["training"]["truncated_bptt_boundary_count_per_batch"] == 0
+    assert report["training"]["state_block_projection_mode"] == (
+        "batched_token_and_state_output_projection_recurrent_loop"
+    )
+    assert report["training"]["state_output_projection_batched"] is True
     assert report["training"]["loss_record_count"] == 4
     assert report["training"]["cuda_synchronized_before_timing_start"] is False
     assert report["training"]["cuda_synchronized_before_timing_stop"] is False
@@ -161,6 +165,10 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["training"]["state_block_gradient_horizon_policy"] == (
         "bounded_recurrent_state_detach"
     )
+    assert report["training"]["state_block_projection_mode"] == (
+        "batched_token_and_state_output_projection_recurrent_loop"
+    )
+    assert report["training"]["state_output_projection_batched"] is True
     assert report["training"]["truncated_bptt_boundary_count_per_batch"] == 2
     assert report["model_config"]["recurrent_gradient_horizon"] == 4
     assert report["training"]["full_vocab_logits_materialized"] is False

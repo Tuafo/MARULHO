@@ -379,7 +379,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         raw_leak = self.raw_leak.to(device=inputs.device, dtype=inputs.dtype)
         base_threshold = self.threshold.to(device=inputs.device, dtype=inputs.dtype)
         current_gain = self.current_gain.to(device=inputs.device, dtype=inputs.dtype)
-        outputs: list[torch.Tensor] = []
+        mixed_states: list[torch.Tensor] = []
         spike_sum = inputs.new_tensor(0.0)
         active_neuron_counts = (
             inputs.new_zeros(self.state_dim) if bool(collect_telemetry) else None
@@ -466,7 +466,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                         state_output=state_output_all[:, step, :],
                         spike_slope=self.spike_slope,
                     )
-            outputs.append(residual_all[:, step, :] + self.state_output_proj(mixed_state))
+            mixed_states.append(mixed_state)
             if bool(collect_telemetry):
                 spike_sum = spike_sum + spikes.sum()
                 assert active_neuron_counts is not None
@@ -482,7 +482,10 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 eligibility_trace = eligibility_trace.detach()
                 truncated_bptt_boundary_count += 1
 
-        hidden = self.output_norm(torch.stack(outputs, dim=1))
+        mixed_state_sequence = torch.stack(mixed_states, dim=1)
+        hidden = self.output_norm(
+            residual_all + self.state_output_proj(mixed_state_sequence)
+        )
         if bool(collect_telemetry):
             plif_delta = (
                 language_plif_triton_stats_delta(
@@ -519,7 +522,9 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "input_dependent_threshold": True,
                 "trainable_current_terms": True,
                 "surrogate_gradient": "straight_through_sigmoid",
-                "state_block_projection_mode": "batched_token_projection_recurrent_loop",
+                "state_block_projection_mode": (
+                    "batched_token_and_state_output_projection_recurrent_loop"
+                ),
                 "recurrent_gradient_horizon": int(gradient_horizon),
                 "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
                 "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
@@ -552,7 +557,9 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             telemetry = {
                 "surface": "marulho_selective_spiking_state_block.v1",
                 "telemetry_collected": False,
-                "state_block_projection_mode": "batched_token_projection_recurrent_loop",
+                "state_block_projection_mode": (
+                    "batched_token_and_state_output_projection_recurrent_loop"
+                ),
                 "recurrent_gradient_horizon": int(gradient_horizon),
                 "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
                 "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
@@ -1221,21 +1228,48 @@ class MarulhoLanguageModel(nn.Module):
                 device=flat_hidden.device,
                 validate_ids=False,
             )
-            sampled_vocab_stats_before = language_sampled_vocab_ce_triton_stats()
+            sampled_vocab_stats_before = (
+                language_sampled_vocab_ce_triton_stats()
+                if bool(collect_telemetry)
+                else None
+            )
             loss = language_sampled_vocab_cross_entropy(
                 flat_hidden,
                 flat_targets,
                 sampled_vocab_ids,
                 self.lm_head.weight,
                 self.lm_head.bias,
+                prefer_triton=bool(collect_telemetry),
                 validate_targets=False,
                 sparse_weight_gradient=bool(
                     self.config.sampled_vocab_sparse_lm_head_gradient
                 ),
             )
-            sampled_vocab_stats_delta = language_sampled_vocab_ce_triton_stats_delta(
-                sampled_vocab_stats_before,
-                language_sampled_vocab_ce_triton_stats(),
+            sampled_vocab_stats_delta = (
+                language_sampled_vocab_ce_triton_stats_delta(
+                    sampled_vocab_stats_before,
+                    language_sampled_vocab_ce_triton_stats(),
+                )
+                if sampled_vocab_stats_before is not None
+                else {
+                    "surface": (
+                        "marulho_language_sampled_vocab_ce_triton_stats_delta.v1"
+                    ),
+                    "triton_available": False,
+                    "triton_forward_calls": 0,
+                    "triton_forward_elements": 0,
+                    "triton_autograd_forward_calls": 0,
+                    "triton_autograd_backward_calls": 0,
+                    "triton_autograd_backward_elements": 0,
+                    "torch_fallback_calls": 0,
+                    "torch_fallback_elements": 0,
+                    "triton_failure_count": 0,
+                    "last_failure": None,
+                    "last_device": str(flat_hidden.device),
+                    "last_dtype": str(flat_hidden.dtype),
+                    "triton_kernel_used": False,
+                    "telemetry_collected": False,
+                }
             )
             sampled_vocab_hash = (
                 _tensor_hash(sampled_vocab_ids)

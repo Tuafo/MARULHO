@@ -61,9 +61,16 @@ developmental and consolidation runners, query runners, and long-run evidence.
   complete-runtime impact evidence are still required before promotion. The
   batched training `forward` path precomputes token-independent RMSNorm,
   select, leak-input, threshold-input, current, input-drive, and residual
-  projections across `[batch,time]`, then keeps only the causal membrane/spike/
-  selective-state recurrence inside the per-token loop. `step` remains the
-  streaming path for one-token CUDA graph generation.
+  projections across `[batch,time]`, keeps only the causal membrane/spike/
+  selective-state recurrence inside the per-token loop, and applies
+  `state_output_proj` once across the stacked mixed-state sequence. The local
+  2026-07-04 CUDA report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-batched-state-output-524288-63744.json`
+  records this as `state_block_projection_mode=batched_token_and_state_output_projection_recurrent_loop`,
+  trains `63744` tokens at `2954.763` train tokens/sec on the `524288`
+  model-vocab sampled/padded shape, and sustains `524288/524288` generated
+  tokens at `7217.290` tokens/sec. `step` remains the streaming path for
+  one-token CUDA graph generation.
 - The state block can use `language_plif_triton.py` for no-grad PLIF forward
   updates when CUDA row-count policy allows it. Gradient-enabled `float32`
   training can use the same module's Triton surrogate backward path, which
@@ -194,6 +201,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `0.2083`, and sustained `524288/524288` generated tokens at `7223.490`
   tokens/sec. This is a fast-experiment stability/speed tradeoff and must not
   hide skipped gradient-norm passes.
+- The current batched state-output projection path keeps the same horizon-8,
+  TF32, clip-8, sampled/padded shape but moves `state_output_proj` out of the
+  per-token recurrent loop. The local 2026-07-04 report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-batched-state-output-524288-63744.json`
+  trains `63744` tokens at `2954.763` train tokens/sec, records
+  `state_output_projection_batched=true`, improves heldout loss from `7.1370`
+  to `0.2009`, and sustains `524288/524288` generated tokens at `7217.290`
+  tokens/sec. This is the current large-vocab fast-experiment baseline.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

@@ -339,6 +339,19 @@ harnesses.
   `2.041%`; compared with the full-sequence profiled baseline, it improves
   `8.374%`. The gradient-clip stage falls to `0.002918 ms/token`, while
   backward remains the largest stage.
+- Current 2026-07-04 batched state-output projection evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-batched-state-output-524288-63744.json`
+  keeps the causal membrane/spike/selective-state recurrence ordered, but
+  applies `state_output_proj` once over the stacked `[batch,time,state]`
+  mixed-state tensor. The report records
+  `state_block_projection_mode=batched_token_and_state_output_projection_recurrent_loop`,
+  trains the same `524288` model-vocab, `1024` sampled-row, horizon-8, TF32,
+  clip-8 shape for `63744` tokens at `2954.763` train tokens/sec, improves
+  heldout loss from `7.1370` to `0.2009`, and sustains `524288/524288`
+  generated tokens at `7217.290` tokens/sec. Versus the prior clip-8 baseline,
+  training throughput improves `16.386%`, forward/loss falls to
+  `0.128683 ms/token`, backward falls to `0.196265 ms/token`, and batch total
+  falls to `0.338111 ms/token`.
 - Current 2026-07-04 sampled/padded continual-learning evidence in
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   runs `run_language_continual_learning_window` on CUDA with a `524288`

@@ -352,7 +352,7 @@ def test_selective_state_block_vectorized_forward_matches_step_loop() -> None:
     for key, value in full_state.items():
         torch.testing.assert_close(value, state[key], rtol=1e-6, atol=1e-6)
     assert full_telemetry["state_block_projection_mode"] == (
-        "batched_token_projection_recurrent_loop"
+        "batched_token_and_state_output_projection_recurrent_loop"
     )
 
 

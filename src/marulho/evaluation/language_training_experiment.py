@@ -759,6 +759,13 @@ def _train_language_model(
                 ),
             )
         ),
+        "state_block_projection_mode": str(
+            last_state_block_telemetry.get("state_block_projection_mode", "unknown")
+        ),
+        "state_output_projection_batched": bool(
+            last_state_block_telemetry.get("state_block_projection_mode")
+            == "batched_token_and_state_output_projection_recurrent_loop"
+        ),
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed if elapsed > 0.0 else 0.0,
