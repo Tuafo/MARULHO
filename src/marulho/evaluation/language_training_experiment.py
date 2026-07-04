@@ -70,6 +70,8 @@ class LanguageTrainingExperimentConfig:
     sustained_quantum_tokens: int = 16
     sustained_timeout_seconds: float = 120.0
     profile_training_stages: bool = False
+    cuda_allow_tf32: bool = True
+    cuda_float32_matmul_precision: str = "high"
     device: str = "auto"
 
 
@@ -148,6 +150,63 @@ def _synchronize_if_cuda(device: torch.device | str) -> bool:
         return False
     torch.cuda.synchronize(resolved)
     return True
+
+
+def _cuda_math_policy_snapshot() -> dict[str, Any]:
+    precision = (
+        torch.get_float32_matmul_precision()
+        if hasattr(torch, "get_float32_matmul_precision")
+        else "unavailable"
+    )
+    return {
+        "surface": "marulho_cuda_math_policy.v1",
+        "cuda_available": bool(torch.cuda.is_available()),
+        "matmul_allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
+        "float32_matmul_precision": str(precision),
+    }
+
+
+def _apply_cuda_math_policy(
+    device: torch.device,
+    config: LanguageTrainingExperimentConfig,
+) -> dict[str, Any]:
+    requested_precision = str(config.cuda_float32_matmul_precision)
+    if requested_precision not in {"highest", "high", "medium"}:
+        raise ValueError(
+            "cuda_float32_matmul_precision must be one of: highest, high, medium"
+        )
+    before = _cuda_math_policy_snapshot()
+    applied = bool(device.type == "cuda" and torch.cuda.is_available())
+    if applied:
+        torch.backends.cuda.matmul.allow_tf32 = bool(config.cuda_allow_tf32)
+        torch.backends.cudnn.allow_tf32 = bool(config.cuda_allow_tf32)
+        if hasattr(torch, "set_float32_matmul_precision"):
+            torch.set_float32_matmul_precision(requested_precision)
+    active = _cuda_math_policy_snapshot()
+    return {
+        "surface": "marulho_cuda_math_policy_application.v1",
+        "device": str(device),
+        "applied": applied,
+        "requested_matmul_allow_tf32": bool(config.cuda_allow_tf32),
+        "requested_cudnn_allow_tf32": bool(config.cuda_allow_tf32),
+        "requested_float32_matmul_precision": requested_precision,
+        "before": before,
+        "active": active,
+    }
+
+
+def _restore_cuda_math_policy(snapshot: dict[str, Any]) -> None:
+    torch.backends.cuda.matmul.allow_tf32 = bool(
+        snapshot.get("matmul_allow_tf32", False)
+    )
+    torch.backends.cudnn.allow_tf32 = bool(snapshot.get("cudnn_allow_tf32", True))
+    precision = snapshot.get("float32_matmul_precision")
+    if isinstance(precision, str) and hasattr(torch, "set_float32_matmul_precision"):
+        try:
+            torch.set_float32_matmul_precision(precision)
+        except ValueError:
+            pass
 
 
 def _scalar_tensor_to_float(value: torch.Tensor | None) -> float | None:
@@ -533,6 +592,7 @@ def _train_language_model(
     batches: Sequence[LanguageBatch],
     *,
     config: LanguageTrainingExperimentConfig,
+    cuda_math_policy: dict[str, Any],
 ) -> dict[str, Any]:
     if not batches:
         raise ValueError("At least one train batch is required")
@@ -697,6 +757,7 @@ def _train_language_model(
         "device": str(model.device),
         "metric_readback_mode": "deferred_gpu_scalar_aggregation",
         "per_batch_metric_cpu_sync": False,
+        "cuda_math_policy": cuda_math_policy,
         "training_stage_profile": stage_profiler.report(),
         "gradient_clip_mode": "sparse_aware_device_norm",
         "loss_kind": last_loss_kind,
@@ -736,162 +797,176 @@ def run_language_training_experiment(
     tokenizer = ByteLevelLanguageTokenizer()
     corpus = _read_corpus(corpus_path)
     device = _resolve_device(str(cfg.device))
-    split = build_language_model_splits(
-        [corpus],
-        tokenizer,
-        sequence_length=int(cfg.sequence_length),
-        eval_fraction=0.20,
-        stride=int(cfg.stride),
-        batch_size=int(cfg.batch_size),
-        device=device,
-    )
-    train_batches = _trim_batches(split.train, limit=int(cfg.max_train_batches))
-    model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
+    cuda_math_policy = _apply_cuda_math_policy(device, cfg)
+    try:
+        split = build_language_model_splits(
+            [corpus],
+            tokenizer,
+            sequence_length=int(cfg.sequence_length),
+            eval_fraction=0.20,
+            stride=int(cfg.stride),
+            batch_size=int(cfg.batch_size),
+            device=device,
+        )
+        train_batches = _trim_batches(split.train, limit=int(cfg.max_train_batches))
+        model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
 
-    before_eval = evaluate_language_model(model, split.eval)
-    before_generations = [
-        _decoded_generation(
+        before_eval = evaluate_language_model(model, split.eval)
+        before_generations = [
+            _decoded_generation(
+                model,
+                tokenizer,
+                prompt=prompt,
+                max_new_tokens=min(16, int(cfg.generation_tokens)),
+                corpus=corpus,
+            )
+            for prompt in prompts
+        ]
+        training = _train_language_model(
+            model,
+            train_batches,
+            config=cfg,
+            cuda_math_policy=cuda_math_policy,
+        )
+        after_eval = evaluate_language_model(model, split.eval)
+        after_generations = [
+            _decoded_generation(
+                model,
+                tokenizer,
+                prompt=prompt,
+                max_new_tokens=int(cfg.generation_tokens),
+                corpus=corpus,
+            )
+            for prompt in prompts
+        ]
+        before_generation_quality = _generation_quality_summary(before_generations)
+        after_generation_quality = _generation_quality_summary(after_generations)
+
+        checkpoint_path = save_language_model_checkpoint(
+            output.with_name(f"{output.stem}-checkpoint.pt"),
             model,
             tokenizer,
-            prompt=prompt,
-            max_new_tokens=min(16, int(cfg.generation_tokens)),
-            corpus=corpus,
+            metadata={
+                "experiment_report": str(output),
+                "split": split.report,
+                "config": asdict(cfg),
+                "cuda_math_policy": cuda_math_policy,
+            },
         )
-        for prompt in prompts
-    ]
-    training = _train_language_model(model, train_batches, config=cfg)
-    after_eval = evaluate_language_model(model, split.eval)
-    after_generations = [
-        _decoded_generation(
+        sustained_path = output.with_name(f"{output.stem}-sustained.json")
+        sustained_report = run_language_sustained_runtime_evidence(
             model,
             tokenizer,
-            prompt=prompt,
-            max_new_tokens=int(cfg.generation_tokens),
-            corpus=corpus,
+            output_path=sustained_path,
+            target_tokens=max(1, int(cfg.sustained_target_tokens)),
+            checkpoint_path=checkpoint_path,
+            checkpoint_metadata={"experiment_report": str(output)},
+            prompt=prompts[0] if prompts else "MARULHO",
+            tick_tokens=int(cfg.sustained_tick_tokens),
+            quantum_tokens=int(cfg.sustained_quantum_tokens),
+            timeout_seconds=float(cfg.sustained_timeout_seconds),
+            collect_environment=False,
         )
-        for prompt in prompts
-    ]
-    before_generation_quality = _generation_quality_summary(before_generations)
-    after_generation_quality = _generation_quality_summary(after_generations)
 
-    checkpoint_path = save_language_model_checkpoint(
-        output.with_name(f"{output.stem}-checkpoint.pt"),
-        model,
-        tokenizer,
-        metadata={
-            "experiment_report": str(output),
-            "split": split.report,
+        loss_delta = float(after_eval["heldout_loss"]) - float(before_eval["heldout_loss"])
+        perplexity_delta = (
+            float(after_eval["heldout_perplexity"])
+            - float(before_eval["heldout_perplexity"])
+        )
+        report = {
+            "artifact_kind": ARTIFACT_KIND,
+            "surface": SURFACE,
+            "output_path": str(output),
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "active_language_path": model.config.active_language_path,
+            "model_vocab_size": int(model.config.vocab_size),
+            "tokenizer_vocab_size": int(tokenizer.vocab_size),
+            "generation_vocab_size": int(model.generation_vocab_size),
+            "padded_vocab_rows": max(
+                0,
+                int(model.config.vocab_size) - int(tokenizer.vocab_size),
+            ),
+            "generation_decode": model.generation_decode_policy(),
+            "cuda_math_policy": cuda_math_policy,
+            "corpus": {
+                "source": "default_inline" if corpus_path is None else str(corpus_path),
+                "character_count": len(corpus),
+            },
             "config": asdict(cfg),
-        },
-    )
-    sustained_path = output.with_name(f"{output.stem}-sustained.json")
-    sustained_report = run_language_sustained_runtime_evidence(
-        model,
-        tokenizer,
-        output_path=sustained_path,
-        target_tokens=max(1, int(cfg.sustained_target_tokens)),
-        checkpoint_path=checkpoint_path,
-        checkpoint_metadata={"experiment_report": str(output)},
-        prompt=prompts[0] if prompts else "MARULHO",
-        tick_tokens=int(cfg.sustained_tick_tokens),
-        quantum_tokens=int(cfg.sustained_quantum_tokens),
-        timeout_seconds=float(cfg.sustained_timeout_seconds),
-        collect_environment=False,
-    )
-
-    loss_delta = float(after_eval["heldout_loss"]) - float(before_eval["heldout_loss"])
-    perplexity_delta = (
-        float(after_eval["heldout_perplexity"])
-        - float(before_eval["heldout_perplexity"])
-    )
-    report = {
-        "artifact_kind": ARTIFACT_KIND,
-        "surface": SURFACE,
-        "output_path": str(output),
-        "owned_by_marulho": True,
-        "external_llm_used": False,
-        "loads_external_checkpoint": False,
-        "active_language_path": model.config.active_language_path,
-        "model_vocab_size": int(model.config.vocab_size),
-        "tokenizer_vocab_size": int(tokenizer.vocab_size),
-        "generation_vocab_size": int(model.generation_vocab_size),
-        "padded_vocab_rows": max(
-            0,
-            int(model.config.vocab_size) - int(tokenizer.vocab_size),
-        ),
-        "generation_decode": model.generation_decode_policy(),
-        "corpus": {
-            "source": "default_inline" if corpus_path is None else str(corpus_path),
-            "character_count": len(corpus),
-        },
-        "config": asdict(cfg),
-        "model_config": asdict(model.config),
-        "split": split.report,
-        "training": training,
-        "eval_before": before_eval,
-        "eval_after": after_eval,
-        "language_delta": {
-            "heldout_loss_delta": loss_delta,
-            "heldout_perplexity_delta": perplexity_delta,
-            "heldout_loss_improved": loss_delta < 0.0,
-            "heldout_perplexity_improved": perplexity_delta < 0.0,
-        },
-        "generation_before": before_generations,
-        "generation_after": after_generations,
-        "generation_quality_before": before_generation_quality,
-        "generation_quality_after": after_generation_quality,
-        "generation_quality_delta": {
-            "mean_source_prefix_match_chars_delta": (
-                after_generation_quality["mean_source_prefix_match_chars"]
-                - before_generation_quality["mean_source_prefix_match_chars"]
-            ),
-            "next_character_match_rate_delta": (
-                after_generation_quality["next_character_match_rate"]
-                - before_generation_quality["next_character_match_rate"]
-            ),
-            "mean_distinct_bigram_fraction_delta": (
-                after_generation_quality["mean_distinct_bigram_fraction"]
-                - before_generation_quality["mean_distinct_bigram_fraction"]
-            ),
-        },
-        "checkpoint_path": str(checkpoint_path),
-        "sustained_report_path": str(sustained_path),
-        "sustained_summary": {
-            "report_status": sustained_report["report_status"],
-            "success": bool(sustained_report["success"]),
-            "target_tokens": int(sustained_report["target_tokens"]),
-            "token_delta": int(sustained_report["token_delta"]),
-            "tokens_per_second": sustained_report["tokens_per_second"],
-            "device_backend": sustained_report["device_backend"],
-            "fallback_counts": sustained_report["fallback_counts"],
-            "model_vocab_size": sustained_report.get("model_vocab_size"),
-            "tokenizer_vocab_size": sustained_report.get("tokenizer_vocab_size"),
-            "generation_vocab_size": sustained_report.get("generation_vocab_size"),
-            "padded_vocab_rows": sustained_report.get("padded_vocab_rows"),
-            "generation_decode": sustained_report.get("generation_decode"),
-        },
-        "experiment_review": {
-            "fast_mutable_experiment": True,
-            "records_actual_training": training["token_count"] > 0,
-            "records_actual_generation": bool(after_generations),
-            "records_generation_quality_probe": bool(after_generations),
-            "records_sustained_inference": int(sustained_report["token_delta"]) > 0,
-            "records_sampled_vocab_training": bool(
-                training.get("sampled_vocab_training", False)
-            ),
-            "records_padded_vocab_decode_policy": bool(
-                max(0, int(model.config.vocab_size) - int(tokenizer.vocab_size)) > 0
-            ),
-            "promotes_runtime_claim": False,
-            "promotes_generation_quality_claim": False,
-            "next_experiment": (
-                "increase corpus/train tokens, compare checkpoints, and run "
-                "8192/131072-token sustained LM evidence"
-            ),
-        },
-    }
-    write_json_report_with_readme(output, report)
-    return report
+            "model_config": asdict(model.config),
+            "split": split.report,
+            "training": training,
+            "eval_before": before_eval,
+            "eval_after": after_eval,
+            "language_delta": {
+                "heldout_loss_delta": loss_delta,
+                "heldout_perplexity_delta": perplexity_delta,
+                "heldout_loss_improved": loss_delta < 0.0,
+                "heldout_perplexity_improved": perplexity_delta < 0.0,
+            },
+            "generation_before": before_generations,
+            "generation_after": after_generations,
+            "generation_quality_before": before_generation_quality,
+            "generation_quality_after": after_generation_quality,
+            "generation_quality_delta": {
+                "mean_source_prefix_match_chars_delta": (
+                    after_generation_quality["mean_source_prefix_match_chars"]
+                    - before_generation_quality["mean_source_prefix_match_chars"]
+                ),
+                "next_character_match_rate_delta": (
+                    after_generation_quality["next_character_match_rate"]
+                    - before_generation_quality["next_character_match_rate"]
+                ),
+                "mean_distinct_bigram_fraction_delta": (
+                    after_generation_quality["mean_distinct_bigram_fraction"]
+                    - before_generation_quality["mean_distinct_bigram_fraction"]
+                ),
+            },
+            "checkpoint_path": str(checkpoint_path),
+            "sustained_report_path": str(sustained_path),
+            "sustained_summary": {
+                "report_status": sustained_report["report_status"],
+                "success": bool(sustained_report["success"]),
+                "target_tokens": int(sustained_report["target_tokens"]),
+                "token_delta": int(sustained_report["token_delta"]),
+                "tokens_per_second": sustained_report["tokens_per_second"],
+                "device_backend": sustained_report["device_backend"],
+                "fallback_counts": sustained_report["fallback_counts"],
+                "model_vocab_size": sustained_report.get("model_vocab_size"),
+                "tokenizer_vocab_size": sustained_report.get("tokenizer_vocab_size"),
+                "generation_vocab_size": sustained_report.get("generation_vocab_size"),
+                "padded_vocab_rows": sustained_report.get("padded_vocab_rows"),
+                "generation_decode": sustained_report.get("generation_decode"),
+            },
+            "experiment_review": {
+                "fast_mutable_experiment": True,
+                "records_actual_training": training["token_count"] > 0,
+                "records_actual_generation": bool(after_generations),
+                "records_generation_quality_probe": bool(after_generations),
+                "records_sustained_inference": int(sustained_report["token_delta"]) > 0,
+                "records_sampled_vocab_training": bool(
+                    training.get("sampled_vocab_training", False)
+                ),
+                "records_padded_vocab_decode_policy": bool(
+                    max(0, int(model.config.vocab_size) - int(tokenizer.vocab_size)) > 0
+                ),
+                "records_cuda_math_policy": bool(cuda_math_policy.get("applied", False)),
+                "promotes_runtime_claim": False,
+                "promotes_generation_quality_claim": False,
+                "next_experiment": (
+                    "increase corpus/train tokens, compare checkpoints, and run "
+                    "8192/131072-token sustained LM evidence"
+                ),
+            },
+        }
+        write_json_report_with_readme(output, report)
+        return report
+    finally:
+        before_policy = cuda_math_policy.get("before")
+        if isinstance(before_policy, dict):
+            _restore_cuda_math_policy(before_policy)
 
 
 def main() -> int:
@@ -919,6 +994,12 @@ def main() -> int:
     parser.add_argument("--sustained-target-tokens", type=int, default=512)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=120.0)
     parser.add_argument("--profile-training-stages", action="store_true")
+    parser.add_argument("--disable-cuda-tf32", action="store_true")
+    parser.add_argument(
+        "--cuda-float32-matmul-precision",
+        choices=("highest", "high", "medium"),
+        default="high",
+    )
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     config = LanguageTrainingExperimentConfig(
@@ -942,6 +1023,8 @@ def main() -> int:
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_timeout_seconds=args.sustained_timeout_seconds,
         profile_training_stages=bool(args.profile_training_stages),
+        cuda_allow_tf32=not bool(args.disable_cuda_tf32),
+        cuda_float32_matmul_precision=args.cuda_float32_matmul_precision,
         device=args.device,
     )
     report = run_language_training_experiment(

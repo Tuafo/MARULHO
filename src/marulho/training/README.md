@@ -163,6 +163,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `524288/524288` generated tokens at `7225.847` tokens/sec. This is a
   throughput/credit-horizon tradeoff, not full long-context BPTT or a
   generation-quality promotion.
+- `language_training_experiment.py` applies an explicit experiment-scoped CUDA
+  math policy. On CUDA it enables TF32 matmul by default and sets
+  `float32_matmul_precision=high`, records the before/active policy in the
+  experiment and training reports, and restores the previous process policy
+  afterward. The local 2026-07-04 horizon-8 TF32 report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-profile-524288-63744.json`
+  trained the `524288` model-vocab shape at `2487.980` train tokens/sec and
+  sustained `524288/524288` generated tokens at `7239.247` tokens/sec. This is
+  `+2.142%` training throughput over the horizon-8 non-TF32 run and `+6.207%`
+  over the full-sequence profiled baseline; it is a precision/speed tradeoff
+  and not a generation-quality claim.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

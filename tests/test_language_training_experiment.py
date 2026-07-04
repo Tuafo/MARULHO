@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import torch
+
 from marulho.evaluation.language_training_experiment import (
     SURFACE,
     LanguageTrainingExperimentConfig,
@@ -52,6 +54,9 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     )
     assert report["training"]["per_batch_metric_cpu_sync"] is False
     assert report["training"]["training_stage_profile"]["enabled"] is False
+    assert report["cuda_math_policy"]["applied"] is False
+    assert report["cuda_math_policy"]["requested_matmul_allow_tf32"] is True
+    assert report["training"]["cuda_math_policy"] == report["cuda_math_policy"]
     assert report["training"]["recurrent_gradient_horizon"] == 0
     assert report["training"]["truncated_recurrent_bptt"] is False
     assert report["training"]["truncated_bptt_boundary_count_per_batch"] == 0
@@ -128,6 +133,9 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     )
     assert report["training"]["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
     assert report["training"]["sampled_vocab_training"] is True
+    assert report["config"]["cuda_allow_tf32"] is True
+    assert report["config"]["cuda_float32_matmul_precision"] == "high"
+    assert report["experiment_review"]["records_cuda_math_policy"] is False
     assert report["training"]["recurrent_gradient_horizon"] == 4
     assert report["training"]["truncated_recurrent_bptt"] is True
     assert report["training"]["gradient_horizon_policy"] == (
@@ -156,3 +164,47 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     )
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
     assert report["experiment_review"]["records_padded_vocab_decode_policy"] is True
+
+
+def test_language_training_experiment_restores_cuda_math_policy(tmp_path) -> None:
+    before_matmul = bool(torch.backends.cuda.matmul.allow_tf32)
+    before_cudnn = bool(torch.backends.cudnn.allow_tf32)
+    before_precision = (
+        torch.get_float32_matmul_precision()
+        if hasattr(torch, "get_float32_matmul_precision")
+        else "unavailable"
+    )
+
+    report = run_language_training_experiment(
+        output_path=tmp_path / "language-tf32-policy.json",
+        prompts=("MARULHO",),
+        config=LanguageTrainingExperimentConfig(
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=1,
+            expert_hidden_dim=16,
+            sequence_length=8,
+            stride=4,
+            batch_size=2,
+            max_train_batches=2,
+            train_epochs=1,
+            generation_tokens=2,
+            sustained_target_tokens=2,
+            sustained_tick_tokens=1,
+            sustained_quantum_tokens=1,
+            sustained_timeout_seconds=30.0,
+            cuda_allow_tf32=False,
+            cuda_float32_matmul_precision="highest",
+            device="cpu",
+        ),
+    )
+
+    assert report["cuda_math_policy"]["requested_matmul_allow_tf32"] is False
+    assert report["cuda_math_policy"]["requested_float32_matmul_precision"] == "highest"
+    assert report["cuda_math_policy"]["applied"] is False
+    assert bool(torch.backends.cuda.matmul.allow_tf32) is before_matmul
+    assert bool(torch.backends.cudnn.allow_tf32) is before_cudnn
+    if hasattr(torch, "get_float32_matmul_precision"):
+        assert torch.get_float32_matmul_precision() == before_precision

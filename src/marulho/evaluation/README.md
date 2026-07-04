@@ -317,6 +317,18 @@ harnesses.
   improves `3.980%`, batch-total cost falls by `0.016323 ms/token`,
   forward/loss falls by `0.009386 ms/token`, and backward falls by
   `0.006034 ms/token`; backward remains the largest remaining stage.
+- Current 2026-07-04 CUDA math-policy evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-profile-524288-63744.json`
+  runs the horizon-8 shape with explicit experiment-scoped TF32. The report
+  records that the process started with `matmul_allow_tf32=false`, applied
+  `matmul_allow_tf32=true`, `cudnn_allow_tf32=true`, and
+  `float32_matmul_precision=high`, then restored the previous policy after the
+  run. It trains `63744` tokens at `2487.980` train tokens/sec, improves
+  heldout loss from `7.0918` to `0.2066`, and sustains `524288/524288`
+  generated tokens at `7239.247` tokens/sec. Compared with horizon 8 without
+  TF32, training throughput improves `2.142%`; compared with the full-sequence
+  profiled baseline, it improves `6.207%`. This is a CUDA math speed policy,
+  not bitwise-float32 equivalence or generation-quality promotion.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
@@ -394,6 +406,7 @@ python -m marulho.evaluation.language_training_experiment --output reports/langu
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-deferred-metrics-8192-checkpoint.pt --output reports/language_training_experiments/cuda-deferred-metrics-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-stage-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 ```
 
 LM scale ladder inventory:
