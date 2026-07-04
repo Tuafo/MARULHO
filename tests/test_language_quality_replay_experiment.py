@@ -80,6 +80,7 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
             gradient_clip_interval=1,
             generation_repetition_penalty=1.0,
             generation_no_repeat_ngram_size=0,
+            heldout_prompt_case_count=2,
             sustained_target_token_counts=(2, 3),
             sustained_tick_tokens=1,
             sustained_quantum_tokens=1,
@@ -101,6 +102,8 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert child.exists()
     assert (tmp_path / "quality-replay-parent-coherence.json").exists()
     assert (tmp_path / "quality-replay-child-coherence.json").exists()
+    assert (tmp_path / "quality-replay-parent-heldout-coherence.json").exists()
+    assert (tmp_path / "quality-replay-child-heldout-coherence.json").exists()
     assert (tmp_path / "quality-replay-child-sustained-2.json").exists()
     assert (tmp_path / "quality-replay-child-sustained-3.json").exists()
     assert (tmp_path / "quality-replay-suite.json").exists()
@@ -112,6 +115,21 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["generation_coherence_delta"]["surface"] == (
         "marulho_language_quality_replay_coherence_delta.v1"
     )
+    assert report["heldout_prompt_suite"]["enabled"] is True
+    assert report["heldout_prompt_suite"]["case_count"] == 2
+    assert report["heldout_prompt_suite"]["source"] == "auto_source_prompt_cases"
+    assert report["heldout_prompt_suite"]["not_used_for_replay_training"] is True
+    assert report["heldout_generation_coherence_before"]["checkpoint_path"] == str(parent)
+    assert report["heldout_generation_coherence_after"]["checkpoint_path"] == str(child)
+    assert report["heldout_generation_coherence_delta"]["surface"] == (
+        "marulho_language_quality_replay_coherence_delta.v1"
+    )
+    assert report["quality_generalization_review"]["surface"] == (
+        "marulho_language_quality_replay_generalization_review.v1"
+    )
+    assert report["quality_generalization_review"][
+        "heldout_prompt_coherence_recorded"
+    ] is True
     assert report["sustained_runtime_evidence_summary"]["all_success"] is True
     assert report["sustained_runtime_evidence_summary"]["report_count"] == 2
     assert report["sustained_runtime_evidence_summary"]["target_tokens"] == [2, 3]
@@ -124,6 +142,7 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     )
     assert report["experiment_review"]["records_hard_prompt_training_pressure"] is True
     assert report["experiment_review"]["records_same_child_generation_coherence"] is True
+    assert report["experiment_review"]["records_heldout_generation_coherence"] is True
     assert report["experiment_review"]["records_same_child_sustained_runtime"] is True
     assert report["experiment_review"]["records_multiple_sustained_targets"] is True
     assert report["experiment_review"]["records_benchmark_suite_aggregation"] is True

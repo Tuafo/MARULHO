@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict, dataclass
 import hashlib
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -60,6 +61,7 @@ class LanguageQualityReplayExperimentConfig:
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 8
     collect_training_telemetry: bool = False
+    heldout_prompt_case_count: int = 4
     min_case_pass_rate: float = 1.0
     generation_repetition_penalty: float = 1.15
     generation_no_repeat_ngram_size: int = 3
@@ -217,6 +219,79 @@ def _build_hard_prompt_corpus(
     }
 
 
+def _prompt_exclusion_keys(
+    cases: Sequence[LanguageGenerationPromptCase],
+) -> tuple[str, ...]:
+    return tuple(
+        str(case.prompt_text).strip().casefold()
+        for case in cases
+        if str(case.prompt_text).strip()
+    )
+
+
+def _is_excluded_prompt(prompt_text: str, exclusions: Sequence[str]) -> bool:
+    normalized = str(prompt_text).strip().casefold()
+    return any(
+        normalized == exclusion
+        or normalized.startswith(f"{exclusion} ")
+        or exclusion.startswith(f"{normalized} ")
+        for exclusion in exclusions
+    )
+
+
+def _auto_heldout_prompt_cases(
+    source_text: str,
+    *,
+    training_prompt_cases: Sequence[LanguageGenerationPromptCase],
+    limit: int,
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    requested = max(0, int(limit))
+    if requested <= 0:
+        return tuple()
+    exclusions = _prompt_exclusion_keys(training_prompt_cases)
+    candidates: list[str] = []
+    seen: set[str] = set()
+    sentence_chunks = [
+        chunk.strip()
+        for chunk in re.split(r"(?<=[.!?])\s+", str(source_text))
+        if chunk.strip()
+    ]
+    for sentence in sentence_chunks:
+        words = [word.strip(" ,;:()[]{}") for word in sentence.split()]
+        words = [word for word in words if word]
+        if len(words) < 3:
+            continue
+        spans = [
+            words[:3],
+            words[1:4] if len(words) >= 4 else (),
+            words[2:5] if len(words) >= 5 else (),
+        ]
+        for span in spans:
+            if not span:
+                continue
+            prompt = " ".join(span).strip()
+            key = prompt.casefold()
+            if key in seen or _is_excluded_prompt(prompt, exclusions):
+                continue
+            seen.add(key)
+            candidates.append(prompt)
+            if len(candidates) >= requested:
+                break
+        if len(candidates) >= requested:
+            break
+    return tuple(
+        LanguageGenerationPromptCase(
+            prompt_text=prompt,
+            source_text=source_text,
+            max_new_tokens=64,
+            min_new_tokens=8,
+            min_prefix_match_chars=8,
+            min_prefix_match_fraction=0.10,
+        )
+        for prompt in candidates
+    )
+
+
 def _coherence_delta(
     before: Mapping[str, Any],
     after: Mapping[str, Any],
@@ -262,6 +337,63 @@ def _coherence_delta(
         "regressed_prompt_count": len(regressed_prompts),
         "regressed_prompts": regressed_prompts,
         "promotes_generation_quality_claim": False,
+    }
+
+
+def _heldout_generalization_review(
+    *,
+    trained_after: Mapping[str, Any],
+    heldout_before: Mapping[str, Any] | None,
+    heldout_after: Mapping[str, Any] | None,
+    heldout_delta: Mapping[str, Any] | None,
+    sustained_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    del heldout_before
+    heldout_after_summary = (
+        dict(heldout_after.get("summary") or {}) if heldout_after is not None else {}
+    )
+    heldout_gate = (
+        dict(heldout_after.get("promotion_gate") or {})
+        if heldout_after is not None
+        else {}
+    )
+    delta = dict(heldout_delta or {})
+    return {
+        "surface": "marulho_language_quality_replay_generalization_review.v1",
+        "trained_prompt_coherence_available": bool(
+            dict(trained_after.get("promotion_gate") or {}).get(
+                "generation_coherence_available",
+                False,
+            )
+        ),
+        "heldout_prompt_coherence_recorded": heldout_after is not None,
+        "heldout_prompt_coherence_available": bool(
+            heldout_gate.get("generation_coherence_available", False)
+        ),
+        "heldout_case_count": int(heldout_after_summary.get("case_count", 0) or 0),
+        "heldout_passed_case_count": int(
+            heldout_after_summary.get("passed_case_count", 0) or 0
+        ),
+        "heldout_case_pass_rate": float(
+            heldout_after_summary.get("case_pass_rate", 0.0) or 0.0
+        ),
+        "heldout_regressed_prompt_count": int(
+            delta.get("regressed_prompt_count", 0) or 0
+        ),
+        "heldout_repaired_prompt_count": int(
+            delta.get("repaired_prompt_count", 0) or 0
+        ),
+        "heldout_mean_prefix_match_chars_delta": float(
+            delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0
+        ),
+        "same_child_house_scale_sustained_runtime": bool(
+            sustained_summary.get("house_scale_524288_available", False)
+        ),
+        "same_child_sustained_runtime_success": bool(
+            sustained_summary.get("all_success", False)
+        ),
+        "promotes_generation_quality_claim": False,
+        "promotes_runtime_claim": False,
     }
 
 
@@ -359,6 +491,7 @@ def run_language_quality_replay_experiment(
     output_path: str | Path,
     source_path: str | Path | None = None,
     prompt_cases: Sequence[LanguageGenerationPromptCase] | None = None,
+    heldout_prompt_cases: Sequence[LanguageGenerationPromptCase] | None = None,
     child_checkpoint_path: str | Path | None = None,
     config: LanguageQualityReplayExperimentConfig | None = None,
 ) -> dict[str, Any]:
@@ -373,6 +506,15 @@ def run_language_quality_replay_experiment(
     cases = tuple(prompt_cases or default_generation_coherence_prompt_cases(source_text))
     if not cases:
         raise ValueError("At least one hard-prompt case is required")
+    heldout_cases = (
+        tuple(heldout_prompt_cases)
+        if heldout_prompt_cases is not None
+        else _auto_heldout_prompt_cases(
+            source_text,
+            training_prompt_cases=cases,
+            limit=int(cfg.heldout_prompt_case_count),
+        )
+    )
 
     model, tokenizer, parent_metadata = load_language_model_checkpoint(
         parent_checkpoint,
@@ -420,6 +562,21 @@ def run_language_quality_replay_experiment(
         generation_repetition_penalty=float(cfg.generation_repetition_penalty),
         generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
     )
+    heldout_before_coherence: dict[str, Any] | None = None
+    heldout_before_coherence_path = output.with_name(
+        f"{output.stem}-parent-heldout-coherence.json"
+    )
+    if heldout_cases:
+        heldout_before_coherence = run_language_generation_coherence_report(
+            model,
+            tokenizer,
+            prompt_cases=heldout_cases,
+            min_case_pass_rate=float(cfg.min_case_pass_rate),
+            checkpoint_path=parent_checkpoint,
+            output_path=heldout_before_coherence_path,
+            generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+            generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+        )
     learning_config = LanguageContinualLearningConfig(
         learning_rate=float(cfg.learning_rate),
         max_steps=int(cfg.max_steps),
@@ -479,6 +636,21 @@ def run_language_quality_replay_experiment(
         generation_repetition_penalty=float(cfg.generation_repetition_penalty),
         generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
     )
+    heldout_after_coherence: dict[str, Any] | None = None
+    heldout_after_coherence_path = output.with_name(
+        f"{output.stem}-child-heldout-coherence.json"
+    )
+    if heldout_cases:
+        heldout_after_coherence = run_language_generation_coherence_report(
+            model,
+            tokenizer,
+            prompt_cases=heldout_cases,
+            min_case_pass_rate=float(cfg.min_case_pass_rate),
+            checkpoint_path=child_checkpoint,
+            output_path=heldout_after_coherence_path,
+            generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+            generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+        )
 
     sustained_targets = _sustained_targets(cfg)
     sustained_reports: list[dict[str, Any]] = []
@@ -536,12 +708,24 @@ def run_language_quality_replay_experiment(
         }
 
     coherence_delta = _coherence_delta(before_coherence, after_coherence)
+    heldout_coherence_delta = (
+        _coherence_delta(heldout_before_coherence, heldout_after_coherence)
+        if heldout_before_coherence is not None and heldout_after_coherence is not None
+        else None
+    )
     sustained_success = bool(sustained_summary.get("all_success", False))
     same_child_quality = bool(
         dict(after_coherence.get("promotion_gate") or {}).get(
             "generation_coherence_available",
             False,
         )
+    )
+    generalization_review = _heldout_generalization_review(
+        trained_after=after_coherence,
+        heldout_before=heldout_before_coherence,
+        heldout_after=heldout_after_coherence,
+        heldout_delta=heldout_coherence_delta,
+        sustained_summary=sustained_summary,
     )
     report = {
         "artifact_kind": ARTIFACT_KIND,
@@ -574,6 +758,18 @@ def run_language_quality_replay_experiment(
             "replay_character_count": len(replay_text),
         },
         "hard_prompt_replay": hard_corpus_report,
+        "heldout_prompt_suite": {
+            "surface": "marulho_language_quality_replay_heldout_prompt_suite.v1",
+            "enabled": bool(heldout_cases),
+            "case_count": len(heldout_cases),
+            "prompt_cases": [asdict(case) for case in heldout_cases],
+            "source": (
+                "explicit_heldout_prompt_cases"
+                if heldout_prompt_cases is not None
+                else "auto_source_prompt_cases"
+            ),
+            "not_used_for_replay_training": True,
+        },
         "split": {
             "old_replay": old_split.report,
             "hard_prompt": hard_split.report,
@@ -586,6 +782,10 @@ def run_language_quality_replay_experiment(
         "generation_coherence_before": before_coherence,
         "generation_coherence_after": after_coherence,
         "generation_coherence_delta": coherence_delta,
+        "heldout_generation_coherence_before": heldout_before_coherence,
+        "heldout_generation_coherence_after": heldout_after_coherence,
+        "heldout_generation_coherence_delta": heldout_coherence_delta,
+        "quality_generalization_review": generalization_review,
         "sustained_runtime_evidence": sustained_report,
         "sustained_runtime_evidence_reports": sustained_reports,
         "sustained_runtime_evidence_summary": sustained_summary,
@@ -606,6 +806,7 @@ def run_language_quality_replay_experiment(
                 in dict(learning_report.get("learning_evidence") or {})
             ),
             "records_same_child_generation_coherence": True,
+            "records_heldout_generation_coherence": bool(heldout_cases),
             "records_same_child_sustained_runtime": bool(sustained_reports),
             "records_multiple_sustained_targets": bool(len(sustained_reports) > 1),
             "records_house_scale_sustained_runtime": bool(
@@ -616,6 +817,12 @@ def run_language_quality_replay_experiment(
                 == "marulho_language_runtime_benchmark_suite.v1"
             ),
             "same_child_generation_coherence_available": bool(same_child_quality),
+            "heldout_generation_coherence_available": bool(
+                generalization_review["heldout_prompt_coherence_available"]
+            ),
+            "heldout_generation_regressed_prompt_count": int(
+                generalization_review["heldout_regressed_prompt_count"]
+            ),
             "same_child_sustained_runtime_success": bool(sustained_success),
             "promotes_generation_quality_claim": False,
             "promotes_runtime_claim": False,
@@ -632,6 +839,7 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=None)
     parser.add_argument("--child-checkpoint", type=Path, default=None)
     parser.add_argument("--prompt-case", action="append", default=[])
+    parser.add_argument("--heldout-prompt-case", action="append", default=[])
     parser.add_argument("--sequence-length", type=int, default=64)
     parser.add_argument("--stride", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -650,6 +858,7 @@ def main() -> int:
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--gradient-clip-interval", type=int, default=8)
     parser.add_argument("--collect-training-telemetry", action="store_true")
+    parser.add_argument("--heldout-prompt-case-count", type=int, default=4)
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=3)
@@ -673,12 +882,21 @@ def main() -> int:
         if args.prompt_case
         else default_generation_coherence_prompt_cases(source_text)
     )
+    heldout_cases = (
+        tuple(
+            _parse_prompt_case(value, source_text=source_text)
+            for value in args.heldout_prompt_case
+        )
+        if args.heldout_prompt_case
+        else None
+    )
     report = run_language_quality_replay_experiment(
         checkpoint_path=args.checkpoint,
         output_path=args.output,
         source_path=args.source,
         child_checkpoint_path=args.child_checkpoint,
         prompt_cases=cases,
+        heldout_prompt_cases=heldout_cases,
         config=LanguageQualityReplayExperimentConfig(
             sequence_length=args.sequence_length,
             stride=args.stride,
@@ -698,6 +916,7 @@ def main() -> int:
             max_grad_norm=args.max_grad_norm,
             gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
             collect_training_telemetry=bool(args.collect_training_telemetry),
+            heldout_prompt_case_count=max(0, int(args.heldout_prompt_case_count)),
             min_case_pass_rate=args.min_case_pass_rate,
             generation_repetition_penalty=args.generation_repetition_penalty,
             generation_no_repeat_ngram_size=args.generation_no_repeat_ngram_size,
