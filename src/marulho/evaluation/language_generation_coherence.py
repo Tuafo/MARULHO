@@ -128,7 +128,12 @@ def _decoded_generation_case(
     model: MarulhoLanguageModel,
     tokenizer: ByteLevelLanguageTokenizer,
     case: LanguageGenerationPromptCase,
+    *,
+    generation_repetition_penalty: float = 1.0,
+    generation_no_repeat_ngram_size: int = 0,
 ) -> dict[str, Any]:
+    repetition_penalty = max(1.0, float(generation_repetition_penalty))
+    no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
     prompt_ids = torch.tensor(
         tokenizer.encode(case.prompt_text, add_eos=False),
         dtype=torch.long,
@@ -137,6 +142,8 @@ def _decoded_generation_case(
         prompt_ids,
         max_new_tokens=max(0, int(case.max_new_tokens)),
         eos_id=tokenizer.eos_id,
+        repetition_penalty=repetition_penalty,
+        no_repeat_ngram_size=no_repeat_ngram_size,
     )
     generated_ids = generation["generated_ids"]
     if not isinstance(generated_ids, torch.Tensor):
@@ -204,6 +211,7 @@ def _decoded_generation_case(
         "prompt_text": case.prompt_text,
         "source_text_hash": _sha256_text(case.source_text),
         "generation_surface": generation.get("surface"),
+        "generation_decode": dict(generation.get("generation_decode") or {}),
         "active_language_path": generation.get("active_language_path"),
         "external_llm_used": bool(generation.get("external_llm_used")),
         "owned_by_marulho": bool(generation.get("owned_by_marulho")),
@@ -277,11 +285,24 @@ def run_language_generation_coherence_report(
     min_case_pass_rate: float = 1.0,
     checkpoint_path: str | Path | None = None,
     output_path: str | Path | None = None,
+    generation_repetition_penalty: float = 1.0,
+    generation_no_repeat_ngram_size: int = 0,
 ) -> dict[str, Any]:
     cases = tuple(prompt_cases or default_generation_coherence_prompt_cases())
     if not cases:
         raise ValueError("At least one generation coherence prompt case is required")
-    case_reports = [_decoded_generation_case(model, tokenizer, case) for case in cases]
+    repetition_penalty = max(1.0, float(generation_repetition_penalty))
+    no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
+    case_reports = [
+        _decoded_generation_case(
+            model,
+            tokenizer,
+            case,
+            generation_repetition_penalty=repetition_penalty,
+            generation_no_repeat_ngram_size=no_repeat_ngram_size,
+        )
+        for case in cases
+    ]
     summary = _coherence_summary(case_reports)
     case_pass_rate = float(summary["case_pass_rate"])
     external_llm_used = any(bool(case.get("external_llm_used")) for case in case_reports)
@@ -316,6 +337,15 @@ def run_language_generation_coherence_report(
             "case_count": len(cases),
             "min_case_pass_rate": float(min_case_pass_rate),
             "review_kind": "automated_grounded_prompt_suite_not_human_review",
+            "generation_decode_controls": {
+                "repetition_penalty": float(repetition_penalty),
+                "repetition_penalty_applied": bool(repetition_penalty > 1.0),
+                "no_repeat_ngram_size": int(no_repeat_ngram_size),
+                "no_repeat_ngram_applied": bool(no_repeat_ngram_size > 0),
+                "decode_controls_requested": bool(
+                    repetition_penalty > 1.0 or no_repeat_ngram_size > 0
+                ),
+            },
             "prompt_cases": [asdict(case) for case in cases],
         },
         "cases": case_reports,
@@ -372,6 +402,8 @@ def main() -> int:
         ),
     )
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
+    parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
     args = parser.parse_args()
     source_text = (
         args.source.read_text(encoding="utf-8") if args.source is not None else DEFAULT_CORPUS
@@ -394,6 +426,11 @@ def main() -> int:
         min_case_pass_rate=float(args.min_case_pass_rate),
         checkpoint_path=args.checkpoint,
         output_path=args.output,
+        generation_repetition_penalty=max(1.0, float(args.generation_repetition_penalty)),
+        generation_no_repeat_ngram_size=max(
+            0,
+            int(args.generation_no_repeat_ngram_size),
+        ),
     )
     return 0 if report["promotion_gate"]["generation_coherence_available"] else 1
 

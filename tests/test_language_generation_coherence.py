@@ -32,6 +32,8 @@ class _FakeGenerationModel:
         *,
         max_new_tokens: int,
         eos_id: int | None = None,
+        repetition_penalty: float = 1.0,
+        no_repeat_ngram_size: int = 0,
     ) -> dict[str, object]:
         del eos_id
         flat_prompt = prompt_ids.detach().cpu().reshape(-1).to(torch.long)
@@ -47,6 +49,16 @@ class _FakeGenerationModel:
             "external_llm_used": self._external_llm_used,
             "owned_by_marulho": not self._external_llm_used,
             "loads_external_checkpoint": False,
+            "generation_decode": {
+                "surface": "marulho_language_generation_decode_policy.v1",
+                "decode_strategy": "greedy_argmax",
+                "repetition_penalty": float(repetition_penalty),
+                "repetition_penalty_applied": bool(float(repetition_penalty) > 1.0),
+                "no_repeat_ngram_size": int(no_repeat_ngram_size),
+                "no_repeat_ngram_applied": bool(int(no_repeat_ngram_size) > 0),
+                "decode_controls_backend": "torch_device_tensor",
+                "decode_controls_cpu_token_copy": False,
+            },
         }
 
 
@@ -85,6 +97,40 @@ def test_language_generation_coherence_report_passes_grounded_prompt_suite(
     assert report["cases"][0]["external_llm_used"] is False
     assert "learns runtime evidence" in report["cases"][0]["continuation_text"]
     assert (tmp_path / "README.md").exists()
+
+
+def test_language_generation_coherence_report_records_decode_controls() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    source_text = "MARULHO learns runtime evidence from local source windows."
+
+    report = run_language_generation_coherence_report(
+        _FakeGenerationModel(tokenizer, continuation_text=" learns runtime evidence"),
+        tokenizer,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="MARULHO",
+                source_text=source_text,
+                max_new_tokens=32,
+                min_new_tokens=8,
+                min_prefix_match_chars=8,
+                min_prefix_match_fraction=0.20,
+            ),
+        ),
+        generation_repetition_penalty=1.2,
+        generation_no_repeat_ngram_size=2,
+    )
+
+    controls = report["prompt_suite"]["generation_decode_controls"]
+    decode = report["cases"][0]["generation_decode"]
+    assert controls["decode_controls_requested"] is True
+    assert controls["repetition_penalty"] == 1.2
+    assert controls["no_repeat_ngram_size"] == 2
+    assert decode["repetition_penalty_applied"] is True
+    assert decode["repetition_penalty"] == 1.2
+    assert decode["no_repeat_ngram_applied"] is True
+    assert decode["no_repeat_ngram_size"] == 2
+    assert decode["decode_controls_backend"] == "torch_device_tensor"
+    assert decode["decode_controls_cpu_token_copy"] is False
 
 
 def test_language_generation_coherence_report_blocks_unsupported_generation() -> None:

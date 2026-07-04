@@ -224,6 +224,11 @@ def _generation_coherence_report_summary(report: Mapping[str, Any]) -> dict[str,
         else {}
     )
     summary = report.get("summary") if isinstance(report.get("summary"), Mapping) else {}
+    prompt_suite = (
+        report.get("prompt_suite")
+        if isinstance(report.get("prompt_suite"), Mapping)
+        else {}
+    )
     return {
         "path": str(report.get("path") or report.get("output_path") or ""),
         "checkpoint_path": report.get("checkpoint_path"),
@@ -236,15 +241,25 @@ def _generation_coherence_report_summary(report: Mapping[str, Any]) -> dict[str,
         "mean_distinct_bigram_fraction": summary.get("mean_distinct_bigram_fraction"),
         "next_character_match_rate": summary.get("next_character_match_rate"),
         "review_kind": (
-            (report.get("prompt_suite") or {}).get("review_kind")
-            if isinstance(report.get("prompt_suite"), Mapping)
-            else None
+            prompt_suite.get("review_kind")
+        ),
+        "generation_decode_controls": dict(
+            prompt_suite.get("generation_decode_controls")
+            if isinstance(prompt_suite.get("generation_decode_controls"), Mapping)
+            else {}
         ),
         "human_review_available": bool(promotion_gate.get("human_review_available")),
         "promotes_generation_quality_claim": bool(
             promotion_gate.get("promotes_generation_quality_claim")
         ),
     }
+
+
+def _normalized_evidence_path(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text.replace("\\", "/").lower()
 
 
 def _language_generation_coherence_evidence(
@@ -277,6 +292,89 @@ def _language_generation_coherence_evidence(
         ),
         "missing_evidence": missing,
         "promotes_runtime_claim": False,
+    }
+
+
+def _long_run_report_summaries(
+    long_run_evidence: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    keys = (
+        "diagnostic_report",
+        "long_gate_report",
+        "house_scale_report",
+        "controlled_decode_diagnostic_report",
+        "controlled_decode_long_gate_report",
+        "controlled_decode_house_scale_report",
+    )
+    summaries: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for key in keys:
+        report = long_run_evidence.get(key)
+        if not isinstance(report, Mapping):
+            continue
+        normalized = _normalized_evidence_path(report.get("checkpoint_path"))
+        token_delta = _token_delta(report)
+        identity = (normalized or str(report.get("path") or ""), token_delta)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        summaries.append(dict(report))
+    return tuple(summaries)
+
+
+def _generation_long_run_alignment_evidence(
+    generation_evidence: Mapping[str, Any],
+    long_run_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    best_report = (
+        generation_evidence.get("best_report")
+        if isinstance(generation_evidence.get("best_report"), Mapping)
+        else {}
+    )
+    generation_checkpoint = best_report.get("checkpoint_path")
+    generation_checkpoint_key = _normalized_evidence_path(generation_checkpoint)
+    long_reports = _long_run_report_summaries(long_run_evidence)
+    matching_reports = [
+        report
+        for report in long_reports
+        if generation_checkpoint_key
+        and _normalized_evidence_path(report.get("checkpoint_path"))
+        == generation_checkpoint_key
+    ]
+    matching_long_reports = [
+        report for report in matching_reports if _token_delta(report) >= 131072
+    ]
+    matching_house_reports = [
+        report for report in matching_reports if _token_delta(report) >= 524288
+    ]
+    matching_controlled_reports = [
+        report
+        for report in matching_reports
+        if (
+            isinstance(report.get("generation_decode"), Mapping)
+            and bool(report["generation_decode"].get("decode_controls_requested"))
+        )
+    ]
+    evidence_available = bool(generation_checkpoint_key and matching_long_reports)
+    return {
+        "surface": "marulho_language_generation_long_run_alignment.v1",
+        "generation_checkpoint_path": generation_checkpoint,
+        "long_run_checkpoint_paths": [
+            report.get("checkpoint_path") for report in long_reports
+        ],
+        "matching_report_count": len(matching_reports),
+        "same_checkpoint_long_run_available": evidence_available,
+        "same_checkpoint_house_scale_available": bool(matching_house_reports),
+        "same_checkpoint_controlled_decode_available": bool(matching_controlled_reports),
+        "same_checkpoint_controlled_decode_house_scale_available": any(
+            _token_delta(report) >= 524288 for report in matching_controlled_reports
+        ),
+        "matching_reports": matching_reports,
+        "missing_evidence": (
+            []
+            if evidence_available
+            else ["same_checkpoint_generation_coherence_long_run"]
+        ),
     }
 
 
@@ -323,6 +421,7 @@ def _sustained_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "target_tokens": int(report.get("target_tokens", 0) or 0),
         "token_delta": _token_delta(report),
         "tokens_per_second": report.get("tokens_per_second"),
+        "checkpoint_path": report.get("checkpoint_path"),
         "active_language_path": report.get("active_language_path"),
         "runtime_owner": report.get("runtime_owner"),
         "device": device_backend.get("device"),
@@ -776,20 +875,19 @@ def run_language_runtime_benchmark_suite(
     generation_coherence_missing = tuple(
         generation_coherence_evidence["missing_evidence"]
     )
-    categories.append(
-        _category(
-            "generation_coherence",
-            status="pass" if not generation_coherence_missing else "smoke_only",
-            evidence={
-                "generated_token_count": int(generation["new_token_count"]),
-                "active_language_path": generation["active_language_path"],
-                "external_llm_used": generation["external_llm_used"],
-                "review_kind": "token_stream_smoke_not_human_quality_review",
-                **generation_coherence_evidence,
-            },
-            missing=generation_coherence_missing,
-        )
+    generation_category = _category(
+        "generation_coherence",
+        status="pass" if not generation_coherence_missing else "smoke_only",
+        evidence={
+            "generated_token_count": int(generation["new_token_count"]),
+            "active_language_path": generation["active_language_path"],
+            "external_llm_used": generation["external_llm_used"],
+            "review_kind": "token_stream_smoke_not_human_quality_review",
+            **generation_coherence_evidence,
+        },
+        missing=generation_coherence_missing,
     )
+    categories.append(generation_category)
 
     grounding_report = run_language_grounding_support_report(
         base_model,
@@ -1171,6 +1269,22 @@ def run_language_runtime_benchmark_suite(
             missing=long_run_missing,
         )
     )
+    generation_long_run_alignment = _generation_long_run_alignment_evidence(
+        generation_coherence_evidence,
+        long_run_evidence,
+    )
+    generation_category["evidence"]["long_run_alignment"] = (
+        generation_long_run_alignment
+    )
+    if (
+        generation_coherence_evidence["generation_coherence_available"]
+        and not long_run_missing
+        and generation_long_run_alignment["missing_evidence"]
+    ):
+        generation_category["status"] = "smoke_only"
+        generation_category["missing_evidence"].extend(
+            generation_long_run_alignment["missing_evidence"]
+        )
 
     parameter_estimate = estimate_language_model_parameters(base_model.config)
     categories.append(
