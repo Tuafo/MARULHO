@@ -137,6 +137,8 @@ def _validate_sampled_vocab_contract(
 def _sampled_target_positions(
     target_ids: torch.Tensor,
     sampled_vocab_ids: torch.Tensor,
+    *,
+    validate_targets: bool = True,
 ) -> torch.Tensor:
     flat_targets = target_ids.reshape(-1).to(
         device=sampled_vocab_ids.device,
@@ -145,7 +147,7 @@ def _sampled_target_positions(
     sampled = sampled_vocab_ids.reshape(-1).to(dtype=torch.long)
     matches = flat_targets[:, None].eq(sampled[None, :])
     found = matches.any(dim=1)
-    if not bool(found.all().detach().cpu().item()):
+    if bool(validate_targets) and not bool(found.all().detach().cpu().item()):
         missing = flat_targets[~found].detach().cpu().unique(sorted=True).tolist()
         preview = ", ".join(str(int(value)) for value in missing[:8])
         raise ValueError(
@@ -161,46 +163,51 @@ def build_sampled_vocab_ids(
     vocab_size: int,
     sample_count: int,
     device: torch.device | str | None = None,
+    validate_ids: bool = True,
 ) -> torch.Tensor:
     vocab = int(vocab_size)
     if vocab <= 1:
         raise ValueError("vocab_size must be greater than one")
-    flat_targets = target_ids.detach().reshape(-1).to(device="cpu", dtype=torch.long)
+    target_device = torch.device(device) if device is not None else target_ids.device
+    flat_targets = target_ids.detach().reshape(-1).to(
+        device=target_device,
+        dtype=torch.long,
+    )
     if flat_targets.numel() == 0:
         raise ValueError("target_ids must not be empty")
-    min_target = int(flat_targets.min().item())
-    max_target = int(flat_targets.max().item())
-    if min_target < 0 or max_target >= vocab:
+    if bool(validate_ids) and bool(
+        (
+            (flat_targets < 0).any() | (flat_targets >= vocab).any()
+        ).detach().cpu().item()
+    ):
         raise ValueError("target_ids must be inside [0, vocab_size)")
-    unique_targets = torch.unique(flat_targets, sorted=True).tolist()
-    target_count = len(unique_targets)
+    unique_targets = torch.unique(flat_targets, sorted=True)
+    target_count = int(unique_targets.numel())
     requested = max(2, int(sample_count), target_count)
     requested = min(vocab, requested)
     if target_count > requested:
         raise ValueError("sample_count cannot cover the unique target ids")
 
-    selected: list[int] = [int(value) for value in unique_targets]
-    seen = set(selected)
-    if len(selected) < requested:
-        stride = max(1, vocab // requested)
-        cursor = 0
-        while len(selected) < requested and cursor < vocab * 2:
-            candidate = int((cursor * stride + cursor // max(1, requested)) % vocab)
-            if candidate not in seen:
-                seen.add(candidate)
-                selected.append(candidate)
-            cursor += 1
-    if len(selected) < requested:
-        for candidate in range(vocab):
-            if candidate not in seen:
-                selected.append(candidate)
-                if len(selected) >= requested:
-                    break
-    return torch.tensor(
-        selected[:requested],
-        dtype=torch.long,
-        device=device if device is not None else target_ids.device,
-    )
+    if target_count >= requested:
+        return unique_targets[:requested].to(device=target_device, dtype=torch.long)
+
+    needed = int(requested - target_count)
+    stride = max(1, vocab // requested)
+    candidate_count = min(vocab, max(requested * 4, requested + target_count * 2))
+    cursor = torch.arange(candidate_count, device=target_device, dtype=torch.long)
+    candidates = (
+        cursor * int(stride)
+        + torch.div(cursor, max(1, requested), rounding_mode="floor")
+    ) % int(vocab)
+    candidates = torch.unique(candidates, sorted=True)
+    extras = candidates[~torch.isin(candidates, unique_targets)]
+    if int(extras.numel()) < needed:
+        full_candidates = torch.arange(vocab, device=target_device, dtype=torch.long)
+        full_extras = full_candidates[~torch.isin(full_candidates, unique_targets)]
+        extras = torch.cat((extras, full_extras), dim=0)
+        extras = torch.unique(extras, sorted=True)
+    selected = torch.cat((unique_targets, extras[:needed]), dim=0)
+    return selected[:requested].to(device=target_device, dtype=torch.long)
 
 
 def language_sampled_vocab_cross_entropy_torch_reference(
@@ -209,6 +216,9 @@ def language_sampled_vocab_cross_entropy_torch_reference(
     sampled_vocab_ids: torch.Tensor,
     lm_head_weight: torch.Tensor,
     lm_head_bias: torch.Tensor,
+    *,
+    validate_targets: bool = True,
+    sparse_weight_gradient: bool = False,
 ) -> torch.Tensor:
     _validate_sampled_vocab_contract(
         hidden,
@@ -222,16 +232,21 @@ def language_sampled_vocab_cross_entropy_torch_reference(
         dtype=torch.long,
     )
     runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long).reshape(-1)
-    sampled_weight = lm_head_weight.to(device=hidden.device, dtype=hidden.dtype).index_select(
-        0,
-        runtime_sampled_ids,
-    )
+    runtime_weight = lm_head_weight.to(device=hidden.device, dtype=hidden.dtype)
+    if bool(sparse_weight_gradient):
+        sampled_weight = F.embedding(runtime_sampled_ids, runtime_weight, sparse=True)
+    else:
+        sampled_weight = runtime_weight.index_select(0, runtime_sampled_ids)
     sampled_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).index_select(
         0,
         runtime_sampled_ids,
     )
     logits = hidden.matmul(sampled_weight.transpose(0, 1)) + sampled_bias
-    sampled_targets = _sampled_target_positions(runtime_targets, runtime_sampled_ids)
+    sampled_targets = _sampled_target_positions(
+        runtime_targets,
+        runtime_sampled_ids,
+        validate_targets=validate_targets,
+    )
     return F.cross_entropy(logits.float(), sampled_targets, reduction="mean")
 
 

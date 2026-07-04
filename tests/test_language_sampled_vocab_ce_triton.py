@@ -86,6 +86,38 @@ def test_language_sampled_vocab_ce_cpu_matches_dense_subset_reference() -> None:
     torch.testing.assert_close(output, dense_subset_reference)
 
 
+def test_language_sampled_vocab_ce_reference_can_skip_builder_contract_validation() -> None:
+    inputs = _inputs(token_count=18, vocab_size=256, sampled_vocab_size=48)
+
+    validated = language_sampled_vocab_cross_entropy_torch_reference(**inputs)
+    hot_contract = language_sampled_vocab_cross_entropy_torch_reference(
+        **inputs,
+        validate_targets=False,
+    )
+
+    torch.testing.assert_close(hot_contract, validated)
+
+
+def test_language_sampled_vocab_ce_reference_can_emit_sparse_weight_gradients() -> None:
+    inputs = _inputs(token_count=18, vocab_size=256, sampled_vocab_size=48)
+    inputs["hidden"].requires_grad_(True)
+    inputs["lm_head_weight"] = torch.nn.Parameter(inputs["lm_head_weight"])
+    inputs["lm_head_bias"] = torch.nn.Parameter(inputs["lm_head_bias"])
+
+    loss = language_sampled_vocab_cross_entropy_torch_reference(
+        **inputs,
+        sparse_weight_gradient=True,
+    )
+    loss.backward()
+
+    assert inputs["lm_head_weight"].grad is not None
+    assert inputs["lm_head_weight"].grad.is_sparse
+    rows = inputs["lm_head_weight"].grad.coalesce().indices()[0]
+    assert int(rows.unique().numel()) <= int(inputs["sampled_vocab_ids"].numel())
+    assert inputs["lm_head_bias"].grad is not None
+    assert not inputs["lm_head_bias"].grad.is_sparse
+
+
 def test_language_sampled_vocab_ce_rejects_missing_targets() -> None:
     inputs = _inputs()
     inputs["sampled_vocab_ids"] = torch.tensor([0, 1, 2, 3], dtype=torch.long)
@@ -93,6 +125,25 @@ def test_language_sampled_vocab_ce_rejects_missing_targets() -> None:
 
     with pytest.raises(ValueError, match="must include every target id"):
         language_sampled_vocab_cross_entropy(**inputs)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+def test_build_sampled_vocab_ids_can_stay_on_cuda() -> None:
+    target_ids = torch.tensor([9, 7, 9, 31, 2], dtype=torch.long, device="cuda")
+
+    sampled = build_sampled_vocab_ids(
+        target_ids,
+        vocab_size=4096,
+        sample_count=128,
+        device="cuda",
+        validate_ids=False,
+    )
+
+    assert sampled.device.type == "cuda"
+    assert sampled.numel() == 128
+    assert set(target_ids.detach().cpu().tolist()).issubset(
+        set(sampled.detach().cpu().tolist())
+    )
 
 
 @pytest.mark.skipif(

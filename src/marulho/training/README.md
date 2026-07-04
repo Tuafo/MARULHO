@@ -97,9 +97,23 @@ developmental and consolidation runners, query runners, and long-run evidence.
   fallback until separate parity and complete-runtime impact evidence exist.
 - `language_sampled_vocab_ce_triton.py` now covers forward sampled-vocabulary
   cross-entropy parity for CUDA `float32` hidden rows and selected vocabulary
-  IDs that include every target token. The ordinary `next_token_loss` still uses
-  dense `F.cross_entropy` because sampled/adaptive vocab training needs a
-  backward or complete training-impact path before replacing gradient loss.
+  IDs that include every target token. `MarulhoLanguageModel.next_token_loss`
+  can now use sampled/adaptive vocabulary training without materializing full
+  logits when `sampled_vocab_size` is configured. The training path keeps the
+  forward-only Triton CE out of gradient updates, uses PyTorch autograd over
+  selected LM-head rows, and can opt into sparse token-embedding and LM-head
+  weight gradients for row-sparse optimizers.
+- `language_sampled_vocab_training_impact.py` is the complete training-step
+  impact report for sampled/adaptive vocabulary loss. The local 2026-07-04
+  CUDA report
+  `reports/language_training_experiments/sampled-vocab-training-impact-524288.json`
+  used a `524288` row model vocabulary with `1024` sampled rows, `batch=4`,
+  `seq=64`, backward, gradient clipping, and optimizer steps. The sampled arm
+  used `AdamW_dense_core_plus_SparseAdam_vocab_rows`, avoided full vocab
+  logits, reached `647.055` train tokens/sec, and peaked at `1481.754 MiB`;
+  the dense full-vocab AdamW baseline reached `497.997` train tokens/sec and
+  peaked at `4454.492 MiB`. This is large-vocab training impact evidence, not
+  padded-vocab generation policy or runtime-promotion evidence.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

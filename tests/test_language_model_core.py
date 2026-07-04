@@ -139,6 +139,59 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     assert torch.isfinite(model.state_block.raw_leak.grad).all()
 
 
+def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -> None:
+    torch.manual_seed(20260704)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        _texts(),
+        tokenizer,
+        sequence_length=12,
+        batch_size=2,
+    )
+    model_vocab_size = tokenizer.vocab_size + 128
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+            expert_count=4,
+            active_expert_count=2,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+            sampled_vocab_size=32,
+            sampled_vocab_sparse_lm_head_gradient=True,
+            sparse_token_embedding_gradients=True,
+        )
+    )
+
+    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    result["loss"].backward()
+
+    assert result["loss"].detach().item() > 0
+    assert result["logits"] is None
+    assert result["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
+    evidence = result["loss_evidence"]
+    assert evidence["full_vocab_logits_materialized"] is False
+    assert evidence["sampled_vocab_training"] is True
+    assert evidence["loss_backend"] == "torch_autograd_selected_lm_head_rows"
+    assert evidence["lm_head_weight_gradient_sparse"] is True
+    assert evidence["token_embedding_gradient_sparse"] is True
+    assert evidence["per_batch_target_membership_cpu_sync"] is False
+    assert evidence["actual_sampled_vocab_size"] >= 32
+    assert evidence["actual_sampled_vocab_size"] < model_vocab_size
+    assert evidence["model_vocab_size"] == model_vocab_size
+    assert result["telemetry"]["vocab_size"] == model_vocab_size
+    assert result["telemetry"]["vocab_loss"] == evidence
+    assert model.lm_head.weight.grad is not None
+    assert model.lm_head.weight.grad.is_sparse
+    assert model.token_embedding.weight.grad is not None
+    assert model.token_embedding.weight.grad.is_sparse
+    updated_rows = int(model.lm_head.weight.grad.coalesce().indices()[0].unique().numel())
+    assert 0 < updated_rows <= int(evidence["actual_sampled_vocab_size"])
+    assert torch.isfinite(model.token_embedding.weight.grad.coalesce().values()).all()
+    assert torch.isfinite(model.lm_head.weight.grad.coalesce().values()).all()
+
+
 def test_selective_state_cache_matches_full_sequence_suffix() -> None:
     torch.manual_seed(9)
     tokenizer = ByteLevelLanguageTokenizer()

@@ -85,6 +85,12 @@ harnesses.
   stopping the measured training timer, and reads aggregate scalars back after
   the hot update window. It is meant to accelerate model experiments, not
   create a new promotion gate.
+- `language_sampled_vocab_training_impact.py` measures complete sampled/
+  adaptive vocabulary training-step impact for padded large-vocab LM configs.
+  It compares dense full-vocab loss/optimizer work against sampled loss with
+  sparse token-embedding and LM-head row gradients, records throughput and
+  CUDA memory, and keeps padded-vocab generation/runtime promotion blocked
+  until decode, checkpoint, long-run, and review policy are separately proven.
 - `language_generation_coherence.py` is the grounded prompt-suite review for
   checkpointed MARULHO-owned generation. It records raw continuations,
   source-prefix match, next-character source match, printability, token-run and
@@ -253,6 +259,18 @@ harnesses.
   `pass` across RMSNorm, PLIF forward, PLIF surrogate-backward, selective-scan,
   expert-dispatch, and sampled-vocab CE while keeping promotion blocked on
   generation coherence review.
+- Current 2026-07-04 sampled-vocab training-impact evidence in
+  `reports/language_training_experiments/sampled-vocab-training-impact-524288.json`
+  measures full MARULHO LM training steps, not a kernel microbenchmark. It uses
+  a `524288` row model vocabulary, `1024` sampled vocabulary rows, `batch=4`,
+  `seq=64`, warmup `1`, repeats `3`, backward, gradient clipping, and optimizer
+  steps on `cuda:0`. The sampled arm avoids full vocab logits, uses sparse
+  token-embedding and LM-head weight gradients with
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, reaches `647.055` train
+  tokens/sec, and peaks at `1481.754 MiB` CUDA allocation. The dense full-vocab
+  AdamW baseline reaches `497.997` train tokens/sec and peaks at
+  `4454.492 MiB`. The report keeps `promotes_runtime_claim=false` and leaves
+  padded-vocab generation policy unreviewed.
 - Current 2026-07-04 generation coherence evidence in
   `reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json`
   passed `4/4` grounded prompts from the PLIF-surrogate checkpoint with mean
@@ -340,6 +358,7 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispatch --output reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --shape 256x64 --shape 512x64 --shape 256x128 --dtype float32 --dtype float16 --expert-count 64 --active-experts 4 --expert-hidden-dim 128 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-524288.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 4 --warmup-steps 1 --repeats 3 --device cuda
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-plif-surrogate-8192-checkpoint.pt --output reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-generation-coherence.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json

@@ -26,6 +26,10 @@ from marulho.core.language_plif_triton import (
     language_plif_triton_stats_delta,
 )
 from marulho.core.language_rmsnorm_triton import language_rmsnorm
+from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_vocab_ids,
+    language_sampled_vocab_cross_entropy_torch_reference,
+)
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 
 
@@ -40,6 +44,9 @@ class LanguageModelConfig:
     active_expert_count: int = 1
     route_candidate_count: int = 0
     expert_hidden_dim: int = 0
+    sampled_vocab_size: int = 0
+    sampled_vocab_sparse_lm_head_gradient: bool = False
+    sparse_token_embedding_gradients: bool = False
     active_language_path: str = "marulho_lm_head"
 
 
@@ -949,7 +956,11 @@ class MarulhoLanguageModel(nn.Module):
     def __init__(self, config: LanguageModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.token_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
+        self.token_embedding = nn.Embedding(
+            config.vocab_size,
+            config.embedding_dim,
+            sparse=bool(config.sparse_token_embedding_gradients),
+        )
         self.state_block = MarulhoSelectiveSpikingStateBlock(
             config.embedding_dim,
             config.state_dim,
@@ -977,6 +988,27 @@ class MarulhoLanguageModel(nn.Module):
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
     ) -> dict[str, Any]:
+        result = self._forward_hidden(
+            input_ids,
+            state,
+            collect_telemetry=collect_telemetry,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+        )
+        logits = self.lm_head(result["hidden"])
+        return {
+            "logits": logits,
+            "state": result["state"],
+            "telemetry": result["telemetry"],
+        }
+
+    def _forward_hidden(
+        self,
+        input_ids: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
+    ) -> dict[str, Any]:
         if input_ids.ndim != 2:
             raise ValueError("Language model expects input_ids shaped [batch, time]")
         embeddings = self.token_embedding(input_ids.to(self.device))
@@ -995,7 +1027,6 @@ class MarulhoLanguageModel(nn.Module):
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
-        logits = self.lm_head(hidden)
         telemetry = {
             **telemetry,
             "active_language_path": self.config.active_language_path,
@@ -1005,7 +1036,7 @@ class MarulhoLanguageModel(nn.Module):
             "routing": routing_telemetry,
         }
         return {
-            "logits": logits,
+            "hidden": hidden,
             "state": next_state,
             "telemetry": telemetry,
         }
@@ -1061,20 +1092,108 @@ class MarulhoLanguageModel(nn.Module):
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
     ) -> dict[str, Any]:
-        result = self.forward(
+        result = self._forward_hidden(
             input_ids,
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
-        logits = result["logits"]
+        hidden = result["hidden"]
+        flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
+        flat_targets = target_ids.to(
+            device=flat_hidden.device,
+            dtype=torch.long,
+        ).reshape(-1)
+        configured_sample_count = int(self.config.sampled_vocab_size)
+        use_sampled_vocab = (
+            configured_sample_count > 0
+            and configured_sample_count < int(self.config.vocab_size)
+        )
+        if use_sampled_vocab:
+            sampled_vocab_ids = build_sampled_vocab_ids(
+                flat_targets,
+                vocab_size=int(self.config.vocab_size),
+                sample_count=configured_sample_count,
+                device=flat_hidden.device,
+                validate_ids=False,
+            )
+            loss = language_sampled_vocab_cross_entropy_torch_reference(
+                flat_hidden,
+                flat_targets,
+                sampled_vocab_ids,
+                self.lm_head.weight,
+                self.lm_head.bias,
+                validate_targets=False,
+                sparse_weight_gradient=bool(
+                    self.config.sampled_vocab_sparse_lm_head_gradient
+                ),
+            )
+            sampled_vocab_hash = (
+                _tensor_hash(sampled_vocab_ids)
+                if bool(collect_telemetry)
+                else None
+            )
+            loss_evidence = {
+                "surface": "marulho_language_vocab_loss_evidence.v1",
+                "loss_kind": "sampled_adaptive_vocab_cross_entropy",
+                "full_vocab_logits_materialized": False,
+                "sampled_vocab_training": True,
+                "configured_sampled_vocab_size": configured_sample_count,
+                "actual_sampled_vocab_size": int(sampled_vocab_ids.numel()),
+                "model_vocab_size": int(self.config.vocab_size),
+                "target_token_count": int(flat_targets.numel()),
+                "sampled_vocab_ids_device": str(sampled_vocab_ids.device),
+                "loss_backend": "torch_autograd_selected_lm_head_rows",
+                "lm_head_weight_gradient_sparse": bool(
+                    self.config.sampled_vocab_sparse_lm_head_gradient
+                ),
+                "token_embedding_gradient_sparse": bool(
+                    self.config.sparse_token_embedding_gradients
+                ),
+                "target_contract": "builder_includes_all_targets",
+                "per_batch_target_membership_cpu_sync": False,
+                "triton_forward_only_kernel_used_for_training": False,
+                "sampled_vocab_hash": sampled_vocab_hash,
+            }
+            telemetry = {
+                **result["telemetry"],
+                "vocab_loss": loss_evidence,
+            }
+            return {
+                "logits": None,
+                "state": result["state"],
+                "telemetry": telemetry,
+                "loss": loss,
+                "loss_kind": "sampled_adaptive_vocab_cross_entropy",
+                "loss_evidence": loss_evidence,
+            }
+
+        logits = self.lm_head(hidden)
         loss = F.cross_entropy(
             logits.reshape(-1, self.config.vocab_size),
-            target_ids.to(logits.device).reshape(-1),
+            flat_targets,
         )
+        loss_evidence = {
+            "surface": "marulho_language_vocab_loss_evidence.v1",
+            "loss_kind": "causal_next_token_cross_entropy",
+            "full_vocab_logits_materialized": True,
+            "sampled_vocab_training": False,
+            "configured_sampled_vocab_size": configured_sample_count,
+            "actual_sampled_vocab_size": 0,
+            "model_vocab_size": int(self.config.vocab_size),
+            "target_token_count": int(flat_targets.numel()),
+            "loss_backend": "torch_dense_full_vocab_cross_entropy",
+        }
+        telemetry = {
+            **result["telemetry"],
+            "vocab_loss": loss_evidence,
+        }
         return {
-            **result,
+            "logits": logits,
+            "state": result["state"],
+            "telemetry": telemetry,
             "loss": loss,
             "loss_kind": "causal_next_token_cross_entropy",
+            "loss_evidence": loss_evidence,
         }
 
     def forward_step(

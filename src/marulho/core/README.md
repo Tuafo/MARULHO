@@ -65,9 +65,11 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   where the token-count policy allows it. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
-  rows and selected vocabulary IDs that include all targets. It is forward-loss
-  parity evidence; dense gradient training remains unchanged until a backward
-  or training-impact path is separately proven.
+  rows and selected vocabulary IDs that include all targets. That Triton kernel
+  remains forward-loss parity evidence only. Gradient training uses the
+  autograd selected-row reference path, can request sparse LM-head weight
+  gradients, and needs a row-sparse optimizer policy before it should be used
+  for large padded vocabularies.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an
