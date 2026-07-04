@@ -68,6 +68,7 @@ class LanguageTrainingExperimentConfig:
     sustained_tick_tokens: int = 128
     sustained_quantum_tokens: int = 16
     sustained_timeout_seconds: float = 120.0
+    profile_training_stages: bool = False
     device: str = "auto"
 
 
@@ -162,6 +163,123 @@ def _detached_scalar_on_device(
         tensor = value.detach()
         return tensor.to(device=device) if tensor.device != device else tensor
     return torch.tensor(float(value), device=device)
+
+
+class _TrainingStageProfiler:
+    def __init__(self, device: torch.device, *, enabled: bool) -> None:
+        self.device = device
+        self.enabled = bool(enabled)
+        self.cuda_events = bool(self.enabled and device.type == "cuda")
+        self._records: list[dict[str, Any]] = []
+
+    def start(self) -> torch.cuda.Event | float | None:
+        if not self.enabled:
+            return None
+        if self.cuda_events:
+            event = torch.cuda.Event(enable_timing=True)
+            event.record()
+            return event
+        return time.perf_counter()
+
+    def record_elapsed(
+        self,
+        name: str,
+        token_count: int,
+        marker: torch.cuda.Event | float | None,
+    ) -> None:
+        if not self.enabled or marker is None:
+            return
+        if self.cuda_events:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            self._records.append(
+                {
+                    "stage": str(name),
+                    "token_count": int(token_count),
+                    "start_event": marker,
+                    "end_event": end_event,
+                }
+            )
+            return
+        elapsed_ms = (time.perf_counter() - float(marker)) * 1000.0
+        self._records.append(
+            {
+                "stage": str(name),
+                "token_count": int(token_count),
+                "elapsed_ms": float(elapsed_ms),
+            }
+        )
+
+    def report(self) -> dict[str, Any]:
+        if not self.enabled:
+            return {
+                "surface": "marulho_language_training_stage_profile.v1",
+                "enabled": False,
+            }
+        if self.cuda_events:
+            torch.cuda.synchronize(self.device)
+        per_stage: dict[str, dict[str, float]] = {}
+        total_ms = 0.0
+        for record in self._records:
+            stage = str(record["stage"])
+            if self.cuda_events:
+                elapsed_ms = float(
+                    record["start_event"].elapsed_time(record["end_event"])
+                )
+            else:
+                elapsed_ms = float(record["elapsed_ms"])
+            token_count = int(record.get("token_count", 0) or 0)
+            summary = per_stage.setdefault(
+                stage,
+                {
+                    "count": 0.0,
+                    "total_ms": 0.0,
+                    "token_count": 0.0,
+                },
+            )
+            summary["count"] += 1.0
+            summary["total_ms"] += elapsed_ms
+            summary["token_count"] += float(token_count)
+            total_ms += elapsed_ms
+        formatted: dict[str, dict[str, float]] = {}
+        for stage, summary in sorted(per_stage.items()):
+            count = max(1.0, float(summary["count"]))
+            token_count = max(1.0, float(summary["token_count"]))
+            total_stage_ms = float(summary["total_ms"])
+            formatted[stage] = {
+                "count": int(summary["count"]),
+                "total_ms": total_stage_ms,
+                "mean_ms": total_stage_ms / count,
+                "mean_ms_per_token": total_stage_ms / token_count,
+            }
+        top_stage_mean_ms_per_token = sorted(
+            (
+                {
+                    "stage": stage,
+                    "mean_ms_per_token": values["mean_ms_per_token"],
+                    "total_ms": values["total_ms"],
+                }
+                for stage, values in formatted.items()
+                if stage != "batch_total"
+            ),
+            key=lambda item: float(item["mean_ms_per_token"]),
+            reverse=True,
+        )
+        return {
+            "surface": "marulho_language_training_stage_profile.v1",
+            "enabled": True,
+            "device": str(self.device),
+            "measurement": (
+                "cuda_event_no_per_stage_sync"
+                if self.cuda_events
+                else "host_perf_counter"
+            ),
+            "record_count": len(self._records),
+            "total_recorded_ms": total_ms,
+            "per_stage": formatted,
+            "top_stage_mean_ms_per_token": top_stage_mean_ms_per_token,
+            "profile_scope": "training_update_window_only",
+        }
 
 
 def _all_trainable_parameters(model: MarulhoLanguageModel) -> list[torch.nn.Parameter]:
@@ -428,29 +546,70 @@ def _train_language_model(
     max_grad_norm_record: torch.Tensor | None = None
     last_loss_kind = "unknown"
     last_loss_evidence: dict[str, Any] = {}
+    stage_profiler = _TrainingStageProfiler(
+        model.device,
+        enabled=bool(config.profile_training_stages),
+    )
     plif_stats_before = language_plif_triton_stats()
     cuda_synchronized_before_timing_start = _synchronize_if_cuda(model.device)
     started = time.perf_counter()
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
+            batch_token_count = int(batch.target_ids.numel())
+            batch_marker = stage_profiler.start()
+            stage_marker = stage_profiler.start()
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
+            stage_profiler.record_elapsed(
+                "zero_grad",
+                batch_token_count,
+                stage_marker,
+            )
+            stage_marker = stage_profiler.start()
             result = model.next_token_loss(
                 batch.input_ids.to(model.device),
                 batch.target_ids.to(model.device),
                 collect_telemetry=False,
                 assume_no_sleeping_experts=assume_no_sleeping,
             )
+            stage_profiler.record_elapsed(
+                "forward_loss",
+                batch_token_count,
+                stage_marker,
+            )
             loss = result["loss"]
+            stage_marker = stage_profiler.start()
             loss.backward()
+            stage_profiler.record_elapsed(
+                "backward",
+                batch_token_count,
+                stage_marker,
+            )
+            stage_marker = stage_profiler.start()
             grad_norm = _clip_grad_norm_sparse_aware(
                 trainable_parameters,
                 max_norm=float(config.max_grad_norm),
                 device=model.device,
             )
+            stage_profiler.record_elapsed(
+                "gradient_clip",
+                batch_token_count,
+                stage_marker,
+            )
+            stage_marker = stage_profiler.start()
             for optimizer in optimizers:
                 optimizer.step()
-            token_count += int(batch.target_ids.numel())
+            stage_profiler.record_elapsed(
+                "optimizer_step",
+                batch_token_count,
+                stage_marker,
+            )
+            stage_profiler.record_elapsed(
+                "batch_total",
+                batch_token_count,
+                batch_marker,
+            )
+            token_count += batch_token_count
             loss_records.append(loss.detach())
             last_loss_kind = str(result.get("loss_kind", "unknown"))
             last_loss_evidence = dict(result.get("loss_evidence") or {})
@@ -511,6 +670,7 @@ def _train_language_model(
         "device": str(model.device),
         "metric_readback_mode": "deferred_gpu_scalar_aggregation",
         "per_batch_metric_cpu_sync": False,
+        "training_stage_profile": stage_profiler.report(),
         "gradient_clip_mode": "sparse_aware_device_norm",
         "loss_kind": last_loss_kind,
         "loss_evidence": last_loss_evidence,
@@ -730,6 +890,7 @@ def main() -> int:
     parser.add_argument("--generation-tokens", type=int, default=48)
     parser.add_argument("--sustained-target-tokens", type=int, default=512)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--profile-training-stages", action="store_true")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     config = LanguageTrainingExperimentConfig(
@@ -751,6 +912,7 @@ def main() -> int:
         generation_tokens=args.generation_tokens,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_timeout_seconds=args.sustained_timeout_seconds,
+        profile_training_stages=bool(args.profile_training_stages),
         device=args.device,
     )
     report = run_language_training_experiment(

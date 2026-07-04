@@ -51,6 +51,7 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
         "deferred_gpu_scalar_aggregation"
     )
     assert report["training"]["per_batch_metric_cpu_sync"] is False
+    assert report["training"]["training_stage_profile"]["enabled"] is False
     assert report["training"]["loss_record_count"] == 4
     assert report["training"]["cuda_synchronized_before_timing_start"] is False
     assert report["training"]["cuda_synchronized_before_timing_stop"] is False
@@ -109,6 +110,7 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
             sustained_tick_tokens=2,
             sustained_quantum_tokens=1,
             sustained_timeout_seconds=30.0,
+            profile_training_stages=True,
             device="cpu",
         ),
     )
@@ -125,6 +127,13 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["training"]["full_vocab_logits_materialized"] is False
     assert report["training"]["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert report["training"]["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    stage_profile = report["training"]["training_stage_profile"]
+    assert stage_profile["enabled"] is True
+    assert stage_profile["measurement"] == "host_perf_counter"
+    assert stage_profile["per_stage"]["forward_loss"]["count"] == 3
+    assert stage_profile["per_stage"]["backward"]["mean_ms_per_token"] >= 0.0
+    assert stage_profile["per_stage"]["optimizer_step"]["mean_ms_per_token"] >= 0.0
+    assert stage_profile["top_stage_mean_ms_per_token"]
     assert report["generation_after"][0]["generation_decode"][
         "full_model_vocab_logits_materialized"
     ] is False

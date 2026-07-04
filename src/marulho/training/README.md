@@ -139,6 +139,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   tokens/sec on CUDA graph burst. This is the normal experiment-runner path for
   large-vocab science loops; broad language quality and runtime promotion remain
   separate gates.
+- The experiment runner can opt into `--profile-training-stages` for CUDA-event
+  hot-window timings without per-stage synchronization. The local 2026-07-04
+  profile
+  `reports/language_training_experiments/cuda-sampled-padded-stage-profile-524288-63744.json`
+  trained the same `524288` model-vocab, `1024` sampled-row, `batch=16` shape
+  for `63744` tokens at `2342.586` train tokens/sec and sustained
+  `524288/524288` generated tokens at `7244.434` tokens/sec. Backward
+  dominates at `0.245897 ms/token`, followed by forward/loss at
+  `0.150728 ms/token`; optimizer step is only `0.007629 ms/token`. Treat this
+  as evidence to aim the next speed slice at state-block/PLIF backward and
+  forward/loss before optimizer fusion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

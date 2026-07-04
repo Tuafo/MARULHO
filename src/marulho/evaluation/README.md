@@ -293,6 +293,18 @@ harnesses.
   `524288/524288` tokens at `7273.947` tokens/sec on `torch_cuda_graph_burst`.
   It keeps
   `promotes_runtime_claim=false` and `promotes_generation_quality_claim=false`.
+- Current 2026-07-04 LM training stage profile evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-stage-profile-524288-63744.json`
+  uses the same `524288` model-vocab, `1024` sampled-row, `batch=16` training
+  shape with `--profile-training-stages`. It trains `63744` tokens at
+  `2342.586` train tokens/sec, improves heldout loss from `7.0637` to
+  `0.1827`, sustains `524288/524288` generated tokens at `7244.434`
+  tokens/sec, and records CUDA-event timings without synchronizing each stage
+  inside the hot loop. The measured cost order is backward
+  (`0.245897 ms/token`), forward/loss (`0.150728 ms/token`), sparse-aware
+  gradient clipping (`0.020030 ms/token`), then optimizer step
+  (`0.007629 ms/token`), so the next speed work should target state-block/PLIF
+  backward and forward/loss before optimizer-step fusion.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
@@ -368,6 +380,7 @@ python -m marulho.evaluation.language_training_experiment --output reports/langu
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-vectorized-state-8192-checkpoint.pt --output reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-deferred-metrics-8192.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192 --sustained-timeout-seconds 600 --device cuda
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-deferred-metrics-8192-checkpoint.pt --output reports/language_training_experiments/cuda-deferred-metrics-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-stage-profile-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --profile-training-stages --device cuda
 ```
 
 LM scale ladder inventory:
