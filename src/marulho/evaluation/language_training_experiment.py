@@ -10,6 +10,10 @@ from typing import Any, Sequence
 
 import torch
 
+from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_target_positions,
+    build_sampled_vocab_ids,
+)
 from marulho.core.language_plif_triton import (
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
@@ -139,6 +143,68 @@ def _trim_batches(
     if int(limit) <= 0:
         return tuple(batches)
     return tuple(batches[: int(limit)])
+
+
+def _precompute_sampled_vocab_batches(
+    model: MarulhoLanguageModel,
+    batches: Sequence[LanguageBatch],
+) -> tuple[tuple[LanguageBatch, ...], dict[str, Any]]:
+    configured_sample_count = int(model.config.sampled_vocab_size)
+    use_sampled_vocab = (
+        configured_sample_count > 0
+        and configured_sample_count < int(model.config.vocab_size)
+    )
+    if not bool(use_sampled_vocab):
+        return tuple(batches), {
+            "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
+            "enabled": False,
+            "reason": "sampled_vocab_training_disabled",
+            "batch_count": 0,
+            "device": str(model.device),
+        }
+
+    cached: list[LanguageBatch] = []
+    sampled_row_counts: list[int] = []
+    target_position_counts: list[int] = []
+    for batch in batches:
+        input_ids = batch.input_ids.to(model.device)
+        target_ids = batch.target_ids.to(model.device)
+        flat_targets = target_ids.reshape(-1).to(device=model.device, dtype=torch.long)
+        sampled_vocab_ids = build_sampled_vocab_ids(
+            flat_targets,
+            vocab_size=int(model.config.vocab_size),
+            sample_count=configured_sample_count,
+            device=model.device,
+            validate_ids=False,
+        )
+        sampled_target_positions = build_sampled_target_positions(
+            flat_targets,
+            sampled_vocab_ids,
+            device=model.device,
+            validate_targets=True,
+        )
+        sampled_row_counts.append(int(sampled_vocab_ids.numel()))
+        target_position_counts.append(int(sampled_target_positions.numel()))
+        cached.append(
+            LanguageBatch(
+                input_ids=input_ids,
+                target_ids=target_ids,
+                sampled_vocab_ids=sampled_vocab_ids,
+                sampled_target_positions=sampled_target_positions,
+            )
+        )
+    return tuple(cached), {
+        "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
+        "enabled": True,
+        "batch_count": len(cached),
+        "device": str(model.device),
+        "sampled_vocab_size": int(configured_sample_count),
+        "min_sampled_rows": min(sampled_row_counts, default=0),
+        "max_sampled_rows": max(sampled_row_counts, default=0),
+        "min_target_positions": min(target_position_counts, default=0),
+        "max_target_positions": max(target_position_counts, default=0),
+        "hot_update_window_precomputed": True,
+    }
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -599,6 +665,7 @@ def _train_language_model(
         raise ValueError("At least one train batch is required")
     optimizers, optimizer_policy = _optimizer_policy(model, config=config)
     trainable_parameters = _all_trainable_parameters(model)
+    batches, sampled_vocab_precompute = _precompute_sampled_vocab_batches(model, batches)
     model.train()
     assume_no_sleeping = (
         model.routed_experts.enabled
@@ -640,6 +707,8 @@ def _train_language_model(
                 batch.target_ids.to(model.device),
                 collect_telemetry=False,
                 assume_no_sleeping_experts=assume_no_sleeping,
+                sampled_vocab_ids=batch.sampled_vocab_ids,
+                sampled_target_positions=batch.sampled_target_positions,
             )
             stage_profiler.record_elapsed(
                 "forward_loss",
@@ -810,6 +879,7 @@ def _train_language_model(
         "gradient_norm_observed_step_count": int(gradient_clip_applied_step_count),
         "loss_kind": last_loss_kind,
         "loss_evidence": last_loss_evidence,
+        "sampled_vocab_precompute": sampled_vocab_precompute,
         "sampled_vocab_training": bool(
             last_loss_evidence.get("sampled_vocab_training", False)
         ),

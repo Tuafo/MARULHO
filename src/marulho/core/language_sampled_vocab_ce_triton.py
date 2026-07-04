@@ -166,6 +166,50 @@ def _sampled_target_positions(
     return matches.to(torch.int64).argmax(dim=1)
 
 
+def build_sampled_target_positions(
+    target_ids: torch.Tensor,
+    sampled_vocab_ids: torch.Tensor,
+    *,
+    device: torch.device | str | None = None,
+    validate_targets: bool = True,
+) -> torch.Tensor:
+    target_device = torch.device(device) if device is not None else sampled_vocab_ids.device
+    return _sampled_target_positions(
+        target_ids.to(device=target_device, dtype=torch.long).reshape(-1),
+        sampled_vocab_ids.to(device=target_device, dtype=torch.long).reshape(-1),
+        validate_targets=validate_targets,
+    )
+
+
+def _runtime_target_positions(
+    target_ids: torch.Tensor,
+    sampled_vocab_ids: torch.Tensor,
+    sampled_target_positions: torch.Tensor | None,
+    *,
+    validate_targets: bool = True,
+) -> torch.Tensor:
+    if sampled_target_positions is None:
+        return _sampled_target_positions(
+            target_ids,
+            sampled_vocab_ids,
+            validate_targets=validate_targets,
+        )
+    positions = sampled_target_positions.to(
+        device=sampled_vocab_ids.device,
+        dtype=torch.long,
+    ).reshape(-1)
+    expected = int(target_ids.reshape(-1).numel())
+    if int(positions.numel()) != expected:
+        raise ValueError("sampled_target_positions must contain one position per target")
+    if bool(validate_targets) and expected > 0 and bool(
+        (
+            (positions < 0) | (positions >= int(sampled_vocab_ids.numel()))
+        ).any().detach().cpu().item()
+    ):
+        raise ValueError("sampled_target_positions must be inside sampled_vocab_ids")
+    return positions
+
+
 def build_sampled_vocab_ids(
     target_ids: torch.Tensor,
     *,
@@ -228,6 +272,7 @@ def language_sampled_vocab_cross_entropy_torch_reference(
     *,
     validate_targets: bool = True,
     sparse_weight_gradient: bool = False,
+    sampled_target_positions: torch.Tensor | None = None,
 ) -> torch.Tensor:
     _validate_sampled_vocab_contract(
         hidden,
@@ -251,9 +296,10 @@ def language_sampled_vocab_cross_entropy_torch_reference(
         runtime_sampled_ids,
     )
     logits = hidden.matmul(sampled_weight.transpose(0, 1)) + sampled_bias
-    sampled_targets = _sampled_target_positions(
+    sampled_targets = _runtime_target_positions(
         runtime_targets,
         runtime_sampled_ids,
+        sampled_target_positions,
         validate_targets=validate_targets,
     )
     return F.cross_entropy(logits.float(), sampled_targets, reduction="mean")
@@ -438,6 +484,7 @@ def _language_sampled_vocab_ce_triton_forward(
     lm_head_bias: torch.Tensor,
     *,
     validate_targets: bool = True,
+    sampled_target_positions: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if triton is None:
         raise RuntimeError("Triton is not available")
@@ -453,9 +500,10 @@ def _language_sampled_vocab_ce_triton_forward(
         dtype=hidden.dtype,
     ).contiguous()
     runtime_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).contiguous()
-    target_positions = _sampled_target_positions(
+    target_positions = _runtime_target_positions(
         runtime_targets,
         runtime_sampled_ids,
+        sampled_target_positions,
         validate_targets=validate_targets,
     ).contiguous()
     token_count = int(runtime_hidden.shape[0])
@@ -514,6 +562,7 @@ def _language_sampled_vocab_ce_triton_forward_with_aux(
     lm_head_bias: torch.Tensor,
     *,
     validate_targets: bool = True,
+    sampled_target_positions: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if triton is None:
         raise RuntimeError("Triton is not available")
@@ -529,9 +578,10 @@ def _language_sampled_vocab_ce_triton_forward_with_aux(
         dtype=hidden.dtype,
     ).contiguous()
     runtime_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).contiguous()
-    target_positions = _sampled_target_positions(
+    target_positions = _runtime_target_positions(
         runtime_targets,
         runtime_sampled_ids,
+        sampled_target_positions,
         validate_targets=validate_targets,
     ).contiguous()
     token_count = int(runtime_hidden.shape[0])
@@ -589,6 +639,7 @@ class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
         hidden: torch.Tensor,
         target_ids: torch.Tensor,
         sampled_vocab_ids: torch.Tensor,
+        sampled_target_positions: torch.Tensor | None,
         lm_head_weight: torch.Tensor,
         lm_head_bias: torch.Tensor,
         validate_targets: bool,
@@ -610,6 +661,7 @@ class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
             lm_head_weight,
             lm_head_bias,
             validate_targets=bool(validate_targets),
+            sampled_target_positions=sampled_target_positions,
         )
         ctx.save_for_backward(
             hidden,
@@ -630,6 +682,7 @@ class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
         grad_output: torch.Tensor,
     ) -> tuple[
         torch.Tensor | None,
+        None,
         None,
         None,
         torch.Tensor | None,
@@ -665,7 +718,7 @@ class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
             else None
         )
         grad_weight: torch.Tensor | None = None
-        if ctx.needs_input_grad[3]:
+        if ctx.needs_input_grad[4]:
             sampled_grad_weight = grad_logits_runtime.transpose(0, 1).matmul(hidden)
             if bool(ctx.sparse_weight_gradient):
                 grad_weight = torch.sparse_coo_tensor(
@@ -681,12 +734,12 @@ class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
                 grad_weight = torch.zeros_like(lm_head_weight)
                 grad_weight.index_add_(0, sampled_vocab_ids, sampled_grad_weight)
         grad_bias: torch.Tensor | None = None
-        if ctx.needs_input_grad[4]:
+        if ctx.needs_input_grad[5]:
             sampled_grad_bias = grad_logits_runtime.sum(dim=0)
             grad_bias = torch.zeros_like(lm_head_bias)
             grad_bias.index_add_(0, sampled_vocab_ids, sampled_grad_bias)
         _STATS.torch_autograd_backward_calls += 1
-        return grad_hidden, None, None, grad_weight, grad_bias, None, None
+        return grad_hidden, None, None, None, grad_weight, grad_bias, None, None
 
 
 def language_sampled_vocab_cross_entropy(
@@ -700,6 +753,7 @@ def language_sampled_vocab_cross_entropy(
     force_triton: bool = False,
     validate_targets: bool = True,
     sparse_weight_gradient: bool = False,
+    sampled_target_positions: torch.Tensor | None = None,
 ) -> torch.Tensor:
     _validate_sampled_vocab_contract(
         hidden,
@@ -742,6 +796,7 @@ def language_sampled_vocab_cross_entropy(
                         hidden,
                         runtime_targets,
                         runtime_sampled_ids,
+                        sampled_target_positions,
                         lm_head_weight,
                         lm_head_bias,
                         bool(validate_targets),
@@ -754,6 +809,7 @@ def language_sampled_vocab_cross_entropy(
                     lm_head_weight,
                     lm_head_bias,
                     validate_targets=bool(validate_targets),
+                    sampled_target_positions=sampled_target_positions,
                 )
             except Exception as exc:  # pragma: no cover - hardware/runtime dependent
                 _STATS.triton_failure_count += 1
@@ -774,4 +830,5 @@ def language_sampled_vocab_cross_entropy(
         lm_head_bias,
         validate_targets=bool(validate_targets),
         sparse_weight_gradient=bool(sparse_weight_gradient),
+        sampled_target_positions=sampled_target_positions,
     )

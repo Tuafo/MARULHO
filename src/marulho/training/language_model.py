@@ -58,11 +58,23 @@ class LanguageModelConfig:
 class LanguageBatch:
     input_ids: torch.Tensor
     target_ids: torch.Tensor
+    sampled_vocab_ids: torch.Tensor | None = None
+    sampled_target_positions: torch.Tensor | None = None
 
     def to(self, device: torch.device | str) -> "LanguageBatch":
         return LanguageBatch(
             input_ids=self.input_ids.to(device),
             target_ids=self.target_ids.to(device),
+            sampled_vocab_ids=(
+                None
+                if self.sampled_vocab_ids is None
+                else self.sampled_vocab_ids.to(device)
+            ),
+            sampled_target_positions=(
+                None
+                if self.sampled_target_positions is None
+                else self.sampled_target_positions.to(device)
+            ),
         )
 
 
@@ -1218,6 +1230,8 @@ class MarulhoLanguageModel(nn.Module):
         *,
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
+        sampled_vocab_ids: torch.Tensor | None = None,
+        sampled_target_positions: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         result = self._forward_hidden(
             input_ids,
@@ -1236,12 +1250,38 @@ class MarulhoLanguageModel(nn.Module):
             and configured_sample_count < int(self.config.vocab_size)
         )
         if use_sampled_vocab:
-            sampled_vocab_ids = build_sampled_vocab_ids(
-                flat_targets,
-                vocab_size=int(self.config.vocab_size),
-                sample_count=configured_sample_count,
-                device=flat_hidden.device,
-                validate_ids=False,
+            precomputed_sampled_vocab = sampled_vocab_ids is not None
+            precomputed_target_positions = sampled_target_positions is not None
+            if sampled_vocab_ids is None:
+                sampled_vocab_ids = build_sampled_vocab_ids(
+                    flat_targets,
+                    vocab_size=int(self.config.vocab_size),
+                    sample_count=configured_sample_count,
+                    device=flat_hidden.device,
+                    validate_ids=False,
+                )
+                sampled_vocab_id_source = "built_per_batch_targets"
+            else:
+                sampled_vocab_ids = sampled_vocab_ids.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1)
+                sampled_vocab_id_source = "precomputed_batch_sampled_vocab_ids"
+            runtime_target_positions = (
+                None
+                if sampled_target_positions is None
+                else sampled_target_positions.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1)
+            )
+            sampled_target_position_source = (
+                "precomputed_batch_target_positions"
+                if runtime_target_positions is not None
+                else "loss_runtime_target_match"
+            )
+            validate_sampled_targets = bool(
+                precomputed_sampled_vocab and not precomputed_target_positions
             )
             sampled_vocab_stats_before = (
                 language_sampled_vocab_ce_triton_stats()
@@ -1255,10 +1295,11 @@ class MarulhoLanguageModel(nn.Module):
                 self.lm_head.weight,
                 self.lm_head.bias,
                 prefer_triton=bool(collect_telemetry),
-                validate_targets=False,
+                validate_targets=validate_sampled_targets,
                 sparse_weight_gradient=bool(
                     self.config.sampled_vocab_sparse_lm_head_gradient
                 ),
+                sampled_target_positions=runtime_target_positions,
             )
             sampled_vocab_stats_delta = (
                 language_sampled_vocab_ce_triton_stats_delta(
@@ -1312,6 +1353,12 @@ class MarulhoLanguageModel(nn.Module):
                 "model_vocab_size": int(self.config.vocab_size),
                 "target_token_count": int(flat_targets.numel()),
                 "sampled_vocab_ids_device": str(sampled_vocab_ids.device),
+                "sampled_vocab_id_source": sampled_vocab_id_source,
+                "sampled_target_position_source": sampled_target_position_source,
+                "precomputed_sampled_vocab_used": bool(precomputed_sampled_vocab),
+                "precomputed_target_positions_used": bool(
+                    precomputed_target_positions
+                ),
                 "loss_backend": (
                     "triton_forward_torch_backward_selected_lm_head_rows"
                     if triton_forward_training
@@ -1324,7 +1371,7 @@ class MarulhoLanguageModel(nn.Module):
                     self.config.sparse_token_embedding_gradients
                 ),
                 "target_contract": "builder_includes_all_targets",
-                "per_batch_target_membership_cpu_sync": False,
+                "per_batch_target_membership_cpu_sync": bool(validate_sampled_targets),
                 "triton_forward_kernel_used_for_training": triton_forward_training,
                 "triton_autograd_backward": triton_forward_training,
                 "triton_stats_delta": sampled_vocab_stats_delta,

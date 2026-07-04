@@ -182,6 +182,19 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["training"]["full_vocab_logits_materialized"] is False
     assert report["training"]["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert report["training"]["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert report["training"]["sampled_vocab_precompute"]["enabled"] is True
+    assert report["training"]["sampled_vocab_precompute"]["batch_count"] == 3
+    assert report["training"]["sampled_vocab_precompute"][
+        "hot_update_window_precomputed"
+    ] is True
+    assert report["training"]["loss_evidence"]["sampled_vocab_id_source"] == (
+        "precomputed_batch_sampled_vocab_ids"
+    )
+    assert report["training"]["loss_evidence"]["sampled_target_position_source"] == (
+        "precomputed_batch_target_positions"
+    )
+    assert report["training"]["loss_evidence"]["precomputed_sampled_vocab_used"] is True
+    assert report["training"]["loss_evidence"]["precomputed_target_positions_used"] is True
     stage_profile = report["training"]["training_stage_profile"]
     assert stage_profile["enabled"] is True
     assert stage_profile["measurement"] == "host_perf_counter"

@@ -6,6 +6,10 @@ from pathlib import Path
 import pytest
 import torch
 
+from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_target_positions,
+    build_sampled_vocab_ids,
+)
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_checkpoint_evolution import (
     LanguageCheckpointEvolutionConfig,
@@ -207,10 +211,35 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
         )
     )
 
-    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    batch = split.train[0]
+    flat_targets = batch.target_ids.reshape(-1)
+    sampled_vocab_ids = build_sampled_vocab_ids(
+        flat_targets,
+        vocab_size=model_vocab_size,
+        sample_count=32,
+        device=batch.target_ids.device,
+        validate_ids=False,
+    )
+    sampled_target_positions = build_sampled_target_positions(
+        flat_targets,
+        sampled_vocab_ids,
+        device=batch.target_ids.device,
+        validate_targets=True,
+    )
+    default_result = model.next_token_loss(batch.input_ids, batch.target_ids)
+    result = model.next_token_loss(
+        batch.input_ids,
+        batch.target_ids,
+        sampled_vocab_ids=sampled_vocab_ids,
+        sampled_target_positions=sampled_target_positions,
+    )
     result["loss"].backward()
 
     assert result["loss"].detach().item() > 0
+    torch.testing.assert_close(
+        result["loss"].detach(),
+        default_result["loss"].detach(),
+    )
     assert result["logits"] is None
     assert result["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
     evidence = result["loss_evidence"]
@@ -220,6 +249,12 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
     assert evidence["lm_head_weight_gradient_sparse"] is True
     assert evidence["token_embedding_gradient_sparse"] is True
     assert evidence["per_batch_target_membership_cpu_sync"] is False
+    assert evidence["sampled_vocab_id_source"] == "precomputed_batch_sampled_vocab_ids"
+    assert evidence["sampled_target_position_source"] == (
+        "precomputed_batch_target_positions"
+    )
+    assert evidence["precomputed_sampled_vocab_used"] is True
+    assert evidence["precomputed_target_positions_used"] is True
     assert evidence["actual_sampled_vocab_size"] >= 32
     assert evidence["actual_sampled_vocab_size"] < model_vocab_size
     assert evidence["model_vocab_size"] == model_vocab_size

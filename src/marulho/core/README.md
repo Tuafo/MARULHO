@@ -70,8 +70,11 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   `MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING=1`, but the maintained
   default stays on the selected-row PyTorch autograd path because complete
   b16/r8 CUDA evidence was faster there (`2675.442` versus `2622.292` train
-  tokens/sec). Keep the forceable Triton path as research evidence until it
-  wins complete-runtime training impact.
+  tokens/sec). Fixed-batch experiment runners can precompute sampled target
+  positions once and pass them into the same loss helper, avoiding per-update
+  target-position matching in the measured hot window. Keep the forceable
+  Triton path as research evidence until it wins complete-runtime training
+  impact.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

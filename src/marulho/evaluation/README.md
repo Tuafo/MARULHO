@@ -281,6 +281,19 @@ harnesses.
   autograd, reaches `2675.442` train tokens/sec, peaks at `2368.205 MiB` CUDA
   allocation, and records `8` measured selected-row fallback calls with zero
   Triton CE training calls. The report keeps `promotes_runtime_claim=false`.
+- Current 2026-07-04 sampled-vocab precompute evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288-63744.json`
+  moves sampled row ID and target-position construction out of the timed
+  training update window for fixed packed batches. It keeps the same `524288`
+  model-vocab, `1024` sampled-row, horizon-8, TF32, clip-8 shape, records
+  `sampled_vocab_precompute.enabled=true`, trains `63744` tokens at `3041.246`
+  train tokens/sec, improves forward/loss from `0.125210` to
+  `0.121173 ms/token`, and lowers batch total from `0.333647` to
+  `0.328424 ms/token` versus the retained all-awake route fastpath report. The
+  paired `524288` sustained run reached `7203.369` tokens/sec; a same-checkpoint
+  current-code sustained rerun of the retained all-awake checkpoint reached
+  `7206.201` tokens/sec, so the evidence supports the training speed slice and
+  not a new inference-speed claim.
 - Current 2026-07-04 integrated sampled/padded training experiment evidence in
   `reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744.json`
   uses the normal LM experiment runner with `524288` model vocab rows, `1024`

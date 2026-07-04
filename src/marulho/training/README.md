@@ -136,6 +136,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   training without materializing full logits when `sampled_vocab_size` is
   configured, uses selected-row PyTorch autograd by default, and can opt into
   sparse token-embedding and LM-head weight gradients for row-sparse optimizers.
+  It also accepts precomputed sampled row IDs and target positions for fixed
+  training batches so experiment runners can keep sampled-vocab construction
+  out of the measured hot update window.
 - `language_sampled_vocab_training_impact.py` is the complete training-step
   impact report for sampled/adaptive vocabulary loss. The local 2026-07-04
   CUDA report
@@ -243,6 +246,18 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`.
   The paired win is `+3.959%` training and `+2.942%` sustained generation, with
   batch total down from `0.346854` to `0.333647 ms/token`.
+- The sampled-vocab batch-precompute training path keeps the same all-awake
+  routed shape but precomputes sampled row IDs and target positions outside the
+  measured update window. The local 2026-07-04 report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288-63744.json`
+  trains `63744` tokens at `3041.246` train tokens/sec, records
+  `sampled_vocab_precompute.enabled=true`, improves forward/loss from
+  `0.125210` to `0.121173 ms/token`, and lowers batch total from `0.333647` to
+  `0.328424 ms/token` versus the retained all-awake fastpath report. The paired
+  sustained run reached `7203.369` tokens/sec, and a same-checkpoint current-code
+  sustained rerun of the retained all-awake checkpoint reached `7206.201`
+  tokens/sec, so this is a training hot-window speed slice rather than an
+  inference promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from
