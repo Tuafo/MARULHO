@@ -9,6 +9,7 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     RMSNORM_KERNEL_NAME,
+    SAMPLED_VOCAB_CE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
     SURFACE,
     SUSTAINED_ARTIFACT_KIND,
@@ -143,6 +144,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         ]
         is False
     )
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
+            "sampled_vocab_cross_entropy_parity"
+        ]
+        is False
+    )
     assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
     assert (
         "plif_triton_forward_parity"
@@ -196,6 +203,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
+    sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_gpu_kernel_report(rmsnorm_kernel)
@@ -212,6 +220,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         expert_dispatch_kernel,
         kernel_name=EXPERT_DISPATCH_KERNEL_NAME,
     )
+    _write_gpu_kernel_report(
+        sampled_vocab_kernel,
+        kernel_name=SAMPLED_VOCAB_CE_KERNEL_NAME,
+    )
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
@@ -223,6 +235,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             plif_surrogate_kernel,
             selective_scan_kernel,
             expert_dispatch_kernel,
+            sampled_vocab_kernel,
         ),
     )
     categories = {item["name"]: item for item in report["categories"]}
@@ -238,7 +251,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert long_run["evidence"]["long_gate_report"]["token_delta"] == 131072
     assert long_run["evidence"]["promotes_runtime_claim"] is False
     assert long_run["evidence"]["promotes_hot_path"] is False
-    assert gpu_kernel_category["status"] == "missing"
+    assert gpu_kernel_category["status"] == "pass"
     assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
     assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
     assert gpu_kernel_category["evidence"]["plif_triton_forward_parity"] is True
@@ -251,11 +264,16 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         gpu_kernel_category["evidence"]["block_sparse_expert_dispatch_parity"]
         is True
     )
+    assert (
+        gpu_kernel_category["evidence"]["sampled_vocab_cross_entropy_parity"]
+        is True
+    )
     assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
         EXPERT_DISPATCH_KERNEL_NAME,
         PLIF_FORWARD_KERNEL_NAME,
         PLIF_SURROGATE_KERNEL_NAME,
         RMSNORM_KERNEL_NAME,
+        SAMPLED_VOCAB_CE_KERNEL_NAME,
         SELECTIVE_SCAN_KERNEL_NAME,
     ]
     assert "rmsnorm_triton_parity" not in gpu_kernel_category["missing_evidence"]
@@ -269,11 +287,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         "block_sparse_expert_dispatch_parity"
         not in gpu_kernel_category["missing_evidence"]
     )
-    assert "sampled_vocab_cross_entropy_parity" in gpu_kernel_category[
+    assert "sampled_vocab_cross_entropy_parity" not in gpu_kernel_category[
         "missing_evidence"
     ]
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence",
-        "gpu_kernel_correctness",
     ]

@@ -95,6 +95,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   selected-expert dispatch/combine for large enough token batches with
   `float32` parity; gradient training and half precision keep the PyTorch
   fallback until separate parity and complete-runtime impact evidence exist.
+- `language_sampled_vocab_ce_triton.py` now covers forward sampled-vocabulary
+  cross-entropy parity for CUDA `float32` hidden rows and selected vocabulary
+  IDs that include every target token. The ordinary `next_token_loss` still uses
+  dense `F.cross_entropy` because sampled/adaptive vocab training needs a
+  backward or complete training-impact path before replacing gradient loss.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

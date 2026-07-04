@@ -61,12 +61,14 @@ PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
+SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
 SUPPORTED_GPU_KERNEL_NAMES = {
     RMSNORM_KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
+    SAMPLED_VOCAB_CE_KERNEL_NAME,
 }
 
 
@@ -345,6 +347,14 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    sampled_vocab_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == SAMPLED_VOCAB_CE_KERNEL_NAME
+        ),
+        None,
+    )
     missing = []
     if rmsnorm_report is None:
         missing.append("rmsnorm_triton_parity")
@@ -356,11 +366,8 @@ def _language_gpu_kernel_evidence(
         missing.append("selective_scan_triton_parity")
     if expert_dispatch_report is None:
         missing.append("block_sparse_expert_dispatch_parity")
-    missing.extend(
-        [
-            "sampled_vocab_cross_entropy_parity",
-        ]
-    )
+    if sampled_vocab_report is None:
+        missing.append("sampled_vocab_cross_entropy_parity")
     return {
         "report_count": len(reports),
         "valid_report_count": len(valid_reports),
@@ -398,6 +405,12 @@ def _language_gpu_kernel_evidence(
             None
             if expert_dispatch_report is None
             else _gpu_kernel_report_summary(expert_dispatch_report)
+        ),
+        "sampled_vocab_cross_entropy_parity": sampled_vocab_report is not None,
+        "sampled_vocab_cross_entropy_report": (
+            None
+            if sampled_vocab_report is None
+            else _gpu_kernel_report_summary(sampled_vocab_report)
         ),
         "lm_triton_kernel_used": bool(valid_reports),
         "pytorch_fallback_available": True,

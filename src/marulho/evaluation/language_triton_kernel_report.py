@@ -27,6 +27,14 @@ from marulho.core.language_plif_triton import (
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
 )
+from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_vocab_ids,
+    can_use_language_sampled_vocab_ce_triton,
+    language_sampled_vocab_ce_triton_stats,
+    language_sampled_vocab_ce_triton_stats_delta,
+    language_sampled_vocab_cross_entropy,
+    language_sampled_vocab_cross_entropy_torch_reference,
+)
 from marulho.core.language_selective_scan_triton import (
     can_use_language_selective_scan_triton,
     language_selective_scan,
@@ -51,6 +59,7 @@ PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
+SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
 KERNEL_NAME = RMSNORM_KERNEL_NAME
 
 
@@ -809,6 +818,171 @@ def _expert_dispatch_shape_kernel_result(
         }
 
 
+def _sampled_vocab_ce_inputs(
+    *,
+    rows: int,
+    cols: int,
+    vocab_size: int,
+    sampled_vocab_size: int,
+    dtype: torch.dtype,
+) -> dict[str, torch.Tensor]:
+    hidden = torch.randn(rows, cols, device="cuda", dtype=dtype)
+    lm_head_weight = torch.randn(vocab_size, cols, device="cuda", dtype=dtype)
+    lm_head_bias = torch.randn(vocab_size, device="cuda", dtype=dtype)
+    seed_targets = torch.arange(
+        min(rows, sampled_vocab_size),
+        device="cuda",
+        dtype=torch.long,
+    )
+    sampled_vocab_ids = build_sampled_vocab_ids(
+        seed_targets,
+        vocab_size=vocab_size,
+        sample_count=sampled_vocab_size,
+        device="cuda",
+    )
+    target_positions = torch.randint(
+        0,
+        int(sampled_vocab_ids.numel()),
+        (rows,),
+        device="cuda",
+        dtype=torch.long,
+    )
+    target_ids = sampled_vocab_ids.index_select(0, target_positions)
+    return {
+        "hidden": hidden,
+        "target_ids": target_ids,
+        "sampled_vocab_ids": sampled_vocab_ids,
+        "lm_head_weight": lm_head_weight,
+        "lm_head_bias": lm_head_bias,
+    }
+
+
+def _sampled_vocab_ce_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    vocab_size: int,
+    sampled_vocab_size: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is not torch.float32:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": SAMPLED_VOCAB_CE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "vocab_size": int(vocab_size),
+            "sampled_vocab_size": int(sampled_vocab_size),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_for_sampled_vocab_cross_entropy",
+            "parity_passed": False,
+        }
+    if int(sampled_vocab_size) > int(vocab_size):
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": SAMPLED_VOCAB_CE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "vocab_size": int(vocab_size),
+            "sampled_vocab_size": int(sampled_vocab_size),
+            "dtype": _dtype_name(dtype),
+            "status": "invalid_sampled_vocab_size",
+            "parity_passed": False,
+        }
+
+    inputs = _sampled_vocab_ce_inputs(
+        rows=rows,
+        cols=cols,
+        vocab_size=vocab_size,
+        sampled_vocab_size=sampled_vocab_size,
+        dtype=dtype,
+    )
+    supported = can_use_language_sampled_vocab_ce_triton(**inputs)
+    before_stats = language_sampled_vocab_ce_triton_stats()
+    try:
+        reference = language_sampled_vocab_cross_entropy_torch_reference(**inputs)
+        triton_output = language_sampled_vocab_cross_entropy(
+            **inputs,
+            prefer_triton=True,
+            force_triton=True,
+        )
+        torch.cuda.synchronize()
+        max_abs_error = float(
+            (triton_output.float() - reference.float()).abs().detach().cpu().item()
+        )
+        denominator = reference.float().abs().clamp_min(1e-8)
+        max_rel_error = float(
+            ((triton_output.float() - reference.float()).abs() / denominator)
+            .detach()
+            .cpu()
+            .item()
+        )
+        tolerance = 1e-3
+        parity_passed = bool(max_abs_error <= tolerance or max_rel_error <= tolerance)
+        torch_ms = _benchmark_cuda(
+            lambda: language_sampled_vocab_cross_entropy_torch_reference(**inputs),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            lambda: language_sampled_vocab_cross_entropy(
+                **inputs,
+                prefer_triton=True,
+                force_triton=True,
+            ),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_sampled_vocab_ce_triton_stats()
+        stats_delta = language_sampled_vocab_ce_triton_stats_delta(
+            before_stats,
+            after_stats,
+        )
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": SAMPLED_VOCAB_CE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "vocab_size": int(vocab_size),
+            "sampled_vocab_size": int(sampled_vocab_size),
+            "target_coverage_count": int(
+                torch.unique(inputs["target_ids"]).detach().numel()
+            ),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed and supported else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed and supported),
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_sampled_vocab_ce_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": SAMPLED_VOCAB_CE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "vocab_size": int(vocab_size),
+            "sampled_vocab_size": int(sampled_vocab_size),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": bool(supported),
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_sampled_vocab_ce_triton_stats_delta(
+                before_stats,
+                after_stats,
+            ),
+        }
+
+
 def run_language_triton_kernel_report(
     *,
     output_path: str | Path,
@@ -820,6 +994,8 @@ def run_language_triton_kernel_report(
     expert_count: int = 64,
     active_experts: int = 4,
     expert_hidden_dim: int = 0,
+    vocab_size: int = 8192,
+    sampled_vocab_size: int = 1024,
     warmup: int = 20,
     repeats: int = 100,
 ) -> dict[str, Any]:
@@ -878,6 +1054,17 @@ def run_language_triton_kernel_report(
         selected_triton_available = bool(
             language_expert_dispatch_triton_stats()["triton_available"]
         )
+    elif normalized_kernel in {
+        "sampled-vocab-ce",
+        "sampled-vocab-cross-entropy",
+        "adaptive-vocab-cross-entropy",
+        "language-sampled-vocab-cross-entropy",
+    }:
+        kernel_name = SAMPLED_VOCAB_CE_KERNEL_NAME
+        kernel_backlog_item = "sampled_adaptive_vocab_cross_entropy"
+        selected_triton_available = bool(
+            language_sampled_vocab_ce_triton_stats()["triton_available"]
+        )
     else:
         raise ValueError(f"unsupported kernel: {kernel}")
     cuda_available = bool(torch.cuda.is_available())
@@ -928,7 +1115,7 @@ def run_language_triton_kernel_report(
                             repeats=int(repeats),
                         )
                     )
-                else:
+                elif kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
                     shape_results.append(
                         _expert_dispatch_shape_kernel_result(
                             rows=rows,
@@ -940,6 +1127,18 @@ def run_language_triton_kernel_report(
                                 if int(expert_hidden_dim) > 0
                                 else int(cols) * 2
                             ),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
+                else:
+                    shape_results.append(
+                        _sampled_vocab_ce_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            vocab_size=int(vocab_size),
+                            sampled_vocab_size=int(sampled_vocab_size),
                             dtype=dtype,
                             warmup=int(warmup),
                             repeats=int(repeats),
@@ -957,6 +1156,7 @@ def run_language_triton_kernel_report(
             "unsupported_dtype_on_device",
             "unsupported_dtype_for_surrogate_backward",
             "unsupported_dtype_for_expert_dispatch",
+            "unsupported_dtype_for_sampled_vocab_cross_entropy",
         }
     ]
     parity_passed = (
@@ -1014,6 +1214,8 @@ def run_language_triton_kernel_report(
         remaining_kernel_backlog = [
             "sampled_vocab_cross_entropy_parity",
         ]
+    elif kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME:
+        remaining_kernel_backlog = []
     else:
         remaining_kernel_backlog = []
     if not parity_passed and kernel_name == PLIF_FORWARD_KERNEL_NAME:
@@ -1050,6 +1252,15 @@ def run_language_triton_kernel_report(
                 item
                 for item in remaining_kernel_backlog
                 if item != "block_sparse_expert_dispatch_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "sampled_vocab_cross_entropy_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "sampled_vocab_cross_entropy_parity"
             ],
         ]
     report = {
@@ -1102,6 +1313,14 @@ def run_language_triton_kernel_report(
                 if kernel_name == EXPERT_DISPATCH_KERNEL_NAME
                 else None
             ),
+            "vocab_size": (
+                int(vocab_size) if kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME else None
+            ),
+            "sampled_vocab_size": (
+                int(sampled_vocab_size)
+                if kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME
+                else None
+            ),
             "geometric_speedup_vs_torch": geometric_speedup,
             "speedup_is_microbenchmark_only": True,
         },
@@ -1132,6 +1351,7 @@ def main() -> int:
             "plif-surrogate",
             "selective-scan",
             "expert-dispatch",
+            "sampled-vocab-ce",
         ),
         default="rmsnorm-forward",
         help="Kernel evidence target.",
@@ -1174,6 +1394,18 @@ def main() -> int:
         default=0,
         help="Hidden size for expert-dispatch evidence; 0 uses 2x shape cols.",
     )
+    parser.add_argument(
+        "--vocab-size",
+        type=int,
+        default=8192,
+        help="Total vocabulary rows for sampled-vocab CE evidence.",
+    )
+    parser.add_argument(
+        "--sampled-vocab-size",
+        type=int,
+        default=1024,
+        help="Selected vocabulary rows for sampled-vocab CE evidence.",
+    )
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=100)
     args = parser.parse_args()
@@ -1187,6 +1419,8 @@ def main() -> int:
         expert_count=args.expert_count,
         active_experts=args.active_experts,
         expert_hidden_dim=args.expert_hidden_dim,
+        vocab_size=args.vocab_size,
+        sampled_vocab_size=args.sampled_vocab_size,
         warmup=args.warmup,
         repeats=args.repeats,
     )

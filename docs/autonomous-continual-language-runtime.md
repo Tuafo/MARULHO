@@ -37,9 +37,10 @@ current terms, selective recurrent state, an eligibility trace cache, adaptive
 timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
 telemetry. It now has partial CUDA/Triton evidence for RMSNorm forward, PLIF
 forward, `float32` PLIF surrogate backward, and standalone selective recurrent
-scan, plus `float32` selected expert dispatch/combine. This is not full
-hot-path promotion; sampled-vocab CE, half-precision expert dispatch,
-fallback, integration, and complete-runtime impact reports remain required.
+scan, plus `float32` selected expert dispatch/combine and sampled-vocab CE
+forward loss. This is not full hot-path promotion; half-precision expert/vocab
+coverage, fallback integration, generation review, and complete-runtime impact
+reports remain required.
 
 Iteration 6 has a first bounded online-learning window for the LM head. The
 training-owned executor snapshots model weights, applies new-domain gradient
@@ -566,6 +567,24 @@ records RMSNorm, PLIF forward, PLIF surrogate backward, selective-scan, and
 expert-dispatch parity while keeping promotion blocked on generation coherence
 plus sampled-vocab cross-entropy evidence.
 
+The sixth LM-head kernel evidence slice covers sampled/adaptive vocabulary
+cross entropy. `language_sampled_vocab_ce_triton.py` provides a Triton forward
+loss kernel pair, PyTorch fallback, runtime-use counters, and forced
+parity/benchmark execution for CUDA `float32` hidden rows against selected
+vocabulary IDs that include all target tokens. The 2026-07-04 report
+`reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json`
+passed three CUDA `float32` shape sweeps for
+`language_sampled_vocab_cross_entropy` with total vocab `8192`, sampled vocab
+`1024`, and geometric microbenchmark speedup `1.047x`; `float16` sampled-vocab
+CE is marked unsupported until numerical parity is proven. The paired suite
+report `reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json`
+records GPU kernel correctness as `pass` across RMSNorm, PLIF forward,
+PLIF surrogate backward, selective-scan, expert-dispatch, and sampled-vocab CE,
+while keeping promotion blocked on generation coherence review. This is
+forward-loss parity evidence; dense gradient training still uses the existing
+full-vocab `F.cross_entropy` path until sampled/adaptive vocab backward or
+training-impact evidence exists.
+
 ## Evaluation Gates
 
 Language model gates:
@@ -620,8 +639,8 @@ reached `7264.683 tokens/sec`. This is a PyTorch/CUDA projection-vectorization
 speed slice; PLIF forward, `float32` PLIF backward, and standalone selective
 scan are now covered by separate parity evidence. Later expert-dispatch
 evidence closes `float32` selected-expert dispatch parity, while full
-state-block scan fusion, half-precision expert dispatch, complete-runtime
-impact, and sampled-vocab kernels remain promotion blockers.
+state-block scan fusion, half-precision expert/vocab coverage, and
+complete-runtime training impact remain promotion blockers.
 
 ## Scale Ladder
 
@@ -694,10 +713,19 @@ coherence plus block-sparse expert dispatch and sampled-vocab kernel evidence.
 
 `language-suite-expert-dispatch-kernel.json` ingests RMSNorm, PLIF-forward,
 PLIF-surrogate-backward, selective-scan, and expert-dispatch kernel reports with
-the current PLIF-surrogate sustained reports. It records
+the PLIF-surrogate sustained reports. It records
 `long_run_throughput=pass`, `block_sparse_expert_dispatch_parity=true`, and the
-524288-token house-scale LM report at `7578.052 tokens/sec`, while keeping
-promotion blocked on generation coherence plus sampled-vocab kernel evidence.
+524288-token house-scale LM report at `7578.052 tokens/sec`; this older suite
+snapshot kept promotion blocked on generation coherence plus then-missing
+sampled-vocab kernel evidence.
+
+`language-suite-sampled-vocab-kernel.json` ingests RMSNorm, PLIF-forward,
+PLIF-surrogate-backward, selective-scan, expert-dispatch, and sampled-vocab CE
+kernel reports with the current PLIF-surrogate sustained reports. It records
+`long_run_throughput=pass`, `gpu_kernel_correctness=pass`,
+`sampled_vocab_cross_entropy_parity=true`, and the 524288-token house-scale LM
+report at `7578.052 tokens/sec`, while keeping promotion blocked on generation
+coherence review.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the
