@@ -413,6 +413,8 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["surface"] == "marulho_routed_language_experts.v1"
     assert routing["enabled"] is True
     assert routing["route_plan_source"] == "token_hash_candidate_bank"
+    assert routing["candidate_id_source"] == "awake_index_select"
+    assert routing["all_awake_candidate_fastpath"] is False
     assert routing["total_columns"] == 6
     assert 1 <= routing["active_columns"] <= 6
     assert routing["active_expert_count_per_token"] == 2
@@ -429,6 +431,21 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["active_parameters_per_token"] > 0
     assert model.routed_experts.route_keys.grad is not None
     assert torch.isfinite(model.routed_experts.route_keys.grad).all()
+
+    all_awake = model.next_token_loss(
+        split.train[0].input_ids,
+        split.train[0].target_ids,
+        assume_no_sleeping_experts=True,
+    )
+    all_awake_routing = all_awake["telemetry"]["routing"]
+    assert all_awake_routing["route_plan_source"] == (
+        "token_hash_candidate_bank_all_awake_direct_modulo"
+    )
+    assert all_awake_routing["candidate_id_source"] == "all_awake_direct_expert_ids"
+    assert all_awake_routing["all_awake_candidate_fastpath"] is True
+    assert all_awake_routing["candidate_rows_scored"] == (
+        split.train[0].input_ids.numel() * 3
+    )
 
 
 def test_language_model_sleeping_experts_are_skipped_by_route_candidates() -> None:
@@ -457,6 +474,8 @@ def test_language_model_sleeping_experts_are_skipped_by_route_candidates() -> No
     assert routing["sleeping_columns"] == 1
     assert routing["awake_columns"] == 3
     assert routing["sleeping_expert_ids"] == [3]
+    assert routing["candidate_id_source"] == "awake_index_select"
+    assert routing["all_awake_candidate_fastpath"] is False
     assert routing["route_candidate_count"] == 3
     assert routing["candidate_rows_scored"] == split.train[0].input_ids.numel() * 3
     assert routing["runs_all_columns"] is False

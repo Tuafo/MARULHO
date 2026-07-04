@@ -105,19 +105,27 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
-  active parameters per token, route device, route latency, and explicit
-  all-column fallback truth. Its no-telemetry inference path avoids host
-  sleeping-expert materialization so CUDA graph capture can replay fixed-shape
-  LM bursts. `language_expert_dispatch_triton.py` now covers no-grad CUDA
-  selected-expert dispatch/combine for large enough token batches with
-  `float32` parity; gradient training uses
+  active parameters per token, route device, route latency, candidate-ID source,
+  all-awake candidate fastpath use, and explicit all-column fallback truth. The
+  all-awake candidate path maps token-hash candidate positions directly by
+  modulo instead of materializing an awake-expert `arange`, while sleeping-mask
+  runs keep the explicit awake-index select path. Its no-telemetry inference
+  path avoids host sleeping-expert materialization so CUDA graph capture can
+  replay fixed-shape LM bursts. `language_expert_dispatch_triton.py` now covers
+  no-grad CUDA selected-expert dispatch/combine for large enough token batches
+  with `float32` parity; gradient training uses
   `torch_selected_expert_batched_matmul_dispatch` for selected expert MLPs,
   while half precision keeps the PyTorch fallback until separate parity and
   complete-runtime impact evidence exists. The local 2026-07-04 CUDA report
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
-  trains the `524288` model-vocab sampled/padded shape at `3531.685` train
+  is the historical fast run for this `524288` model-vocab sampled/padded shape
+  at `3531.685` train
   tokens/sec and sustains `524288/524288` generated tokens at `7166.620`
-  tokens/sec.
+  tokens/sec. A paired same-session rerun keeps the direct all-awake route
+  candidate fastpath: `cuda-sampled-padded-horizon8-tf32-clip8-all-awake-route-fastpath-524288-63744.json`
+  reached `2994.386` train tokens/sec and `7257.759` sustained tokens/sec,
+  versus `2880.361` and `7050.359` for
+  `cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`.
 - `language_sampled_vocab_ce_triton.py` now covers forward sampled-vocabulary
   cross-entropy parity for CUDA `float32` hidden rows and selected vocabulary
   IDs that include every target token. It also has a forceable Triton-forward/
@@ -216,15 +224,25 @@ developmental and consolidation runners, query runners, and long-run evidence.
   to `0.2009`, and sustains `524288/524288` generated tokens at `7217.290`
   tokens/sec. This is the previous large-vocab fast-experiment baseline before
   selected-expert matmul dispatch.
-- The current selected-expert training dispatch keeps the same large-vocab
+- The selected-expert training dispatch keeps the same large-vocab
   baseline shape but replaces selected-expert einsums with batched matmul. The
   local 2026-07-04 report
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
   trains `63744` tokens at `3531.685` train tokens/sec, records
   `expert_dispatch_backend=torch_selected_expert_batched_matmul_dispatch`,
   improves heldout loss from `7.1551` to `0.2409`, and sustains
-  `524288/524288` generated tokens at `7166.620` tokens/sec. This is the
-  current large-vocab fast-experiment baseline.
+  `524288/524288` generated tokens at `7166.620` tokens/sec. This remains the
+  historical absolute fast run for the large-vocab shape.
+- The retained all-awake route-candidate fastpath avoids the awake-index tensor
+  when no experts are sleeping and records
+  `candidate_id_source=all_awake_direct_expert_ids`. The local paired report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-all-awake-route-fastpath-524288-63744.json`
+  trains the same shape at `2994.386` train tokens/sec and sustains
+  `524288/524288` generated tokens at `7257.759` tokens/sec, compared with
+  `2880.361` train tokens/sec and `7050.359` sustained tokens/sec in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`.
+  The paired win is `+3.959%` training and `+2.942%` sustained generation, with
+  batch total down from `0.346854` to `0.333647 ms/token`.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

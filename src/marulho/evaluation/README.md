@@ -365,6 +365,20 @@ harnesses.
   batched-state-output baseline, training throughput improves `19.525%`,
   forward/loss falls to `0.105695 ms/token`, backward falls to
   `0.165801 ms/token`, and batch total falls to `0.282857 ms/token`.
+- Current 2026-07-04 all-awake route-candidate fastpath evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-all-awake-route-fastpath-524288-63744.json`
+  keeps the same bounded route-candidate rows and active expert selection, but
+  maps candidate positions directly by modulo when no experts are sleeping. The
+  report records `candidate_id_source=all_awake_direct_expert_ids` and
+  `all_awake_candidate_fastpath=true`, trains the same `524288` model-vocab,
+  `1024` sampled-row, horizon-8, TF32, clip-8 shape for `63744` tokens at
+  `2994.386` train tokens/sec, improves heldout loss from `7.0738` to
+  `0.2031`, and sustains `524288/524288` generated tokens at `7257.759`
+  tokens/sec. The same-session control
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`
+  reached `2880.361` train tokens/sec and `7050.359` sustained tokens/sec, so
+  the retained fastpath is `+3.959%` training and `+2.942%` sustained generation
+  for that paired run.
 - Current 2026-07-04 sampled/padded continual-learning evidence in
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   runs `run_language_continual_learning_window` on CUDA with a `524288`

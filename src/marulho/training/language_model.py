@@ -780,16 +780,13 @@ class RoutedLanguageExpertLayer(nn.Module):
         if bool(assume_no_sleeping_experts):
             sleeping_mask = None
             sleeping_count = 0
-            awake_ids = torch.arange(
-                self.expert_count,
-                device=hidden.device,
-                dtype=torch.long,
-            )
+            awake_ids = None
+            awake_count = int(self.expert_count)
         else:
             sleeping_mask = self.sleeping_expert_mask.to(device=hidden.device)
             sleeping_count = int(sleeping_mask.sum().detach().cpu().item())
             awake_ids = self.awake_expert_ids(hidden.device)
-        awake_count = int(awake_ids.numel())
+            awake_count = int(awake_ids.numel())
         if awake_count <= 0:
             return hidden, {
                 "surface": self.surface,
@@ -828,6 +825,7 @@ class RoutedLanguageExpertLayer(nn.Module):
             route_plan_source = (
                 "dense_all_experts" if runs_all_columns else "awake_expert_mask"
             )
+            candidate_id_source = route_plan_source
         else:
             if candidate_ids.ndim == 1:
                 candidate_ids = candidate_ids.view(1, 1, -1).expand(
@@ -843,7 +841,16 @@ class RoutedLanguageExpertLayer(nn.Module):
                 and sleeping_count == 0
             )
             fallback_reason = "route_candidate_plan_unbounded" if runs_all_columns else None
-            route_plan_source = "token_hash_candidate_bank"
+            route_plan_source = (
+                "token_hash_candidate_bank_all_awake_direct_modulo"
+                if bool(assume_no_sleeping_experts)
+                else "token_hash_candidate_bank"
+            )
+            candidate_id_source = (
+                "all_awake_direct_expert_ids"
+                if bool(assume_no_sleeping_experts)
+                else "awake_index_select"
+            )
 
         candidate_ids = candidate_ids.remainder(self.expert_count)
         sleeping_candidate_filtered_count = 0
@@ -857,6 +864,7 @@ class RoutedLanguageExpertLayer(nn.Module):
             )
         if sleeping_candidate_filtered_count > 0:
             assert sleeping_candidates is not None
+            assert awake_ids is not None
             replacement_positions = (
                 torch.arange(
                     int(candidate_ids.shape[-1]),
@@ -876,6 +884,7 @@ class RoutedLanguageExpertLayer(nn.Module):
                 candidate_ids,
             )
             route_plan_source = f"{route_plan_source}_sleep_filtered"
+            candidate_id_source = f"{candidate_id_source}_sleep_filtered"
         candidate_count = int(candidate_ids.shape[-1])
         active_count = min(self.active_expert_count, candidate_count)
         route_keys = self.route_keys[candidate_ids]
@@ -1001,6 +1010,10 @@ class RoutedLanguageExpertLayer(nn.Module):
             "sleep_filter_applied": bool(sleeping_count > 0),
             "sleeping_candidate_filtered_count": int(
                 sleeping_candidate_filtered_count
+            ),
+            "candidate_id_source": candidate_id_source,
+            "all_awake_candidate_fastpath": bool(
+                candidate_id_source == "all_awake_direct_expert_ids"
             ),
             "expert_dispatch_backend": expert_dispatch_backend,
             "expert_dispatch_triton_stats_delta": dispatch_delta,
@@ -1166,11 +1179,7 @@ class MarulhoLanguageModel(nn.Module):
             return None
         if bool(assume_no_sleeping_experts):
             awake_count = int(self.routed_experts.expert_count)
-            awake_ids = torch.arange(
-                awake_count,
-                device=input_ids.device,
-                dtype=torch.long,
-            )
+            awake_ids = None
         else:
             awake_ids = self.routed_experts.awake_expert_ids(input_ids.device)
             awake_count = int(awake_ids.numel())
@@ -1195,6 +1204,9 @@ class MarulhoLanguageModel(nn.Module):
         candidate_positions = (input_ids.to(torch.long).unsqueeze(-1) + offsets) % int(
             awake_count
         )
+        if bool(assume_no_sleeping_experts):
+            return candidate_positions
+        assert awake_ids is not None
         return awake_ids.index_select(0, candidate_positions.reshape(-1)).reshape(
             candidate_positions.shape
         )
