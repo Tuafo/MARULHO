@@ -81,3 +81,55 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     assert (tmp_path / "language-experiment-checkpoint.pt").exists()
     assert (tmp_path / "language-experiment-sustained.json").exists()
     assert (tmp_path / "README.md").exists()
+
+
+def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) -> None:
+    output = tmp_path / "language-sampled-padded.json"
+
+    report = run_language_training_experiment(
+        output_path=output,
+        prompts=("MARULHO",),
+        config=LanguageTrainingExperimentConfig(
+            model_vocab_size=384,
+            sampled_vocab_size=32,
+            sparse_vocab_optimizer=True,
+            embedding_dim=10,
+            state_dim=16,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=24,
+            sequence_length=12,
+            stride=6,
+            batch_size=2,
+            max_train_batches=3,
+            train_epochs=1,
+            generation_tokens=4,
+            sustained_target_tokens=3,
+            sustained_tick_tokens=2,
+            sustained_quantum_tokens=1,
+            sustained_timeout_seconds=30.0,
+            device="cpu",
+        ),
+    )
+
+    assert report["model_vocab_size"] == 384
+    assert report["tokenizer_vocab_size"] < report["model_vocab_size"]
+    assert report["generation_vocab_size"] == report["tokenizer_vocab_size"]
+    assert report["generation_decode"]["full_model_vocab_logits_materialized"] is False
+    assert report["training"]["optimizer_policy"] == (
+        "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+    )
+    assert report["training"]["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
+    assert report["training"]["sampled_vocab_training"] is True
+    assert report["training"]["full_vocab_logits_materialized"] is False
+    assert report["training"]["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
+    assert report["training"]["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert report["generation_after"][0]["generation_decode"][
+        "full_model_vocab_logits_materialized"
+    ] is False
+    assert report["sustained_summary"]["generation_vocab_size"] == (
+        report["tokenizer_vocab_size"]
+    )
+    assert report["experiment_review"]["records_sampled_vocab_training"] is True
+    assert report["experiment_review"]["records_padded_vocab_decode_policy"] is True

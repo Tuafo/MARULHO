@@ -83,8 +83,10 @@ harnesses.
   inference reports. Its CUDA update loop keeps per-batch loss and gradient
   norm metrics as device scalars, performs one CUDA synchronization before
   stopping the measured training timer, and reads aggregate scalars back after
-  the hot update window. It is meant to accelerate model experiments, not
-  create a new promotion gate.
+  the hot update window. It supports padded model vocabularies, sampled vocab
+  loss, sparse vocab-row optimization, and tokenizer-row generation decode
+  limits. It is meant to accelerate model experiments, not create a new
+  promotion gate.
 - `language_sampled_vocab_training_impact.py` measures complete sampled/
   adaptive vocabulary training-step impact for padded large-vocab LM configs.
   It compares dense full-vocab loss/optimizer work against sampled loss with
@@ -274,6 +276,17 @@ harnesses.
   tokens/sec, and peaks at `1481.754 MiB` CUDA allocation. The dense full-vocab
   AdamW baseline reaches `497.997` train tokens/sec and peaks at
   `4454.492 MiB`. The report keeps `promotes_runtime_claim=false`.
+- Current 2026-07-04 integrated sampled/padded training experiment evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-524288-63744.json`
+  uses the normal LM experiment runner with `524288` model vocab rows, `1024`
+  sampled rows, `262` tokenizer/generation rows, `524026` padded rows masked,
+  `batch=16`, `seq=64`, `stride=32`, and `4` train epochs. It trains `63744`
+  tokens at `2419.460` train tokens/sec with
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, avoids full vocab logits,
+  improves heldout loss from `7.1069` to `0.1863`, records source-continuation
+  probes, saves a checkpoint, and sustains `524288/524288` tokens at
+  `7253.807` tokens/sec on `torch_cuda_graph_burst`. It keeps
+  `promotes_runtime_claim=false` and `promotes_generation_quality_claim=false`.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked
@@ -371,6 +384,7 @@ python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispa
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-524288.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 4 --warmup-steps 1 --repeats 3 --device cuda
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --device cuda
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --no-environment-snapshot
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-plif-surrogate-8192-checkpoint.pt --output reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0

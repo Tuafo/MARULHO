@@ -124,6 +124,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   tokenizer range, and reached `524288/524288` tokens at `7248.118`
   tokens/sec on `torch_cuda_graph_burst`. This is decode/checkpoint/long-run
   policy evidence, not broad generation quality.
+- `language_training_experiment.py` can now train, checkpoint, generate, and
+  sustain padded-vocab sampled models directly. The local 2026-07-04 integrated
+  report
+  `reports/language_training_experiments/cuda-sampled-padded-524288-63744.json`
+  trained `63744` tokens with `524288` model vocab rows, `1024` sampled rows,
+  `batch=16`, sparse vocab-row optimization, and no full vocab logits at
+  `2419.460` train tokens/sec. It improved heldout loss from `7.1069` to
+  `0.1863`, saved a checkpoint with generation limited to `262` tokenizer rows,
+  and sustained `524288/524288` tokens at `7253.807` tokens/sec on CUDA graph
+  burst. This is the normal experiment-runner path for large-vocab science
+  loops; broad language quality and runtime promotion remain separate gates.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

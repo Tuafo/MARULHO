@@ -46,6 +46,9 @@ DEFAULT_CORPUS = (
 
 @dataclass(frozen=True)
 class LanguageTrainingExperimentConfig:
+    model_vocab_size: int = 0
+    sampled_vocab_size: int = 0
+    sparse_vocab_optimizer: bool = True
     embedding_dim: int = 32
     state_dim: int = 64
     expert_count: int = 8
@@ -91,8 +94,19 @@ def _model_config(
     tokenizer: ByteLevelLanguageTokenizer,
     config: LanguageTrainingExperimentConfig,
 ) -> LanguageModelConfig:
+    model_vocab_size = (
+        int(config.model_vocab_size)
+        if int(config.model_vocab_size) > 0
+        else int(tokenizer.vocab_size)
+    )
+    if model_vocab_size < int(tokenizer.vocab_size):
+        raise ValueError("model_vocab_size must be at least the tokenizer vocab size")
+    sampled_vocab_size = max(0, int(config.sampled_vocab_size))
+    if sampled_vocab_size >= model_vocab_size:
+        raise ValueError("sampled_vocab_size must be smaller than model_vocab_size")
+    sparse_vocab_gradients = bool(config.sparse_vocab_optimizer and sampled_vocab_size > 0)
     return LanguageModelConfig(
-        vocab_size=tokenizer.vocab_size,
+        vocab_size=model_vocab_size,
         embedding_dim=int(config.embedding_dim),
         state_dim=int(config.state_dim),
         adaptive_timestep_budget=int(config.adaptive_timestep_budget),
@@ -100,6 +114,14 @@ def _model_config(
         active_expert_count=int(config.active_expert_count),
         route_candidate_count=int(config.route_candidate_count),
         expert_hidden_dim=int(config.expert_hidden_dim),
+        sampled_vocab_size=sampled_vocab_size,
+        sampled_vocab_sparse_lm_head_gradient=sparse_vocab_gradients,
+        sparse_token_embedding_gradients=sparse_vocab_gradients,
+        generation_vocab_size=(
+            int(tokenizer.vocab_size)
+            if model_vocab_size > int(tokenizer.vocab_size)
+            else 0
+        ),
     )
 
 
@@ -140,6 +162,78 @@ def _detached_scalar_on_device(
         tensor = value.detach()
         return tensor.to(device=device) if tensor.device != device else tensor
     return torch.tensor(float(value), device=device)
+
+
+def _all_trainable_parameters(model: MarulhoLanguageModel) -> list[torch.nn.Parameter]:
+    return [parameter for parameter in model.parameters() if parameter.requires_grad]
+
+
+def _optimizer_policy(
+    model: MarulhoLanguageModel,
+    *,
+    config: LanguageTrainingExperimentConfig,
+) -> tuple[list[torch.optim.Optimizer], str]:
+    sparse_vocab_optimizer = bool(
+        config.sparse_vocab_optimizer
+        and int(model.config.sampled_vocab_size) > 0
+        and bool(model.config.sampled_vocab_sparse_lm_head_gradient)
+        and bool(model.config.sparse_token_embedding_gradients)
+    )
+    if not sparse_vocab_optimizer:
+        return [
+            torch.optim.AdamW(model.parameters(), lr=float(config.learning_rate))
+        ], "AdamW_all_parameters"
+
+    sparse_names = {"token_embedding.weight", "lm_head.weight"}
+    sparse_params: list[torch.nn.Parameter] = []
+    dense_params: list[torch.nn.Parameter] = []
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        if name in sparse_names:
+            sparse_params.append(parameter)
+        else:
+            dense_params.append(parameter)
+    optimizers: list[torch.optim.Optimizer] = []
+    if dense_params:
+        optimizers.append(torch.optim.AdamW(dense_params, lr=float(config.learning_rate)))
+    if sparse_params:
+        optimizers.append(torch.optim.SparseAdam(sparse_params, lr=float(config.learning_rate)))
+    return optimizers, "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+
+
+def _clip_grad_norm_sparse_aware(
+    parameters: Sequence[torch.nn.Parameter],
+    *,
+    max_norm: float,
+    device: torch.device,
+) -> torch.Tensor:
+    total_sq = torch.zeros((), device=device, dtype=torch.float32)
+    for parameter in parameters:
+        grad = parameter.grad
+        if grad is None:
+            continue
+        values = grad.coalesce().values() if grad.is_sparse else grad
+        total_sq = total_sq + values.detach().float().pow(2).sum()
+    total_norm = torch.sqrt(total_sq)
+    limit = float(max_norm)
+    if limit > 0.0:
+        clip_coef = torch.clamp(
+            torch.tensor(limit, device=device, dtype=torch.float32)
+            / (total_norm + 1e-6),
+            max=1.0,
+        )
+        for parameter in parameters:
+            grad = parameter.grad
+            if grad is None:
+                continue
+            if grad.is_sparse:
+                grad = grad.coalesce()
+                grad.values().mul_(clip_coef)
+                parameter.grad = grad
+            else:
+                grad.mul_(clip_coef)
+    return total_norm
 
 
 def _common_prefix_length(left: str, right: str) -> int:
@@ -264,6 +358,7 @@ def _decoded_generation(
         "active_language_path": generation["active_language_path"],
         "external_llm_used": bool(generation["external_llm_used"]),
         "owned_by_marulho": bool(generation["owned_by_marulho"]),
+        "generation_decode": dict(generation.get("generation_decode") or {}),
     }
 
 
@@ -321,7 +416,8 @@ def _train_language_model(
 ) -> dict[str, Any]:
     if not batches:
         raise ValueError("At least one train batch is required")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(config.learning_rate))
+    optimizers, optimizer_policy = _optimizer_policy(model, config=config)
+    trainable_parameters = _all_trainable_parameters(model)
     model.train()
     assume_no_sleeping = (
         model.routed_experts.enabled
@@ -330,12 +426,15 @@ def _train_language_model(
     token_count = 0
     loss_records: list[torch.Tensor] = []
     max_grad_norm_record: torch.Tensor | None = None
+    last_loss_kind = "unknown"
+    last_loss_evidence: dict[str, Any] = {}
     plif_stats_before = language_plif_triton_stats()
     cuda_synchronized_before_timing_start = _synchronize_if_cuda(model.device)
     started = time.perf_counter()
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
-            optimizer.zero_grad(set_to_none=True)
+            for optimizer in optimizers:
+                optimizer.zero_grad(set_to_none=True)
             result = model.next_token_loss(
                 batch.input_ids.to(model.device),
                 batch.target_ids.to(model.device),
@@ -344,13 +443,17 @@ def _train_language_model(
             )
             loss = result["loss"]
             loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
+            grad_norm = _clip_grad_norm_sparse_aware(
+                trainable_parameters,
                 max_norm=float(config.max_grad_norm),
+                device=model.device,
             )
-            optimizer.step()
+            for optimizer in optimizers:
+                optimizer.step()
             token_count += int(batch.target_ids.numel())
             loss_records.append(loss.detach())
+            last_loss_kind = str(result.get("loss_kind", "unknown"))
+            last_loss_evidence = dict(result.get("loss_evidence") or {})
             grad_norm_record = _detached_scalar_on_device(
                 grad_norm,
                 device=model.device,
@@ -389,7 +492,8 @@ def _train_language_model(
             (int(batch.target_ids.numel()) for batch in batches),
             default=0,
         ),
-        "optimizer": "AdamW",
+        "optimizer": optimizer_policy,
+        "optimizer_policy": optimizer_policy,
         "learning_rate": float(config.learning_rate),
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
@@ -407,6 +511,15 @@ def _train_language_model(
         "device": str(model.device),
         "metric_readback_mode": "deferred_gpu_scalar_aggregation",
         "per_batch_metric_cpu_sync": False,
+        "gradient_clip_mode": "sparse_aware_device_norm",
+        "loss_kind": last_loss_kind,
+        "loss_evidence": last_loss_evidence,
+        "sampled_vocab_training": bool(
+            last_loss_evidence.get("sampled_vocab_training", False)
+        ),
+        "full_vocab_logits_materialized": bool(
+            last_loss_evidence.get("full_vocab_logits_materialized", True)
+        ),
         "loss_record_count": len(loss_records),
         "cuda_synchronized_before_timing_start": bool(
             cuda_synchronized_before_timing_start
@@ -512,6 +625,14 @@ def run_language_training_experiment(
         "external_llm_used": False,
         "loads_external_checkpoint": False,
         "active_language_path": model.config.active_language_path,
+        "model_vocab_size": int(model.config.vocab_size),
+        "tokenizer_vocab_size": int(tokenizer.vocab_size),
+        "generation_vocab_size": int(model.generation_vocab_size),
+        "padded_vocab_rows": max(
+            0,
+            int(model.config.vocab_size) - int(tokenizer.vocab_size),
+        ),
+        "generation_decode": model.generation_decode_policy(),
         "corpus": {
             "source": "default_inline" if corpus_path is None else str(corpus_path),
             "character_count": len(corpus),
@@ -556,6 +677,11 @@ def run_language_training_experiment(
             "tokens_per_second": sustained_report["tokens_per_second"],
             "device_backend": sustained_report["device_backend"],
             "fallback_counts": sustained_report["fallback_counts"],
+            "model_vocab_size": sustained_report.get("model_vocab_size"),
+            "tokenizer_vocab_size": sustained_report.get("tokenizer_vocab_size"),
+            "generation_vocab_size": sustained_report.get("generation_vocab_size"),
+            "padded_vocab_rows": sustained_report.get("padded_vocab_rows"),
+            "generation_decode": sustained_report.get("generation_decode"),
         },
         "experiment_review": {
             "fast_mutable_experiment": True,
@@ -563,6 +689,12 @@ def run_language_training_experiment(
             "records_actual_generation": bool(after_generations),
             "records_generation_quality_probe": bool(after_generations),
             "records_sustained_inference": int(sustained_report["token_delta"]) > 0,
+            "records_sampled_vocab_training": bool(
+                training.get("sampled_vocab_training", False)
+            ),
+            "records_padded_vocab_decode_policy": bool(
+                max(0, int(model.config.vocab_size) - int(tokenizer.vocab_size)) > 0
+            ),
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
             "next_experiment": (
@@ -580,6 +712,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--prompt", action="append", default=[])
+    parser.add_argument("--model-vocab-size", type=int, default=0)
+    parser.add_argument("--sampled-vocab-size", type=int, default=0)
+    parser.add_argument("--disable-sparse-vocab-optimizer", action="store_true")
     parser.add_argument("--embedding-dim", type=int, default=32)
     parser.add_argument("--state-dim", type=int, default=64)
     parser.add_argument("--expert-count", type=int, default=8)
@@ -598,6 +733,9 @@ def main() -> int:
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     config = LanguageTrainingExperimentConfig(
+        model_vocab_size=args.model_vocab_size,
+        sampled_vocab_size=args.sampled_vocab_size,
+        sparse_vocab_optimizer=not bool(args.disable_sparse_vocab_optimizer),
         embedding_dim=args.embedding_dim,
         state_dim=args.state_dim,
         expert_count=args.expert_count,
