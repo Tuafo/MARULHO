@@ -174,6 +174,16 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `+2.142%` training throughput over the horizon-8 non-TF32 run and `+6.207%`
   over the full-sequence profiled baseline; it is a precision/speed tradeoff
   and not a generation-quality claim.
+- `language_training_experiment.py` also supports `gradient_clip_interval` for
+  fast LM experiments. The default clips every optimizer update; interval `8`
+  runs the sparse-aware GPU norm/clip pass every eighth update and records both
+  applied and skipped counts. The local 2026-07-04 report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-profile-524288-63744.json`
+  clipped `8/64` updates, trained the `524288` model-vocab shape at
+  `2538.756` train tokens/sec, improved heldout loss from `7.0764` to
+  `0.2083`, and sustained `524288/524288` generated tokens at `7223.490`
+  tokens/sec. This is a fast-experiment stability/speed tradeoff and must not
+  hide skipped gradient-norm passes.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

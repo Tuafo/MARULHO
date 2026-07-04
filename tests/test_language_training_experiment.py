@@ -54,6 +54,14 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     )
     assert report["training"]["per_batch_metric_cpu_sync"] is False
     assert report["training"]["training_stage_profile"]["enabled"] is False
+    assert report["training"]["optimizer_step_count"] == 4
+    assert report["training"]["gradient_clip_mode"] == (
+        "sparse_aware_device_norm_every_step"
+    )
+    assert report["training"]["gradient_clip_interval"] == 1
+    assert report["training"]["gradient_clip_applied_step_count"] == 4
+    assert report["training"]["gradient_clip_skipped_step_count"] == 0
+    assert report["training"]["gradient_norm_observed_step_count"] == 4
     assert report["cuda_math_policy"]["applied"] is False
     assert report["cuda_math_policy"]["requested_matmul_allow_tf32"] is True
     assert report["training"]["cuda_math_policy"] == report["cuda_math_policy"]
@@ -114,6 +122,7 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
             batch_size=2,
             max_train_batches=3,
             train_epochs=1,
+            gradient_clip_interval=2,
             generation_tokens=4,
             sustained_target_tokens=3,
             sustained_tick_tokens=2,
@@ -133,6 +142,14 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     )
     assert report["training"]["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
     assert report["training"]["sampled_vocab_training"] is True
+    assert report["training"]["optimizer_step_count"] == 3
+    assert report["training"]["gradient_clip_mode"] == (
+        "sparse_aware_device_norm_every_n_steps"
+    )
+    assert report["training"]["gradient_clip_interval"] == 2
+    assert report["training"]["gradient_clip_applied_step_count"] == 1
+    assert report["training"]["gradient_clip_skipped_step_count"] == 2
+    assert report["training"]["gradient_norm_observed_step_count"] == 1
     assert report["config"]["cuda_allow_tf32"] is True
     assert report["config"]["cuda_float32_matmul_precision"] == "high"
     assert report["experiment_review"]["records_cuda_math_policy"] is False

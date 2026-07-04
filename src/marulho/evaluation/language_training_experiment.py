@@ -64,6 +64,7 @@ class LanguageTrainingExperimentConfig:
     train_epochs: int = 2
     learning_rate: float = 2e-3
     max_grad_norm: float = 1.0
+    gradient_clip_interval: int = 1
     generation_tokens: int = 48
     sustained_target_tokens: int = 512
     sustained_tick_tokens: int = 128
@@ -604,6 +605,10 @@ def _train_language_model(
         and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
     )
     token_count = 0
+    optimizer_step_count = 0
+    gradient_clip_applied_step_count = 0
+    gradient_clip_skipped_step_count = 0
+    gradient_clip_interval = max(0, int(config.gradient_clip_interval))
     loss_records: list[torch.Tensor] = []
     max_grad_norm_record: torch.Tensor | None = None
     last_loss_kind = "unknown"
@@ -618,6 +623,7 @@ def _train_language_model(
     started = time.perf_counter()
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
+            optimizer_step_count += 1
             batch_token_count = int(batch.target_ids.numel())
             batch_marker = stage_profiler.start()
             stage_marker = stage_profiler.start()
@@ -649,11 +655,21 @@ def _train_language_model(
                 stage_marker,
             )
             stage_marker = stage_profiler.start()
-            grad_norm = _clip_grad_norm_sparse_aware(
-                trainable_parameters,
-                max_norm=float(config.max_grad_norm),
-                device=model.device,
+            should_clip_gradients = bool(
+                float(config.max_grad_norm) > 0.0
+                and gradient_clip_interval > 0
+                and optimizer_step_count % gradient_clip_interval == 0
             )
+            if should_clip_gradients:
+                grad_norm = _clip_grad_norm_sparse_aware(
+                    trainable_parameters,
+                    max_norm=float(config.max_grad_norm),
+                    device=model.device,
+                )
+                gradient_clip_applied_step_count += 1
+            else:
+                grad_norm = torch.zeros((), device=model.device, dtype=torch.float32)
+                gradient_clip_skipped_step_count += 1
             stage_profiler.record_elapsed(
                 "gradient_clip",
                 batch_token_count,
@@ -678,15 +694,16 @@ def _train_language_model(
             last_loss_evidence = dict(result.get("loss_evidence") or {})
             telemetry = result.get("telemetry")
             last_state_block_telemetry = dict(telemetry) if isinstance(telemetry, dict) else {}
-            grad_norm_record = _detached_scalar_on_device(
-                grad_norm,
-                device=model.device,
-            )
-            max_grad_norm_record = (
-                grad_norm_record
-                if max_grad_norm_record is None
-                else torch.maximum(max_grad_norm_record, grad_norm_record)
-            )
+            if should_clip_gradients:
+                grad_norm_record = _detached_scalar_on_device(
+                    grad_norm,
+                    device=model.device,
+                )
+                max_grad_norm_record = (
+                    grad_norm_record
+                    if max_grad_norm_record is None
+                    else torch.maximum(max_grad_norm_record, grad_norm_record)
+                )
     cuda_synchronized_before_timing_stop = _synchronize_if_cuda(model.device)
     elapsed = max(0.0, time.perf_counter() - started)
     loss_values = (
@@ -719,6 +736,7 @@ def _train_language_model(
         "optimizer": optimizer_policy,
         "optimizer_policy": optimizer_policy,
         "learning_rate": float(config.learning_rate),
+        "optimizer_step_count": int(optimizer_step_count),
         "recurrent_gradient_horizon": int(model.config.recurrent_gradient_horizon),
         "truncated_recurrent_bptt": bool(
             int(model.config.recurrent_gradient_horizon) > 0
@@ -759,7 +777,20 @@ def _train_language_model(
         "per_batch_metric_cpu_sync": False,
         "cuda_math_policy": cuda_math_policy,
         "training_stage_profile": stage_profiler.report(),
-        "gradient_clip_mode": "sparse_aware_device_norm",
+        "gradient_clip_mode": (
+            "disabled"
+            if float(config.max_grad_norm) <= 0.0 or gradient_clip_interval <= 0
+            else (
+                "sparse_aware_device_norm_every_step"
+                if gradient_clip_interval == 1
+                else "sparse_aware_device_norm_every_n_steps"
+            )
+        ),
+        "gradient_clip_max_norm": float(config.max_grad_norm),
+        "gradient_clip_interval": int(gradient_clip_interval),
+        "gradient_clip_applied_step_count": int(gradient_clip_applied_step_count),
+        "gradient_clip_skipped_step_count": int(gradient_clip_skipped_step_count),
+        "gradient_norm_observed_step_count": int(gradient_clip_applied_step_count),
         "loss_kind": last_loss_kind,
         "loss_evidence": last_loss_evidence,
         "sampled_vocab_training": bool(
@@ -990,6 +1021,8 @@ def main() -> int:
     parser.add_argument("--max-train-batches", type=int, default=64)
     parser.add_argument("--train-epochs", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
+    parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument("--gradient-clip-interval", type=int, default=1)
     parser.add_argument("--generation-tokens", type=int, default=48)
     parser.add_argument("--sustained-target-tokens", type=int, default=512)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=120.0)
@@ -1019,6 +1052,8 @@ def main() -> int:
         max_train_batches=args.max_train_batches,
         train_epochs=args.train_epochs,
         learning_rate=args.learning_rate,
+        max_grad_norm=args.max_grad_norm,
+        gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
         generation_tokens=args.generation_tokens,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_timeout_seconds=args.sustained_timeout_seconds,
