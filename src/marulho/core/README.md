@@ -33,8 +33,8 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   routed expert rows.
 - The LM-head sampled-vocabulary cross-entropy Triton primitive in
   `language_sampled_vocab_ce_triton.py`, including forced parity/benchmark
-  execution, PyTorch fallback, and runtime-use counters for selected vocabulary
-  loss rows.
+  execution, PyTorch fallback, forceable custom-autograd training probes, and
+  runtime-use counters for selected vocabulary loss rows.
 
 ## Must Not Own
 
@@ -65,11 +65,13 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   where the token-count policy allows it. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
-  rows and selected vocabulary IDs that include all targets. That Triton kernel
-  remains forward-loss parity evidence only. Gradient training uses the
-  autograd selected-row reference path, can request sparse LM-head weight
-  gradients, and needs a row-sparse optimizer policy before it should be used
-  for large padded vocabularies.
+  rows and selected vocabulary IDs that include all targets. Gradient training
+  can force the Triton-forward/custom-autograd path with
+  `MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING=1`, but the maintained
+  default stays on the selected-row PyTorch autograd path because complete
+  b16/r8 CUDA evidence was faster there (`2675.442` versus `2622.292` train
+  tokens/sec). Keep the forceable Triton path as research evidence until it
+  wins complete-runtime training impact.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

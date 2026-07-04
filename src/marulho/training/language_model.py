@@ -28,7 +28,9 @@ from marulho.core.language_plif_triton import (
 from marulho.core.language_rmsnorm_triton import language_rmsnorm
 from marulho.core.language_sampled_vocab_ce_triton import (
     build_sampled_vocab_ids,
-    language_sampled_vocab_cross_entropy_torch_reference,
+    language_sampled_vocab_ce_triton_stats,
+    language_sampled_vocab_ce_triton_stats_delta,
+    language_sampled_vocab_cross_entropy,
 )
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 
@@ -1172,7 +1174,8 @@ class MarulhoLanguageModel(nn.Module):
                 device=flat_hidden.device,
                 validate_ids=False,
             )
-            loss = language_sampled_vocab_cross_entropy_torch_reference(
+            sampled_vocab_stats_before = language_sampled_vocab_ce_triton_stats()
+            loss = language_sampled_vocab_cross_entropy(
                 flat_hidden,
                 flat_targets,
                 sampled_vocab_ids,
@@ -1183,10 +1186,25 @@ class MarulhoLanguageModel(nn.Module):
                     self.config.sampled_vocab_sparse_lm_head_gradient
                 ),
             )
+            sampled_vocab_stats_delta = language_sampled_vocab_ce_triton_stats_delta(
+                sampled_vocab_stats_before,
+                language_sampled_vocab_ce_triton_stats(),
+            )
             sampled_vocab_hash = (
                 _tensor_hash(sampled_vocab_ids)
                 if bool(collect_telemetry)
                 else None
+            )
+            triton_forward_training = bool(
+                sampled_vocab_stats_delta.get("triton_kernel_used")
+                and int(
+                    sampled_vocab_stats_delta.get(
+                        "triton_autograd_forward_calls",
+                        0,
+                    )
+                    or 0
+                )
+                > 0
             )
             loss_evidence = {
                 "surface": "marulho_language_vocab_loss_evidence.v1",
@@ -1198,7 +1216,11 @@ class MarulhoLanguageModel(nn.Module):
                 "model_vocab_size": int(self.config.vocab_size),
                 "target_token_count": int(flat_targets.numel()),
                 "sampled_vocab_ids_device": str(sampled_vocab_ids.device),
-                "loss_backend": "torch_autograd_selected_lm_head_rows",
+                "loss_backend": (
+                    "triton_forward_torch_backward_selected_lm_head_rows"
+                    if triton_forward_training
+                    else "torch_autograd_selected_lm_head_rows"
+                ),
                 "lm_head_weight_gradient_sparse": bool(
                     self.config.sampled_vocab_sparse_lm_head_gradient
                 ),
@@ -1207,7 +1229,9 @@ class MarulhoLanguageModel(nn.Module):
                 ),
                 "target_contract": "builder_includes_all_targets",
                 "per_batch_target_membership_cpu_sync": False,
-                "triton_forward_only_kernel_used_for_training": False,
+                "triton_forward_kernel_used_for_training": triton_forward_training,
+                "triton_autograd_backward": triton_forward_training,
+                "triton_stats_delta": sampled_vocab_stats_delta,
                 "sampled_vocab_hash": sampled_vocab_hash,
             }
             telemetry = {

@@ -47,5 +47,10 @@ def test_language_sampled_vocab_training_impact_reports_full_step(tmp_path) -> N
     )
     assert sampled["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert sampled["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert (
+        sampled["sampled_vocab_ce_triton_stats_delta"]["triton_kernel_used"]
+        is False
+    )
     assert sampled["token_count"] == report["batch"]["tokens_per_optimizer_step"]
     assert report["comparison"]["sampled_training_success"] is True
+    assert report["comparison"]["scalability_evidence"] == "sampled_vs_dense_measured"

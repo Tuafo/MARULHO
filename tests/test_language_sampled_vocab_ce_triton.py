@@ -174,3 +174,117 @@ def test_language_sampled_vocab_ce_triton_matches_reference() -> None:
     assert delta["triton_forward_calls"] >= 1
     assert delta["triton_logits_calls"] >= 1
     assert delta["triton_loss_calls"] >= 1
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not bool(language_sampled_vocab_ce_triton_stats()["triton_available"]),
+    reason="CUDA and Triton are required for sampled-vocab CE autograd parity",
+)
+def test_language_sampled_vocab_ce_triton_autograd_matches_reference() -> None:
+    inputs = _inputs(
+        device="cuda",
+        token_count=128,
+        state_dim=32,
+        vocab_size=1024,
+        sampled_vocab_size=256,
+    )
+    triton_hidden = inputs["hidden"].detach().clone().requires_grad_(True)
+    reference_hidden = inputs["hidden"].detach().clone().requires_grad_(True)
+    triton_weight = torch.nn.Parameter(inputs["lm_head_weight"].detach().clone())
+    reference_weight = torch.nn.Parameter(inputs["lm_head_weight"].detach().clone())
+    triton_bias = torch.nn.Parameter(inputs["lm_head_bias"].detach().clone())
+    reference_bias = torch.nn.Parameter(inputs["lm_head_bias"].detach().clone())
+
+    before = language_sampled_vocab_ce_triton_stats()
+    triton_loss = language_sampled_vocab_cross_entropy(
+        triton_hidden,
+        inputs["target_ids"],
+        inputs["sampled_vocab_ids"],
+        triton_weight,
+        triton_bias,
+        force_triton=True,
+        sparse_weight_gradient=True,
+    )
+    reference_loss = language_sampled_vocab_cross_entropy_torch_reference(
+        reference_hidden,
+        inputs["target_ids"],
+        inputs["sampled_vocab_ids"],
+        reference_weight,
+        reference_bias,
+        sparse_weight_gradient=True,
+    )
+    triton_loss.backward()
+    reference_loss.backward()
+    torch.cuda.synchronize()
+    delta = language_sampled_vocab_ce_triton_stats_delta(
+        before,
+        language_sampled_vocab_ce_triton_stats(),
+    )
+
+    torch.testing.assert_close(triton_loss, reference_loss, rtol=1e-3, atol=1e-3)
+    torch.testing.assert_close(
+        triton_hidden.grad,
+        reference_hidden.grad,
+        rtol=2e-3,
+        atol=2e-3,
+    )
+    assert triton_weight.grad is not None
+    assert triton_weight.grad.is_sparse
+    assert reference_weight.grad is not None
+    assert reference_weight.grad.is_sparse
+    torch.testing.assert_close(
+        triton_weight.grad.coalesce().to_dense(),
+        reference_weight.grad.coalesce().to_dense(),
+        rtol=2e-3,
+        atol=2e-3,
+    )
+    torch.testing.assert_close(triton_bias.grad, reference_bias.grad, rtol=2e-3, atol=2e-3)
+    assert delta["triton_kernel_used"] is True
+    assert delta["triton_autograd_forward_calls"] >= 1
+    assert delta["torch_autograd_backward_calls"] >= 1
+    assert delta["sparse_weight_backward_calls"] >= 1
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not bool(language_sampled_vocab_ce_triton_stats()["triton_available"]),
+    reason="CUDA and Triton are required for sampled-vocab CE training policy",
+)
+def test_language_sampled_vocab_ce_training_defaults_to_measured_faster_torch_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING", raising=False)
+    inputs = _inputs(
+        device="cuda",
+        token_count=128,
+        state_dim=32,
+        vocab_size=1024,
+        sampled_vocab_size=256,
+    )
+    hidden = inputs["hidden"].detach().clone().requires_grad_(True)
+    weight = torch.nn.Parameter(inputs["lm_head_weight"].detach().clone())
+    bias = torch.nn.Parameter(inputs["lm_head_bias"].detach().clone())
+
+    before = language_sampled_vocab_ce_triton_stats()
+    loss = language_sampled_vocab_cross_entropy(
+        hidden,
+        inputs["target_ids"],
+        inputs["sampled_vocab_ids"],
+        weight,
+        bias,
+        sparse_weight_gradient=True,
+    )
+    loss.backward()
+    torch.cuda.synchronize()
+    delta = language_sampled_vocab_ce_triton_stats_delta(
+        before,
+        language_sampled_vocab_ce_triton_stats(),
+    )
+
+    assert loss.detach().item() > 0.0
+    assert weight.grad is not None
+    assert weight.grad.is_sparse
+    assert delta["triton_kernel_used"] is False
+    assert delta["torch_fallback_calls"] >= 1
+    assert delta["triton_autograd_forward_calls"] == 0

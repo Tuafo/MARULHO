@@ -97,23 +97,26 @@ developmental and consolidation runners, query runners, and long-run evidence.
   fallback until separate parity and complete-runtime impact evidence exist.
 - `language_sampled_vocab_ce_triton.py` now covers forward sampled-vocabulary
   cross-entropy parity for CUDA `float32` hidden rows and selected vocabulary
-  IDs that include every target token. `MarulhoLanguageModel.next_token_loss`
-  can now use sampled/adaptive vocabulary training without materializing full
-  logits when `sampled_vocab_size` is configured. The training path keeps the
-  forward-only Triton CE out of gradient updates, uses PyTorch autograd over
-  selected LM-head rows, and can opt into sparse token-embedding and LM-head
-  weight gradients for row-sparse optimizers.
+  IDs that include every target token. It also has a forceable Triton-forward/
+  custom-autograd training probe, but the maintained training path keeps that
+  probe off by default because complete b16/r8 CUDA evidence was slower than
+  selected-row PyTorch autograd (`2622.292` versus `2675.442` train tokens/sec).
+  `MarulhoLanguageModel.next_token_loss` uses sampled/adaptive vocabulary
+  training without materializing full logits when `sampled_vocab_size` is
+  configured, uses selected-row PyTorch autograd by default, and can opt into
+  sparse token-embedding and LM-head weight gradients for row-sparse optimizers.
 - `language_sampled_vocab_training_impact.py` is the complete training-step
   impact report for sampled/adaptive vocabulary loss. The local 2026-07-04
   CUDA report
-  `reports/language_training_experiments/sampled-vocab-training-impact-524288.json`
-  used a `524288` row model vocabulary with `1024` sampled rows, `batch=4`,
-  `seq=64`, backward, gradient clipping, and optimizer steps. The sampled arm
-  used `AdamW_dense_core_plus_SparseAdam_vocab_rows`, avoided full vocab
-  logits, reached `647.055` train tokens/sec, and peaked at `1481.754 MiB`;
-  the dense full-vocab AdamW baseline reached `497.997` train tokens/sec and
-  peaked at `4454.492 MiB`. This is large-vocab training impact evidence, not
-  generation-quality or runtime-promotion evidence.
+  `reports/language_training_experiments/sampled-vocab-training-impact-default-policy-524288-b16-r8-sampled-only.json`
+  used a `524288` row model vocabulary with `1024` sampled rows, `batch=16`,
+  `seq=64`, warmup `2`, repeats `8`, backward, sparse-aware gradient clipping,
+  and optimizer steps. The sampled arm used
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, avoided full vocab logits,
+  stayed on selected-row PyTorch autograd, reached `2675.442` train tokens/sec,
+  peaked at `2368.205 MiB`, and recorded zero Triton CE training calls. This is
+  large-vocab training impact evidence, not generation-quality or
+  runtime-promotion evidence.
 - Padded-vocab checkpoints now require an explicit generation decode policy.
   `generation_vocab_size` limits generation and sustained runs to tokenizer
   rows while keeping the larger model vocabulary available for sampled training.
@@ -127,14 +130,15 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - `language_training_experiment.py` can now train, checkpoint, generate, and
   sustain padded-vocab sampled models directly. The local 2026-07-04 integrated
   report
-  `reports/language_training_experiments/cuda-sampled-padded-524288-63744.json`
+  `reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744.json`
   trained `63744` tokens with `524288` model vocab rows, `1024` sampled rows,
-  `batch=16`, sparse vocab-row optimization, and no full vocab logits at
-  `2419.460` train tokens/sec. It improved heldout loss from `7.1069` to
-  `0.1863`, saved a checkpoint with generation limited to `262` tokenizer rows,
-  and sustained `524288/524288` tokens at `7253.807` tokens/sec on CUDA graph
-  burst. This is the normal experiment-runner path for large-vocab science
-  loops; broad language quality and runtime promotion remain separate gates.
+  `batch=16`, sparse vocab-row optimization, selected-row PyTorch autograd, and
+  no full vocab logits at `2361.928` train tokens/sec. It improved heldout loss
+  from `7.1612` to `0.1997`, saved a checkpoint with generation limited to
+  `262` tokenizer rows, and sustained `524288/524288` tokens at `7273.947`
+  tokens/sec on CUDA graph burst. This is the normal experiment-runner path for
+  large-vocab science loops; broad language quality and runtime promotion remain
+  separate gates.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

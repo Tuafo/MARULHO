@@ -30,6 +30,9 @@ class _SampledVocabCETritonStats:
     triton_forward_calls: int = 0
     triton_logits_calls: int = 0
     triton_loss_calls: int = 0
+    triton_autograd_forward_calls: int = 0
+    torch_autograd_backward_calls: int = 0
+    sparse_weight_backward_calls: int = 0
     triton_forward_tokens: int = 0
     triton_forward_elements: int = 0
     torch_fallback_calls: int = 0
@@ -69,6 +72,9 @@ def language_sampled_vocab_ce_triton_stats() -> dict[str, Any]:
         "triton_forward_calls": int(_STATS.triton_forward_calls),
         "triton_logits_calls": int(_STATS.triton_logits_calls),
         "triton_loss_calls": int(_STATS.triton_loss_calls),
+        "triton_autograd_forward_calls": int(_STATS.triton_autograd_forward_calls),
+        "torch_autograd_backward_calls": int(_STATS.torch_autograd_backward_calls),
+        "sparse_weight_backward_calls": int(_STATS.sparse_weight_backward_calls),
         "triton_forward_tokens": int(_STATS.triton_forward_tokens),
         "triton_forward_elements": int(_STATS.triton_forward_elements),
         "torch_fallback_calls": int(_STATS.torch_fallback_calls),
@@ -88,6 +94,9 @@ def language_sampled_vocab_ce_triton_stats_delta(
         "triton_forward_calls",
         "triton_logits_calls",
         "triton_loss_calls",
+        "triton_autograd_forward_calls",
+        "torch_autograd_backward_calls",
+        "sparse_weight_backward_calls",
         "triton_forward_tokens",
         "triton_forward_elements",
         "torch_fallback_calls",
@@ -311,6 +320,13 @@ def _min_sampled_vocab() -> int:
         return _DEFAULT_MIN_SAMPLED_VOCAB
 
 
+def _triton_training_autograd_enabled() -> bool:
+    raw = os.environ.get("MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def should_use_language_sampled_vocab_ce_triton(
     hidden: torch.Tensor,
     target_ids: torch.Tensor,
@@ -420,6 +436,8 @@ def _language_sampled_vocab_ce_triton_forward(
     sampled_vocab_ids: torch.Tensor,
     lm_head_weight: torch.Tensor,
     lm_head_bias: torch.Tensor,
+    *,
+    validate_targets: bool = True,
 ) -> torch.Tensor:
     if triton is None:
         raise RuntimeError("Triton is not available")
@@ -430,11 +448,15 @@ def _language_sampled_vocab_ce_triton_forward(
         device=hidden.device,
         dtype=torch.long,
     ).contiguous()
-    runtime_weight = lm_head_weight.to(device=hidden.device, dtype=hidden.dtype).contiguous()
+    runtime_weight = lm_head_weight.to(
+        device=hidden.device,
+        dtype=hidden.dtype,
+    ).contiguous()
     runtime_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).contiguous()
     target_positions = _sampled_target_positions(
         runtime_targets,
         runtime_sampled_ids,
+        validate_targets=validate_targets,
     ).contiguous()
     token_count = int(runtime_hidden.shape[0])
     state_dim = int(runtime_hidden.shape[1])
@@ -484,6 +506,189 @@ def _language_sampled_vocab_ce_triton_forward(
     return token_losses.mean()
 
 
+def _language_sampled_vocab_ce_triton_forward_with_aux(
+    hidden: torch.Tensor,
+    target_ids: torch.Tensor,
+    sampled_vocab_ids: torch.Tensor,
+    lm_head_weight: torch.Tensor,
+    lm_head_bias: torch.Tensor,
+    *,
+    validate_targets: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if triton is None:
+        raise RuntimeError("Triton is not available")
+    ensure_language_sampled_vocab_ce_triton_compiler()
+    runtime_hidden = hidden.contiguous()
+    runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long).reshape(-1)
+    runtime_sampled_ids = sampled_vocab_ids.to(
+        device=hidden.device,
+        dtype=torch.long,
+    ).contiguous()
+    runtime_weight = lm_head_weight.to(
+        device=hidden.device,
+        dtype=hidden.dtype,
+    ).contiguous()
+    runtime_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).contiguous()
+    target_positions = _sampled_target_positions(
+        runtime_targets,
+        runtime_sampled_ids,
+        validate_targets=validate_targets,
+    ).contiguous()
+    token_count = int(runtime_hidden.shape[0])
+    state_dim = int(runtime_hidden.shape[1])
+    sampled_vocab_size = int(runtime_sampled_ids.numel())
+    sampled_logits = torch.empty(
+        (token_count, sampled_vocab_size),
+        device=hidden.device,
+        dtype=hidden.dtype,
+    )
+    token_block = min(_DEFAULT_TOKEN_BLOCK, _next_power_of_2(token_count))
+    vocab_block = min(_DEFAULT_VOCAB_BLOCK, _next_power_of_2(sampled_vocab_size))
+    state_block = _next_power_of_2(state_dim)
+    _sampled_vocab_logits_kernel[
+        (
+            triton.cdiv(token_count, token_block),
+            triton.cdiv(sampled_vocab_size, vocab_block),
+        )
+    ](
+        runtime_hidden,
+        runtime_weight,
+        runtime_bias,
+        runtime_sampled_ids,
+        sampled_logits,
+        token_count,
+        state_dim,
+        sampled_vocab_size,
+        token_block,
+        vocab_block,
+        state_block,
+    )
+    loss_block = _next_power_of_2(sampled_vocab_size)
+    token_losses = torch.empty(token_count, device=hidden.device, dtype=torch.float32)
+    _sampled_vocab_loss_kernel[(token_count,)](
+        sampled_logits,
+        target_positions,
+        token_losses,
+        sampled_vocab_size,
+        loss_block,
+    )
+    _STATS.triton_forward_calls += 1
+    _STATS.triton_logits_calls += 1
+    _STATS.triton_loss_calls += 1
+    _STATS.triton_forward_tokens += int(token_count)
+    _STATS.triton_forward_elements += int(token_count * sampled_vocab_size)
+    _STATS.last_device = str(hidden.device)
+    _STATS.last_dtype = str(hidden.dtype)
+    return token_losses.mean(), sampled_logits, target_positions
+
+
+class _LanguageSampledVocabCEAutograd(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        hidden: torch.Tensor,
+        target_ids: torch.Tensor,
+        sampled_vocab_ids: torch.Tensor,
+        lm_head_weight: torch.Tensor,
+        lm_head_bias: torch.Tensor,
+        validate_targets: bool,
+        sparse_weight_gradient: bool,
+    ) -> torch.Tensor:
+        runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long).reshape(-1)
+        runtime_sampled_ids = sampled_vocab_ids.to(
+            device=hidden.device,
+            dtype=torch.long,
+        ).contiguous()
+        (
+            loss,
+            sampled_logits,
+            target_positions,
+        ) = _language_sampled_vocab_ce_triton_forward_with_aux(
+            hidden,
+            runtime_targets,
+            runtime_sampled_ids,
+            lm_head_weight,
+            lm_head_bias,
+            validate_targets=bool(validate_targets),
+        )
+        ctx.save_for_backward(
+            hidden,
+            runtime_sampled_ids,
+            lm_head_weight,
+            lm_head_bias,
+            sampled_logits,
+            target_positions,
+        )
+        ctx.validate_targets = bool(validate_targets)
+        ctx.sparse_weight_gradient = bool(sparse_weight_gradient)
+        _STATS.triton_autograd_forward_calls += 1
+        return loss
+
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_output: torch.Tensor,
+    ) -> tuple[
+        torch.Tensor | None,
+        None,
+        None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        None,
+        None,
+    ]:
+        (
+            hidden,
+            sampled_vocab_ids,
+            lm_head_weight,
+            lm_head_bias,
+            sampled_logits,
+            target_positions,
+        ) = ctx.saved_tensors
+        sampled_weight = lm_head_weight.index_select(0, sampled_vocab_ids)
+        grad_logits = F.softmax(sampled_logits.float(), dim=1)
+        grad_logits[
+            torch.arange(
+                int(target_positions.numel()),
+                device=target_positions.device,
+                dtype=torch.long,
+            ),
+            target_positions,
+        ] -= 1.0
+        token_count = max(1, int(target_positions.numel()))
+        grad_logits = grad_logits * (grad_output.to(grad_logits.dtype) / token_count)
+        grad_logits_runtime = grad_logits.to(dtype=hidden.dtype)
+
+        grad_hidden = (
+            grad_logits_runtime.matmul(sampled_weight)
+            if ctx.needs_input_grad[0]
+            else None
+        )
+        grad_weight: torch.Tensor | None = None
+        if ctx.needs_input_grad[3]:
+            sampled_grad_weight = grad_logits_runtime.transpose(0, 1).matmul(hidden)
+            if bool(ctx.sparse_weight_gradient):
+                grad_weight = torch.sparse_coo_tensor(
+                    sampled_vocab_ids.reshape(1, -1),
+                    sampled_grad_weight,
+                    size=tuple(lm_head_weight.shape),
+                    device=lm_head_weight.device,
+                    dtype=lm_head_weight.dtype,
+                    check_invariants=False,
+                ).coalesce()
+                _STATS.sparse_weight_backward_calls += 1
+            else:
+                grad_weight = torch.zeros_like(lm_head_weight)
+                grad_weight.index_add_(0, sampled_vocab_ids, sampled_grad_weight)
+        grad_bias: torch.Tensor | None = None
+        if ctx.needs_input_grad[4]:
+            sampled_grad_bias = grad_logits_runtime.sum(dim=0)
+            grad_bias = torch.zeros_like(lm_head_bias)
+            grad_bias.index_add_(0, sampled_vocab_ids, sampled_grad_bias)
+        _STATS.torch_autograd_backward_calls += 1
+        return grad_hidden, None, None, grad_weight, grad_bias, None, None
+
+
 def language_sampled_vocab_cross_entropy(
     hidden: torch.Tensor,
     target_ids: torch.Tensor,
@@ -493,6 +698,8 @@ def language_sampled_vocab_cross_entropy(
     *,
     prefer_triton: bool = True,
     force_triton: bool = False,
+    validate_targets: bool = True,
+    sparse_weight_gradient: bool = False,
 ) -> torch.Tensor:
     _validate_sampled_vocab_contract(
         hidden,
@@ -503,6 +710,11 @@ def language_sampled_vocab_cross_entropy(
     )
     runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long)
     runtime_sampled_ids = sampled_vocab_ids.to(device=hidden.device, dtype=torch.long)
+    requires_grad = bool(
+        hidden.requires_grad
+        or lm_head_weight.requires_grad
+        or lm_head_bias.requires_grad
+    )
     if bool(prefer_triton) and hidden.device.type == "cuda":
         use_triton = (
             can_use_language_sampled_vocab_ce_triton(
@@ -521,14 +733,27 @@ def language_sampled_vocab_cross_entropy(
                 lm_head_bias,
             )
         )
+        if requires_grad and not bool(force_triton):
+            use_triton = bool(use_triton and _triton_training_autograd_enabled())
         if use_triton:
             try:
+                if requires_grad:
+                    return _LanguageSampledVocabCEAutograd.apply(
+                        hidden,
+                        runtime_targets,
+                        runtime_sampled_ids,
+                        lm_head_weight,
+                        lm_head_bias,
+                        bool(validate_targets),
+                        bool(sparse_weight_gradient),
+                    )
                 return _language_sampled_vocab_ce_triton_forward(
                     hidden,
                     runtime_targets,
                     runtime_sampled_ids,
                     lm_head_weight,
                     lm_head_bias,
+                    validate_targets=bool(validate_targets),
                 )
             except Exception as exc:  # pragma: no cover - hardware/runtime dependent
                 _STATS.triton_failure_count += 1
@@ -547,4 +772,6 @@ def language_sampled_vocab_cross_entropy(
         runtime_sampled_ids,
         lm_head_weight,
         lm_head_bias,
+        validate_targets=bool(validate_targets),
+        sparse_weight_gradient=bool(sparse_weight_gradient),
     )

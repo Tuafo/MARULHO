@@ -10,6 +10,10 @@ from typing import Any, Mapping
 
 import torch
 
+from marulho.core.language_sampled_vocab_ce_triton import (
+    language_sampled_vocab_ce_triton_stats,
+    language_sampled_vocab_ce_triton_stats_delta,
+)
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_training_experiment import DEFAULT_CORPUS
 from marulho.reporting.readme_reports import write_json_report_with_readme
@@ -295,6 +299,7 @@ def _run_arm(
             config=config,
             step_count=int(config.warmup_steps),
         )
+        sampled_vocab_ce_stats_before = language_sampled_vocab_ce_triton_stats()
         cuda_synchronized_before_timing_start = _sync_if_cuda(device)
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
@@ -307,6 +312,10 @@ def _run_arm(
             step_count=int(config.repeats),
         )
         cuda_synchronized_before_timing_stop = _sync_if_cuda(device)
+        sampled_vocab_ce_stats_delta = language_sampled_vocab_ce_triton_stats_delta(
+            sampled_vocab_ce_stats_before,
+            language_sampled_vocab_ce_triton_stats(),
+        )
         elapsed = max(0.0, time.perf_counter() - started)
         memory = _cuda_memory(device)
         loss_evidence = dict(last_result.get("loss_evidence", {}))
@@ -330,6 +339,7 @@ def _run_arm(
             "gradient_norm": _tensor_scalar(last_grad_norm),
             "loss_kind": str(last_result.get("loss_kind")),
             "loss_evidence": loss_evidence,
+            "sampled_vocab_ce_triton_stats_delta": sampled_vocab_ce_stats_delta,
             "full_vocab_logits_materialized": bool(
                 loss_evidence.get("full_vocab_logits_materialized", True)
             ),
@@ -368,6 +378,7 @@ def _run_arm(
             "gradient_norm": None,
             "loss_kind": None,
             "loss_evidence": {},
+            "sampled_vocab_ce_triton_stats_delta": {},
             "full_vocab_logits_materialized": sampled_vocab_size <= 0,
             "sampled_vocab_training": sampled_vocab_size > 0,
             "device": str(device),
@@ -398,6 +409,14 @@ def _comparison(
         sampled.get("cuda_memory", {}).get("peak_allocated_mib", 0.0) or 0.0
     )
     peak_ratio = sampled_peak / dense_peak if dense_success and dense_peak > 0.0 else None
+    if sampled_success and dense is None:
+        scalability_evidence = "sampled_measured_dense_not_run"
+    elif sampled_success and not dense_success:
+        scalability_evidence = "sampled_succeeded_dense_failed"
+    elif sampled_success and dense_success:
+        scalability_evidence = "sampled_vs_dense_measured"
+    else:
+        scalability_evidence = "sampled_failed"
     return {
         "surface": "marulho_language_sampled_vocab_training_comparison.v1",
         "sampled_training_success": sampled_success,
@@ -409,13 +428,7 @@ def _comparison(
         "sampled_peak_cuda_allocated_mib": sampled_peak,
         "dense_peak_cuda_allocated_mib": dense_peak,
         "sampled_vs_dense_peak_memory_ratio": peak_ratio,
-        "scalability_evidence": (
-            "sampled_succeeded_dense_failed"
-            if sampled_success and not dense_success
-            else "sampled_vs_dense_measured"
-            if sampled_success and dense_success
-            else "sampled_failed"
-        ),
+        "scalability_evidence": scalability_evidence,
     }
 
 
@@ -498,8 +511,8 @@ def run_language_sampled_vocab_training_impact(
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
             "next_experiment": (
-                "bind large-vocab sampled training into checkpoint/generation policy "
-                "after padded-vocab decode masking is reviewed"
+                "profile batch16 optimizer/state-block cost and keep forced Triton "
+                "sampled-vocab CE training disabled until complete-runtime evidence wins"
             ),
         },
     }
