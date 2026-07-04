@@ -153,6 +153,9 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "decode_controls_backend": "torch_device_tensor",
         "decode_controls_cpu_token_copy": False,
         "decode_controls_disable_cuda_graph_burst": False,
+        "decode_controls_graph_compatible": False,
+        "decode_controls_graph_failure_reason": None,
+        "cuda_graph_decode_controls_used": False,
         "repetition_penalty": 1.0,
         "repetition_penalty_applied": False,
         "repetition_penalty_adjusted_token_count": 0,
@@ -200,8 +203,11 @@ def _try_capture_cuda_graph_burst(
     state: Mapping[str, torch.Tensor],
     burst_tokens: int,
     assume_no_sleeping_experts: bool,
+    decode_controls: Any | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     evidence = _new_execution_evidence(model)
+    if decode_controls is not None:
+        evidence.update(decode_controls.evidence())
     if model.device.type != "cuda" or not torch.cuda.is_available():
         evidence["cuda_graph_failure_reason"] = "cuda_unavailable"
         return None, evidence
@@ -212,11 +218,27 @@ def _try_capture_cuda_graph_burst(
     if burst_tokens <= 1:
         evidence["cuda_graph_failure_reason"] = "burst_tokens_not_greater_than_one"
         return None, evidence
+    decode_controls_requested = bool(
+        decode_controls is not None and decode_controls.requested
+    )
+    if decode_controls_requested and not bool(decode_controls.graph_burst_compatible()):
+        evidence["cuda_graph_failure_reason"] = "decode_controls_not_graph_compatible"
+        evidence["decode_controls_graph_failure_reason"] = (
+            decode_controls.graph_incompatibility_reason()
+        )
+        return None, evidence
 
     setup_started = time.perf_counter()
     graph: torch.cuda.CUDAGraph | None = None
     try:
-        token_buffer = torch.argmax(next_logits, dim=-1, keepdim=True).detach().clone()
+        token_buffer = (
+            decode_controls.select_next_token(next_logits)
+            if decode_controls_requested
+            else torch.argmax(next_logits, dim=-1, keepdim=True)
+        ).detach().clone()
+        decode_control_reset = (
+            decode_controls.snapshot() if decode_controls_requested else None
+        )
         state_buffers = {
             key: value.detach().clone()
             for key, value in state.items()
@@ -259,10 +281,14 @@ def _try_capture_cuda_graph_burst(
                     decode_vocab_only=True,
                 )
                 current_state = step_result["state"]
-                current_token = torch.argmax(
-                    step_result["logits"][:, -1, :],
-                    dim=-1,
-                    keepdim=True,
+                current_token = (
+                    decode_controls.select_next_token(step_result["logits"][:, -1, :])
+                    if decode_controls_requested
+                    else torch.argmax(
+                        step_result["logits"][:, -1, :],
+                        dim=-1,
+                        keepdim=True,
+                    )
                 )
             token_buffer.copy_(current_token)
             for key in state_buffers:
@@ -271,12 +297,23 @@ def _try_capture_cuda_graph_burst(
         token_buffer.copy_(reset_token)
         for key in state_buffers:
             state_buffers[key].copy_(reset_state[key])
+        if decode_control_reset is not None:
+            decode_controls.restore(decode_control_reset)
         torch.cuda.synchronize(model.device)
         evidence.update(
             {
-                "mode": "torch_cuda_graph_burst",
-                "backend": "torch_cuda_graph_burst",
+                "mode": (
+                    "torch_cuda_graph_burst_decode_controls"
+                    if decode_controls_requested
+                    else "torch_cuda_graph_burst"
+                ),
+                "backend": (
+                    "torch_cuda_graph_burst_decode_controls"
+                    if decode_controls_requested
+                    else "torch_cuda_graph_burst"
+                ),
                 "cuda_graph_burst_used": True,
+                "cuda_graph_decode_controls_used": bool(decode_controls_requested),
                 "cuda_graph_burst_tokens": int(burst_tokens),
                 "cuda_graph_setup_seconds": time.perf_counter() - setup_started,
             }
@@ -294,6 +331,8 @@ def _try_capture_cuda_graph_burst(
     except Exception as exc:  # pragma: no cover - hardware/runtime dependent
         if graph is not None:
             del graph
+        if "decode_control_reset" in locals() and decode_control_reset is not None:
+            decode_controls.restore(decode_control_reset)
         evidence.update(
             {
                 "cuda_graph_failure_count": 1,
@@ -335,6 +374,7 @@ class _SustainedDecodeControlState:
             device=device,
             dtype=torch.long,
         )
+        self._true_value = torch.ones((1,), device=device, dtype=torch.bool)
         self.seen_unigram = torch.zeros(
             (self.vocab_size,),
             device=device,
@@ -377,6 +417,29 @@ class _SustainedDecodeControlState:
     def requested(self) -> bool:
         return bool(self.repetition_penalty > 1.0 or self.no_repeat_ngram_size > 0)
 
+    def graph_burst_compatible(self) -> bool:
+        if not self.requested:
+            return True
+        if self.device.type != "cuda":
+            return False
+        if self.no_repeat_ngram_size <= 1:
+            return True
+        return bool(
+            self.ngram_state is not None
+            and self.valid_recent_count >= self.prefix_length
+        )
+
+    def graph_incompatibility_reason(self) -> str | None:
+        if self.graph_burst_compatible():
+            return None
+        if self.device.type != "cuda":
+            return "cuda_required_for_decode_control_graph_burst"
+        if self.no_repeat_ngram_size >= 2 and self.ngram_state is None:
+            return self.ngram_state_backend
+        if self.no_repeat_ngram_size >= 2 and self.valid_recent_count < self.prefix_length:
+            return "prompt_history_shorter_than_no_repeat_prefix"
+        return "unknown_decode_control_graph_incompatibility"
+
     def prime(self, token_ids: list[int]) -> None:
         for raw_token in token_ids:
             self.update_token(
@@ -393,8 +456,13 @@ class _SustainedDecodeControlState:
     def update_token(self, token: torch.Tensor) -> None:
         token = token.reshape(()).to(device=self.device, dtype=torch.long)
         if self.ngram_state is not None and self.valid_recent_count >= self.prefix_length:
-            self.ngram_state[self._prefix_index(), token] = True
-        self.seen_unigram[token] = True
+            flat_index = self._prefix_index() * self.vocab_size + token
+            self.ngram_state.reshape(-1).scatter_(
+                0,
+                flat_index.reshape(1),
+                self._true_value,
+            )
+        self.seen_unigram.scatter_(0, token.reshape(1), self._true_value)
         if self.prefix_length > 0:
             if self.valid_recent_count < self.prefix_length:
                 self.recent_tokens[self.valid_recent_count] = token
@@ -421,7 +489,10 @@ class _SustainedDecodeControlState:
             elif self.valid_recent_count >= self.prefix_length:
                 adjusted = self._apply_banned_mask(
                     adjusted,
-                    self.ngram_state[self._prefix_index()],
+                    self.ngram_state.index_select(
+                        0,
+                        self._prefix_index().reshape(1),
+                    ).reshape(self.vocab_size),
                 )
         next_id = torch.argmax(adjusted, dim=-1, keepdim=True)
         self.update_token(next_id.reshape(()))
@@ -443,12 +514,53 @@ class _SustainedDecodeControlState:
         self.decode_control_fallback_count += all_banned.long()
         return torch.where(all_banned.reshape(1, 1), logits, masked)
 
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "seen_unigram": self.seen_unigram.detach().clone(),
+            "recent_tokens": self.recent_tokens.detach().clone(),
+            "ngram_state": (
+                None
+                if self.ngram_state is None
+                else self.ngram_state.detach().clone()
+            ),
+            "repetition_penalty_adjusted_token_count": (
+                self.repetition_penalty_adjusted_token_count.detach().clone()
+            ),
+            "no_repeat_ngram_banned_token_count": (
+                self.no_repeat_ngram_banned_token_count.detach().clone()
+            ),
+            "decode_control_fallback_count": (
+                self.decode_control_fallback_count.detach().clone()
+            ),
+            "valid_recent_count": int(self.valid_recent_count),
+        }
+
+    def restore(self, snapshot: Mapping[str, Any]) -> None:
+        self.seen_unigram.copy_(snapshot["seen_unigram"])
+        self.recent_tokens.copy_(snapshot["recent_tokens"])
+        if self.ngram_state is not None and snapshot.get("ngram_state") is not None:
+            self.ngram_state.copy_(snapshot["ngram_state"])
+        self.repetition_penalty_adjusted_token_count.copy_(
+            snapshot["repetition_penalty_adjusted_token_count"]
+        )
+        self.no_repeat_ngram_banned_token_count.copy_(
+            snapshot["no_repeat_ngram_banned_token_count"]
+        )
+        self.decode_control_fallback_count.copy_(
+            snapshot["decode_control_fallback_count"]
+        )
+        self.valid_recent_count = int(snapshot["valid_recent_count"])
+
     def evidence(self) -> dict[str, Any]:
         return {
             "decode_controls_requested": self.requested,
             "decode_controls_backend": "torch_device_tensor",
             "decode_controls_cpu_token_copy": False,
-            "decode_controls_disable_cuda_graph_burst": self.requested,
+            "decode_controls_disable_cuda_graph_burst": bool(
+                self.requested and not self.graph_burst_compatible()
+            ),
+            "decode_controls_graph_compatible": bool(self.graph_burst_compatible()),
+            "decode_controls_graph_failure_reason": self.graph_incompatibility_reason(),
             "repetition_penalty": float(self.repetition_penalty),
             "repetition_penalty_applied": bool(self.repetition_penalty > 1.0),
             "repetition_penalty_adjusted_token_count": int(
@@ -619,6 +731,9 @@ def _report_payload(
             ),
             "fallback_reason": fallback_reason,
             "cuda_graph_failure_reason": execution.get("cuda_graph_failure_reason"),
+            "decode_controls_graph_failure_reason": execution.get(
+                "decode_controls_graph_failure_reason"
+            ),
             "decode_control_fallback_count": int(
                 execution.get("decode_control_fallback_count", 0) or 0
             ),
@@ -668,6 +783,15 @@ def _report_payload(
             ),
             "decode_controls_disable_cuda_graph_burst": bool(
                 execution.get("decode_controls_disable_cuda_graph_burst", False)
+            ),
+            "decode_controls_graph_compatible": bool(
+                execution.get("decode_controls_graph_compatible", False)
+            ),
+            "decode_controls_graph_failure_reason": execution.get(
+                "decode_controls_graph_failure_reason"
+            ),
+            "cuda_graph_decode_controls_used": bool(
+                execution.get("cuda_graph_decode_controls_used", False)
             ),
             "repetition_penalty_adjusted_token_count": int(
                 execution.get("repetition_penalty_adjusted_token_count", 0) or 0
@@ -817,7 +941,10 @@ def run_language_sustained_runtime_evidence(
             if (
                 should_stop is None
                 and not bool(stop_on_eos)
-                and not bool(decode_controls.requested)
+                and (
+                    not bool(decode_controls.requested)
+                    or bool(decode_controls.graph_burst_compatible())
+                )
             ):
                 graph_runner, execution_evidence = _try_capture_cuda_graph_burst(
                     model=model,
@@ -828,10 +955,16 @@ def run_language_sustained_runtime_evidence(
                         int(target_tokens),
                     ),
                     assume_no_sleeping_experts=assume_no_sleeping,
+                    decode_controls=(
+                        decode_controls if bool(decode_controls.requested) else None
+                    ),
                 )
             else:
                 execution_evidence["cuda_graph_failure_reason"] = (
-                    "decode_controls_require_eager_history"
+                    (
+                        "decode_controls_not_graph_compatible:"
+                        f"{decode_controls.graph_incompatibility_reason()}"
+                    )
                     if bool(decode_controls.requested)
                     else "per_token_stop_or_eos_required"
                 )
@@ -842,6 +975,13 @@ def run_language_sustained_runtime_evidence(
                         if model.device.type == "cuda"
                         else "torch_eager_cpu_decode_controls"
                     )
+            if graph_runner is None and bool(decode_controls.requested):
+                execution_evidence["mode"] = "torch_eager_decode_controls"
+                execution_evidence["backend"] = (
+                    "torch_eager_cuda_decode_controls"
+                    if model.device.type == "cuda"
+                    else "torch_eager_cpu_decode_controls"
+                )
 
             if graph_runner is not None:
                 burst_tokens = int(graph_runner["burst_tokens"])
@@ -898,7 +1038,11 @@ def run_language_sustained_runtime_evidence(
                     telemetry = dict(result["telemetry"])
                 next_logits = result["logits"][:, -1, :]
                 if current_next_id is not None:
-                    current_next_id = torch.argmax(next_logits, dim=-1, keepdim=True)
+                    current_next_id = (
+                        decode_controls.select_next_token(next_logits)
+                        if bool(decode_controls.requested)
+                        else torch.argmax(next_logits, dim=-1, keepdim=True)
+                    )
                 if bool(stop_on_eos):
                     last_token_id = int(last_token_tensor.detach().cpu().item())
                     if last_token_id == int(tokenizer.eos_id):

@@ -99,8 +99,9 @@ harnesses.
   `generation_vocab_size`; sustained generation uses decode-limited logits so
   extra model rows cannot be emitted as tokenizer bytes. It also accepts
   optional sustained decode controls and records their device-tensor state,
-  counters, graph-disable reason, and timeout/final status; controlled decode
-  requires eager history today and is evidence, not a promoted hot path.
+  counters, graph compatibility, graph-disable reason, and timeout/final status;
+  graph-compatible controlled decode can stay on CUDA graph burst, while
+  incompatible controls still fall back with an explicit reason.
 - `language_generation_coherence.py` is the grounded prompt-suite review for
   checkpointed MARULHO-owned generation. It records raw continuations,
   source-prefix match, next-character source match, printability, token-run and
@@ -496,19 +497,29 @@ harnesses.
   checkpoint restore plus decode masking, not broad generation quality.
 - Current 2026-07-04 sustained decode-control evidence keeps the same
   checkpoint and enables `generation_repetition_penalty=1.15` plus
-  `generation_no_repeat_ngram_size=3`. The diagnostic report
+  `generation_no_repeat_ngram_size=3`. The superseded diagnostic report
   `reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-8192-sustained.json`
   reached `8192/8192` tokens at `104.126` tokens/sec on
   `torch_eager_cuda_decode_controls`, with CUDA graph burst disabled by
   `decode_controls_require_eager_history`, dense device prefix-table capacity
   `17984728`, zero decode-control fallbacks, and
-  `decode_controls_cpu_token_copy=false`. The house-scale target report
+  `decode_controls_cpu_token_copy=false`; its house-scale target report
   `reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-524288-timeout-sustained.json`
   wrote a timeout artifact after `68050/524288` tokens in `600.005s`
-  (`113.416` tokens/sec), also with zero decode-control fallbacks. This proves
-  sustained controlled decoding is measured and GPU-state based, but it is not
-  house-scale fast until the controlled path becomes graph-compatible or gains
-  a separate hot kernel.
+  (`113.416` tokens/sec), also with zero decode-control fallbacks. The
+  graph-compatible follow-up
+  `reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-8192-sustained.json`
+  reached `8192/8192` at `3883.537` tokens/sec, and the house-scale graph
+  report
+  `reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-524288-sustained.json`
+  reached `524288/524288` at `5537.062` tokens/sec with
+  `torch_cuda_graph_burst_decode_controls`, `32768` graph replays,
+  `decode_controls_graph_compatible=true`, `cuda_graph_decode_controls_used=true`,
+  dense device prefix-table capacity `17984728`, zero decode-control fallbacks,
+  and `decode_controls_cpu_token_copy=false`. This is `48.821x` faster than the
+  previous eager controlled timeout path, while still `-23.607%` versus the
+  plain graph-burst decode-limited report, so it is controlled-decode speed
+  evidence rather than a broad runtime or language-quality promotion.
 - Current 2026-07-04 generation coherence evidence in
   `reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json`
   passed `4/4` grounded prompts from the PLIF-surrogate checkpoint with mean
@@ -607,8 +618,8 @@ python -m marulho.evaluation.language_sampled_vocab_training_impact --output rep
 MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING=1 python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-forced-triton-autograd-524288-b16-r8-sampled-only.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 2 --repeats 8 --skip-dense-baseline --device cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --device cuda
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --no-environment-snapshot
-python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-8192-sustained.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
-python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-524288-timeout-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-8192-sustained.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-plif-surrogate-8192-checkpoint.pt --output reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-generation-coherence.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
