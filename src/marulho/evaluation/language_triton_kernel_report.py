@@ -10,6 +10,13 @@ from typing import Any, Callable, Sequence
 import torch
 from torch.nn import functional as F
 
+from marulho.core.language_expert_dispatch_triton import (
+    can_use_language_expert_dispatch_triton,
+    language_expert_dispatch,
+    language_expert_dispatch_torch_reference,
+    language_expert_dispatch_triton_stats,
+    language_expert_dispatch_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     can_use_language_plif_triton,
     can_use_language_plif_surrogate_triton,
@@ -43,6 +50,7 @@ RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
+EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 KERNEL_NAME = RMSNORM_KERNEL_NAME
 
 
@@ -627,6 +635,180 @@ def _selective_scan_shape_kernel_result(
         }
 
 
+def _expert_dispatch_inputs(
+    *,
+    rows: int,
+    cols: int,
+    expert_count: int,
+    active_experts: int,
+    expert_hidden_dim: int,
+    dtype: torch.dtype,
+) -> dict[str, torch.Tensor]:
+    hidden = torch.randn(rows, cols, device="cuda", dtype=dtype)
+    selected_expert_ids = torch.randint(
+        0,
+        expert_count,
+        (rows, active_experts),
+        device="cuda",
+        dtype=torch.long,
+    )
+    combine_logits = torch.randn(rows, active_experts, device="cuda", dtype=dtype)
+    return {
+        "hidden": hidden,
+        "selected_expert_ids": selected_expert_ids,
+        "combine_weights": torch.softmax(combine_logits, dim=-1),
+        "first_weights": torch.randn(
+            expert_count,
+            expert_hidden_dim,
+            cols,
+            device="cuda",
+            dtype=dtype,
+        ),
+        "first_biases": torch.randn(
+            expert_count,
+            expert_hidden_dim,
+            device="cuda",
+            dtype=dtype,
+        ),
+        "second_weights": torch.randn(
+            expert_count,
+            cols,
+            expert_hidden_dim,
+            device="cuda",
+            dtype=dtype,
+        ),
+        "second_biases": torch.randn(
+            expert_count,
+            cols,
+            device="cuda",
+            dtype=dtype,
+        ),
+    }
+
+
+def _expert_dispatch_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    expert_count: int,
+    active_experts: int,
+    expert_hidden_dim: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is not torch.float32:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": EXPERT_DISPATCH_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "active_experts": int(active_experts),
+            "expert_hidden_dim": int(expert_hidden_dim),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_for_expert_dispatch",
+            "parity_passed": False,
+        }
+    if dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": EXPERT_DISPATCH_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "active_experts": int(active_experts),
+            "expert_hidden_dim": int(expert_hidden_dim),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_on_device",
+            "parity_passed": False,
+        }
+
+    inputs = _expert_dispatch_inputs(
+        rows=rows,
+        cols=cols,
+        expert_count=expert_count,
+        active_experts=active_experts,
+        expert_hidden_dim=expert_hidden_dim,
+        dtype=dtype,
+    )
+    supported = can_use_language_expert_dispatch_triton(**inputs)
+    before_stats = language_expert_dispatch_triton_stats()
+    try:
+        reference = language_expert_dispatch_torch_reference(**inputs)
+        triton_output = language_expert_dispatch(
+            **inputs,
+            prefer_triton=True,
+            force_triton=True,
+        )
+        torch.cuda.synchronize()
+        diff = (triton_output.float() - reference.float()).abs()
+        max_abs_error = float(diff.max().detach().cpu().item())
+        denominator = reference.float().abs().clamp_min(1e-8)
+        max_rel_error = float((diff / denominator).max().detach().cpu().item())
+        tolerance = 5e-2 if dtype in {torch.float16, torch.bfloat16} else 1e-4
+        parity_passed = bool(max_abs_error <= tolerance or max_rel_error <= tolerance)
+        torch_ms = _benchmark_cuda(
+            lambda: language_expert_dispatch_torch_reference(**inputs),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            lambda: language_expert_dispatch(
+                **inputs,
+                prefer_triton=True,
+                force_triton=True,
+            ),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_expert_dispatch_triton_stats()
+        stats_delta = language_expert_dispatch_triton_stats_delta(
+            before_stats,
+            after_stats,
+        )
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": EXPERT_DISPATCH_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "active_experts": int(active_experts),
+            "expert_hidden_dim": int(expert_hidden_dim),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed and supported else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed and supported),
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_expert_dispatch_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": EXPERT_DISPATCH_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "active_experts": int(active_experts),
+            "expert_hidden_dim": int(expert_hidden_dim),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": bool(supported),
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_expert_dispatch_triton_stats_delta(
+                before_stats,
+                after_stats,
+            ),
+        }
+
+
 def run_language_triton_kernel_report(
     *,
     output_path: str | Path,
@@ -635,6 +817,9 @@ def run_language_triton_kernel_report(
     dtypes: Sequence[str] = ("float32", "float16"),
     eps: float = 1e-6,
     scan_time_steps: int = 64,
+    expert_count: int = 64,
+    active_experts: int = 4,
+    expert_hidden_dim: int = 0,
     warmup: int = 20,
     repeats: int = 100,
 ) -> dict[str, Any]:
@@ -683,6 +868,16 @@ def run_language_triton_kernel_report(
         selected_triton_available = bool(
             language_selective_scan_triton_stats()["triton_available"]
         )
+    elif normalized_kernel in {
+        "expert-dispatch",
+        "block-sparse-expert-dispatch",
+        "language-block-sparse-expert-dispatch",
+    }:
+        kernel_name = EXPERT_DISPATCH_KERNEL_NAME
+        kernel_backlog_item = "block_sparse_expert_dispatch_combine"
+        selected_triton_available = bool(
+            language_expert_dispatch_triton_stats()["triton_available"]
+        )
     else:
         raise ValueError(f"unsupported kernel: {kernel}")
     cuda_available = bool(torch.cuda.is_available())
@@ -712,28 +907,44 @@ def run_language_triton_kernel_report(
                             repeats=int(repeats),
                         )
                     )
+                elif kernel_name == PLIF_SURROGATE_KERNEL_NAME:
+                    shape_results.append(
+                        _plif_surrogate_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
+                elif kernel_name == SELECTIVE_SCAN_KERNEL_NAME:
+                    shape_results.append(
+                        _selective_scan_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            time_steps=int(scan_time_steps),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
                 else:
-                    if kernel_name == PLIF_SURROGATE_KERNEL_NAME:
-                        shape_results.append(
-                            _plif_surrogate_shape_kernel_result(
-                                rows=rows,
-                                cols=cols,
-                                dtype=dtype,
-                                warmup=int(warmup),
-                                repeats=int(repeats),
-                            )
+                    shape_results.append(
+                        _expert_dispatch_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            expert_count=int(expert_count),
+                            active_experts=int(active_experts),
+                            expert_hidden_dim=(
+                                int(expert_hidden_dim)
+                                if int(expert_hidden_dim) > 0
+                                else int(cols) * 2
+                            ),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
                         )
-                    else:
-                        shape_results.append(
-                            _selective_scan_shape_kernel_result(
-                                rows=rows,
-                                cols=cols,
-                                time_steps=int(scan_time_steps),
-                                dtype=dtype,
-                                warmup=int(warmup),
-                                repeats=int(repeats),
-                            )
-                        )
+                    )
     valid_results = [
         item for item in shape_results if item.get("status") == "pass"
     ]
@@ -741,7 +952,12 @@ def run_language_triton_kernel_report(
         item
         for item in shape_results
         if item.get("status")
-        not in {"pass", "unsupported_dtype_on_device", "unsupported_dtype_for_surrogate_backward"}
+        not in {
+            "pass",
+            "unsupported_dtype_on_device",
+            "unsupported_dtype_for_surrogate_backward",
+            "unsupported_dtype_for_expert_dispatch",
+        }
     ]
     parity_passed = (
         bool(shape_results)
@@ -789,11 +1005,17 @@ def run_language_triton_kernel_report(
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
-    else:
+    elif kernel_name == SELECTIVE_SCAN_KERNEL_NAME:
         remaining_kernel_backlog = [
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
+    elif kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "sampled_vocab_cross_entropy_parity",
+        ]
+    else:
+        remaining_kernel_backlog = []
     if not parity_passed and kernel_name == PLIF_FORWARD_KERNEL_NAME:
         remaining_kernel_backlog = [
             "plif_triton_forward_parity",
@@ -819,6 +1041,15 @@ def run_language_triton_kernel_report(
                 item
                 for item in remaining_kernel_backlog
                 if item != "selective_scan_triton_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "block_sparse_expert_dispatch_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "block_sparse_expert_dispatch_parity"
             ],
         ]
     report = {
@@ -854,6 +1085,23 @@ def run_language_triton_kernel_report(
             "scan_time_steps": (
                 int(scan_time_steps) if kernel_name == SELECTIVE_SCAN_KERNEL_NAME else None
             ),
+            "expert_count": (
+                int(expert_count) if kernel_name == EXPERT_DISPATCH_KERNEL_NAME else None
+            ),
+            "active_experts": (
+                int(active_experts)
+                if kernel_name == EXPERT_DISPATCH_KERNEL_NAME
+                else None
+            ),
+            "expert_hidden_dim": (
+                (
+                    int(expert_hidden_dim)
+                    if int(expert_hidden_dim) > 0
+                    else "shape_cols_x2"
+                )
+                if kernel_name == EXPERT_DISPATCH_KERNEL_NAME
+                else None
+            ),
             "geometric_speedup_vs_torch": geometric_speedup,
             "speedup_is_microbenchmark_only": True,
         },
@@ -878,7 +1126,13 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--kernel",
-        choices=("rmsnorm-forward", "plif-forward", "plif-surrogate", "selective-scan"),
+        choices=(
+            "rmsnorm-forward",
+            "plif-forward",
+            "plif-surrogate",
+            "selective-scan",
+            "expert-dispatch",
+        ),
         default="rmsnorm-forward",
         help="Kernel evidence target.",
     )
@@ -902,6 +1156,24 @@ def main() -> int:
         default=64,
         help="Time steps for selective-scan kernel evidence.",
     )
+    parser.add_argument(
+        "--expert-count",
+        type=int,
+        default=64,
+        help="Total experts for expert-dispatch kernel evidence.",
+    )
+    parser.add_argument(
+        "--active-experts",
+        type=int,
+        default=4,
+        help="Active experts per token for expert-dispatch kernel evidence.",
+    )
+    parser.add_argument(
+        "--expert-hidden-dim",
+        type=int,
+        default=0,
+        help="Hidden size for expert-dispatch evidence; 0 uses 2x shape cols.",
+    )
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=100)
     args = parser.parse_args()
@@ -912,6 +1184,9 @@ def main() -> int:
         dtypes=tuple(args.dtype) if args.dtype else ("float32", "float16"),
         eps=args.eps,
         scan_time_steps=args.scan_time_steps,
+        expert_count=args.expert_count,
+        active_experts=args.active_experts,
+        expert_hidden_dim=args.expert_hidden_dim,
         warmup=args.warmup,
         repeats=args.repeats,
     )

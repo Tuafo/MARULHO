@@ -201,6 +201,18 @@ harnesses.
   forward, PLIF surrogate-backward, and selective-scan parity while keeping
   promotion blocked on generation coherence plus expert-dispatch and
   sampled-vocab cross-entropy evidence.
+- Current 2026-07-04 expert-dispatch Triton evidence in
+  `reports/language_kernel_evidence/expert-dispatch-triton-20260704.json`
+  passed three CUDA `float32` shape sweeps for
+  `language_block_sparse_expert_dispatch` with geometric microbenchmark
+  speedup `4.389x` over the PyTorch selected-expert dispatch/combine reference.
+  `float16` dispatch is explicitly unsupported until numerical parity is
+  proven. The kernel covers selected two-layer expert MLP dispatch for
+  `[token,state_dim]` hidden rows, selected expert IDs, combine weights, and
+  stacked expert parameters. `language-suite-expert-dispatch-kernel.json`
+  records RMSNorm, PLIF forward, PLIF surrogate-backward, selective-scan, and
+  expert-dispatch parity while keeping promotion blocked on generation
+  coherence plus sampled-vocab cross-entropy evidence.
 - Current 2026-07-03 vectorized state-block evidence precomputes the
   token-independent LM state-block projections across `[batch,time]` while
   preserving the causal recurrent membrane/spike/selective-state loop. The
@@ -219,7 +231,9 @@ harnesses.
   vocab kernel parity evidence; the later PLIF-forward report covers only the
   forward slice, the later PLIF surrogate-backward report closes the float32
   backward blocker, and the later selective-scan report closes standalone scan
-  parity without yet fusing the full state-block training loop.
+  parity without yet fusing the full state-block training loop. The later
+  expert-dispatch report closes `float32` selected-expert dispatch parity while
+  leaving sampled-vocab cross-entropy and generation coherence open.
 - Rejected regression evidence: same-day unqualified `diagnostic-8192.json`,
   `long-gate-131072.json`, and `house-scale-524288.json` captured a wrapper
   regression where `MarulhoBrain.feed(..., learn=False)` still learned chunks
@@ -267,4 +281,6 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel selective-scan --output reports/language_kernel_evidence/selective-scan-triton-20260704.json --shape 16x128 --shape 32x128 --shape 16x256 --dtype float32 --dtype float16 --scan-time-steps 64 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-selective-scan-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json
+python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispatch --output reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --shape 256x64 --shape 512x64 --shape 256x128 --dtype float32 --dtype float16 --expert-count 64 --active-experts 4 --expert-hidden-dim 128 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 ```

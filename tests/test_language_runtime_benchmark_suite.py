@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
+    EXPERT_DISPATCH_KERNEL_NAME,
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
     PLIF_FORWARD_KERNEL_NAME,
@@ -136,6 +137,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         ]
         is False
     )
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
+            "block_sparse_expert_dispatch_parity"
+        ]
+        is False
+    )
     assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
     assert (
         "plif_triton_forward_parity"
@@ -188,6 +195,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
+    expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_gpu_kernel_report(rmsnorm_kernel)
@@ -200,6 +208,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         selective_scan_kernel,
         kernel_name=SELECTIVE_SCAN_KERNEL_NAME,
     )
+    _write_gpu_kernel_report(
+        expert_dispatch_kernel,
+        kernel_name=EXPERT_DISPATCH_KERNEL_NAME,
+    )
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
@@ -210,6 +222,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             plif_kernel,
             plif_surrogate_kernel,
             selective_scan_kernel,
+            expert_dispatch_kernel,
         ),
     )
     categories = {item["name"]: item for item in report["categories"]}
@@ -234,7 +247,12 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         is True
     )
     assert gpu_kernel_category["evidence"]["selective_scan_triton_parity"] is True
+    assert (
+        gpu_kernel_category["evidence"]["block_sparse_expert_dispatch_parity"]
+        is True
+    )
     assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
+        EXPERT_DISPATCH_KERNEL_NAME,
         PLIF_FORWARD_KERNEL_NAME,
         PLIF_SURROGATE_KERNEL_NAME,
         RMSNORM_KERNEL_NAME,
@@ -247,7 +265,11 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         not in gpu_kernel_category["missing_evidence"]
     )
     assert "selective_scan_triton_parity" not in gpu_kernel_category["missing_evidence"]
-    assert "block_sparse_expert_dispatch_parity" in gpu_kernel_category[
+    assert (
+        "block_sparse_expert_dispatch_parity"
+        not in gpu_kernel_category["missing_evidence"]
+    )
+    assert "sampled_vocab_cross_entropy_parity" in gpu_kernel_category[
         "missing_evidence"
     ]
     assert report["promotion_gate"]["long_run_evidence_available"] is True

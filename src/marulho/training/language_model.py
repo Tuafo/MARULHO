@@ -14,6 +14,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from marulho.core.language_expert_dispatch_triton import (
+    language_expert_dispatch,
+    language_expert_dispatch_triton_stats,
+    language_expert_dispatch_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     language_plif_forward,
     language_plif_surrogate_update,
@@ -830,43 +835,70 @@ class RoutedLanguageExpertLayer(nn.Module):
         ) = self._stacked_expert_parameters(
             use_inference_cache=not torch.is_grad_enabled(),
         )
-        selected_flat = flat_ids.reshape(-1)
-        selected_first_weights = first_weights.index_select(0, selected_flat).reshape(
-            flat_ids.shape[0],
-            active_count,
-            self.expert_hidden_dim,
-            self.state_dim,
+        dispatch_stats_before = (
+            language_expert_dispatch_triton_stats()
+            if bool(collect_telemetry)
+            else None
         )
-        selected_first_biases = first_biases.index_select(0, selected_flat).reshape(
-            flat_ids.shape[0],
-            active_count,
-            self.expert_hidden_dim,
+        if not torch.is_grad_enabled():
+            expert_delta = language_expert_dispatch(
+                flat_hidden,
+                flat_ids,
+                flat_weights,
+                first_weights,
+                first_biases,
+                second_weights,
+                second_biases,
+            )
+        else:
+            selected_flat = flat_ids.reshape(-1)
+            selected_first_weights = first_weights.index_select(0, selected_flat).reshape(
+                flat_ids.shape[0],
+                active_count,
+                self.expert_hidden_dim,
+                self.state_dim,
+            )
+            selected_first_biases = first_biases.index_select(0, selected_flat).reshape(
+                flat_ids.shape[0],
+                active_count,
+                self.expert_hidden_dim,
+            )
+            selected_second_weights = second_weights.index_select(
+                0,
+                selected_flat,
+            ).reshape(
+                flat_ids.shape[0],
+                active_count,
+                self.state_dim,
+                self.expert_hidden_dim,
+            )
+            selected_second_biases = second_biases.index_select(0, selected_flat).reshape(
+                flat_ids.shape[0],
+                active_count,
+                self.state_dim,
+            )
+            expanded_hidden = flat_hidden.unsqueeze(1).expand(
+                -1,
+                active_count,
+                -1,
+            )
+            expert_hidden = F.silu(
+                torch.einsum("nkd,nkhd->nkh", expanded_hidden, selected_first_weights)
+                + selected_first_biases
+            )
+            expert_outputs = (
+                torch.einsum("nkh,nkdh->nkd", expert_hidden, selected_second_weights)
+                + selected_second_biases
+            )
+            expert_delta = (expert_outputs * flat_weights.unsqueeze(-1)).sum(dim=1)
+        dispatch_delta = (
+            language_expert_dispatch_triton_stats_delta(
+                dispatch_stats_before,
+                language_expert_dispatch_triton_stats(),
+            )
+            if dispatch_stats_before is not None
+            else None
         )
-        selected_second_weights = second_weights.index_select(0, selected_flat).reshape(
-            flat_ids.shape[0],
-            active_count,
-            self.state_dim,
-            self.expert_hidden_dim,
-        )
-        selected_second_biases = second_biases.index_select(0, selected_flat).reshape(
-            flat_ids.shape[0],
-            active_count,
-            self.state_dim,
-        )
-        expanded_hidden = flat_hidden.unsqueeze(1).expand(
-            -1,
-            active_count,
-            -1,
-        )
-        expert_hidden = F.silu(
-            torch.einsum("nkd,nkhd->nkh", expanded_hidden, selected_first_weights)
-            + selected_first_biases
-        )
-        expert_outputs = (
-            torch.einsum("nkh,nkdh->nkd", expert_hidden, selected_second_weights)
-            + selected_second_biases
-        )
-        expert_delta = (expert_outputs * flat_weights.unsqueeze(-1)).sum(dim=1)
 
         routed = hidden + expert_delta.reshape_as(hidden)
         route_latency_ms = (time.perf_counter() - started) * 1000.0
@@ -901,6 +933,13 @@ class RoutedLanguageExpertLayer(nn.Module):
             "sleeping_candidate_filtered_count": int(
                 sleeping_candidate_filtered_count
             ),
+            "expert_dispatch_backend": (
+                "triton_block_sparse_dispatch"
+                if dispatch_delta is not None
+                and bool(dispatch_delta.get("triton_kernel_used", False))
+                else "torch_selected_expert_dispatch"
+            ),
+            "expert_dispatch_triton_stats_delta": dispatch_delta,
         }
 
 

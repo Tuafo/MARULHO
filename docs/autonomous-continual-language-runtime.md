@@ -37,8 +37,9 @@ current terms, selective recurrent state, an eligibility trace cache, adaptive
 timestep budgeting, streaming state-cache reuse, and spike/dead/over-firing
 telemetry. It now has partial CUDA/Triton evidence for RMSNorm forward, PLIF
 forward, `float32` PLIF surrogate backward, and standalone selective recurrent
-scan, but this is not full hot-path promotion; expert dispatch, sampled-vocab
-CE, fallback, integration, and complete-runtime impact reports remain required.
+scan, plus `float32` selected expert dispatch/combine. This is not full
+hot-path promotion; sampled-vocab CE, half-precision expert dispatch,
+fallback, integration, and complete-runtime impact reports remain required.
 
 Iteration 6 has a first bounded online-learning window for the LM head. The
 training-owned executor snapshots model weights, applies new-domain gradient
@@ -497,7 +498,7 @@ Kernel promotion starts with correctness and complete-runtime evidence.
 | 3 | selective recurrent state scan | `core`/`training` | standalone parity exists; training-loop fusion, cache restore, and long-context impact remain |
 | 4 | route/vote top-k selection | `core`/`retrieval` | bounded rows, no all-column scan, route latency |
 | 5 | block-sparse column transition | `core`/`training` | active params/token, dense fallback truth |
-| 6 | expert dispatch/combine | `training` | load balance, sparse dispatch parity |
+| 6 | expert dispatch/combine | `core`/`training` | `float32` sparse dispatch parity exists; half precision and complete-runtime impact remain |
 | 7 | fused RMSNorm/residual/membrane centering | `core` | numerical parity, stability impact |
 | 8 | eligibility trace update | `core`/`training` | local plasticity parity, no hidden replay |
 | 9 | replay gather/scatter | `consolidation`/`training` | bounded replay placement, memory footprint |
@@ -551,6 +552,20 @@ records RMSNorm, PLIF forward, PLIF surrogate backward, and selective-scan
 parity while keeping promotion blocked on generation coherence plus
 block-sparse expert dispatch and sampled-vocab cross-entropy evidence.
 
+The fifth LM-head kernel evidence slice covers selected block-sparse expert
+dispatch/combine for the routed expert layer. `language_expert_dispatch_triton.py`
+provides the Triton kernels, PyTorch fallback, runtime-use counters, and
+no-grad CUDA integration for large enough `[token,state_dim]` dispatch batches.
+The 2026-07-04 report
+`reports/language_kernel_evidence/expert-dispatch-triton-20260704.json` passed
+three CUDA `float32` shape sweeps for `language_block_sparse_expert_dispatch`
+with geometric microbenchmark speedup `4.389x`; `float16` dispatch is marked
+unsupported until parity is proven. The paired suite report
+`reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json`
+records RMSNorm, PLIF forward, PLIF surrogate backward, selective-scan, and
+expert-dispatch parity while keeping promotion blocked on generation coherence
+plus sampled-vocab cross-entropy evidence.
+
 ## Evaluation Gates
 
 Language model gates:
@@ -603,8 +618,10 @@ shape (`batch=16`, `seq=64`, `state_dim=128`) from `823.405 ms` to
 tokens/sec` for `63744` train tokens and the paired `524288` sustained report
 reached `7264.683 tokens/sec`. This is a PyTorch/CUDA projection-vectorization
 speed slice; PLIF forward, `float32` PLIF backward, and standalone selective
-scan are now covered by separate parity evidence, while full state-block scan
-fusion, expert dispatch, and sampled-vocab kernels remain promotion blockers.
+scan are now covered by separate parity evidence. Later expert-dispatch
+evidence closes `float32` selected-expert dispatch parity, while full
+state-block scan fusion, half-precision expert dispatch, complete-runtime
+impact, and sampled-vocab kernels remain promotion blockers.
 
 ## Scale Ladder
 
@@ -674,6 +691,13 @@ PLIF-surrogate sustained reports. It records `long_run_throughput=pass`,
 `selective_scan_triton_parity=true`, and the 524288-token house-scale LM report
 at `7578.052 tokens/sec`, while keeping promotion blocked on generation
 coherence plus block-sparse expert dispatch and sampled-vocab kernel evidence.
+
+`language-suite-expert-dispatch-kernel.json` ingests RMSNorm, PLIF-forward,
+PLIF-surrogate-backward, selective-scan, and expert-dispatch kernel reports with
+the current PLIF-surrogate sustained reports. It records
+`long_run_throughput=pass`, `block_sparse_expert_dispatch_parity=true`, and the
+524288-token house-scale LM report at `7578.052 tokens/sec`, while keeping
+promotion blocked on generation coherence plus sampled-vocab kernel evidence.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

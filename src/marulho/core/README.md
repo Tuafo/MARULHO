@@ -27,6 +27,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   `language_selective_scan_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for standalone
   `[batch,time,state_dim]` recurrent state scans.
+- The LM-head selected expert dispatch/combine Triton primitive in
+  `language_expert_dispatch_triton.py`, including forced parity/benchmark
+  execution, PyTorch fallback, and runtime-use counters for block-sparse
+  routed expert rows.
 
 ## Must Not Own
 
@@ -53,6 +57,9 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   scan-size policy allows it. Standalone scan parity is not full state-block
   fusion; training-loop integration still needs separate complete-runtime
   evidence before promotion.
+- Language expert dispatch uses Triton for no-grad CUDA selected-expert rows
+  where the token-count policy allows it. Current parity is `float32` only;
+  half-precision dispatch falls back until separate numerical evidence exists.
 - Learned-chunk routing should score exact retrieved candidates when possible;
   dense assembly stays active only where full assemblies define the key.
 - `bind()` updates activation evidence only. Topology mutation belongs to an

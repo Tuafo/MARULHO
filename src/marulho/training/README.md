@@ -91,8 +91,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   active parameters per token, route device, route latency, and explicit
   all-column fallback truth. Its no-telemetry inference path avoids host
   sleeping-expert materialization so CUDA graph capture can replay fixed-shape
-  LM bursts. It is PyTorch/CUDA graph execution evidence, not a promoted
-  block-sparse Triton dispatch path.
+  LM bursts. `language_expert_dispatch_triton.py` now covers no-grad CUDA
+  selected-expert dispatch/combine for large enough token batches with
+  `float32` parity; gradient training and half precision keep the PyTorch
+  fallback until separate parity and complete-runtime impact evidence exist.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from
