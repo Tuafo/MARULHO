@@ -12,6 +12,7 @@ from marulho.training.language_model import (
     LanguageBatch,
     MarulhoLanguageModel,
     evaluate_language_model,
+    precompute_sampled_vocab_batches,
 )
 
 
@@ -184,6 +185,24 @@ def run_language_continual_learning_window(
     trainable_parameters = [
         parameter for parameter in model.parameters() if parameter.requires_grad
     ]
+    new_update_batches, new_sampled_vocab_precompute = precompute_sampled_vocab_batches(
+        model,
+        new_batches,
+    )
+    replay_update_batches, replay_sampled_vocab_precompute = (
+        precompute_sampled_vocab_batches(model, replay_batches)
+        if replay_batches
+        else (
+            tuple(),
+            {
+                "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
+                "enabled": False,
+                "reason": "no_replay_batches",
+                "batch_count": 0,
+                "device": str(model.device),
+            },
+        )
+    )
     started = time.perf_counter()
     update_losses: list[float] = []
     replay_losses: list[float] = []
@@ -196,9 +215,9 @@ def run_language_continual_learning_window(
     gradient_clip_skipped_step_count = 0
     gradient_clip_interval = max(0, int(cfg.gradient_clip_interval))
     step_count = max(1, int(cfg.max_steps))
-    replay_count = len(replay_batches)
+    replay_count = len(replay_update_batches)
     for step in range(step_count):
-        for index, batch in enumerate(new_batches):
+        for index, batch in enumerate(new_update_batches):
             optimizer_step_count += 1
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
@@ -206,16 +225,22 @@ def run_language_continual_learning_window(
                 batch.input_ids.to(model.device),
                 batch.target_ids.to(model.device),
                 collect_telemetry=bool(cfg.collect_training_telemetry),
+                sampled_vocab_ids=batch.sampled_vocab_ids,
+                sampled_target_positions=batch.sampled_target_positions,
             )
             loss = update_result["loss"]
             last_loss_evidence = dict(update_result.get("loss_evidence") or {})
             update_token_count += int(batch.target_ids.numel())
-            if replay_batches:
-                replay_batch = replay_batches[(step * len(new_batches) + index) % replay_count]
+            if replay_update_batches:
+                replay_batch = replay_update_batches[
+                    (step * len(new_update_batches) + index) % replay_count
+                ]
                 replay_result = model.next_token_loss(
                     replay_batch.input_ids.to(model.device),
                     replay_batch.target_ids.to(model.device),
                     collect_telemetry=bool(cfg.collect_training_telemetry),
+                    sampled_vocab_ids=replay_batch.sampled_vocab_ids,
+                    sampled_target_positions=replay_batch.sampled_target_positions,
                 )
                 replay_loss = replay_result["loss"]
                 last_replay_loss_evidence = dict(
@@ -326,6 +351,11 @@ def run_language_continual_learning_window(
             "spike_rate_delta": float(_spike_rate(new_after) - _spike_rate(new_before)),
             "update_batch_count": int(len(new_batches) * step_count),
             "replay_batch_count": int(len(replay_batches)),
+            "sampled_vocab_precompute": {
+                "surface": "marulho_language_continual_sampled_vocab_precompute.v1",
+                "new_batches": new_sampled_vocab_precompute,
+                "replay_batches": replay_sampled_vocab_precompute,
+            },
             "optimizer_step_count": int(optimizer_step_count),
             "optimizer_policy": optimizer_policy,
             "gradient_clip_mode": (

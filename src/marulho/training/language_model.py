@@ -27,6 +27,7 @@ from marulho.core.language_plif_triton import (
 )
 from marulho.core.language_rmsnorm_triton import language_rmsnorm
 from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_target_positions,
     build_sampled_vocab_ids,
     language_sampled_vocab_ce_triton_stats,
     language_sampled_vocab_ce_triton_stats_delta,
@@ -83,6 +84,68 @@ class LanguageSplit:
     train: tuple[LanguageBatch, ...]
     eval: tuple[LanguageBatch, ...]
     report: dict[str, Any]
+
+
+def precompute_sampled_vocab_batches(
+    model: "MarulhoLanguageModel",
+    batches: Sequence[LanguageBatch],
+) -> tuple[tuple[LanguageBatch, ...], dict[str, Any]]:
+    configured_sample_count = int(model.config.sampled_vocab_size)
+    use_sampled_vocab = (
+        configured_sample_count > 0
+        and configured_sample_count < int(model.config.vocab_size)
+    )
+    if not bool(use_sampled_vocab):
+        return tuple(batches), {
+            "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
+            "enabled": False,
+            "reason": "sampled_vocab_training_disabled",
+            "batch_count": 0,
+            "device": str(model.device),
+        }
+
+    cached: list[LanguageBatch] = []
+    sampled_row_counts: list[int] = []
+    target_position_counts: list[int] = []
+    for batch in batches:
+        input_ids = batch.input_ids.to(model.device)
+        target_ids = batch.target_ids.to(model.device)
+        flat_targets = target_ids.reshape(-1).to(device=model.device, dtype=torch.long)
+        sampled_vocab_ids = build_sampled_vocab_ids(
+            flat_targets,
+            vocab_size=int(model.config.vocab_size),
+            sample_count=configured_sample_count,
+            device=model.device,
+            validate_ids=False,
+        )
+        sampled_target_positions = build_sampled_target_positions(
+            flat_targets,
+            sampled_vocab_ids,
+            device=model.device,
+            validate_targets=True,
+        )
+        sampled_row_counts.append(int(sampled_vocab_ids.numel()))
+        target_position_counts.append(int(sampled_target_positions.numel()))
+        cached.append(
+            LanguageBatch(
+                input_ids=input_ids,
+                target_ids=target_ids,
+                sampled_vocab_ids=sampled_vocab_ids,
+                sampled_target_positions=sampled_target_positions,
+            )
+        )
+    return tuple(cached), {
+        "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
+        "enabled": True,
+        "batch_count": len(cached),
+        "device": str(model.device),
+        "sampled_vocab_size": int(configured_sample_count),
+        "min_sampled_rows": min(sampled_row_counts, default=0),
+        "max_sampled_rows": max(sampled_row_counts, default=0),
+        "min_target_positions": min(target_position_counts, default=0),
+        "max_target_positions": max(target_position_counts, default=0),
+        "hot_update_window_precomputed": True,
+    }
 
 
 def _tensor_hash(tensor: torch.Tensor) -> str:

@@ -404,6 +404,17 @@ harnesses.
   `1.7194`, improves replay loss from `7.0595` to `1.7182`, and accepts the
   update without rollback. This is online-learning/replay evidence; it is not
   a runtime-promotion or generation-quality claim.
+- The follow-up precompute evidence in
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json`
+  keeps the same `524288` model vocab, `1024` sampled rows, horizon `8`, TF32,
+  clip interval `8`, `65536` updated tokens, `32` optimizer steps, and `8`
+  replay batches, but records sampled-vocab precompute for both online new and
+  replay batches. It reaches `3023.964` train tokens/sec versus the retained
+  `2619.310` baseline (`+15.449%`), uses
+  `precomputed_batch_sampled_vocab_ids` in both the new and replay loss paths,
+  avoids full vocab logits, and accepts the update. The source corpus differs
+  from the older baseline, so this is same-shape throughput evidence and not a
+  language-quality comparison.
 - Current 2026-07-04 padded-vocab generation-policy evidence in
   `reports/language_training_experiments/padded-vocab-generation-policy-524288-sustained.json`
   loaded a `524288` row checkpoint with `generation_vocab_size=262`, masked

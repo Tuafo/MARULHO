@@ -94,7 +94,8 @@ developmental and consolidation runners, query runners, and long-run evidence.
   review evidence. It now supports sampled/padded vocab models with sparse
   token-embedding and LM-head row gradients, the same dense-core plus sparse
   vocab-row optimizer policy used by fast LM experiments, sparse-aware
-  gradient-clip cadence, and telemetry-light training updates. The local
+  gradient-clip cadence, telemetry-light training updates, and sampled-vocab
+  batch precompute for both online new batches and replay batches. The local
   2026-07-04 CUDA report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   updated `65536` new+replay tokens on the `524288` model-vocab, `1024`
@@ -102,6 +103,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   tokens/sec, improved new-domain heldout loss from `7.1125` to `0.5576`,
   improved old-domain loss from `7.0595` to `1.7194`, improved replay loss
   from `7.0595` to `1.7182`, and accepted the update without rollback.
+  The follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288.json`
+  records `sampled_vocab_precompute` for both new and replay batches, uses
+  `precomputed_batch_sampled_vocab_ids` in both loss paths, updates the same
+  `65536` token shape at `3023.964` train tokens/sec, and is `+15.449%`
+  throughput versus the retained baseline. The corpus text differs from the
+  older report, so this is same-shape online-throughput evidence rather than a
+  language-quality comparison.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -258,6 +267,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sustained rerun of the retained all-awake checkpoint reached `7206.201`
   tokens/sec, so this is a training hot-window speed slice rather than an
   inference promotion.
+- The same precompute helper is training-owned and reused by
+  `language_continual_learning.py` so online new/replay update windows can keep
+  sampled row ID and target-position construction out of the hot loop instead
+  of limiting the speedup to fixed experiment batches.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

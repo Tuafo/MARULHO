@@ -983,6 +983,12 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["gradient_clip_applied_step_count"] == 8
     assert report["learning_evidence"]["gradient_clip_skipped_step_count"] == 0
     assert report["learning_evidence"]["sampled_vocab_training"] is False
+    assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
+        "enabled"
+    ] is False
+    assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
+        "reason"
+    ] == "sampled_vocab_training_disabled"
     assert "old_domain_forgetting" in report["learning_evidence"]
     assert "general_replay_retention_delta" in report["learning_evidence"]
     assert report["rollback_evidence"]["rollback_applied"] is False
@@ -1060,6 +1066,23 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["gradient_clip_skipped_step_count"] == 2
     assert evidence["sampled_vocab_training"] is True
     assert evidence["full_vocab_logits_materialized"] is False
+    assert evidence["sampled_vocab_precompute"]["surface"] == (
+        "marulho_language_continual_sampled_vocab_precompute.v1"
+    )
+    assert evidence["sampled_vocab_precompute"]["new_batches"]["enabled"] is True
+    assert evidence["sampled_vocab_precompute"]["new_batches"]["batch_count"] == 2
+    assert evidence["sampled_vocab_precompute"]["replay_batches"]["enabled"] is True
+    assert evidence["sampled_vocab_precompute"]["replay_batches"]["batch_count"] == 1
+    assert evidence["loss_evidence"]["sampled_vocab_id_source"] == (
+        "precomputed_batch_sampled_vocab_ids"
+    )
+    assert evidence["loss_evidence"]["sampled_target_position_source"] == (
+        "precomputed_batch_target_positions"
+    )
+    assert evidence["loss_evidence"]["precomputed_sampled_vocab_used"] is True
+    assert evidence["loss_evidence"]["precomputed_target_positions_used"] is True
+    assert evidence["replay_loss_evidence"]["precomputed_sampled_vocab_used"] is True
+    assert evidence["replay_loss_evidence"]["precomputed_target_positions_used"] is True
     assert evidence["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert evidence["loss_evidence"]["token_embedding_gradient_sparse"] is True
     assert evidence["final_parameter_delta_l2"] > 0.0
