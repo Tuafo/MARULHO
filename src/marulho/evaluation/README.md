@@ -352,6 +352,19 @@ harnesses.
   training throughput improves `16.386%`, forward/loss falls to
   `0.128683 ms/token`, backward falls to `0.196265 ms/token`, and batch total
   falls to `0.338111 ms/token`.
+- Current 2026-07-04 selected-expert matmul evidence in
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
+  replaces gradient-training selected-expert einsums with batched matmul while
+  keeping the same bounded route candidates and active expert selection. The
+  report records
+  `expert_dispatch_backend=torch_selected_expert_batched_matmul_dispatch`,
+  trains the same `524288` model-vocab, `1024` sampled-row, horizon-8, TF32,
+  clip-8 shape for `63744` tokens at `3531.685` train tokens/sec, improves
+  heldout loss from `7.1551` to `0.2409`, and sustains `524288/524288`
+  generated tokens at `7166.620` tokens/sec. Versus the previous
+  batched-state-output baseline, training throughput improves `19.525%`,
+  forward/loss falls to `0.105695 ms/token`, backward falls to
+  `0.165801 ms/token`, and batch total falls to `0.282857 ms/token`.
 - Current 2026-07-04 sampled/padded continual-learning evidence in
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-524288.json`
   runs `run_language_continual_learning_window` on CUDA with a `524288`

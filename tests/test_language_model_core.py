@@ -421,6 +421,9 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["output_candidate_count"] == 2
     assert routing["runs_all_columns"] is False
     assert routing["fallback_reason"] is None
+    assert routing["expert_dispatch_backend"] == (
+        "torch_selected_expert_batched_matmul_dispatch"
+    )
     assert routing["route_device"] == "cpu"
     assert routing["route_latency_ms"] >= 0.0
     assert routing["active_parameters_per_token"] > 0

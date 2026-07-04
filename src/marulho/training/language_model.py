@@ -938,17 +938,17 @@ class RoutedLanguageExpertLayer(nn.Module):
                 active_count,
                 self.state_dim,
             )
-            expanded_hidden = flat_hidden.unsqueeze(1).expand(
-                -1,
-                active_count,
-                -1,
-            )
-            expert_hidden = F.silu(
-                torch.einsum("nkd,nkhd->nkh", expanded_hidden, selected_first_weights)
-                + selected_first_biases
-            )
+            hidden_column = flat_hidden.view(flat_hidden.shape[0], 1, self.state_dim, 1)
+            expert_hidden = torch.matmul(
+                selected_first_weights,
+                hidden_column,
+            ).squeeze(-1)
+            expert_hidden = F.silu(expert_hidden + selected_first_biases)
             expert_outputs = (
-                torch.einsum("nkh,nkdh->nkd", expert_hidden, selected_second_weights)
+                torch.matmul(
+                    selected_second_weights,
+                    expert_hidden.unsqueeze(-1),
+                ).squeeze(-1)
                 + selected_second_biases
             )
             expert_delta = (expert_outputs * flat_weights.unsqueeze(-1)).sum(dim=1)
@@ -971,6 +971,14 @@ class RoutedLanguageExpertLayer(nn.Module):
             sleeping_expert_ids = []
         expert_parameters = self._expert_parameter_count()
         active_parameters_per_token = int(active_count * expert_parameters)
+        if torch.is_grad_enabled():
+            expert_dispatch_backend = "torch_selected_expert_batched_matmul_dispatch"
+        elif dispatch_delta is not None and bool(
+            dispatch_delta.get("triton_kernel_used", False)
+        ):
+            expert_dispatch_backend = "triton_block_sparse_dispatch"
+        else:
+            expert_dispatch_backend = "torch_selected_expert_dispatch"
         return routed, {
             "surface": self.surface,
             "enabled": True,
@@ -994,12 +1002,7 @@ class RoutedLanguageExpertLayer(nn.Module):
             "sleeping_candidate_filtered_count": int(
                 sleeping_candidate_filtered_count
             ),
-            "expert_dispatch_backend": (
-                "triton_block_sparse_dispatch"
-                if dispatch_delta is not None
-                and bool(dispatch_delta.get("triton_kernel_used", False))
-                else "torch_selected_expert_dispatch"
-            ),
+            "expert_dispatch_backend": expert_dispatch_backend,
             "expert_dispatch_triton_stats_delta": dispatch_delta,
         }
 

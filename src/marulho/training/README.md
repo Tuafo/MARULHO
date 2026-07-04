@@ -110,8 +110,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sleeping-expert materialization so CUDA graph capture can replay fixed-shape
   LM bursts. `language_expert_dispatch_triton.py` now covers no-grad CUDA
   selected-expert dispatch/combine for large enough token batches with
-  `float32` parity; gradient training and half precision keep the PyTorch
-  fallback until separate parity and complete-runtime impact evidence exist.
+  `float32` parity; gradient training uses
+  `torch_selected_expert_batched_matmul_dispatch` for selected expert MLPs,
+  while half precision keeps the PyTorch fallback until separate parity and
+  complete-runtime impact evidence exists. The local 2026-07-04 CUDA report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
+  trains the `524288` model-vocab sampled/padded shape at `3531.685` train
+  tokens/sec and sustains `524288/524288` generated tokens at `7166.620`
+  tokens/sec.
 - `language_sampled_vocab_ce_triton.py` now covers forward sampled-vocabulary
   cross-entropy parity for CUDA `float32` hidden rows and selected vocabulary
   IDs that include every target token. It also has a forceable Triton-forward/
@@ -208,7 +214,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   trains `63744` tokens at `2954.763` train tokens/sec, records
   `state_output_projection_batched=true`, improves heldout loss from `7.1370`
   to `0.2009`, and sustains `524288/524288` generated tokens at `7217.290`
-  tokens/sec. This is the current large-vocab fast-experiment baseline.
+  tokens/sec. This is the previous large-vocab fast-experiment baseline before
+  selected-expert matmul dispatch.
+- The current selected-expert training dispatch keeps the same large-vocab
+  baseline shape but replaces selected-expert einsums with batched matmul. The
+  local 2026-07-04 report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
+  trains `63744` tokens at `3531.685` train tokens/sec, records
+  `expert_dispatch_backend=torch_selected_expert_batched_matmul_dispatch`,
+  improves heldout loss from `7.1551` to `0.2409`, and sustains
+  `524288/524288` generated tokens at `7166.620` tokens/sec. This is the
+  current large-vocab fast-experiment baseline.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, explicit expert prune, explicit expert merge, and explicit
   expert deep sleep. It builds non-mutating expert-spawn proposals from

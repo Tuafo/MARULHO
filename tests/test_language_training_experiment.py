@@ -72,6 +72,10 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
         "batched_token_and_state_output_projection_recurrent_loop"
     )
     assert report["training"]["state_output_projection_batched"] is True
+    assert report["training"]["expert_dispatch_backend"] == (
+        "torch_selected_expert_batched_matmul_dispatch"
+    )
+    assert report["training"]["expert_training_dispatch_batched_matmul"] is True
     assert report["training"]["loss_record_count"] == 4
     assert report["training"]["cuda_synchronized_before_timing_start"] is False
     assert report["training"]["cuda_synchronized_before_timing_stop"] is False
@@ -169,6 +173,10 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
         "batched_token_and_state_output_projection_recurrent_loop"
     )
     assert report["training"]["state_output_projection_batched"] is True
+    assert report["training"]["expert_dispatch_backend"] == (
+        "torch_selected_expert_batched_matmul_dispatch"
+    )
+    assert report["training"]["expert_training_dispatch_batched_matmul"] is True
     assert report["training"]["truncated_bptt_boundary_count_per_batch"] == 2
     assert report["model_config"]["recurrent_gradient_horizon"] == 4
     assert report["training"]["full_vocab_logits_materialized"] is False

@@ -724,6 +724,9 @@ def _train_language_model(
         plif_stats_before,
         language_plif_triton_stats(),
     )
+    routing_telemetry = last_state_block_telemetry.get("routing")
+    if not isinstance(routing_telemetry, dict):
+        routing_telemetry = {}
     return {
         "surface": "marulho_language_training_experiment_update.v1",
         "train_batch_count": len(batches),
@@ -765,6 +768,13 @@ def _train_language_model(
         "state_output_projection_batched": bool(
             last_state_block_telemetry.get("state_block_projection_mode")
             == "batched_token_and_state_output_projection_recurrent_loop"
+        ),
+        "expert_dispatch_backend": str(
+            routing_telemetry.get("expert_dispatch_backend", "unknown")
+        ),
+        "expert_training_dispatch_batched_matmul": bool(
+            routing_telemetry.get("expert_dispatch_backend")
+            == "torch_selected_expert_batched_matmul_dispatch"
         ),
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
