@@ -117,6 +117,31 @@ def _mean(values: Sequence[float]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
 
 
+def _synchronize_if_cuda(device: torch.device | str) -> bool:
+    resolved = torch.device(device)
+    if resolved.type != "cuda":
+        return False
+    torch.cuda.synchronize(resolved)
+    return True
+
+
+def _scalar_tensor_to_float(value: torch.Tensor | None) -> float | None:
+    if value is None:
+        return None
+    return float(value.detach().cpu().item())
+
+
+def _detached_scalar_on_device(
+    value: torch.Tensor | float,
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        tensor = value.detach()
+        return tensor.to(device=device) if tensor.device != device else tensor
+    return torch.tensor(float(value), device=device)
+
+
 def _common_prefix_length(left: str, right: str) -> int:
     limit = min(len(left), len(right))
     for index in range(limit):
@@ -303,9 +328,10 @@ def _train_language_model(
         and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
     )
     token_count = 0
-    losses: list[float] = []
-    grad_norms: list[float] = []
+    loss_records: list[torch.Tensor] = []
+    max_grad_norm_record: torch.Tensor | None = None
     plif_stats_before = language_plif_triton_stats()
+    cuda_synchronized_before_timing_start = _synchronize_if_cuda(model.device)
     started = time.perf_counter()
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
@@ -324,9 +350,32 @@ def _train_language_model(
             )
             optimizer.step()
             token_count += int(batch.target_ids.numel())
-            losses.append(float(loss.detach().cpu().item()))
-            grad_norms.append(float(grad_norm.detach().cpu().item()))
+            loss_records.append(loss.detach())
+            grad_norm_record = _detached_scalar_on_device(
+                grad_norm,
+                device=model.device,
+            )
+            max_grad_norm_record = (
+                grad_norm_record
+                if max_grad_norm_record is None
+                else torch.maximum(max_grad_norm_record, grad_norm_record)
+            )
+    cuda_synchronized_before_timing_stop = _synchronize_if_cuda(model.device)
     elapsed = max(0.0, time.perf_counter() - started)
+    loss_values = (
+        torch.stack([loss.to(model.device) for loss in loss_records]).float()
+        if loss_records
+        else torch.empty(0, device=model.device)
+    )
+    loss_start = _scalar_tensor_to_float(loss_values[0] if loss_values.numel() else None)
+    loss_end = _scalar_tensor_to_float(loss_values[-1] if loss_values.numel() else None)
+    mean_loss_first_8 = _scalar_tensor_to_float(
+        loss_values[:8].mean() if loss_values.numel() else None
+    )
+    mean_loss_last_8 = _scalar_tensor_to_float(
+        loss_values[-8:].mean() if loss_values.numel() else None
+    )
+    max_gradient_norm = _scalar_tensor_to_float(max_grad_norm_record) or 0.0
     plif_stats_delta = language_plif_triton_stats_delta(
         plif_stats_before,
         language_plif_triton_stats(),
@@ -345,13 +394,26 @@ def _train_language_model(
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed if elapsed > 0.0 else 0.0,
-        "loss_start": losses[0] if losses else None,
-        "loss_end": losses[-1] if losses else None,
-        "loss_delta": (losses[-1] - losses[0]) if len(losses) >= 2 else 0.0,
-        "mean_loss_first_8": _mean(losses[:8]),
-        "mean_loss_last_8": _mean(losses[-8:]),
-        "max_gradient_norm": max(grad_norms) if grad_norms else 0.0,
+        "loss_start": loss_start,
+        "loss_end": loss_end,
+        "loss_delta": (
+            float(loss_end) - float(loss_start)
+            if loss_start is not None and loss_end is not None
+            else 0.0
+        ),
+        "mean_loss_first_8": mean_loss_first_8 or 0.0,
+        "mean_loss_last_8": mean_loss_last_8 or 0.0,
+        "max_gradient_norm": max_gradient_norm,
         "device": str(model.device),
+        "metric_readback_mode": "deferred_gpu_scalar_aggregation",
+        "per_batch_metric_cpu_sync": False,
+        "loss_record_count": len(loss_records),
+        "cuda_synchronized_before_timing_start": bool(
+            cuda_synchronized_before_timing_start
+        ),
+        "cuda_synchronized_before_timing_stop": bool(
+            cuda_synchronized_before_timing_stop
+        ),
         "language_plif_triton": plif_stats_delta,
         "plif_surrogate_triton_used": bool(
             int(plif_stats_delta.get("triton_backward_calls", 0) or 0) > 0

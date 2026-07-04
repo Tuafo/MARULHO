@@ -99,13 +99,20 @@ science loop. It trains a configurable routed selective-spiking LM on local
 text using packed device-resident windows, records training throughput plus
 heldout loss/perplexity before and after the update, emits MARULHO-owned
 generation samples with source-continuation probes, saves a checkpoint, and
-runs paired sustained inference. Its job is to accelerate bigger experiment
-cycles; it records generated text and metrics honestly rather than turning
-every run into a new gate. The current batched CUDA report trained `63744`
-tokens at `1240.010 train tokens/sec` and kept the trained checkpoint above the
-8192/131072/524288 sustained evidence ladder, but generated text still shows
-fractured local-corpus memorization and must not be promoted as general
-language coherence.
+runs paired sustained inference. Its CUDA update loop now defers per-batch
+scalar metric readback, keeps loss and gradient-norm records as device scalars,
+and synchronizes once before stopping the measured training timer. Its job is
+to accelerate bigger experiment cycles; it records generated text and metrics
+honestly rather than turning every run into a new gate. The current
+deferred-metric CUDA report trained the same PLIF-surrogate `63744` token shape
+at `2720.929 train tokens/sec`, versus the older `2596.380 train tokens/sec`
+per-batch-readback report, with `3840` Triton PLIF backward calls,
+`cuda_synchronized_before_timing_start=true`,
+`cuda_synchronized_before_timing_stop=true`, and
+`per_batch_metric_cpu_sync=false`. The paired `524288` sustained report reached
+`7502.156 tokens/sec` on `torch_cuda_graph_burst`, so this is training-loop
+host-boundary improvement with neutral house-scale inference evidence, not a
+general language-coherence or runtime-promotion claim.
 
 `marulho.evaluation.language_generation_coherence` is the grounded prompt-suite
 review for checkpointed MARULHO-owned generation. It records raw continuations,
@@ -652,6 +659,17 @@ scan are now covered by separate parity evidence. Later expert-dispatch
 evidence closes `float32` selected-expert dispatch parity, while full
 state-block scan fusion, half-precision expert/vocab coverage, and
 complete-runtime training impact remain promotion blockers.
+
+The training experiment runner now also defers scalar loss and gradient-norm
+metric readback out of the per-batch optimizer hot loop. It synchronizes CUDA
+before starting and stopping the training timer, so elapsed time includes the
+real GPU work without per-batch scalar stalls. The 2026-07-04
+`cuda-deferred-metrics-8192.json` report improved the same PLIF-surrogate
+training shape from `2596.380` to `2720.929 train tokens/sec` (`1.048x`) while
+preserving Triton PLIF backward use. The paired
+`cuda-deferred-metrics-524288-sustained.json` report reached `524288` tokens at
+`7502.156 tokens/sec`, within the current PLIF-surrogate house-scale band but
+not an inference-speed promotion.
 
 ## Scale Ladder
 

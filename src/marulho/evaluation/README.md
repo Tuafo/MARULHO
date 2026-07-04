@@ -80,8 +80,11 @@ harnesses.
   text using packed device-resident windows, records training throughput,
   heldout loss/perplexity before and after training, owned generation samples,
   source-continuation quality probes, a checkpoint, and paired sustained
-  inference reports. It is meant to accelerate model experiments, not create a
-  new promotion gate.
+  inference reports. Its CUDA update loop keeps per-batch loss and gradient
+  norm metrics as device scalars, performs one CUDA synchronization before
+  stopping the measured training timer, and reads aggregate scalars back after
+  the hot update window. It is meant to accelerate model experiments, not
+  create a new promotion gate.
 - `language_generation_coherence.py` is the grounded prompt-suite review for
   checkpointed MARULHO-owned generation. It records raw continuations,
   source-prefix match, next-character source match, printability, token-run and
@@ -199,6 +202,20 @@ harnesses.
   PLIF forward, and PLIF surrogate-backward parity while keeping promotion
   blocked on generation coherence plus selective-scan, expert-dispatch, and
   sampled-vocab cross-entropy evidence.
+- Current 2026-07-04 deferred-metric CUDA training evidence in
+  `reports/language_training_experiments/cuda-deferred-metrics-8192.json`
+  trained the same PLIF-surrogate `63744` token shape at
+  `2720.929 train tokens/sec`, versus the earlier `2596.380 train tokens/sec`
+  per-batch-readback report. It records
+  `metric_readback_mode=deferred_gpu_scalar_aggregation`,
+  `per_batch_metric_cpu_sync=false`,
+  `cuda_synchronized_before_timing_start=true`,
+  `cuda_synchronized_before_timing_stop=true`,
+  and `3840` Triton PLIF backward calls. The paired house-scale sustained
+  report `cuda-deferred-metrics-524288-sustained.json` reached `524288/524288`
+  at `7502.156 tokens/sec` on `torch_cuda_graph_burst`, `cuda:0`, with no
+  external LLM and zero graph failures. This is training-loop host-sync
+  reduction evidence; it does not promote inference speed or runtime quality.
 - Current 2026-07-04 selective-scan Triton evidence in
   `reports/language_kernel_evidence/selective-scan-triton-20260704.json`
   passed six CUDA shape/dtype parity cases for
@@ -300,6 +317,8 @@ LM training experiment:
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/local-run.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-vectorized-state-8192.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192 --sustained-timeout-seconds 600 --device cuda
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-vectorized-state-8192-checkpoint.pt --output reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
+python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-deferred-metrics-8192.json --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 8192 --sustained-timeout-seconds 600 --device cuda
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-deferred-metrics-8192-checkpoint.pt --output reports/language_training_experiments/cuda-deferred-metrics-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 3600 --map-location cuda
 ```
 
 LM scale ladder inventory:
