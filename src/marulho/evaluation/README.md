@@ -111,13 +111,15 @@ harnesses.
   claim.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
-  builds replay pressure from grounded prompt continuations, runs the existing
-  continual-learning window with old-domain replay/eval protection, writes a
-  child checkpoint, then records same-child generation coherence, heldout
-  source-prompt coherence not used for replay training, one or more sustained
-  runtime targets, and optional benchmark-suite aggregation. It is meant to
-  move quality and speed evidence together without turning the benchmark suite
-  into a gate-only workflow or hiding prompt regressions.
+  builds replay pressure from grounded prompt continuations, can run one or
+  more isolated child candidate arms with different learning/replay settings,
+  ranks them by trained-prompt repair, heldout non-regression, replay/old-domain
+  evidence, and update throughput, writes child checkpoints, then records
+  selected-child generation coherence, heldout source-prompt coherence not used
+  for replay training, one or more sustained runtime targets, and optional
+  benchmark-suite aggregation. It is meant to move quality and speed evidence
+  together without turning the benchmark suite into a gate-only workflow or
+  hiding prompt regressions.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and
@@ -159,24 +161,27 @@ harnesses.
   controlled sustained runs reached `8192/8192` at `1903.567` tokens/sec and
   `524288/524288` at `5444.635` tokens/sec with CUDA graph decode controls,
   zero CPU token copy, and zero decode-control fallbacks.
-- The current quality-replay child evidence uses
-  `reports/language_quality_replay/cuda-sampled-padded-default-policy-hard-prompts-heldout-524288.json`
-  from the same parent checkpoint. The hard-prompt continual replay accepted a
-  `32768` token child update at `3115.090` update tokens/sec, repaired the
-  `Structural pressure` prompt, moved grounded prompt coherence from `3/4` to
-  `4/4`, and raised mean source-prefix match from `14.75` to `34.0` chars
-  without old/replay loss regression. The heldout source-prompt lane, not used
-  for replay training, exposed one regression: heldout coherence moved from
-  `4/4` to `3/4`, while mean heldout prefix match rose from `20.75` to
-  `23.25` chars. The same child checkpoint sustained `8192/8192` at
-  `4048.014` tokens/sec and `524288/524288` at `5382.215` tokens/sec through
+- The current quality-replay child evidence uses the protective candidate sweep
+  `reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective.json`
+  from the same parent checkpoint. Four child candidates were trained from the
+  immutable parent. Faster candidates at `3149.910`, `3183.910`, and
+  `3112.300` update tokens/sec repaired `Structural pressure` but each
+  regressed one heldout source prompt. The selected replay-heavy child
+  `candidate-03` (`learning_rate=0.0001`, `replay_loss_weight=2.5`,
+  `max_steps=1`) accepted the update at `2796.957` update tokens/sec, moved
+  trained prompt coherence from `3/4` to `4/4`, improved trained mean prefix by
+  `18.0` chars, kept heldout coherence at `4/4`, recorded zero heldout
+  regressions, and improved heldout mean prefix by `6.75` chars. The selected
+  checkpoint sustained `8192/8192` at `3868.306` tokens/sec and
+  `524288/524288` at `5341.039` tokens/sec through
   `torch_cuda_graph_burst_decode_controls`, with graph-compatible decode
-  controls, zero CPU token copy, zero decode-control fallbacks, and suite
-  aggregation `language-suite-quality-replay-heldout-child-controlled-aligned.json`
-  reporting `ready_for_review`, generation `pass`, long-run throughput `pass`,
-  same-checkpoint controlled house-scale evidence available, and
-  `promotes_runtime_claim=false`. This is better trained-prompt quality plus a
-  recorded heldout blocker, not a broad quality promotion.
+  controls, zero CPU token copy, and zero decode-control fallbacks. Suite
+  aggregation
+  `language-suite-quality-replay-protective-selected-child-controlled-aligned.json`
+  reports `ready_for_review`, generation `pass`, long-run throughput `pass`,
+  GPU kernel correctness `pass`, all `15/15` categories pass/smoke, and
+  `promotes_runtime_claim=false`. This is checkpoint-selected quality/speed
+  tradeoff evidence, not a broad generation-quality or runtime promotion.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -670,7 +675,10 @@ python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint re
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/padded-vocab-generation-policy-524288-checkpoint.pt --output reports/language_generation_coherence/padded-vocab-decode-controls-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0 --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-controlled-decode.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-8192-sustained.json --sustained-evidence reports/language_training_experiments/padded-vocab-generation-policy-decode-controls-graph-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --generation-coherence-evidence reports/language_generation_coherence/padded-vocab-decode-controls-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_generation_coherence/cuda-sampled-padded-default-policy-anchored-decode-controls-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0 --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --prompt-case "MARULHO|64|8|0.10" --prompt-case "Replay protects|64|8|0.10" --prompt-case "Structural pressure can|64|8|0.10" --prompt-case "Long sustained runs|64|8|0.10"
-python -m marulho.evaluation.language_quality_replay_experiment --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_quality_replay/cuda-sampled-padded-default-policy-hard-prompts-heldout-524288.json --device cuda --sequence-length 64 --stride 32 --batch-size 16 --max-new-batches 8 --max-replay-batches 8 --max-old-eval-batches 8 --max-new-eval-batches 8 --max-steps 2 --learning-rate 0.0008 --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --heldout-prompt-case-count 4 --sustained-target-tokens 8192 --sustained-target-tokens 524288 --sustained-timeout-seconds 1200 --benchmark-suite-output reports/language_benchmark_suite/language-suite-quality-replay-heldout-child-controlled-aligned.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --prompt-case "MARULHO|64|8|0.10" --prompt-case "Replay protects|64|8|0.10" --prompt-case "Structural pressure|64|8|0.10" --prompt-case "Long sustained runs|64|8|0.10"
+python -m marulho.evaluation.language_quality_replay_experiment --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective.json --device cuda --sequence-length 64 --stride 32 --batch-size 16 --max-new-batches 8 --max-replay-batches 8 --max-old-eval-batches 8 --max-new-eval-batches 8 --max-steps 2 --learning-rate 0.0008 --replay-loss-weight 0.35 --candidate-learning-rate 0.0008 --candidate-replay-loss-weight 0.35 --candidate-max-steps 2 --candidate-learning-rate 0.0004 --candidate-replay-loss-weight 0.75 --candidate-max-steps 2 --candidate-learning-rate 0.0002 --candidate-replay-loss-weight 1.5 --candidate-max-steps 1 --candidate-learning-rate 0.0001 --candidate-replay-loss-weight 2.5 --candidate-max-steps 1 --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --heldout-prompt-case-count 4 --prompt-case "MARULHO|64|8|0.10" --prompt-case "Replay protects|64|8|0.10" --prompt-case "Structural pressure|64|8|0.10" --prompt-case "Long sustained runs|64|8|0.10"
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-candidate-03-child-checkpoint.pt --output reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-8192.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
+python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-candidate-03-child-checkpoint.pt --output reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-524288.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-quality-replay-protective-selected-child-controlled-aligned.json --sustained-target-tokens 8 --sustained-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-8192.json --sustained-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-524288.json --generation-coherence-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-candidate-03-child-coherence.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-8192-sustained.json --target-tokens 8192 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 600 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-default-policy-controlled-aligned.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/cuda-sampled-padded-default-policy-anchored-decode-controls-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json

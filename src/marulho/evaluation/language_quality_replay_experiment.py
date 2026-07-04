@@ -55,6 +55,9 @@ class LanguageQualityReplayExperimentConfig:
     max_steps: int = 2
     learning_rate: float = 8e-4
     replay_loss_weight: float = 0.35
+    candidate_learning_rates: tuple[float, ...] = ()
+    candidate_replay_loss_weights: tuple[float, ...] = ()
+    candidate_max_steps: tuple[int, ...] = ()
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
@@ -75,6 +78,15 @@ class LanguageQualityReplayExperimentConfig:
     benchmark_gpu_kernel_evidence_paths: tuple[str, ...] = ()
     collect_environment: bool = False
     device: str = "auto"
+
+
+@dataclass(frozen=True)
+class _ReplayCandidateSpec:
+    index: int
+    candidate_id: str
+    learning_rate: float
+    replay_loss_weight: float
+    max_steps: int
 
 
 def _resolve_device(device: str) -> torch.device:
@@ -115,6 +127,68 @@ def _trim_batches(
     if int(limit) <= 0:
         return tuple(batches)
     return tuple(batches[: int(limit)])
+
+
+def _candidate_value(
+    values: Sequence[float] | Sequence[int],
+    index: int,
+    default: float | int,
+) -> float | int:
+    if not values:
+        return default
+    if int(index) < len(values):
+        return values[int(index)]
+    return values[-1]
+
+
+def _replay_candidate_specs(
+    config: LanguageQualityReplayExperimentConfig,
+) -> tuple[_ReplayCandidateSpec, ...]:
+    learning_rates = tuple(float(value) for value in config.candidate_learning_rates)
+    replay_weights = tuple(
+        float(value) for value in config.candidate_replay_loss_weights
+    )
+    max_steps = tuple(int(value) for value in config.candidate_max_steps)
+    candidate_count = max(
+        1,
+        len(learning_rates),
+        len(replay_weights),
+        len(max_steps),
+    )
+    return tuple(
+        _ReplayCandidateSpec(
+            index=index,
+            candidate_id=f"candidate-{index:02d}",
+            learning_rate=float(
+                _candidate_value(learning_rates, index, float(config.learning_rate))
+            ),
+            replay_loss_weight=float(
+                _candidate_value(
+                    replay_weights,
+                    index,
+                    float(config.replay_loss_weight),
+                )
+            ),
+            max_steps=int(
+                _candidate_value(max_steps, index, int(config.max_steps))
+            ),
+        )
+        for index in range(candidate_count)
+    )
+
+
+def _candidate_artifact_path(
+    output: Path,
+    *,
+    candidate_count: int,
+    candidate_index: int,
+    suffix: str,
+) -> Path:
+    if int(candidate_count) <= 1:
+        return output.with_name(f"{output.stem}-{suffix}")
+    return output.with_name(
+        f"{output.stem}-candidate-{int(candidate_index):02d}-{suffix}"
+    )
 
 
 def _sustained_targets(
@@ -397,6 +471,78 @@ def _heldout_generalization_review(
     }
 
 
+def _candidate_selection_rank(
+    *,
+    learning_report: Mapping[str, Any],
+    trained_delta: Mapping[str, Any],
+    heldout_delta: Mapping[str, Any] | None,
+) -> tuple[float, ...]:
+    learning = dict(learning_report.get("learning_evidence") or {})
+    heldout = dict(heldout_delta or {})
+    accepted_update = str(learning_report.get("status")) == "accepted_update"
+    update_tokens_per_second = float(learning.get("tokens_per_second", 0.0) or 0.0)
+    old_forgetting = float(learning.get("old_domain_forgetting", 0.0) or 0.0)
+    replay_retention = float(
+        learning.get("general_replay_retention_delta", 0.0) or 0.0
+    )
+    return (
+        -float(heldout.get("regressed_prompt_count", 0) or 0),
+        float(heldout.get("passed_case_count_delta", 0) or 0),
+        float(heldout.get("mean_prefix_match_chars_delta", 0.0) or 0.0),
+        -float(trained_delta.get("regressed_prompt_count", 0) or 0),
+        float(trained_delta.get("passed_case_count_delta", 0) or 0),
+        float(trained_delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0),
+        1.0 if accepted_update else 0.0,
+        -max(0.0, old_forgetting),
+        -max(0.0, replay_retention),
+        update_tokens_per_second,
+    )
+
+
+def _candidate_selection_score(rank: Sequence[float]) -> float:
+    weights = (1_000_000.0, 100_000.0, 1_000.0, 50_000.0, 10_000.0, 100.0, 50.0, 10.0, 10.0, 0.001)
+    return float(sum(float(value) * weight for value, weight in zip(rank, weights)))
+
+
+def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_id": candidate["candidate_id"],
+        "candidate_index": int(candidate["candidate_index"]),
+        "selected": bool(candidate.get("selected", False)),
+        "child_checkpoint_path": str(candidate.get("child_checkpoint_path") or ""),
+        "child_checkpoint_sha256": str(candidate.get("child_checkpoint_sha256") or ""),
+        "learning_config": dict(candidate.get("learning_config") or {}),
+        "learning_status": dict(candidate.get("learning_summary") or {}).get("status"),
+        "update_tokens_per_second": float(
+            dict(candidate.get("learning_summary") or {}).get(
+                "tokens_per_second",
+                0.0,
+            )
+            or 0.0
+        ),
+        "total_window_tokens_per_second": float(
+            dict(candidate.get("learning_summary") or {}).get(
+                "total_window_tokens_per_second",
+                0.0,
+            )
+            or 0.0
+        ),
+        "trained_generation_coherence_delta": dict(
+            candidate.get("generation_coherence_delta") or {}
+        ),
+        "heldout_generation_coherence_delta": (
+            dict(candidate.get("heldout_generation_coherence_delta") or {})
+            if candidate.get("heldout_generation_coherence_delta") is not None
+            else None
+        ),
+        "quality_generalization_review": dict(
+            candidate.get("quality_generalization_review") or {}
+        ),
+        "selection_rank": [float(value) for value in candidate.get("selection_rank", ())],
+        "selection_score": float(candidate.get("selection_score", 0.0) or 0.0),
+    }
+
+
 def _sustained_summary(
     reports: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -577,80 +723,221 @@ def run_language_quality_replay_experiment(
             generation_repetition_penalty=float(cfg.generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
         )
-    learning_config = LanguageContinualLearningConfig(
-        learning_rate=float(cfg.learning_rate),
-        max_steps=int(cfg.max_steps),
-        replay_loss_weight=float(cfg.replay_loss_weight),
-        forgetting_tolerance=float(cfg.forgetting_tolerance),
-        replay_retention_tolerance=float(cfg.replay_retention_tolerance),
-        rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
-        sparse_vocab_optimizer=bool(model.config.sampled_vocab_size > 0),
-        max_grad_norm=float(cfg.max_grad_norm),
-        gradient_clip_interval=max(0, int(cfg.gradient_clip_interval)),
-        collect_training_telemetry=bool(cfg.collect_training_telemetry),
-    )
     new_batches = _trim_batches(hard_split.train, int(cfg.max_new_batches))
     replay_batches = _trim_batches(old_split.train, int(cfg.max_replay_batches))
     old_eval_batches = _trim_batches(old_split.eval, int(cfg.max_old_eval_batches))
     new_eval_batches = _trim_batches(hard_split.eval, int(cfg.max_new_eval_batches))
-    learning_report = run_language_continual_learning_window(
-        model,
-        new_batches=new_batches,
-        old_eval_batches=old_eval_batches,
-        new_eval_batches=new_eval_batches,
-        replay_batches=replay_batches,
-        config=learning_config,
+    del model
+    candidate_specs = _replay_candidate_specs(cfg)
+    candidate_count = len(candidate_specs)
+    candidate_reports: list[dict[str, Any]] = []
+    selected_candidate: dict[str, Any] | None = None
+    selected_rank: tuple[float, ...] | None = None
+    selected_model: Any | None = None
+    selected_tokenizer: ByteLevelLanguageTokenizer | None = None
+    disabled_sustained_summary = _disabled_sustained_summary()
+    selection_policy = (
+        "prefer_min_heldout_regression_then_heldout_gain_then_trained_gain_"
+        "then_learning_acceptance_then_update_throughput"
     )
+    for candidate_spec in candidate_specs:
+        candidate_model, candidate_tokenizer, _candidate_parent_metadata = (
+            load_language_model_checkpoint(parent_checkpoint, map_location="cpu")
+        )
+        candidate_model.to(device)
+        learning_config = LanguageContinualLearningConfig(
+            learning_rate=float(candidate_spec.learning_rate),
+            max_steps=int(candidate_spec.max_steps),
+            replay_loss_weight=float(candidate_spec.replay_loss_weight),
+            forgetting_tolerance=float(cfg.forgetting_tolerance),
+            replay_retention_tolerance=float(cfg.replay_retention_tolerance),
+            rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
+            sparse_vocab_optimizer=bool(candidate_model.config.sampled_vocab_size > 0),
+            max_grad_norm=float(cfg.max_grad_norm),
+            gradient_clip_interval=max(0, int(cfg.gradient_clip_interval)),
+            collect_training_telemetry=bool(cfg.collect_training_telemetry),
+        )
+        learning_report = run_language_continual_learning_window(
+            candidate_model,
+            new_batches=new_batches,
+            old_eval_batches=old_eval_batches,
+            new_eval_batches=new_eval_batches,
+            replay_batches=replay_batches,
+            config=learning_config,
+        )
 
-    child_checkpoint = (
-        Path(child_checkpoint_path)
-        if child_checkpoint_path is not None
-        else output.with_name(f"{output.stem}-child-checkpoint.pt")
-    )
-    child_metadata = {
-        "parent_checkpoint_path": str(parent_checkpoint),
-        "parent_checkpoint_sha256": parent_hash,
-        "parent_checkpoint_metadata": parent_metadata,
-        "quality_replay_report": str(output),
-        "hard_prompt_corpus_hash": hard_corpus_report["corpus_hash"],
-        "learning_status": learning_report.get("status"),
-        "learning_final_state_hash": dict(
-            learning_report.get("rollback_evidence") or {}
-        ).get("final_state_hash"),
-    }
-    save_language_model_checkpoint(
-        child_checkpoint,
-        model,
-        tokenizer,
-        metadata=child_metadata,
-    )
-    child_hash = _sha256_file(child_checkpoint)
-    after_coherence_path = output.with_name(f"{output.stem}-child-coherence.json")
-    after_coherence = run_language_generation_coherence_report(
-        model,
-        tokenizer,
-        prompt_cases=cases,
-        min_case_pass_rate=float(cfg.min_case_pass_rate),
-        checkpoint_path=child_checkpoint,
-        output_path=after_coherence_path,
-        generation_repetition_penalty=float(cfg.generation_repetition_penalty),
-        generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
-    )
-    heldout_after_coherence: dict[str, Any] | None = None
-    heldout_after_coherence_path = output.with_name(
-        f"{output.stem}-child-heldout-coherence.json"
-    )
-    if heldout_cases:
-        heldout_after_coherence = run_language_generation_coherence_report(
-            model,
-            tokenizer,
-            prompt_cases=heldout_cases,
+        candidate_child_checkpoint = (
+            Path(child_checkpoint_path)
+            if child_checkpoint_path is not None and candidate_count <= 1
+            else _candidate_artifact_path(
+                output,
+                candidate_count=candidate_count,
+                candidate_index=candidate_spec.index,
+                suffix="child-checkpoint.pt",
+            )
+        )
+        child_metadata = {
+            "parent_checkpoint_path": str(parent_checkpoint),
+            "parent_checkpoint_sha256": parent_hash,
+            "parent_checkpoint_metadata": parent_metadata,
+            "quality_replay_report": str(output),
+            "hard_prompt_corpus_hash": hard_corpus_report["corpus_hash"],
+            "candidate_id": candidate_spec.candidate_id,
+            "candidate_index": int(candidate_spec.index),
+            "candidate_learning_config": {
+                "learning_rate": float(candidate_spec.learning_rate),
+                "replay_loss_weight": float(candidate_spec.replay_loss_weight),
+                "max_steps": int(candidate_spec.max_steps),
+            },
+            "candidate_selection_policy": selection_policy,
+            "learning_status": learning_report.get("status"),
+            "learning_final_state_hash": dict(
+                learning_report.get("rollback_evidence") or {}
+            ).get("final_state_hash"),
+        }
+        save_language_model_checkpoint(
+            candidate_child_checkpoint,
+            candidate_model,
+            candidate_tokenizer,
+            metadata=child_metadata,
+        )
+        child_hash = _sha256_file(candidate_child_checkpoint)
+        after_coherence_path = _candidate_artifact_path(
+            output,
+            candidate_count=candidate_count,
+            candidate_index=candidate_spec.index,
+            suffix="child-coherence.json",
+        )
+        after_coherence = run_language_generation_coherence_report(
+            candidate_model,
+            candidate_tokenizer,
+            prompt_cases=cases,
             min_case_pass_rate=float(cfg.min_case_pass_rate),
-            checkpoint_path=child_checkpoint,
-            output_path=heldout_after_coherence_path,
+            checkpoint_path=candidate_child_checkpoint,
+            output_path=after_coherence_path,
             generation_repetition_penalty=float(cfg.generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
         )
+        heldout_after_coherence: dict[str, Any] | None = None
+        heldout_after_coherence_path = _candidate_artifact_path(
+            output,
+            candidate_count=candidate_count,
+            candidate_index=candidate_spec.index,
+            suffix="child-heldout-coherence.json",
+        )
+        if heldout_cases:
+            heldout_after_coherence = run_language_generation_coherence_report(
+                candidate_model,
+                candidate_tokenizer,
+                prompt_cases=heldout_cases,
+                min_case_pass_rate=float(cfg.min_case_pass_rate),
+                checkpoint_path=candidate_child_checkpoint,
+                output_path=heldout_after_coherence_path,
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+            )
+        coherence_delta = _coherence_delta(before_coherence, after_coherence)
+        heldout_coherence_delta = (
+            _coherence_delta(heldout_before_coherence, heldout_after_coherence)
+            if heldout_before_coherence is not None
+            and heldout_after_coherence is not None
+            else None
+        )
+        candidate_generalization_review = _heldout_generalization_review(
+            trained_after=after_coherence,
+            heldout_before=heldout_before_coherence,
+            heldout_after=heldout_after_coherence,
+            heldout_delta=heldout_coherence_delta,
+            sustained_summary=disabled_sustained_summary,
+        )
+        rank = _candidate_selection_rank(
+            learning_report=learning_report,
+            trained_delta=coherence_delta,
+            heldout_delta=heldout_coherence_delta,
+        )
+        learning_evidence = dict(learning_report.get("learning_evidence") or {})
+        candidate_report = {
+            "candidate_id": candidate_spec.candidate_id,
+            "candidate_index": int(candidate_spec.index),
+            "selected": False,
+            "child_checkpoint_path": str(candidate_child_checkpoint),
+            "child_checkpoint_sha256": child_hash,
+            "child_metadata": child_metadata,
+            "learning_config": {
+                "learning_rate": float(candidate_spec.learning_rate),
+                "replay_loss_weight": float(candidate_spec.replay_loss_weight),
+                "max_steps": int(candidate_spec.max_steps),
+            },
+            "learning_evidence": learning_report,
+            "learning_summary": {
+                "status": learning_report.get("status"),
+                "tokens_per_second": float(
+                    learning_evidence.get("tokens_per_second", 0.0) or 0.0
+                ),
+                "total_window_tokens_per_second": float(
+                    learning_evidence.get(
+                        "total_window_tokens_per_second",
+                        0.0,
+                    )
+                    or 0.0
+                ),
+                "update_token_count": int(
+                    learning_evidence.get("update_token_count", 0) or 0
+                ),
+                "old_domain_forgetting": float(
+                    learning_evidence.get("old_domain_forgetting", 0.0) or 0.0
+                ),
+                "general_replay_retention_delta": float(
+                    learning_evidence.get(
+                        "general_replay_retention_delta",
+                        0.0,
+                    )
+                    or 0.0
+                ),
+            },
+            "generation_coherence_after_path": str(after_coherence_path),
+            "generation_coherence_after": after_coherence,
+            "generation_coherence_delta": coherence_delta,
+            "heldout_generation_coherence_after_path": (
+                str(heldout_after_coherence_path) if heldout_cases else ""
+            ),
+            "heldout_generation_coherence_after": heldout_after_coherence,
+            "heldout_generation_coherence_delta": heldout_coherence_delta,
+            "quality_generalization_review": candidate_generalization_review,
+            "selection_rank": rank,
+            "selection_score": _candidate_selection_score(rank),
+        }
+        candidate_reports.append(candidate_report)
+        if selected_rank is None or rank > selected_rank:
+            if selected_model is not None:
+                del selected_model
+            selected_candidate = candidate_report
+            selected_rank = rank
+            selected_model = candidate_model
+            selected_tokenizer = candidate_tokenizer
+        else:
+            del candidate_model
+    if selected_candidate is None or selected_model is None or selected_tokenizer is None:
+        raise RuntimeError("Language quality replay produced no child candidate")
+    for candidate_report in candidate_reports:
+        candidate_report["selected"] = (
+            candidate_report["candidate_id"] == selected_candidate["candidate_id"]
+        )
+    selected_candidate["selected"] = True
+    model = selected_model
+    tokenizer = selected_tokenizer
+    child_checkpoint = Path(str(selected_candidate["child_checkpoint_path"]))
+    child_hash = str(selected_candidate["child_checkpoint_sha256"])
+    child_metadata = dict(selected_candidate["child_metadata"])
+    learning_report = dict(selected_candidate["learning_evidence"])
+    after_coherence_path = Path(str(selected_candidate["generation_coherence_after_path"]))
+    after_coherence = dict(selected_candidate["generation_coherence_after"])
+    heldout_after_coherence_path = Path(
+        str(selected_candidate["heldout_generation_coherence_after_path"] or "")
+    )
+    heldout_after_coherence = selected_candidate["heldout_generation_coherence_after"]
+    coherence_delta = dict(selected_candidate["generation_coherence_delta"])
+    heldout_coherence_delta = selected_candidate["heldout_generation_coherence_delta"]
 
     sustained_targets = _sustained_targets(cfg)
     sustained_reports: list[dict[str, Any]] = []
@@ -727,6 +1014,31 @@ def run_language_quality_replay_experiment(
         heldout_delta=heldout_coherence_delta,
         sustained_summary=sustained_summary,
     )
+    selected_candidate["quality_generalization_review"] = generalization_review
+    candidate_selection = {
+        "surface": "marulho_language_quality_replay_candidate_selection.v1",
+        "enabled": candidate_count > 1,
+        "candidate_count": int(candidate_count),
+        "selection_policy": selection_policy,
+        "selected_candidate_id": str(selected_candidate["candidate_id"]),
+        "selected_candidate_index": int(selected_candidate["candidate_index"]),
+        "selected_child_checkpoint_path": str(child_checkpoint),
+        "selected_child_checkpoint_sha256": child_hash,
+        "selected_selection_rank": [
+            float(value) for value in selected_candidate.get("selection_rank", ())
+        ],
+        "selected_selection_score": float(
+            selected_candidate.get("selection_score", 0.0) or 0.0
+        ),
+        "saves_child_checkpoint_per_candidate": True,
+        "runs_sustained_runtime_only_for_selected_child": True,
+        "mutates_parent_checkpoint": False,
+        "heldout_cases_used_for_replay_training": False,
+        "candidates": [
+            _candidate_summary_for_report(candidate)
+            for candidate in candidate_reports
+        ],
+    }
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
@@ -746,6 +1058,12 @@ def run_language_quality_replay_experiment(
             "child_checkpoint_path": str(child_checkpoint),
             "parent_checkpoint_sha256": parent_hash,
             "child_checkpoint_sha256": child_hash,
+            "candidate_count": int(candidate_count),
+            "selected_candidate_id": str(selected_candidate["candidate_id"]),
+            "candidate_child_checkpoint_paths": [
+                str(candidate.get("child_checkpoint_path") or "")
+                for candidate in candidate_reports
+            ],
             "writes_child_checkpoint": True,
             "mutates_parent_checkpoint": False,
             "rollback_available": True,
@@ -786,6 +1104,7 @@ def run_language_quality_replay_experiment(
         "heldout_generation_coherence_after": heldout_after_coherence,
         "heldout_generation_coherence_delta": heldout_coherence_delta,
         "quality_generalization_review": generalization_review,
+        "candidate_selection": candidate_selection,
         "sustained_runtime_evidence": sustained_report,
         "sustained_runtime_evidence_reports": sustained_reports,
         "sustained_runtime_evidence_summary": sustained_summary,
@@ -794,6 +1113,9 @@ def run_language_quality_replay_experiment(
             "surface": "marulho_language_quality_replay_review.v1",
             "fast_mutable_experiment": True,
             "records_hard_prompt_training_pressure": True,
+            "records_candidate_child_selection": True,
+            "candidate_count": int(candidate_count),
+            "selected_candidate_id": str(selected_candidate["candidate_id"]),
             "records_actual_continual_learning": bool(
                 dict(learning_report.get("learning_evidence") or {}).get(
                     "update_token_count",
@@ -808,6 +1130,7 @@ def run_language_quality_replay_experiment(
             "records_same_child_generation_coherence": True,
             "records_heldout_generation_coherence": bool(heldout_cases),
             "records_same_child_sustained_runtime": bool(sustained_reports),
+            "runs_sustained_runtime_only_for_selected_child": True,
             "records_multiple_sustained_targets": bool(len(sustained_reports) > 1),
             "records_house_scale_sustained_runtime": bool(
                 sustained_summary["house_scale_524288_available"]
@@ -852,6 +1175,14 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=8e-4)
     parser.add_argument("--replay-loss-weight", type=float, default=0.35)
+    parser.add_argument("--candidate-learning-rate", type=float, action="append", default=[])
+    parser.add_argument(
+        "--candidate-replay-loss-weight",
+        type=float,
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--candidate-max-steps", type=int, action="append", default=[])
     parser.add_argument("--forgetting-tolerance", type=float, default=100.0)
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
@@ -910,6 +1241,9 @@ def main() -> int:
             max_steps=args.max_steps,
             learning_rate=args.learning_rate,
             replay_loss_weight=args.replay_loss_weight,
+            candidate_learning_rates=tuple(args.candidate_learning_rate),
+            candidate_replay_loss_weights=tuple(args.candidate_replay_loss_weight),
+            candidate_max_steps=tuple(args.candidate_max_steps),
             forgetting_tolerance=args.forgetting_tolerance,
             replay_retention_tolerance=args.replay_retention_tolerance,
             rollback_on_forgetting=bool(args.rollback_on_forgetting),
@@ -929,7 +1263,9 @@ def main() -> int:
             benchmark_suite_output_path=(
                 "" if args.benchmark_suite_output is None else str(args.benchmark_suite_output)
             ),
-            benchmark_gpu_kernel_evidence_paths=tuple(str(path) for path in args.gpu_kernel_evidence),
+            benchmark_gpu_kernel_evidence_paths=tuple(
+                str(path) for path in args.gpu_kernel_evidence
+            ),
             collect_environment=bool(args.collect_environment),
             device=args.device,
         ),
