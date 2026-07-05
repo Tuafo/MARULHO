@@ -416,7 +416,24 @@ developmental and consolidation runners, query runners, and long-run evidence.
   contrast scores `1048576` candidates, reports
   `memory_slot_candidate_plan_unbounded`, and peaks at `1440.856 MiB`. This is
   memory-capacity runtime-impact evidence, not a hot-path promotion or
-  generation-quality claim; gradient-training and sustained-generation impact
+  generation-quality claim; training and sustained-generation impact are
+  separate gates.
+- `evaluation/language_memory_slot_training_impact.py` is the complete
+  optimizer-step evidence report for the LM memory-slot path. The local
+  2026-07-05 CUDA report
+  `reports/language_training_experiments/memory-slot-training-impact-model524288-b16-s64-t524288.json`
+  measures `524288` optimizer tokens per arm on the `524288` model-vocab,
+  `1024` sampled-row, batch-16/seq-64, horizon-8, TF32, clip-interval-8 shape.
+  The disabled-memory control reached `3148.695` train tokens/sec; bounded
+  memory slots reached `3056.539` train tokens/sec (`0.971x`) while scoring
+  `8192` memory candidates per optimizer step, avoiding all-slot scan, keeping
+  `memory_gate_readback=false`, avoiding full vocab logits, using
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, clipping gradients on
+  `64/512` measured steps, and peaking at `2378.977 MiB` versus `2368.389 MiB`
+  control (`1.004x`). The memory gate moved from `0.0` to `-0.04059`, the gate
+  gradient was nonzero, and memory-slot gradients became nonzero after the gate
+  update. This is trainability and long training-window impact evidence, not a
+  hot-path promotion; sustained generation and longer online-learning windows
   still need separate measurement before memory-slot growth can promote.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
