@@ -63,6 +63,12 @@ SURFACE = "marulho_language_runtime_benchmark_suite.v1"
 ARTIFACT_KIND = "marulho_language_runtime_benchmark_suite"
 SUSTAINED_SURFACE = "marulho_language_sustained_runtime_evidence.v1"
 SUSTAINED_ARTIFACT_KIND = "marulho_language_sustained_runtime_evidence"
+MEMORY_SLOT_RUNTIME_IMPACT_SURFACE = (
+    "marulho_language_memory_slot_runtime_impact.v1"
+)
+MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND = (
+    "marulho_language_memory_slot_runtime_impact"
+)
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
@@ -175,6 +181,19 @@ def _read_gpu_kernel_report(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def _read_memory_slot_runtime_impact_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Memory-slot runtime impact report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
     return (
         report.get("artifact_kind") == SUSTAINED_ARTIFACT_KIND
@@ -185,6 +204,28 @@ def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
         and report.get("owned_by_marulho") is True
         and report.get("external_llm_used") is False
         and report.get("loads_external_checkpoint") is False
+    )
+
+
+def _valid_language_memory_slot_runtime_impact_report(
+    report: Mapping[str, Any],
+) -> bool:
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND
+        and report.get("surface") == MEMORY_SLOT_RUNTIME_IMPACT_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and promotion_gate.get("complete_runtime_impact_available") is True
+        and promotion_gate.get("bounded_memory_slots_enabled") is True
+        and promotion_gate.get("bounded_avoids_all_slot_scan") is True
+        and promotion_gate.get("neutral_initialization_parity") is True
     )
 
 
@@ -655,6 +696,101 @@ def _language_long_run_evidence(
     }
 
 
+def _memory_slot_runtime_impact_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    comparison = (
+        report.get("comparison") if isinstance(report.get("comparison"), Mapping) else {}
+    )
+    promotion_gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    arms = report.get("arms") if isinstance(report.get("arms"), Mapping) else {}
+    bounded = arms.get("bounded_memory_slots_enabled")
+    all_slot = arms.get("all_slot_memory_scan_contrast")
+    bounded = bounded if isinstance(bounded, Mapping) else {}
+    all_slot = all_slot if isinstance(all_slot, Mapping) else {}
+    batch = report.get("batch") if isinstance(report.get("batch"), Mapping) else {}
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "model_vocab_size": int(report.get("model_vocab_size", 0) or 0),
+        "tokens_per_forward": int(batch.get("tokens_per_forward", 0) or 0),
+        "control_tokens_per_second": comparison.get("control_tokens_per_second"),
+        "bounded_tokens_per_second": comparison.get("bounded_tokens_per_second"),
+        "bounded_vs_control_tokens_per_second_ratio": comparison.get(
+            "bounded_vs_control_tokens_per_second_ratio"
+        ),
+        "all_slot_tokens_per_second": comparison.get("all_slot_tokens_per_second"),
+        "all_slot_vs_bounded_tokens_per_second_ratio": comparison.get(
+            "all_slot_vs_bounded_tokens_per_second_ratio"
+        ),
+        "bounded_candidate_slot_count": int(
+            bounded.get("candidate_slot_count", 0) or 0
+        ),
+        "bounded_active_slots_per_token": int(
+            bounded.get("active_slots_per_token", 0) or 0
+        ),
+        "bounded_candidate_slots_scored": int(
+            bounded.get("candidate_slots_scored", 0) or 0
+        ),
+        "bounded_runs_all_slots": bool(bounded.get("runs_all_slots", False)),
+        "all_slot_candidate_slots_scored": int(
+            all_slot.get("candidate_slots_scored", 0) or 0
+        ),
+        "all_slot_runs_all_slots": bool(all_slot.get("runs_all_slots", False)),
+        "memory_gate_readback": bool(comparison.get("memory_gate_readback", False)),
+        "bounded_avoids_all_slot_scan": bool(
+            promotion_gate.get("bounded_avoids_all_slot_scan")
+        ),
+        "neutral_initialization_parity": bool(
+            promotion_gate.get("neutral_initialization_parity")
+        ),
+        "promotes_hot_path": bool(promotion_gate.get("promotes_hot_path")),
+        "promotes_runtime_claim": bool(promotion_gate.get("promotes_runtime_claim")),
+    }
+
+
+def _language_memory_slot_runtime_impact_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_memory_slot_runtime_impact_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: float(
+            (item.get("comparison") or {}).get(
+                "bounded_vs_control_tokens_per_second_ratio",
+                0.0,
+            )
+            if isinstance(item.get("comparison"), Mapping)
+            else 0.0
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "memory_slot_runtime_impact_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _memory_slot_runtime_impact_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_memory_slot_runtime_impact_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+        "promotes_hot_path": False,
+    }
+
+
 def _gpu_kernel_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     promotion_gate = (
         report.get("promotion_gate")
@@ -839,6 +975,7 @@ def run_language_runtime_benchmark_suite(
     output_path: str | Path,
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
+    memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
     generation_coherence_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
@@ -1709,6 +1846,37 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
+    memory_slot_runtime_impact_reports = [
+        _read_memory_slot_runtime_impact_report(path)
+        for path in memory_slot_runtime_impact_evidence_paths
+    ]
+    memory_slot_runtime_impact_evidence = (
+        _language_memory_slot_runtime_impact_evidence(
+            memory_slot_runtime_impact_reports
+        )
+    )
+    memory_slot_runtime_impact_missing = tuple(
+        memory_slot_runtime_impact_evidence["missing_evidence"]
+    )
+    categories.append(
+        _category(
+            "memory_slot_runtime_impact",
+            status=(
+                "fail"
+                if memory_slot_runtime_impact_missing
+                else (
+                    "pass"
+                    if memory_slot_runtime_impact_evidence[
+                        "memory_slot_runtime_impact_available"
+                    ]
+                    else "smoke_only"
+                )
+            ),
+            evidence=memory_slot_runtime_impact_evidence,
+            missing=memory_slot_runtime_impact_missing,
+        )
+    )
+
     gpu_kernel_reports = [
         _read_gpu_kernel_report(path) for path in gpu_kernel_evidence_paths
     ]
@@ -1873,6 +2041,10 @@ def run_language_runtime_benchmark_suite(
             "sustained_evidence": [
                 str(Path(path)) for path in sustained_evidence_paths
             ],
+            "memory_slot_runtime_impact_evidence": [
+                str(Path(path))
+                for path in memory_slot_runtime_impact_evidence_paths
+            ],
             "gpu_kernel_evidence": [
                 str(Path(path)) for path in gpu_kernel_evidence_paths
             ],
@@ -1928,6 +2100,15 @@ def main() -> int:
         help="Existing marulho_language_triton_kernel_report JSON report.",
     )
     parser.add_argument(
+        "--memory-slot-runtime-impact-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_memory_slot_runtime_impact JSON report."
+        ),
+    )
+    parser.add_argument(
         "--generation-coherence-evidence",
         type=Path,
         action="append",
@@ -1939,6 +2120,9 @@ def main() -> int:
         output_path=args.output,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_evidence_paths=tuple(args.sustained_evidence),
+        memory_slot_runtime_impact_evidence_paths=tuple(
+            args.memory_slot_runtime_impact_evidence
+        ),
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
         generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),
     )

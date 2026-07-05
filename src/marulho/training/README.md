@@ -400,6 +400,22 @@ developmental and consolidation runners, query runners, and long-run evidence.
   token-hash candidate retrieval so added slots do not silently become an
   all-slot retrieval path; synapse-bundle growth preserves old expert weights
   and initializes the added hidden rows/columns neutrally.
+- `evaluation/language_memory_slot_runtime_impact.py` is the complete-forward
+  evidence report for the LM memory-slot path. The local 2026-07-05 CUDA
+  report
+  `reports/language_training_experiments/memory-slot-runtime-impact-524288-b16-s64.json`
+  uses the `524288` model-vocab, batch-16/seq-64 shape with `1024` memory
+  slots, `8` bounded candidates, and `2` active slots. It measured
+  `12783.322` tokens/sec with memory disabled, `12171.603` tokens/sec with
+  bounded memory slots (`0.952x`), and `10863.409` tokens/sec for the all-slot
+  contrast (`0.893x` versus bounded). Bounded retrieval scores `8192` memory
+  candidates per forward, avoids all-slot scan, preserves exact neutral logit
+  parity while the memory gate is zero, keeps `memory_gate_readback=false`, and
+  peaks at `412.950 MiB`; the all-slot contrast scores `1048576` candidates,
+  reports `memory_slot_candidate_plan_unbounded`, and peaks at `1440.856 MiB`.
+  This is memory-capacity runtime-impact evidence, not a hot-path promotion or
+  generation-quality claim; gradient-training and sustained-generation impact
+  still need separate measurement before memory-slot growth can promote.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,

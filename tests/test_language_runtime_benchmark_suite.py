@@ -9,6 +9,8 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     GENERATION_COHERENCE_SURFACE,
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
+    MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND,
+    MEMORY_SLOT_RUNTIME_IMPACT_SURFACE,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     RMSNORM_KERNEL_NAME,
@@ -177,6 +179,54 @@ def _write_generation_coherence_report(
     )
 
 
+def _write_memory_slot_runtime_impact_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND,
+                "surface": MEMORY_SLOT_RUNTIME_IMPACT_SURFACE,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "model_vocab_size": 524288,
+                "batch": {
+                    "tokens_per_forward": 1024,
+                },
+                "arms": {
+                    "bounded_memory_slots_enabled": {
+                        "candidate_slot_count": 8,
+                        "active_slots_per_token": 2,
+                        "candidate_slots_scored": 8192,
+                        "runs_all_slots": False,
+                    },
+                    "all_slot_memory_scan_contrast": {
+                        "candidate_slots_scored": 1048576,
+                        "runs_all_slots": True,
+                    },
+                },
+                "comparison": {
+                    "control_tokens_per_second": 12783.3,
+                    "bounded_tokens_per_second": 12171.6,
+                    "bounded_vs_control_tokens_per_second_ratio": 0.952,
+                    "all_slot_tokens_per_second": 10863.4,
+                    "all_slot_vs_bounded_tokens_per_second_ratio": 0.893,
+                    "memory_gate_readback": False,
+                },
+                "promotion_gate": {
+                    "complete_runtime_impact_available": True,
+                    "bounded_memory_slots_enabled": True,
+                    "bounded_avoids_all_slot_scan": True,
+                    "neutral_initialization_parity": True,
+                    "promotes_hot_path": False,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     tmp_path,
 ) -> None:
@@ -202,6 +252,7 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         "growth_prune_safety",
         "long_run_throughput",
         "active_compute",
+        "memory_slot_runtime_impact",
         "gpu_kernel_correctness",
         "checkpoint_restore",
         "rollback",
@@ -319,6 +370,14 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     ] is False
     assert categories["long_run_throughput"]["evidence"]["long_run_gate_reached"] is False
     assert categories["service_contract"]["evidence"]["status_read_mutates_token_count"] is False
+    assert categories["memory_slot_runtime_impact"]["status"] == "smoke_only"
+    assert (
+        categories["memory_slot_runtime_impact"]["evidence"][
+            "memory_slot_runtime_impact_available"
+        ]
+        is False
+    )
+    assert categories["memory_slot_runtime_impact"]["missing_evidence"] == []
     assert categories["checkpoint_restore"]["status"] == "pass"
     assert report["promotion_gate"]["status"] == "blocked_missing_required_evidence"
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
@@ -355,6 +414,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
+    memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_sustained_report(
@@ -389,11 +449,13 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         kernel_name=SAMPLED_VOCAB_CE_KERNEL_NAME,
     )
     _write_generation_coherence_report(generation_coherence)
+    _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
         sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
+        memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
         gpu_kernel_evidence_paths=(
             rmsnorm_kernel,
             plif_kernel,
@@ -410,6 +472,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     long_run = categories["long_run_throughput"]
     gpu_kernel_category = categories["gpu_kernel_correctness"]
     generation_category = categories["generation_coherence"]
+    memory_slot_category = categories["memory_slot_runtime_impact"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -443,6 +506,18 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert long_run["evidence"]["promotes_hot_path"] is False
     assert gpu_kernel_category["status"] == "pass"
     assert generation_category["status"] == "pass"
+    assert memory_slot_category["status"] == "pass"
+    assert memory_slot_category["missing_evidence"] == []
+    assert memory_slot_category["evidence"]["best_report"][
+        "bounded_avoids_all_slot_scan"
+    ] is True
+    assert memory_slot_category["evidence"]["best_report"][
+        "bounded_vs_control_tokens_per_second_ratio"
+    ] == 0.952
+    assert memory_slot_category["evidence"]["best_report"][
+        "all_slot_runs_all_slots"
+    ] is True
+    assert memory_slot_category["evidence"]["required_for_runtime_promotion"] is False
     assert generation_category["missing_evidence"] == []
     assert generation_category["evidence"]["long_run_alignment"][
         "same_checkpoint_long_run_available"
