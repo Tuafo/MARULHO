@@ -19,6 +19,10 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     ROUTE_TOPK_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
+    STRUCTURAL_PLASTICITY_EXPERIMENT_ARTIFACT_KIND,
+    STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE,
+    STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND,
+    STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE,
     SURFACE,
     SUSTAINED_ARTIFACT_KIND,
     SUSTAINED_SURFACE,
@@ -303,6 +307,74 @@ def _write_memory_slot_architecture_cost_report(path) -> None:
     )
 
 
+def _write_structural_plasticity_experiment_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": STRUCTURAL_PLASTICITY_EXPERIMENT_ARTIFACT_KIND,
+                "surface": STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "status": "completed_structural_plasticity_transactions",
+                "model_vocab_size": 524288,
+                "sampled_vocab_size": 1024,
+                "transactions": [
+                    {
+                        "surface": (
+                            "marulho_language_structural_plasticity_experiment_entry.v1"
+                        ),
+                        "proposal_kind": "memory_slot_expansion",
+                        "transaction": {
+                            "artifact_kind": (
+                                STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND
+                            ),
+                            "surface": STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE,
+                            "owned_by_marulho": True,
+                            "external_llm_used": False,
+                            "loads_external_checkpoint": False,
+                            "active_language_path": "marulho_lm_head",
+                            "status": "applied_structural_mutation",
+                            "applied": True,
+                            "mutates_runtime_state": True,
+                            "operator_approved": True,
+                            "checkpoint": {
+                                "path": "reports/structural/baseline.pt",
+                                "checkpoint_restore_verified": True,
+                            },
+                            "mutation": {
+                                "proposal_kind": "memory_slot_expansion",
+                                "source_expert_count": 16,
+                                "target_expert_count": 16,
+                                "source_route_candidate_count": 8,
+                                "target_route_candidate_count": 8,
+                                "source_memory_slot_count": 0,
+                                "target_memory_slot_count": 1024,
+                                "target_memory_slot_candidate_count": 8,
+                                "target_active_memory_slot_count": 2,
+                            },
+                            "evaluation": {
+                                "heldout_loss_delta": 0.0,
+                            },
+                            "rollback_evidence": {
+                                "rollback_verified": True,
+                            },
+                            "promotion_gate": {
+                                "checkpoint_backed": True,
+                                "heldout_non_regression": True,
+                                "eligible_for_reviewed_structural_promotion": True,
+                                "promotes_runtime_claim": False,
+                            },
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     tmp_path,
 ) -> None:
@@ -450,6 +522,9 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert "synapse_bundle_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "memory_slot_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert categories["growth_prune_safety"]["missing_evidence"] == []
+    assert categories["growth_prune_safety"]["evidence"][
+        "saved_structural_plasticity_evidence"
+    ]["saved_structural_plasticity_evidence_available"] is False
     assert categories["long_run_throughput"]["status"] == "smoke_only"
     assert categories["long_run_throughput"]["evidence"]["smoke_token_delta"] == 4
     assert categories["long_run_throughput"]["evidence"][
@@ -509,6 +584,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     generation_coherence = tmp_path / "generation-coherence.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
+    structural_plasticity = tmp_path / "structural-plasticity.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_sustained_report(
@@ -549,6 +625,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     _write_generation_coherence_report(generation_coherence)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
     _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
+    _write_structural_plasticity_experiment_report(structural_plasticity)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
@@ -558,6 +635,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         memory_slot_architecture_cost_evidence_paths=(
             memory_slot_architecture_cost,
         ),
+        structural_plasticity_evidence_paths=(structural_plasticity,),
         gpu_kernel_evidence_paths=(
             rmsnorm_kernel,
             plif_kernel,
@@ -577,6 +655,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     generation_category = categories["generation_coherence"]
     memory_slot_category = categories["memory_slot_runtime_impact"]
     memory_slot_cost_category = categories["memory_slot_architecture_cost"]
+    growth_prune_category = categories["growth_prune_safety"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -648,6 +727,15 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert memory_slot_cost_category["evidence"][
         "required_for_runtime_promotion"
     ] is False
+    saved_structural = growth_prune_category["evidence"][
+        "saved_structural_plasticity_evidence"
+    ]
+    assert saved_structural["saved_structural_plasticity_evidence_available"] is True
+    assert saved_structural["valid_transaction_count"] == 1
+    assert saved_structural["proposal_kinds"] == ["memory_slot_expansion"]
+    assert saved_structural["transaction_summaries"][0][
+        "target_memory_slot_count"
+    ] == 1024
     assert generation_category["missing_evidence"] == []
     assert generation_category["evidence"]["long_run_alignment"][
         "same_checkpoint_long_run_available"

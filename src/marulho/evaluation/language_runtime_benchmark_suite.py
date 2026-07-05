@@ -76,6 +76,18 @@ CONTINUAL_LEARNING_EXPERIMENT_SURFACE = (
     "marulho_language_continual_learning_experiment.v1"
 )
 CONTINUAL_LEARNING_ARTIFACT_KIND = "marulho_language_continual_learning_window"
+STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE = (
+    "marulho_language_structural_plasticity_experiment.v1"
+)
+STRUCTURAL_PLASTICITY_EXPERIMENT_ARTIFACT_KIND = (
+    "marulho_language_structural_plasticity_experiment"
+)
+STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE = (
+    "marulho_language_structural_plasticity_transaction.v1"
+)
+STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND = (
+    "marulho_language_structural_plasticity_transaction"
+)
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
@@ -216,6 +228,19 @@ def _read_memory_slot_architecture_cost_report(path: str | Path) -> dict[str, An
     return payload
 
 
+def _read_structural_plasticity_evidence_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Structural-plasticity evidence report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
     return (
         report.get("artifact_kind") == SUSTAINED_ARTIFACT_KIND
@@ -294,6 +319,75 @@ def _valid_language_memory_slot_architecture_cost_report(
         and memory_slots.get("runs_all_slots") is False
         and training_backend.get("training_window_stats_recorded") is True
         and int(learning_evidence.get("update_token_count", 0) or 0) > 0
+    )
+
+
+def _structural_transaction_bounded_route_bank(mutation: Mapping[str, Any]) -> bool:
+    proposal_kind = str(mutation.get("proposal_kind") or "")
+    if proposal_kind != "route_bank_expansion":
+        return True
+    target_candidates = int(mutation.get("target_route_candidate_count", 0) or 0)
+    target_experts = int(mutation.get("target_expert_count", 0) or 0)
+    return target_candidates > 0 and target_experts > 0 and target_candidates < target_experts
+
+
+def _structural_transaction_bounded_memory_slots(mutation: Mapping[str, Any]) -> bool:
+    proposal_kind = str(mutation.get("proposal_kind") or "")
+    if proposal_kind != "memory_slot_expansion":
+        return True
+    target_slots = int(mutation.get("target_memory_slot_count", 0) or 0)
+    target_candidates = int(mutation.get("target_memory_slot_candidate_count", 0) or 0)
+    target_active = int(mutation.get("target_active_memory_slot_count", 0) or 0)
+    return (
+        target_slots > 0
+        and target_candidates > 0
+        and target_active > 0
+        and target_active <= target_candidates < target_slots
+    )
+
+
+def _valid_language_structural_plasticity_transaction_report(
+    report: Mapping[str, Any],
+) -> bool:
+    checkpoint = (
+        report.get("checkpoint")
+        if isinstance(report.get("checkpoint"), Mapping)
+        else {}
+    )
+    rollback = (
+        report.get("rollback_evidence")
+        if isinstance(report.get("rollback_evidence"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    mutation = (
+        report.get("mutation")
+        if isinstance(report.get("mutation"), Mapping)
+        else {}
+    )
+    proposal_kind = str(mutation.get("proposal_kind") or "")
+    return (
+        report.get("artifact_kind") == STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND
+        and report.get("surface") == STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("status") == "applied_structural_mutation"
+        and report.get("applied") is True
+        and report.get("operator_approved") is True
+        and checkpoint.get("checkpoint_restore_verified") is True
+        and rollback.get("rollback_verified") is True
+        and gate.get("checkpoint_backed") is True
+        and gate.get("heldout_non_regression") is True
+        and gate.get("eligible_for_reviewed_structural_promotion") is True
+        and proposal_kind
+        and _structural_transaction_bounded_route_bank(mutation)
+        and _structural_transaction_bounded_memory_slots(mutation)
     )
 
 
@@ -986,6 +1080,139 @@ def _language_memory_slot_architecture_cost_evidence(
     }
 
 
+def _structural_plasticity_transactions_from_report(
+    report: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if (
+        report.get("artifact_kind") == STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND
+        and report.get("surface") == STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE
+    ):
+        return [dict(report)]
+    if (
+        report.get("artifact_kind") != STRUCTURAL_PLASTICITY_EXPERIMENT_ARTIFACT_KIND
+        or report.get("surface") != STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE
+    ):
+        return []
+    transactions = report.get("transactions")
+    if not isinstance(transactions, Sequence) or isinstance(
+        transactions,
+        (str, bytes),
+    ):
+        return []
+    extracted: list[dict[str, Any]] = []
+    for entry in transactions:
+        if not isinstance(entry, Mapping):
+            continue
+        transaction = entry.get("transaction")
+        if isinstance(transaction, Mapping):
+            payload = dict(transaction)
+            payload.setdefault("path", report.get("path"))
+            payload.setdefault("experiment_path", report.get("path"))
+            extracted.append(payload)
+    return extracted
+
+
+def _structural_plasticity_transaction_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    mutation = (
+        report.get("mutation")
+        if isinstance(report.get("mutation"), Mapping)
+        else {}
+    )
+    evaluation = (
+        report.get("evaluation")
+        if isinstance(report.get("evaluation"), Mapping)
+        else {}
+    )
+    checkpoint = (
+        report.get("checkpoint")
+        if isinstance(report.get("checkpoint"), Mapping)
+        else {}
+    )
+    rollback = (
+        report.get("rollback_evidence")
+        if isinstance(report.get("rollback_evidence"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("experiment_path") or report.get("path") or ""),
+        "proposal_kind": mutation.get("proposal_kind"),
+        "status": report.get("status"),
+        "applied": bool(report.get("applied", False)),
+        "operator_approved": bool(report.get("operator_approved", False)),
+        "checkpoint_path": checkpoint.get("path"),
+        "checkpoint_restore_verified": bool(
+            checkpoint.get("checkpoint_restore_verified", False)
+        ),
+        "rollback_verified": bool(rollback.get("rollback_verified", False)),
+        "heldout_loss_delta": evaluation.get("heldout_loss_delta"),
+        "source_expert_count": mutation.get("source_expert_count"),
+        "target_expert_count": mutation.get("target_expert_count"),
+        "source_route_candidate_count": mutation.get("source_route_candidate_count"),
+        "target_route_candidate_count": mutation.get("target_route_candidate_count"),
+        "source_memory_slot_count": mutation.get("source_memory_slot_count"),
+        "target_memory_slot_count": mutation.get("target_memory_slot_count"),
+        "target_memory_slot_candidate_count": mutation.get(
+            "target_memory_slot_candidate_count"
+        ),
+        "target_active_memory_slot_count": mutation.get(
+            "target_active_memory_slot_count"
+        ),
+        "eligible_for_reviewed_structural_promotion": bool(
+            gate.get("eligible_for_reviewed_structural_promotion", False)
+        ),
+    }
+
+
+def _language_structural_plasticity_saved_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    transactions: list[dict[str, Any]] = []
+    for report in reports:
+        transactions.extend(_structural_plasticity_transactions_from_report(report))
+    valid_transactions = [
+        transaction
+        for transaction in transactions
+        if _valid_language_structural_plasticity_transaction_report(transaction)
+    ]
+    supplied_invalid = len(reports) > 0 and (
+        not transactions or len(valid_transactions) != len(transactions)
+    )
+    proposal_kinds = sorted(
+        {
+            str((transaction.get("mutation") or {}).get("proposal_kind"))
+            for transaction in valid_transactions
+            if isinstance(transaction.get("mutation"), Mapping)
+            and (transaction.get("mutation") or {}).get("proposal_kind")
+        }
+    )
+    return {
+        "report_count": len(reports),
+        "transaction_count": len(transactions),
+        "valid_transaction_count": len(valid_transactions),
+        "saved_structural_plasticity_evidence_available": bool(valid_transactions),
+        "proposal_kinds": proposal_kinds,
+        "transaction_summaries": [
+            _structural_plasticity_transaction_summary(transaction)
+            for transaction in valid_transactions
+        ],
+        "missing_evidence": (
+            ["valid_structural_plasticity_transaction_report"]
+            if supplied_invalid
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+
+
 def _gpu_kernel_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     promotion_gate = (
         report.get("promotion_gate")
@@ -1190,6 +1417,7 @@ def run_language_runtime_benchmark_suite(
     sustained_evidence_paths: Sequence[str | Path] = (),
     memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
     memory_slot_architecture_cost_evidence_paths: Sequence[str | Path] = (),
+    structural_plasticity_evidence_paths: Sequence[str | Path] = (),
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
     generation_coherence_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
@@ -1767,10 +1995,25 @@ def run_language_runtime_benchmark_suite(
     route_bank_routing = route_bank_eval["spike_telemetry"]["routing"]
     memory_eval = evaluate_language_model(structural_memory_candidate, old_split.eval)
     memory_slot_evidence = memory_eval["spike_telemetry"]["memory"]
+    structural_plasticity_reports = [
+        _read_structural_plasticity_evidence_report(path)
+        for path in structural_plasticity_evidence_paths
+    ]
+    saved_structural_plasticity_evidence = (
+        _language_structural_plasticity_saved_evidence(
+            structural_plasticity_reports
+        )
+    )
+    saved_structural_missing = tuple(
+        saved_structural_plasticity_evidence["missing_evidence"]
+    )
     categories.append(
         _category(
             "growth_prune_safety",
             status=(
+                "fail"
+                if saved_structural_missing
+                else (
                 "pass"
                 if proposal["mutates_runtime_state"] is False
                 and structural_report["checkpoint"]["checkpoint_restore_verified"]
@@ -1818,6 +2061,7 @@ def run_language_runtime_benchmark_suite(
                 ]
                 and not memory_slot_evidence["runs_all_slots"]
                 else "fail"
+                )
             ),
             evidence={
                 "proposal_mutates_runtime_state": proposal["mutates_runtime_state"],
@@ -1982,8 +2226,11 @@ def run_language_runtime_benchmark_suite(
                 "memory_slot_candidate_id_source": memory_slot_evidence[
                     "candidate_id_source"
                 ],
+                "saved_structural_plasticity_evidence": (
+                    saved_structural_plasticity_evidence
+                ),
             },
-            missing=(),
+            missing=saved_structural_missing,
         )
     )
 
@@ -2294,6 +2541,9 @@ def run_language_runtime_benchmark_suite(
                 str(Path(path))
                 for path in memory_slot_architecture_cost_evidence_paths
             ],
+            "structural_plasticity_evidence": [
+                str(Path(path)) for path in structural_plasticity_evidence_paths
+            ],
             "gpu_kernel_evidence": [
                 str(Path(path)) for path in gpu_kernel_evidence_paths
             ],
@@ -2368,6 +2618,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--structural-plasticity-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_structural_plasticity_experiment or "
+            "structural-plasticity transaction JSON report."
+        ),
+    )
+    parser.add_argument(
         "--generation-coherence-evidence",
         type=Path,
         action="append",
@@ -2384,6 +2644,9 @@ def main() -> int:
         ),
         memory_slot_architecture_cost_evidence_paths=tuple(
             args.memory_slot_architecture_cost_evidence
+        ),
+        structural_plasticity_evidence_paths=tuple(
+            args.structural_plasticity_evidence
         ),
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
         generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),

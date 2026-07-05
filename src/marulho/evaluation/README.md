@@ -198,8 +198,13 @@ harnesses.
   `marulho_language_continual_memory_slot_architecture_cost.v1` sections, so
   bounded memory slots can be judged against no-memory baselines on update
   throughput, total-window throughput, forgetting, replay retention, and
-  generation-probe deltas. Human review and broad generation-quality/runtime
-  promotion remain false unless separately proven.
+  generation-probe deltas. Saved
+  `marulho_language_structural_plasticity_experiment.v1` reports can enrich the
+  growth/prune safety category when their transactions are MARULHO-owned,
+  operator-approved, checkpoint-backed, rollback-verified, heldout-non-
+  regressing, and bounded for route-bank or memory-slot expansion. Human review
+  and broad generation-quality/runtime promotion remain false unless separately
+  proven.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
@@ -790,6 +795,8 @@ LM benchmark suite:
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8 --sustained-evidence reports/language_runtime_evidence/diagnostic-8192.json --sustained-evidence reports/language_runtime_evidence/long-gate-131072.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-memory-slot-architecture-cost.json --sustained-target-tokens 8 --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json
+python -m marulho.evaluation.language_structural_plasticity_experiment --output reports/language_structural_plasticity/structural-memory-route-524288.json --proposal-kind memory_slot_expansion --proposal-kind route_bank_expansion --model-vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --memory-slot-growth 1024 --memory-slot-candidate-count 8 --active-memory-slot-count 2 --route-candidate-growth 4 --sequence-length 64 --stride 64 --batch-size 16 --max-eval-batches 2 --device cuda
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-structural-plasticity-524288.json --sustained-target-tokens 8 --structural-plasticity-evidence reports/language_structural_plasticity/structural-memory-route-524288.json --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json
 python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json

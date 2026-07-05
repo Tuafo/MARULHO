@@ -485,6 +485,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   token-hash candidate retrieval so added slots do not silently become an
   all-slot retrieval path; synapse-bundle growth preserves old expert weights
   and initializes the added hidden rows/columns neutrally.
+- `evaluation/language_structural_plasticity_experiment.py` writes portable
+  JSON plus README evidence for one or more checkpoint-backed structural
+  transactions instead of leaving growth/prune proof embedded only in a suite
+  fixture. The current CUDA report
+  `reports/language_structural_plasticity/structural-memory-route-524288.json`
+  uses a `524288` model vocab, `1024` sampled eval rows, and `cuda` device
+  placement to apply two reviewed transactions: memory-slot expansion from `0`
+  to `1024` slots with `8` bounded candidates and `2` active slots, and
+  route-bank expansion from `8` to `12` bounded candidates on `16` experts.
+  Both reports record non-mutating proposals, operator approval, baseline
+  checkpoints, checkpoint restore verification, rollback verification, and
+  heldout non-regression. This is structural transaction evidence, not runtime
+  or generation-quality promotion.
 - `evaluation/language_memory_slot_runtime_impact.py` is the complete-forward
   evidence report for the LM memory-slot path. The local 2026-07-05 CUDA
   report
