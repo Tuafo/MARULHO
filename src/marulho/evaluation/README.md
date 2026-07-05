@@ -302,6 +302,27 @@ harnesses.
   `language-suite-checkpoint-evolution-child-20260705.json` remains blocked on
   `generation_coherence` while passing the speed, rollback, checkpoint,
   structural, active-compute, and GPU-kernel evidence categories.
+- The follow-up quality-replay repair
+  `reports/language_quality_replay/evo-child-quality-repair-20260705.json`
+  starts from that evolved child checkpoint and trains five candidate children
+  under hard-prompt replay pressure while keeping heldout prompt review separate
+  from replay training. The selected `candidate-03`
+  (`learning_rate=0.0005`, `replay_loss_weight=1.5`, `max_steps=6`) accepts
+  the online update at `3042.957` update tokens/sec and `2735.450`
+  total-window tokens/sec. It repairs trained prompt coherence from `0/4` to
+  `4/4`, moves trained mean prefix from `1.25` to `35.75` chars, repairs
+  heldout prompt coherence from `0/4` to `4/4`, moves heldout mean prefix from
+  `0.5` to `27.5` chars, and records zero heldout prompt regressions. Same
+  selected-child controlled sustained reports reach `8192`, `131072`, and
+  `524288` tokens at `5343.657`, `8037.887`, and `8136.788` tokens/sec through
+  `torch_cuda_graph_burst_decode_controls`, with no full-vocab generation
+  logits, no decode-control CPU token copy, all tracked Triton kernels active,
+  and zero tracked Triton fallback calls. The combined suite
+  `language-suite-evo-child-quality-repair-with-evolution-20260705.json`
+  includes checkpoint-evolution, quality-replay, generation-coherence,
+  house-scale controlled sustained, memory-slot cost/runtime, structural, and
+  GPU-kernel evidence; it is `ready_for_review` with no failed or missing
+  required categories and keeps `promotes_runtime_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled

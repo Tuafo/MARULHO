@@ -510,6 +510,21 @@ developmental and consolidation runners, query runners, and long-run evidence.
   burst and all five tracked Triton kernels active. Its prompt-suite coherence
   is still blocked at `0/4`, so this is reviewable child-evolution and speed
   evidence, not parent promotion or language-quality promotion.
+- The quality-replay repair slice keeps that evolved child as the parent and
+  trains five bounded child candidates without mutating it. The selected
+  `candidate-03` in
+  `reports/language_quality_replay/evo-child-quality-repair-20260705.json`
+  uses `learning_rate=0.0005`, `replay_loss_weight=1.5`, and `max_steps=6`,
+  accepts the online update at `3042.957` update tokens/sec plus `2735.450`
+  total-window tokens/sec, repairs trained prompt coherence from `0/4` to
+  `4/4`, repairs heldout prompt coherence from `0/4` to `4/4`, and records zero
+  heldout prompt regressions. The selected checkpoint sustains `8192`,
+  `131072`, and `524288` controlled decode tokens at `5343.657`, `8037.887`,
+  and `8136.788` tokens/sec with CUDA graph burst, no full-vocab generation
+  logits, no decode-control CPU token copy, all tracked Triton kernels active,
+  and zero tracked Triton fallback calls. The combined suite
+  `language-suite-evo-child-quality-repair-with-evolution-20260705.json` is
+  `ready_for_review` while keeping `promotes_runtime_claim=false`.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded
