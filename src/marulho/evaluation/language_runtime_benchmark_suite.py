@@ -69,6 +69,13 @@ MEMORY_SLOT_RUNTIME_IMPACT_SURFACE = (
 MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND = (
     "marulho_language_memory_slot_runtime_impact"
 )
+MEMORY_SLOT_ARCHITECTURE_COST_SURFACE = (
+    "marulho_language_continual_memory_slot_architecture_cost.v1"
+)
+CONTINUAL_LEARNING_EXPERIMENT_SURFACE = (
+    "marulho_language_continual_learning_experiment.v1"
+)
+CONTINUAL_LEARNING_ARTIFACT_KIND = "marulho_language_continual_learning_window"
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
@@ -196,6 +203,19 @@ def _read_memory_slot_runtime_impact_report(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def _read_memory_slot_architecture_cost_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Memory-slot architecture-cost report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _valid_lm_sustained_report(report: Mapping[str, Any]) -> bool:
     return (
         report.get("artifact_kind") == SUSTAINED_ARTIFACT_KIND
@@ -229,6 +249,51 @@ def _valid_language_memory_slot_runtime_impact_report(
         and promotion_gate.get("bounded_avoids_all_slot_scan") is True
         and promotion_gate.get("neutral_initialization_parity") is True
         and promotion_gate.get("trainable_neutral_initialization") is True
+    )
+
+
+def _valid_language_memory_slot_architecture_cost_report(
+    report: Mapping[str, Any],
+) -> bool:
+    cost = (
+        report.get("memory_slot_architecture_cost")
+        if isinstance(report.get("memory_slot_architecture_cost"), Mapping)
+        else {}
+    )
+    learning_evidence = (
+        report.get("learning_evidence")
+        if isinstance(report.get("learning_evidence"), Mapping)
+        else {}
+    )
+    memory_slots = (
+        learning_evidence.get("memory_slots")
+        if isinstance(learning_evidence.get("memory_slots"), Mapping)
+        else {}
+    )
+    training_backend = (
+        report.get("training_memory_slot_backend_summary")
+        if isinstance(report.get("training_memory_slot_backend_summary"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == CONTINUAL_LEARNING_ARTIFACT_KIND
+        and report.get("surface") == "marulho_language_continual_learning_window.v1"
+        and report.get("experiment_surface") == CONTINUAL_LEARNING_EXPERIMENT_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("status") == "accepted_online_update"
+        and cost.get("surface") == MEMORY_SLOT_ARCHITECTURE_COST_SURFACE
+        and cost.get("status") == "memory_slot_architecture_cost_measured"
+        and cost.get("comparison_is_no_memory_baseline") is True
+        and cost.get("comparable_update_throughput") is True
+        and cost.get("comparable_total_window_throughput") is True
+        and memory_slots.get("enabled") is True
+        and memory_slots.get("bounded_memory_slot_path") is True
+        and memory_slots.get("runs_all_slots") is False
+        and training_backend.get("training_window_stats_recorded") is True
+        and int(learning_evidence.get("update_token_count", 0) or 0) > 0
     )
 
 
@@ -803,6 +868,124 @@ def _language_memory_slot_runtime_impact_evidence(
     }
 
 
+def _memory_slot_architecture_cost_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    cost = (
+        report.get("memory_slot_architecture_cost")
+        if isinstance(report.get("memory_slot_architecture_cost"), Mapping)
+        else {}
+    )
+    learning_evidence = (
+        report.get("learning_evidence")
+        if isinstance(report.get("learning_evidence"), Mapping)
+        else {}
+    )
+    memory_slots = (
+        learning_evidence.get("memory_slots")
+        if isinstance(learning_evidence.get("memory_slots"), Mapping)
+        else {}
+    )
+    training_backend = (
+        report.get("training_memory_slot_backend_summary")
+        if isinstance(report.get("training_memory_slot_backend_summary"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "status": report.get("status"),
+        "model_vocab_size": int(report.get("model_vocab_size", 0) or 0),
+        "sampled_vocab_size": int(report.get("sampled_vocab_size", 0) or 0),
+        "update_token_count": int(learning_evidence.get("update_token_count", 0) or 0),
+        "current_update_tokens_per_second": cost.get(
+            "current_update_tokens_per_second"
+        ),
+        "comparison_update_tokens_per_second": cost.get(
+            "comparison_update_tokens_per_second"
+        ),
+        "delta_vs_no_memory_update_percent": cost.get(
+            "delta_vs_no_memory_update_percent"
+        ),
+        "current_total_window_tokens_per_second": cost.get(
+            "current_total_window_tokens_per_second"
+        ),
+        "comparison_total_window_tokens_per_second": cost.get(
+            "comparison_total_window_tokens_per_second"
+        ),
+        "delta_vs_no_memory_total_window_percent": cost.get(
+            "delta_vs_no_memory_total_window_percent"
+        ),
+        "delta_vs_no_memory_new_domain_loss_delta": cost.get(
+            "delta_vs_no_memory_new_domain_loss_delta"
+        ),
+        "delta_vs_no_memory_old_domain_forgetting": cost.get(
+            "delta_vs_no_memory_old_domain_forgetting"
+        ),
+        "delta_vs_no_memory_general_replay_retention_delta": cost.get(
+            "delta_vs_no_memory_general_replay_retention_delta"
+        ),
+        "delta_vs_no_memory_after_mean_source_prefix_match_chars": cost.get(
+            "delta_vs_no_memory_after_mean_source_prefix_match_chars"
+        ),
+        "candidate_slots_scored": int(memory_slots.get("candidate_slots_scored", 0) or 0),
+        "candidate_id_source": memory_slots.get("candidate_id_source"),
+        "runs_all_slots": bool(memory_slots.get("runs_all_slots", False)),
+        "bounded_memory_slot_path": bool(
+            memory_slots.get("bounded_memory_slot_path", False)
+        ),
+        "memory_slot_retrieval_backend": memory_slots.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "training_window_backend": training_backend.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "triton_training_autograd_used": bool(
+            training_backend.get("triton_autograd_used", False)
+        ),
+        "comparison_report": cost.get("comparison_report"),
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+
+
+def _language_memory_slot_architecture_cost_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_memory_slot_architecture_cost_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: int(
+            (item.get("learning_evidence") or {}).get("update_token_count", 0)
+            if isinstance(item.get("learning_evidence"), Mapping)
+            else 0
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "memory_slot_architecture_cost_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _memory_slot_architecture_cost_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_memory_slot_architecture_cost_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+
+
 def _gpu_kernel_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     promotion_gate = (
         report.get("promotion_gate")
@@ -1006,6 +1189,7 @@ def run_language_runtime_benchmark_suite(
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
     memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
+    memory_slot_architecture_cost_evidence_paths: Sequence[str | Path] = (),
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
     generation_coherence_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
@@ -1907,6 +2091,37 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
+    memory_slot_architecture_cost_reports = [
+        _read_memory_slot_architecture_cost_report(path)
+        for path in memory_slot_architecture_cost_evidence_paths
+    ]
+    memory_slot_architecture_cost_evidence = (
+        _language_memory_slot_architecture_cost_evidence(
+            memory_slot_architecture_cost_reports
+        )
+    )
+    memory_slot_architecture_cost_missing = tuple(
+        memory_slot_architecture_cost_evidence["missing_evidence"]
+    )
+    categories.append(
+        _category(
+            "memory_slot_architecture_cost",
+            status=(
+                "fail"
+                if memory_slot_architecture_cost_missing
+                else (
+                    "pass"
+                    if memory_slot_architecture_cost_evidence[
+                        "memory_slot_architecture_cost_available"
+                    ]
+                    else "smoke_only"
+                )
+            ),
+            evidence=memory_slot_architecture_cost_evidence,
+            missing=memory_slot_architecture_cost_missing,
+        )
+    )
+
     gpu_kernel_reports = [
         _read_gpu_kernel_report(path) for path in gpu_kernel_evidence_paths
     ]
@@ -2075,6 +2290,10 @@ def run_language_runtime_benchmark_suite(
                 str(Path(path))
                 for path in memory_slot_runtime_impact_evidence_paths
             ],
+            "memory_slot_architecture_cost_evidence": [
+                str(Path(path))
+                for path in memory_slot_architecture_cost_evidence_paths
+            ],
             "gpu_kernel_evidence": [
                 str(Path(path)) for path in gpu_kernel_evidence_paths
             ],
@@ -2139,6 +2358,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--memory-slot-architecture-cost-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_continual_learning_experiment JSON report "
+            "with memory-slot architecture-cost evidence."
+        ),
+    )
+    parser.add_argument(
         "--generation-coherence-evidence",
         type=Path,
         action="append",
@@ -2152,6 +2381,9 @@ def main() -> int:
         sustained_evidence_paths=tuple(args.sustained_evidence),
         memory_slot_runtime_impact_evidence_paths=tuple(
             args.memory_slot_runtime_impact_evidence
+        ),
+        memory_slot_architecture_cost_evidence_paths=tuple(
+            args.memory_slot_architecture_cost_evidence
         ),
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
         generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),

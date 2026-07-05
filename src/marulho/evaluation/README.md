@@ -184,15 +184,21 @@ harnesses.
   evidence into one JSON plus README report. It covers next-token loss, heldout
   perplexity, generation smoke, grounding support, continual learning,
   forgetting, replay recovery, growth/prune safety, long-run throughput, active
-  compute, GPU kernel correctness, checkpoint restore, rollback, service
-  contract, and scale-ladder inventory. The suite writes a grounding-support
+  compute, memory-slot runtime and architecture cost, GPU kernel correctness,
+  checkpoint restore, rollback, service contract, and scale-ladder inventory.
+  The suite writes a grounding-support
   source-term coverage subreport and can ingest existing final
   `marulho_language_sustained_runtime_evidence.v1` reports for the 8192/131072
   LM long-run gates, existing `marulho_language_triton_kernel_report.v1`
   reports for kernel correctness, including bounded memory-slot retrieval
   parity, and existing
   `marulho_language_generation_coherence_report.v1` reports for grounded
-  prompt-suite coherence. Human review and broad generation-quality/runtime
+  prompt-suite coherence. It also ingests accepted
+  `marulho_language_continual_learning_experiment.v1` reports with
+  `marulho_language_continual_memory_slot_architecture_cost.v1` sections, so
+  bounded memory slots can be judged against no-memory baselines on update
+  throughput, total-window throughput, forgetting, replay retention, and
+  generation-probe deltas. Human review and broad generation-quality/runtime
   promotion remain false unless separately proven.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
@@ -783,6 +789,7 @@ LM benchmark suite:
 ```bash
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8 --sustained-evidence reports/language_runtime_evidence/diagnostic-8192.json --sustained-evidence reports/language_runtime_evidence/long-gate-131072.json
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-memory-slot-architecture-cost.json --sustained-target-tokens 8 --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json
 python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json

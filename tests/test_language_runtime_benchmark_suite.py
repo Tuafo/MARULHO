@@ -9,6 +9,7 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     GENERATION_COHERENCE_SURFACE,
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
+    MEMORY_SLOT_ARCHITECTURE_COST_SURFACE,
     MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
     MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND,
     MEMORY_SLOT_RUNTIME_IMPACT_SURFACE,
@@ -232,6 +233,76 @@ def _write_memory_slot_runtime_impact_report(path) -> None:
     )
 
 
+def _write_memory_slot_architecture_cost_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_continual_learning_window",
+                "surface": "marulho_language_continual_learning_window.v1",
+                "experiment_surface": (
+                    "marulho_language_continual_learning_experiment.v1"
+                ),
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "status": "accepted_online_update",
+                "model_vocab_size": 524288,
+                "sampled_vocab_size": 1024,
+                "learning_evidence": {
+                    "update_token_count": 524288,
+                    "tokens_per_second": 3753.246,
+                    "total_window_tokens_per_second": 3436.735,
+                    "new_domain_loss_delta": 7.0259,
+                    "old_domain_forgetting": -7.0706,
+                    "general_replay_retention_delta": -7.0833,
+                    "memory_slots": {
+                        "enabled": True,
+                        "candidate_slots_scored": 4194304,
+                        "candidate_id_source": (
+                            "precomputed_batch_memory_candidate_ids"
+                        ),
+                        "memory_slot_retrieval_backend": (
+                            "torch_autograd_bounded_memory_slots"
+                        ),
+                        "runs_all_slots": False,
+                        "bounded_memory_slot_path": True,
+                    },
+                },
+                "training_memory_slot_backend_summary": {
+                    "surface": (
+                        "marulho_language_continual_training_memory_slot_backend.v1"
+                    ),
+                    "training_window_stats_recorded": True,
+                    "memory_slot_retrieval_backend": (
+                        "torch_autograd_bounded_memory_slots"
+                    ),
+                    "triton_autograd_used": False,
+                },
+                "memory_slot_architecture_cost": {
+                    "surface": MEMORY_SLOT_ARCHITECTURE_COST_SURFACE,
+                    "status": "memory_slot_architecture_cost_measured",
+                    "comparison_report": "reports/no-memory.json",
+                    "comparison_is_no_memory_baseline": True,
+                    "comparable_update_throughput": True,
+                    "comparable_total_window_throughput": True,
+                    "current_update_tokens_per_second": 3753.246,
+                    "comparison_update_tokens_per_second": 3765.911,
+                    "delta_vs_no_memory_update_percent": -0.336,
+                    "current_total_window_tokens_per_second": 3436.735,
+                    "comparison_total_window_tokens_per_second": 3451.048,
+                    "delta_vs_no_memory_total_window_percent": -0.415,
+                    "delta_vs_no_memory_new_domain_loss_delta": 0.00008,
+                    "delta_vs_no_memory_old_domain_forgetting": -0.0055,
+                    "delta_vs_no_memory_general_replay_retention_delta": -0.0077,
+                    "delta_vs_no_memory_after_mean_source_prefix_match_chars": 0.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     tmp_path,
 ) -> None:
@@ -258,6 +329,7 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         "long_run_throughput",
         "active_compute",
         "memory_slot_runtime_impact",
+        "memory_slot_architecture_cost",
         "gpu_kernel_correctness",
         "checkpoint_restore",
         "rollback",
@@ -393,6 +465,11 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         is False
     )
     assert categories["memory_slot_runtime_impact"]["missing_evidence"] == []
+    assert categories["memory_slot_architecture_cost"]["status"] == "smoke_only"
+    assert categories["memory_slot_architecture_cost"]["evidence"][
+        "memory_slot_architecture_cost_available"
+    ] is False
+    assert categories["memory_slot_architecture_cost"]["missing_evidence"] == []
     assert categories["checkpoint_restore"]["status"] == "pass"
     assert report["promotion_gate"]["status"] == "blocked_missing_required_evidence"
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
@@ -431,6 +508,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     memory_slot_kernel = tmp_path / "memory-slot-retrieval-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
+    memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
     _write_sustained_report(
@@ -470,12 +548,16 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     )
     _write_generation_coherence_report(generation_coherence)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
+    _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
         sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
         memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
+        memory_slot_architecture_cost_evidence_paths=(
+            memory_slot_architecture_cost,
+        ),
         gpu_kernel_evidence_paths=(
             rmsnorm_kernel,
             plif_kernel,
@@ -494,6 +576,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     gpu_kernel_category = categories["gpu_kernel_correctness"]
     generation_category = categories["generation_coherence"]
     memory_slot_category = categories["memory_slot_runtime_impact"]
+    memory_slot_cost_category = categories["memory_slot_architecture_cost"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -545,6 +628,26 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         "all_slot_runs_all_slots"
     ] is True
     assert memory_slot_category["evidence"]["required_for_runtime_promotion"] is False
+    assert memory_slot_cost_category["status"] == "pass"
+    assert memory_slot_cost_category["missing_evidence"] == []
+    assert memory_slot_cost_category["evidence"][
+        "memory_slot_architecture_cost_available"
+    ] is True
+    assert memory_slot_cost_category["evidence"]["best_report"][
+        "delta_vs_no_memory_update_percent"
+    ] == -0.336
+    assert memory_slot_cost_category["evidence"]["best_report"][
+        "delta_vs_no_memory_total_window_percent"
+    ] == -0.415
+    assert memory_slot_cost_category["evidence"]["best_report"][
+        "candidate_slots_scored"
+    ] == 4194304
+    assert memory_slot_cost_category["evidence"]["best_report"][
+        "runs_all_slots"
+    ] is False
+    assert memory_slot_cost_category["evidence"][
+        "required_for_runtime_promotion"
+    ] is False
     assert generation_category["missing_evidence"] == []
     assert generation_category["evidence"]["long_run_alignment"][
         "same_checkpoint_long_run_available"
