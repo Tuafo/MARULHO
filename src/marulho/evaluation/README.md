@@ -89,8 +89,11 @@ harnesses.
   bounded route-candidate precompute. The measured update loop receives
   `precomputed_batch_memory_candidate_ids` and
   `precomputed_batch_route_candidate_ids` for fixed batches so candidate-plan
-  construction does not run inside the hot loss call. It is meant to accelerate
-  model experiments, not create a new promotion gate.
+  construction does not run inside the hot loss call. It also records
+  `hot_update_evidence_mode=post_window_telemetry_probe` and
+  `per_step_evidence_dict_build=false`: loss/routing/memory evidence is
+  gathered after the measured window rather than rebuilt every optimizer step.
+  It is meant to accelerate model experiments, not create a new promotion gate.
 - `language_state_block_runtime_impact.py` measures complete no-grad LM forward
   impact for state-block sequence-buffer experiments. The current
   `524288` model-vocab batch-16/seq-64 report rejects no-grad mixed-state

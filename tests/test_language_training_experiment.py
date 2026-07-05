@@ -182,6 +182,12 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["training"]["full_vocab_logits_materialized"] is False
     assert report["training"]["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert report["training"]["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert report["training"]["hot_update_evidence_mode"] == (
+        "post_window_telemetry_probe"
+    )
+    assert report["training"]["per_step_evidence_dict_build"] is False
+    assert report["training"]["telemetry_probe_outside_measured_window"] is True
+    assert report["training"]["post_window_telemetry_probe_batch_tokens"] > 0
     assert report["training"]["sampled_vocab_precompute"]["enabled"] is True
     assert report["training"]["sampled_vocab_precompute"]["batch_count"] == 3
     assert report["training"]["sampled_vocab_precompute"][
@@ -290,6 +296,11 @@ def test_language_training_experiment_reports_memory_slot_training_and_sustain(
         "memory_candidate_precompute"
     ] == memory_precompute
     assert report["training"]["memory_gate_readback"] is False
+    assert report["training"]["hot_update_evidence_mode"] == (
+        "post_window_telemetry_probe"
+    )
+    assert report["training"]["per_step_evidence_dict_build"] is False
+    assert report["training"]["telemetry_probe_outside_measured_window"] is True
     memory_slots = report["sustained_summary"]["memory_slots"]
     assert memory_slots["surface"] == "marulho_language_sustained_memory_slots.v1"
     assert memory_slots["enabled"] is True

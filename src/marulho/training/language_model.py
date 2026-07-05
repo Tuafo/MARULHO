@@ -1914,6 +1914,7 @@ class MarulhoLanguageModel(nn.Module):
         sampled_target_positions: torch.Tensor | None = None,
         memory_candidate_ids: torch.Tensor | None = None,
         route_candidate_ids: torch.Tensor | None = None,
+        return_evidence: bool = True,
     ) -> dict[str, Any]:
         result = self._forward_hidden(
             input_ids,
@@ -1969,7 +1970,7 @@ class MarulhoLanguageModel(nn.Module):
             )
             sampled_vocab_stats_before = (
                 language_sampled_vocab_ce_triton_stats()
-                if bool(collect_telemetry)
+                if bool(collect_telemetry) and bool(return_evidence)
                 else None
             )
             loss = language_sampled_vocab_cross_entropy(
@@ -1985,6 +1986,13 @@ class MarulhoLanguageModel(nn.Module):
                 ),
                 sampled_target_positions=runtime_target_positions,
             )
+            if not bool(return_evidence):
+                return {
+                    "logits": None,
+                    "state": result["state"],
+                    "loss": loss,
+                    "loss_kind": "sampled_adaptive_vocab_cross_entropy",
+                }
             sampled_vocab_stats_delta = (
                 language_sampled_vocab_ce_triton_stats_delta(
                     sampled_vocab_stats_before,
@@ -2079,6 +2087,13 @@ class MarulhoLanguageModel(nn.Module):
             logits.reshape(-1, self.config.vocab_size),
             flat_targets,
         )
+        if not bool(return_evidence):
+            return {
+                "logits": None,
+                "state": result["state"],
+                "loss": loss,
+                "loss_kind": "causal_next_token_cross_entropy",
+            }
         loss_evidence = {
             "surface": "marulho_language_vocab_loss_evidence.v1",
             "loss_kind": "causal_next_token_cross_entropy",

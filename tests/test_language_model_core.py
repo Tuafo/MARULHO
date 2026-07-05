@@ -242,6 +242,13 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
         sampled_vocab_ids=sampled_vocab_ids,
         sampled_target_positions=sampled_target_positions,
     )
+    lean_result = model.next_token_loss(
+        batch.input_ids,
+        batch.target_ids,
+        sampled_vocab_ids=sampled_vocab_ids,
+        sampled_target_positions=sampled_target_positions,
+        return_evidence=False,
+    )
     result["loss"].backward()
 
     assert result["loss"].detach().item() > 0
@@ -249,6 +256,14 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
         result["loss"].detach(),
         default_result["loss"].detach(),
     )
+    torch.testing.assert_close(
+        lean_result["loss"].detach(),
+        result["loss"].detach(),
+    )
+    assert lean_result["logits"] is None
+    assert lean_result["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
+    assert "loss_evidence" not in lean_result
+    assert "telemetry" not in lean_result
     assert result["logits"] is None
     assert result["loss_kind"] == "sampled_adaptive_vocab_cross_entropy"
     evidence = result["loss_evidence"]

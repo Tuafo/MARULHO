@@ -632,6 +632,7 @@ def _train_language_model(
     last_loss_kind = "unknown"
     last_loss_evidence: dict[str, Any] = {}
     last_state_block_telemetry: dict[str, Any] = {}
+    last_batch_for_probe: LanguageBatch | None = None
     stage_profiler = _TrainingStageProfiler(
         model.device,
         enabled=bool(config.profile_training_stages),
@@ -642,6 +643,7 @@ def _train_language_model(
     for _epoch in range(max(1, int(config.train_epochs))):
         for batch in batches:
             optimizer_step_count += 1
+            last_batch_for_probe = batch
             batch_token_count = int(batch.target_ids.numel())
             batch_marker = stage_profiler.start()
             stage_marker = stage_profiler.start()
@@ -662,6 +664,7 @@ def _train_language_model(
                 sampled_target_positions=batch.sampled_target_positions,
                 memory_candidate_ids=batch.memory_candidate_ids,
                 route_candidate_ids=batch.route_candidate_ids,
+                return_evidence=False,
             )
             stage_profiler.record_elapsed(
                 "forward_loss",
@@ -713,9 +716,6 @@ def _train_language_model(
             token_count += batch_token_count
             loss_records.append(loss.detach())
             last_loss_kind = str(result.get("loss_kind", "unknown"))
-            last_loss_evidence = dict(result.get("loss_evidence") or {})
-            telemetry = result.get("telemetry")
-            last_state_block_telemetry = dict(telemetry) if isinstance(telemetry, dict) else {}
             if should_clip_gradients:
                 grad_norm_record = _detached_scalar_on_device(
                     grad_norm,
@@ -728,6 +728,33 @@ def _train_language_model(
                 )
     cuda_synchronized_before_timing_stop = _synchronize_if_cuda(model.device)
     elapsed = max(0.0, time.perf_counter() - started)
+    telemetry_probe_outside_measured_window = False
+    post_window_telemetry_probe_batch_tokens = 0
+    if last_batch_for_probe is not None:
+        for optimizer in optimizers:
+            optimizer.zero_grad(set_to_none=True)
+        probe_result = model.next_token_loss(
+            last_batch_for_probe.input_ids.to(model.device),
+            last_batch_for_probe.target_ids.to(model.device),
+            collect_telemetry=False,
+            assume_no_sleeping_experts=assume_no_sleeping,
+            sampled_vocab_ids=last_batch_for_probe.sampled_vocab_ids,
+            sampled_target_positions=last_batch_for_probe.sampled_target_positions,
+            memory_candidate_ids=last_batch_for_probe.memory_candidate_ids,
+            route_candidate_ids=last_batch_for_probe.route_candidate_ids,
+            return_evidence=True,
+        )
+        telemetry_probe_outside_measured_window = True
+        post_window_telemetry_probe_batch_tokens = int(
+            last_batch_for_probe.target_ids.numel()
+        )
+        last_loss_kind = str(probe_result.get("loss_kind", last_loss_kind))
+        last_loss_evidence = dict(probe_result.get("loss_evidence") or {})
+        telemetry = probe_result.get("telemetry")
+        last_state_block_telemetry = (
+            dict(telemetry) if isinstance(telemetry, dict) else {}
+        )
+        del probe_result
     loss_values = (
         torch.stack([loss.to(model.device) for loss in loss_records]).float()
         if loss_records
@@ -843,6 +870,14 @@ def _train_language_model(
         "device": str(model.device),
         "metric_readback_mode": "deferred_gpu_scalar_aggregation",
         "per_batch_metric_cpu_sync": False,
+        "hot_update_evidence_mode": "post_window_telemetry_probe",
+        "per_step_evidence_dict_build": False,
+        "telemetry_probe_outside_measured_window": bool(
+            telemetry_probe_outside_measured_window
+        ),
+        "post_window_telemetry_probe_batch_tokens": int(
+            post_window_telemetry_probe_batch_tokens
+        ),
         "cuda_math_policy": cuda_math_policy,
         "training_stage_profile": stage_profiler.report(),
         "gradient_clip_mode": (

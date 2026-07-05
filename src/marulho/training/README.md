@@ -442,6 +442,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   feed `precomputed_batch_memory_candidate_ids` and
   `precomputed_batch_route_candidate_ids` into the measured loss call instead
   of rebuilding token-hash candidate plans inside the hot update loop.
+- The fixed LM experiment runner uses `return_evidence=false` inside measured
+  optimizer steps and then runs a post-window telemetry probe on the final
+  training batch. Reports keep loss, route, and memory evidence while recording
+  `hot_update_evidence_mode=post_window_telemetry_probe` and
+  `per_step_evidence_dict_build=false`.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded
@@ -450,7 +455,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
 - Continual-learning update metrics now follow the fast experiment runner's
   deferred-readback pattern: detached device scalars aggregate update loss,
   replay loss, and max observed grad norm in the measured loop, then read back
-  after a single CUDA stop synchronization.
+  after a single CUDA stop synchronization. The update and replay loss calls
+  also use the lean loss path in the measured loop, count precomputed memory
+  candidates from batch tensors, and run post-window telemetry probes to fill
+  final evidence without per-step report assembly.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
   positions plus bounded memory and route candidate IDs from `LanguageBatch`,
   so continual before/after heldout and replay evaluations can reuse the same

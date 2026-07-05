@@ -85,6 +85,12 @@ def _spike_rate(report: Mapping[str, Any]) -> float:
     return float(telemetry.get("spike_rate", 0.0) or 0.0)
 
 
+def _precomputed_memory_candidate_slots_scored(batch: LanguageBatch) -> int:
+    if batch.memory_candidate_ids is None:
+        return 0
+    return int(batch.memory_candidate_ids.numel())
+
+
 def _memory_slot_learning_summary(
     model: MarulhoLanguageModel,
     *,
@@ -375,6 +381,8 @@ def run_language_continual_learning_window(
     replay_memory_candidate_slots_scored = 0
     update_memory_observation_count = 0
     replay_memory_observation_count = 0
+    last_update_batch_for_probe: LanguageBatch | None = None
+    last_replay_batch_for_probe: LanguageBatch | None = None
     update_token_count = 0
     optimizer_step_count = 0
     gradient_clip_applied_step_count = 0
@@ -385,6 +393,7 @@ def run_language_continual_learning_window(
     for step in range(step_count):
         for index, batch in enumerate(new_update_batches):
             optimizer_step_count += 1
+            last_update_batch_for_probe = batch
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
             update_result = model.next_token_loss(
@@ -396,22 +405,21 @@ def run_language_continual_learning_window(
                 sampled_target_positions=batch.sampled_target_positions,
                 memory_candidate_ids=batch.memory_candidate_ids,
                 route_candidate_ids=batch.route_candidate_ids,
+                return_evidence=False,
             )
             loss = update_result["loss"]
-            last_loss_evidence = dict(update_result.get("loss_evidence") or {})
-            last_update_memory_evidence = dict(
-                (update_result.get("telemetry") or {}).get("memory") or {}
+            update_candidate_slots_scored = _precomputed_memory_candidate_slots_scored(
+                batch
             )
-            if last_update_memory_evidence:
-                update_memory_candidate_slots_scored += int(
-                    last_update_memory_evidence.get("candidate_slots_scored", 0) or 0
-                )
+            if update_candidate_slots_scored > 0:
+                update_memory_candidate_slots_scored += update_candidate_slots_scored
                 update_memory_observation_count += 1
             update_token_count += int(batch.target_ids.numel())
             if replay_update_batches:
                 replay_batch = replay_update_batches[
                     (step * len(new_update_batches) + index) % replay_count
                 ]
+                last_replay_batch_for_probe = replay_batch
                 replay_result = model.next_token_loss(
                     replay_batch.input_ids.to(model.device),
                     replay_batch.target_ids.to(model.device),
@@ -421,22 +429,14 @@ def run_language_continual_learning_window(
                     sampled_target_positions=replay_batch.sampled_target_positions,
                     memory_candidate_ids=replay_batch.memory_candidate_ids,
                     route_candidate_ids=replay_batch.route_candidate_ids,
+                    return_evidence=False,
                 )
                 replay_loss = replay_result["loss"]
-                last_replay_loss_evidence = dict(
-                    replay_result.get("loss_evidence") or {}
+                replay_candidate_slots_scored = (
+                    _precomputed_memory_candidate_slots_scored(replay_batch)
                 )
-                last_replay_memory_evidence = dict(
-                    (replay_result.get("telemetry") or {}).get("memory") or {}
-                )
-                if last_replay_memory_evidence:
-                    replay_memory_candidate_slots_scored += int(
-                        last_replay_memory_evidence.get(
-                            "candidate_slots_scored",
-                            0,
-                        )
-                        or 0
-                    )
+                if replay_candidate_slots_scored > 0:
+                    replay_memory_candidate_slots_scored += replay_candidate_slots_scored
                     replay_memory_observation_count += 1
                 detached_replay_loss = replay_loss.detach()
                 replay_loss_sum = (
@@ -481,6 +481,7 @@ def run_language_continual_learning_window(
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
         cuda_synchronized_before_timing_stop = True
+    elapsed_seconds = max(0.0, time.perf_counter() - started)
     training_memory_slots_triton_after = language_memory_slots_triton_stats()
     training_window_memory_slot_triton_stats_delta = (
         language_memory_slots_triton_stats_delta(
@@ -494,7 +495,55 @@ def run_language_continual_learning_window(
             False,
         )
     )
-    elapsed_seconds = max(0.0, time.perf_counter() - started)
+    telemetry_probe_outside_measured_window = False
+    post_window_update_probe_batch_tokens = 0
+    post_window_replay_probe_batch_tokens = 0
+    for optimizer in optimizers:
+        optimizer.zero_grad(set_to_none=True)
+    if last_update_batch_for_probe is not None:
+        update_probe_result = model.next_token_loss(
+            last_update_batch_for_probe.input_ids.to(model.device),
+            last_update_batch_for_probe.target_ids.to(model.device),
+            collect_telemetry=bool(cfg.collect_training_telemetry),
+            assume_no_sleeping_experts=assume_no_sleeping,
+            sampled_vocab_ids=last_update_batch_for_probe.sampled_vocab_ids,
+            sampled_target_positions=last_update_batch_for_probe.sampled_target_positions,
+            memory_candidate_ids=last_update_batch_for_probe.memory_candidate_ids,
+            route_candidate_ids=last_update_batch_for_probe.route_candidate_ids,
+            return_evidence=True,
+        )
+        telemetry_probe_outside_measured_window = True
+        post_window_update_probe_batch_tokens = int(
+            last_update_batch_for_probe.target_ids.numel()
+        )
+        last_loss_evidence = dict(update_probe_result.get("loss_evidence") or {})
+        last_update_memory_evidence = dict(
+            (update_probe_result.get("telemetry") or {}).get("memory") or {}
+        )
+        del update_probe_result
+    if last_replay_batch_for_probe is not None:
+        replay_probe_result = model.next_token_loss(
+            last_replay_batch_for_probe.input_ids.to(model.device),
+            last_replay_batch_for_probe.target_ids.to(model.device),
+            collect_telemetry=bool(cfg.collect_training_telemetry),
+            assume_no_sleeping_experts=assume_no_sleeping,
+            sampled_vocab_ids=last_replay_batch_for_probe.sampled_vocab_ids,
+            sampled_target_positions=last_replay_batch_for_probe.sampled_target_positions,
+            memory_candidate_ids=last_replay_batch_for_probe.memory_candidate_ids,
+            route_candidate_ids=last_replay_batch_for_probe.route_candidate_ids,
+            return_evidence=True,
+        )
+        telemetry_probe_outside_measured_window = True
+        post_window_replay_probe_batch_tokens = int(
+            last_replay_batch_for_probe.target_ids.numel()
+        )
+        last_replay_loss_evidence = dict(
+            replay_probe_result.get("loss_evidence") or {}
+        )
+        last_replay_memory_evidence = dict(
+            (replay_probe_result.get("telemetry") or {}).get("memory") or {}
+        )
+        del replay_probe_result
     mean_update_loss = (
         float((update_loss_sum / max(1, update_loss_count)).detach().cpu().item())
         if update_loss_sum is not None
@@ -687,6 +736,17 @@ def run_language_continual_learning_window(
             "max_gradient_norm": max_gradient_norm,
             "metric_readback_mode": "deferred_gpu_scalar_aggregation",
             "per_step_metric_cpu_sync": False,
+            "hot_update_evidence_mode": "post_window_telemetry_probe",
+            "per_step_evidence_dict_build": False,
+            "telemetry_probe_outside_measured_window": bool(
+                telemetry_probe_outside_measured_window
+            ),
+            "post_window_update_probe_batch_tokens": int(
+                post_window_update_probe_batch_tokens
+            ),
+            "post_window_replay_probe_batch_tokens": int(
+                post_window_replay_probe_batch_tokens
+            ),
             "cuda_synchronized_before_timing_start": bool(
                 cuda_synchronized_before_timing_start
             ),

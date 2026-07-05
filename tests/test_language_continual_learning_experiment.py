@@ -241,6 +241,16 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["learning_evidence"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )
+    assert report["learning_evidence"]["hot_update_evidence_mode"] == (
+        "post_window_telemetry_probe"
+    )
+    assert report["learning_evidence"]["per_step_evidence_dict_build"] is False
+    assert (
+        report["learning_evidence"]["telemetry_probe_outside_measured_window"]
+        is True
+    )
+    assert report["learning_evidence"]["post_window_update_probe_batch_tokens"] > 0
+    assert report["learning_evidence"]["post_window_replay_probe_batch_tokens"] > 0
     assert report["learning_evidence"]["total_window_tokens_per_second"] > 0.0
     assert report["learning_evidence"]["sampled_vocab_precompute"]["new_batches"][
         "enabled"
