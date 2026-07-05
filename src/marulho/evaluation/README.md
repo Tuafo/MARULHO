@@ -374,6 +374,16 @@ harnesses.
   `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec with
   all tracked generation Triton kernels active and zero tracked failures. This
   is public brain-surface continual-learning evidence, not a runtime promotion.
+- `language_runtime_benchmark_suite.py` now accepts
+  `--brain-installed-continual-learning-evidence` so that public brain-owned
+  learning reports can strengthen the central continual-learning, forgetting,
+  replay-recovery, and checkpoint-restore categories instead of living only as
+  standalone JSON. The current aggregate
+  `reports/language_benchmark_suite/language-suite-evo-child-installed-parent-learning-20260705.json`
+  ingests the installed-parent learning report above, keeps continual learning,
+  forgetting, replay recovery, and checkpoint restore at `pass`, records the
+  `524288` brain update-token count plus `3079.877` update tokens/sec, and
+  reaches `ready_for_review` while still keeping `promotes_runtime_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled

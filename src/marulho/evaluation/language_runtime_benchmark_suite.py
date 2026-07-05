@@ -76,6 +76,12 @@ CONTINUAL_LEARNING_EXPERIMENT_SURFACE = (
     "marulho_language_continual_learning_experiment.v1"
 )
 CONTINUAL_LEARNING_ARTIFACT_KIND = "marulho_language_continual_learning_window"
+BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE = (
+    "marulho_language_brain_installed_continual_learning_evidence.v1"
+)
+BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND = (
+    "marulho_language_brain_installed_continual_learning_evidence"
+)
 STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE = (
     "marulho_language_structural_plasticity_experiment.v1"
 )
@@ -260,6 +266,21 @@ def _read_memory_slot_architecture_cost_report(path: str | Path) -> dict[str, An
     return payload
 
 
+def _read_brain_installed_continual_learning_report(
+    path: str | Path,
+) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Brain-installed continual-learning report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _read_structural_plasticity_evidence_report(path: str | Path) -> dict[str, Any]:
     report_path = Path(path)
     with report_path.open("r", encoding="utf-8") as handle:
@@ -351,6 +372,64 @@ def _valid_language_memory_slot_architecture_cost_report(
         and memory_slots.get("runs_all_slots") is False
         and training_backend.get("training_window_stats_recorded") is True
         and int(learning_evidence.get("update_token_count", 0) or 0) > 0
+    )
+
+
+def _valid_brain_installed_continual_learning_report(
+    report: Mapping[str, Any],
+) -> bool:
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    summary = (
+        report.get("learning_summary")
+        if isinstance(report.get("learning_summary"), Mapping)
+        else {}
+    )
+    learned_checkpoint = (
+        report.get("learned_brain_checkpoint")
+        if isinstance(report.get("learned_brain_checkpoint"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND
+        and report.get("surface") == BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE
+        and report.get("report_status") == "final"
+        and report.get("status") == "final"
+        and report.get("runtime_owner") == "MarulhoBrain"
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("service_owned_cognition") is False
+        and report.get("status_read_mutation") is False
+        and summary.get("brain_surface") == "marulho_brain_language_learning_window.v1"
+        and summary.get("training_surface") == "marulho_language_continual_learning_window.v1"
+        and summary.get("status") == "accepted_online_update"
+        and summary.get("trace_event") == "language_learn"
+        and summary.get("mutates_language_model_weights") is True
+        and int(summary.get("update_token_count", 0) or 0) > 0
+        and _finite_positive(summary.get("tokens_per_second"))
+        and _finite_positive(summary.get("total_window_tokens_per_second"))
+        and float(summary.get("final_parameter_delta_l2", 0.0) or 0.0) > 0.0
+        and learned_checkpoint.get("restore_verified") is True
+        and gate.get("installed_reviewed_checkpoint") is True
+        and gate.get("batch_tokenizer_matches_installed_runtime") is True
+        and gate.get("pre_learning_brain_checkpoint_restore_verified") is True
+        and gate.get("learning_runs_through_marulho_brain") is True
+        and gate.get("language_learn_trace_recorded") is True
+        and gate.get("records_actual_continual_learning") is True
+        and gate.get("records_forgetting") is True
+        and gate.get("records_replay_retention") is True
+        and gate.get("records_update_throughput") is True
+        and gate.get("records_total_window_throughput") is True
+        and gate.get("learned_brain_checkpoint_restore_verified") is True
+        and gate.get("status_read_mutation_absent") is True
+        and gate.get("external_llm_absent") is True
+        and gate.get("service_owned_cognition_absent") is True
+        and gate.get("promotes_runtime_claim") is False
     )
 
 
@@ -1625,6 +1704,153 @@ def _language_memory_slot_architecture_cost_evidence(
     }
 
 
+def _brain_installed_continual_learning_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = (
+        report.get("learning_summary")
+        if isinstance(report.get("learning_summary"), Mapping)
+        else {}
+    )
+    memory_slots = (
+        summary.get("memory_slots")
+        if isinstance(summary.get("memory_slots"), Mapping)
+        else {}
+    )
+    pre_checkpoint = (
+        report.get("pre_learning_brain_checkpoint")
+        if isinstance(report.get("pre_learning_brain_checkpoint"), Mapping)
+        else {}
+    )
+    learned_checkpoint = (
+        report.get("learned_brain_checkpoint")
+        if isinstance(report.get("learned_brain_checkpoint"), Mapping)
+        else {}
+    )
+    sustained = (
+        report.get("post_learning_sustained_window")
+        if isinstance(report.get("post_learning_sustained_window"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "runtime_owner": report.get("runtime_owner"),
+        "active_language_path": report.get("active_language_path"),
+        "brain_surface": summary.get("brain_surface"),
+        "training_surface": summary.get("training_surface"),
+        "learning_status": summary.get("status"),
+        "update_token_count": int(summary.get("update_token_count", 0) or 0),
+        "tokens_per_second": float(summary.get("tokens_per_second", 0.0) or 0.0),
+        "total_window_tokens_per_second": float(
+            summary.get("total_window_tokens_per_second", 0.0) or 0.0
+        ),
+        "new_domain_loss_delta": float(
+            summary.get("new_domain_loss_delta", 0.0) or 0.0
+        ),
+        "old_domain_forgetting": float(
+            summary.get("old_domain_forgetting", 0.0) or 0.0
+        ),
+        "general_replay_retention_delta": float(
+            summary.get("general_replay_retention_delta", 0.0) or 0.0
+        ),
+        "final_parameter_delta_l2": float(
+            summary.get("final_parameter_delta_l2", 0.0) or 0.0
+        ),
+        "device": summary.get("device"),
+        "memory_slots_enabled": bool(memory_slots.get("enabled", False)),
+        "memory_slot_candidate_slots_scored": int(
+            memory_slots.get("candidate_slots_scored", 0) or 0
+        ),
+        "memory_slot_runs_all_slots": bool(memory_slots.get("runs_all_slots", False)),
+        "memory_slot_bounded_path": bool(
+            memory_slots.get("bounded_memory_slot_path", False)
+        ),
+        "memory_slot_retrieval_backend": memory_slots.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "pre_learning_checkpoint_path": pre_checkpoint.get("path"),
+        "pre_learning_checkpoint_restore_verified": bool(
+            pre_checkpoint.get("restore_verified", False)
+        ),
+        "learned_brain_checkpoint_path": learned_checkpoint.get("path"),
+        "learned_brain_checkpoint_restore_verified": bool(
+            learned_checkpoint.get("restore_verified", False)
+        ),
+        "post_learning_sustained_enabled": bool(sustained.get("enabled", False)),
+        "post_learning_sustained_success": bool(sustained.get("success", False)),
+        "post_learning_sustained_token_delta": int(
+            sustained.get("token_delta", 0) or 0
+        ),
+        "post_learning_sustained_tokens_per_second": float(
+            sustained.get("tokens_per_second", 0.0) or 0.0
+        ),
+        "post_learning_sustained_backend": sustained.get("backend"),
+        "post_learning_sustained_triton_kernel_names": list(
+            sustained.get("tracked_triton_kernel_used_names") or []
+        ),
+        "house_scale_update_tokens_reached": bool(
+            gate.get("house_scale_524288_update_tokens_reached", False)
+        ),
+        "post_learning_sustained_524288_boundary_reached": bool(
+            gate.get("post_learning_sustained_524288_boundary_reached", False)
+        ),
+        "status_read_mutation_absent": bool(
+            gate.get("status_read_mutation_absent", False)
+        ),
+        "promotes_runtime_claim": False,
+    }
+
+
+def _language_brain_installed_continual_learning_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_brain_installed_continual_learning_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: (
+            int(
+                (item.get("learning_summary") or {}).get("update_token_count", 0)
+                if isinstance(item.get("learning_summary"), Mapping)
+                else 0
+            ),
+            float(
+                (item.get("learning_summary") or {}).get("tokens_per_second", 0.0)
+                if isinstance(item.get("learning_summary"), Mapping)
+                else 0.0
+            ),
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "surface": "marulho_language_brain_installed_continual_learning_saved_evidence.v1",
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "brain_installed_continual_learning_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _brain_installed_continual_learning_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_brain_installed_continual_learning_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+    }
+
+
 def _structural_plasticity_transactions_from_report(
     report: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
@@ -1960,6 +2186,7 @@ def run_language_runtime_benchmark_suite(
     output_path: str | Path,
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
+    brain_installed_continual_learning_evidence_paths: Sequence[str | Path] = (),
     memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
     memory_slot_architecture_cost_evidence_paths: Sequence[str | Path] = (),
     structural_plasticity_evidence_paths: Sequence[str | Path] = (),
@@ -2127,6 +2354,23 @@ def run_language_runtime_benchmark_suite(
         )
     )
 
+    brain_installed_learning_reports = [
+        _read_brain_installed_continual_learning_report(path)
+        for path in brain_installed_continual_learning_evidence_paths
+    ]
+    brain_installed_learning_evidence = (
+        _language_brain_installed_continual_learning_evidence(
+            brain_installed_learning_reports
+        )
+    )
+    brain_installed_learning_missing = tuple(
+        brain_installed_learning_evidence["missing_evidence"]
+    )
+    best_brain_learning = (
+        brain_installed_learning_evidence.get("best_report")
+        if isinstance(brain_installed_learning_evidence.get("best_report"), Mapping)
+        else {}
+    )
     learning_model = _new_model(tokenizer)
     learning_report = run_language_continual_learning_window(
         learning_model,
@@ -2148,38 +2392,99 @@ def run_language_runtime_benchmark_suite(
         _category(
             "continual_learning",
             status=(
-                "pass"
-                if learning_report["rollback_evidence"]["restore_verified"]
-                and learning_evidence["final_parameter_delta_l2"] > 0.0
-                else "fail"
+                "fail"
+                if brain_installed_learning_missing
+                else (
+                    "pass"
+                    if learning_report["rollback_evidence"]["restore_verified"]
+                    and learning_evidence["final_parameter_delta_l2"] > 0.0
+                    else "fail"
+                )
             ),
             evidence={
                 "new_domain_loss_delta": learning_evidence["new_domain_loss_delta"],
                 "final_parameter_delta_l2": learning_evidence["final_parameter_delta_l2"],
                 "tokens_per_second": learning_evidence["tokens_per_second"],
                 "rollback_available": learning_report["promotion_gate"]["rollback_available"],
+                "brain_installed_continual_learning_evidence": (
+                    brain_installed_learning_evidence
+                ),
+                "brain_installed_learning_available": bool(
+                    brain_installed_learning_evidence[
+                        "brain_installed_continual_learning_available"
+                    ]
+                ),
+                "brain_installed_update_token_count": int(
+                    best_brain_learning.get("update_token_count", 0) or 0
+                ),
+                "brain_installed_tokens_per_second": float(
+                    best_brain_learning.get("tokens_per_second", 0.0) or 0.0
+                ),
+                "brain_installed_total_window_tokens_per_second": float(
+                    best_brain_learning.get(
+                        "total_window_tokens_per_second",
+                        0.0,
+                    )
+                    or 0.0
+                ),
+                "brain_installed_learned_checkpoint_restore_verified": bool(
+                    best_brain_learning.get(
+                        "learned_brain_checkpoint_restore_verified",
+                        False,
+                    )
+                ),
+                "brain_installed_post_learning_sustained_tokens_per_second": float(
+                    best_brain_learning.get(
+                        "post_learning_sustained_tokens_per_second",
+                        0.0,
+                    )
+                    or 0.0
+                ),
             },
+            missing=brain_installed_learning_missing,
         )
     )
     categories.append(
         _category(
             "forgetting",
-            status="pass" if "old_domain_forgetting" in learning_evidence else "fail",
+            status=(
+                "fail"
+                if brain_installed_learning_missing
+                else "pass"
+                if "old_domain_forgetting" in learning_evidence
+                else "fail"
+            ),
             evidence={
                 "old_domain_forgetting": learning_evidence["old_domain_forgetting"],
                 "old_domain_forgetting_within_tolerance": learning_report[
                     "promotion_gate"
                 ]["old_domain_forgetting_within_tolerance"],
+                "brain_installed_old_domain_forgetting": (
+                    best_brain_learning.get("old_domain_forgetting")
+                ),
+                "brain_installed_forgetting_measured": bool(
+                    brain_installed_learning_evidence[
+                        "brain_installed_continual_learning_available"
+                    ]
+                ),
+                "brain_installed_continual_learning_evidence": (
+                    brain_installed_learning_evidence
+                ),
             },
+            missing=brain_installed_learning_missing,
         )
     )
     categories.append(
         _category(
             "replay_recovery",
             status=(
-                "pass"
-                if "general_replay_retention_delta" in learning_evidence
-                else "fail"
+                "fail"
+                if brain_installed_learning_missing
+                else (
+                    "pass"
+                    if "general_replay_retention_delta" in learning_evidence
+                    else "fail"
+                )
             ),
             evidence={
                 "general_replay_retention_delta": learning_evidence[
@@ -2188,7 +2493,29 @@ def run_language_runtime_benchmark_suite(
                 "general_replay_retention_within_tolerance": learning_report[
                     "promotion_gate"
                 ]["general_replay_retention_within_tolerance"],
+                "brain_installed_general_replay_retention_delta": (
+                    best_brain_learning.get("general_replay_retention_delta")
+                ),
+                "brain_installed_replay_retention_measured": bool(
+                    brain_installed_learning_evidence[
+                        "brain_installed_continual_learning_available"
+                    ]
+                ),
+                "brain_installed_memory_slot_candidate_slots_scored": int(
+                    best_brain_learning.get(
+                        "memory_slot_candidate_slots_scored",
+                        0,
+                    )
+                    or 0
+                ),
+                "brain_installed_memory_slot_runs_all_slots": bool(
+                    best_brain_learning.get("memory_slot_runs_all_slots", False)
+                ),
+                "brain_installed_continual_learning_evidence": (
+                    brain_installed_learning_evidence
+                ),
             },
+            missing=brain_installed_learning_missing,
         )
     )
 
@@ -2995,18 +3322,41 @@ def run_language_runtime_benchmark_suite(
         _category(
             "checkpoint_restore",
             status=(
-                "pass"
-                if restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
-                and restored_metadata.get("suite") == "language_runtime_benchmark"
-                and _finite_positive(restored_eval["heldout_loss"])
-                else "fail"
+                "fail"
+                if brain_installed_learning_missing
+                else (
+                    "pass"
+                    if restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+                    and restored_metadata.get("suite") == "language_runtime_benchmark"
+                    and _finite_positive(restored_eval["heldout_loss"])
+                    else "fail"
+                )
             ),
             evidence={
                 "checkpoint_path": str(checkpoint_path),
                 "tokenizer_hash_restored": restored_tokenizer.vocabulary_hash(),
                 "metadata_restored": dict(restored_metadata),
                 "heldout_loss_after_restore": restored_eval["heldout_loss"],
+                "brain_installed_continual_learning_evidence": (
+                    brain_installed_learning_evidence
+                ),
+                "brain_installed_pre_learning_checkpoint_restore_verified": bool(
+                    best_brain_learning.get(
+                        "pre_learning_checkpoint_restore_verified",
+                        False,
+                    )
+                ),
+                "brain_installed_learned_checkpoint_restore_verified": bool(
+                    best_brain_learning.get(
+                        "learned_brain_checkpoint_restore_verified",
+                        False,
+                    )
+                ),
+                "brain_installed_learned_checkpoint_path": (
+                    best_brain_learning.get("learned_brain_checkpoint_path")
+                ),
             },
+            missing=brain_installed_learning_missing,
         )
     )
 
@@ -3203,6 +3553,10 @@ def run_language_runtime_benchmark_suite(
             "sustained_evidence": [
                 str(Path(path)) for path in sustained_evidence_paths
             ],
+            "brain_installed_continual_learning_evidence": [
+                str(Path(path))
+                for path in brain_installed_continual_learning_evidence_paths
+            ],
             "memory_slot_runtime_impact_evidence": [
                 str(Path(path))
                 for path in memory_slot_runtime_impact_evidence_paths
@@ -3248,6 +3602,11 @@ def run_language_runtime_benchmark_suite(
             "quality_replay_evidence_available": quality_replay_evidence[
                 "quality_replay_available"
             ],
+            "brain_installed_continual_learning_evidence_available": bool(
+                brain_installed_learning_evidence[
+                    "brain_installed_continual_learning_available"
+                ]
+            ),
             "checkpoint_evolution_evidence_available": (
                 saved_checkpoint_evolution_evidence[
                     "checkpoint_evolution_evidence_available"
@@ -3306,6 +3665,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--brain-installed-continual-learning-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_brain_installed_continual_learning_evidence "
+            "JSON report."
+        ),
+    )
+    parser.add_argument(
         "--memory-slot-architecture-cost-evidence",
         type=Path,
         action="append",
@@ -3354,6 +3723,9 @@ def main() -> int:
         output_path=args.output,
         sustained_target_tokens=args.sustained_target_tokens,
         sustained_evidence_paths=tuple(args.sustained_evidence),
+        brain_installed_continual_learning_evidence_paths=tuple(
+            args.brain_installed_continual_learning_evidence
+        ),
         memory_slot_runtime_impact_evidence_paths=tuple(
             args.memory_slot_runtime_impact_evidence
         ),

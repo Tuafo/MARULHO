@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
+    BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND,
+    BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE,
     ELIGIBILITY_TRACE_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND,
@@ -514,6 +516,109 @@ def _write_memory_slot_architecture_cost_report(path) -> None:
     )
 
 
+def _write_brain_installed_continual_learning_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND,
+                "surface": BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE,
+                "status": "final",
+                "report_status": "final",
+                "runtime_owner": "MarulhoBrain",
+                "active_language_path": "marulho_lm_head",
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "learning_summary": {
+                    "surface": (
+                        "marulho_brain_installed_continual_learning_summary.v1"
+                    ),
+                    "brain_surface": "marulho_brain_language_learning_window.v1",
+                    "training_surface": (
+                        "marulho_language_continual_learning_window.v1"
+                    ),
+                    "status": "accepted_online_update",
+                    "trace_event": "language_learn",
+                    "mutates_language_model_weights": True,
+                    "update_token_count": 524288,
+                    "tokens_per_second": 3079.877,
+                    "total_window_tokens_per_second": 2810.819,
+                    "new_domain_loss_delta": 4.7118,
+                    "old_domain_forgetting": -4.0211,
+                    "general_replay_retention_delta": -4.0014,
+                    "final_parameter_delta_l2": 26.6627,
+                    "device": "cuda:0",
+                    "memory_slots": {
+                        "enabled": True,
+                        "candidate_slots_scored": 4194304,
+                        "runs_all_slots": False,
+                        "bounded_memory_slot_path": True,
+                        "memory_slot_retrieval_backend": (
+                            "torch_autograd_bounded_memory_slots"
+                        ),
+                    },
+                },
+                "pre_learning_brain_checkpoint": {
+                    "surface": "marulho_brain_pre_learning_installed_checkpoint.v1",
+                    "path": "reports/language_brain_continual_learning/pre.pt",
+                    "restore_verified": True,
+                },
+                "learned_brain_checkpoint": {
+                    "surface": "marulho_brain_post_learning_checkpoint.v1",
+                    "path": "reports/language_brain_continual_learning/learned.pt",
+                    "restore_verified": True,
+                },
+                "post_learning_sustained_window": {
+                    "surface": (
+                        "marulho_brain_post_learning_sustained_generation_summary.v1"
+                    ),
+                    "enabled": True,
+                    "success": True,
+                    "token_delta": 524288,
+                    "tokens_per_second": 8132.276,
+                    "backend": "torch_cuda_graph_burst_decode_controls",
+                    "tracked_triton_kernel_used_names": [
+                        "language_rmsnorm_triton",
+                        "language_plif_triton",
+                        "language_route_topk_triton",
+                        "language_expert_dispatch_triton",
+                        "language_memory_slots_triton",
+                    ],
+                    "tracked_triton_kernel_failure_count": 0,
+                    "external_llm_used": False,
+                    "service_owned_cognition": False,
+                    "promotes_runtime_claim": False,
+                },
+                "promotion_gate": {
+                    "surface": (
+                        "marulho_language_brain_installed_continual_learning_gate.v1"
+                    ),
+                    "installed_reviewed_checkpoint": True,
+                    "batch_tokenizer_matches_installed_runtime": True,
+                    "pre_learning_brain_checkpoint_restore_verified": True,
+                    "learning_runs_through_marulho_brain": True,
+                    "language_learn_trace_recorded": True,
+                    "records_actual_continual_learning": True,
+                    "records_forgetting": True,
+                    "records_replay_retention": True,
+                    "records_update_throughput": True,
+                    "records_total_window_throughput": True,
+                    "house_scale_524288_update_tokens_reached": True,
+                    "learned_brain_checkpoint_restore_verified": True,
+                    "post_learning_sustained_524288_boundary_reached": True,
+                    "status_read_mutation_absent": True,
+                    "external_llm_absent": True,
+                    "service_owned_cognition_absent": True,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_structural_plasticity_experiment_report(path) -> None:
     path.write_text(
         json.dumps(
@@ -888,6 +993,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     checkpoint_evolution = tmp_path / "checkpoint-evolution.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
+    brain_installed_continual_learning = (
+        tmp_path / "brain-installed-continual-learning.json"
+    )
     structural_plasticity = tmp_path / "structural-plasticity.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
@@ -931,12 +1039,18 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     _write_checkpoint_evolution_experiment_report(checkpoint_evolution)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
     _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
+    _write_brain_installed_continual_learning_report(
+        brain_installed_continual_learning
+    )
     _write_structural_plasticity_experiment_report(structural_plasticity)
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
         sustained_target_tokens=2,
         sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
+        brain_installed_continual_learning_evidence_paths=(
+            brain_installed_continual_learning,
+        ),
         memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
         memory_slot_architecture_cost_evidence_paths=(
             memory_slot_architecture_cost,
@@ -965,6 +1079,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     memory_slot_cost_category = categories["memory_slot_architecture_cost"]
     growth_prune_category = categories["growth_prune_safety"]
     rollback_category = categories["rollback"]
+    continual_category = categories["continual_learning"]
+    forgetting_category = categories["forgetting"]
+    replay_category = categories["replay_recovery"]
+    checkpoint_restore_category = categories["checkpoint_restore"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -1036,6 +1154,63 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert memory_slot_cost_category["evidence"][
         "required_for_runtime_promotion"
     ] is False
+    assert continual_category["status"] == "pass"
+    brain_learning = continual_category["evidence"][
+        "brain_installed_continual_learning_evidence"
+    ]
+    assert brain_learning["brain_installed_continual_learning_available"] is True
+    assert brain_learning["valid_report_count"] == 1
+    assert brain_learning["best_report"]["runtime_owner"] == "MarulhoBrain"
+    assert brain_learning["best_report"]["brain_surface"] == (
+        "marulho_brain_language_learning_window.v1"
+    )
+    assert brain_learning["best_report"]["update_token_count"] == 524288
+    assert brain_learning["best_report"]["tokens_per_second"] == 3079.877
+    assert brain_learning["best_report"]["total_window_tokens_per_second"] == 2810.819
+    assert brain_learning["best_report"]["new_domain_loss_delta"] == 4.7118
+    assert brain_learning["best_report"]["old_domain_forgetting"] == -4.0211
+    assert (
+        brain_learning["best_report"]["general_replay_retention_delta"]
+        == -4.0014
+    )
+    assert brain_learning["best_report"]["memory_slot_candidate_slots_scored"] == 4194304
+    assert brain_learning["best_report"]["memory_slot_runs_all_slots"] is False
+    assert brain_learning["best_report"][
+        "learned_brain_checkpoint_restore_verified"
+    ] is True
+    assert brain_learning["best_report"][
+        "post_learning_sustained_524288_boundary_reached"
+    ] is True
+    assert (
+        brain_learning["best_report"]["post_learning_sustained_tokens_per_second"]
+        == 8132.276
+    )
+    assert continual_category["evidence"]["brain_installed_update_token_count"] == 524288
+    assert (
+        continual_category["evidence"]["brain_installed_tokens_per_second"]
+        == 3079.877
+    )
+    assert forgetting_category["evidence"][
+        "brain_installed_old_domain_forgetting"
+    ] == -4.0211
+    assert forgetting_category["evidence"][
+        "brain_installed_forgetting_measured"
+    ] is True
+    assert replay_category["evidence"][
+        "brain_installed_general_replay_retention_delta"
+    ] == -4.0014
+    assert replay_category["evidence"][
+        "brain_installed_memory_slot_candidate_slots_scored"
+    ] == 4194304
+    assert replay_category["evidence"][
+        "brain_installed_memory_slot_runs_all_slots"
+    ] is False
+    assert checkpoint_restore_category["evidence"][
+        "brain_installed_learned_checkpoint_restore_verified"
+    ] is True
+    assert checkpoint_restore_category["evidence"][
+        "brain_installed_learned_checkpoint_path"
+    ] == "reports/language_brain_continual_learning/learned.pt"
     saved_structural = growth_prune_category["evidence"][
         "saved_structural_plasticity_evidence"
     ]
@@ -1184,6 +1359,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
     assert report["promotion_gate"]["quality_replay_evidence_available"] is True
+    assert report["promotion_gate"][
+        "brain_installed_continual_learning_evidence_available"
+    ] is True
     assert report["promotion_gate"][
         "checkpoint_evolution_evidence_available"
     ] is True
