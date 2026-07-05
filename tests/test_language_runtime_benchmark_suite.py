@@ -282,9 +282,14 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert categories["growth_prune_safety"]["evidence"]["merge_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["deep_sleep_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["deep_sleep_runs_all_columns"] is False
+    assert categories["growth_prune_safety"]["evidence"]["route_bank_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["route_bank_source_candidate_count"] == 2
+    assert categories["growth_prune_safety"]["evidence"]["route_bank_target_candidate_count"] == 4
+    assert categories["growth_prune_safety"]["evidence"]["route_bank_runs_all_columns"] is False
     assert "prune_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "merge_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "deep_sleep_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
+    assert "route_bank_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert categories["growth_prune_safety"]["missing_evidence"] == []
     assert categories["long_run_throughput"]["status"] == "smoke_only"
     assert categories["long_run_throughput"]["evidence"]["smoke_token_delta"] == 4

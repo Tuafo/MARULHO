@@ -579,6 +579,83 @@ def test_marulho_brain_language_structural_deep_sleep_transaction_is_checkpointe
     ] == [3]
 
 
+def test_marulho_brain_language_route_bank_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural route bank expansion widens bounded candidate scoring. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=5,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 5,
+            "active_columns": 2,
+            "route_candidate_count": 2,
+            "output_candidate_count": 1,
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+            "route_bank_pressure": True,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            route_saturation_threshold=0.5,
+            max_route_candidate_growth=2,
+        ),
+        mutation_kind="route_bank_expansion",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-route-bank-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_route_candidate_growth=2,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-route-bank.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    last_transaction = status["language_model"]["last_structural_transaction"]
+
+    assert proposal["proposal"]["proposal_kind"] == "route_bank_expansion"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 5
+    assert transaction["report"]["mutation"]["source_route_candidate_count"] == 2
+    assert transaction["report"]["mutation"]["target_route_candidate_count"] == 4
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_route_bank_expansion_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert last_transaction["mutation"]["proposal_kind"] == "route_bank_expansion"
+    restored_status = restored.status()
+    assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
+        "target_route_candidate_count"
+    ] == 4
+
+
 def test_marulho_brain_language_checkpoint_evolution_keeps_parent_installed(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     tokenizer = ByteLevelLanguageTokenizer()

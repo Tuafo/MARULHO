@@ -379,16 +379,18 @@ developmental and consolidation runners, query runners, and long-run evidence.
   repetition-penalty and no-repeat-ngram decode controls are recorded as decode
   policy and counters, not hidden generation authority or quality promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
-  LM expert growth, explicit expert prune, explicit expert merge, and explicit
-  expert deep sleep. It builds non-mutating expert-spawn proposals from
-  route/learning pressure, expert-prune proposals from explicit inactive or
-  low-utility expert evidence, expert-merge proposals from duplicate or
-  high-similarity expert-pair evidence, and expert-deep-sleep proposals from
-  stale, low-activation, low-utility, high-cost, or dead-spike expert evidence.
+  LM expert growth, explicit expert prune, explicit expert merge, explicit
+  expert deep sleep, and bounded route-bank expansion. It builds non-mutating
+  expert-spawn proposals from route/learning pressure, expert-prune proposals
+  from explicit inactive or low-utility expert evidence, expert-merge proposals
+  from duplicate or high-similarity expert-pair evidence, expert-deep-sleep
+  proposals from stale, low-activation, low-utility, high-cost, or dead-spike
+  expert evidence, and route-bank proposals from bounded candidate saturation.
   Application requires operator approval, writes a baseline checkpoint snapshot,
-  applies the candidate topology change or checkpointed sleep mask under
+  applies the candidate topology/config change or checkpointed sleep mask under
   heldout non-regression, and records rollback hashes before accepting the
-  candidate.
+  candidate. Route-bank expansion is capped so all-awake runs do not silently
+  become dense/all-column route scans.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,

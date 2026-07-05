@@ -27,6 +27,7 @@ from marulho.training.language_structural_plasticity import (
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
+    build_language_structural_route_bank_expansion_proposal,
 )
 
 
@@ -230,6 +231,13 @@ class BrainLanguageModelRuntime:
         config: LanguageStructuralPlasticityConfig | None = None,
         mutation_kind: str = "growth",
     ) -> dict[str, Any]:
+        if str(mutation_kind) in {"route_bank", "route_bank_expansion"}:
+            return build_language_structural_route_bank_expansion_proposal(
+                self.model,
+                routing_evidence=routing_evidence,
+                learning_evidence=learning_evidence,
+                config=config,
+            )
         if str(mutation_kind) in {"deep_sleep", "sleep"}:
             return build_language_structural_deep_sleep_proposal(
                 self.model,

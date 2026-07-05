@@ -24,6 +24,8 @@ class LanguageStructuralPlasticityConfig:
     max_pruned_experts: int = 1
     max_merged_expert_pairs: int = 1
     max_deep_sleep_experts: int = 1
+    max_route_candidate_growth: int = 2
+    max_route_candidate_count: int = 0
     route_saturation_threshold: float = 0.75
     prune_utility_threshold: float = 0.05
     merge_similarity_threshold: float = 0.95
@@ -45,6 +47,14 @@ def _json_hash(payload: Mapping[str, Any]) -> str:
 
 def _model_state_hash(model: MarulhoLanguageModel) -> str:
     digest = hashlib.sha256()
+    digest.update(
+        json.dumps(
+            asdict(model.config),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    )
     for key, tensor in sorted(model.state_dict().items()):
         value = tensor.detach().cpu().contiguous()
         digest.update(str(key).encode("utf-8"))
@@ -92,6 +102,14 @@ def _load_checkpoint_hash(path: str | Path) -> str:
     payload = torch.load(Path(path), map_location="cpu")
     model_state = payload["model_state"]
     digest = hashlib.sha256()
+    digest.update(
+        json.dumps(
+            payload.get("config") or {},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    )
     for key, tensor in sorted(model_state.items()):
         value = tensor.detach().cpu().contiguous()
         digest.update(str(key).encode("utf-8"))
@@ -333,6 +351,53 @@ def _clone_deep_sleep_model(
                 device=candidate.routed_experts.sleeping_expert_mask.device,
             )
             candidate.routed_experts.sleeping_expert_mask[sleep_tensor] = True
+    candidate.train(model.training)
+    return candidate
+
+
+def _route_bank_candidate_ceiling(model: MarulhoLanguageModel) -> int:
+    if not model.routed_experts.enabled:
+        return 0
+    expert_count = max(0, int(model.config.expert_count))
+    awake_count = max(
+        0,
+        expert_count - len(model.routed_experts.sleeping_expert_ids()),
+    )
+    if awake_count <= 0:
+        return 0
+    if awake_count >= expert_count:
+        return max(0, expert_count - 1)
+    return awake_count
+
+
+def _clone_route_bank_expanded_model(
+    model: MarulhoLanguageModel,
+    *,
+    target_route_candidate_count: int,
+) -> MarulhoLanguageModel:
+    source_candidate_count = max(0, int(model.config.route_candidate_count))
+    candidate_ceiling = _route_bank_candidate_ceiling(model)
+    target_candidate_count = min(
+        max(0, int(target_route_candidate_count)),
+        candidate_ceiling,
+    )
+    if source_candidate_count <= 0:
+        raise ValueError("route bank expansion requires a bounded source candidate count")
+    if target_candidate_count <= source_candidate_count:
+        raise ValueError("target_route_candidate_count must increase the bounded route bank")
+    new_config = replace(
+        model.config,
+        route_candidate_count=target_candidate_count,
+    )
+    candidate = MarulhoLanguageModel(new_config).to(model.device)
+    candidate_state = candidate.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in candidate_state and candidate_state[key].shape == source_value.shape:
+            candidate_state[key] = source_value.detach().clone().to(
+                candidate_state[key].device
+            )
+    candidate.load_state_dict(candidate_state)
     candidate.train(model.training)
     return candidate
 
@@ -784,6 +849,108 @@ def build_language_structural_deep_sleep_proposal(
     }
 
 
+def build_language_structural_route_bank_expansion_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    configured_candidate_count = max(0, int(model.config.route_candidate_count))
+    source_candidate_count = int(
+        route.get("route_candidate_count") or configured_candidate_count or 0
+    )
+    bounded_candidate_ceiling = _route_bank_candidate_ceiling(model)
+    configured_ceiling = int(cfg.max_route_candidate_count)
+    if configured_ceiling > 0:
+        bounded_candidate_ceiling = min(bounded_candidate_ceiling, configured_ceiling)
+    bounded_bank_enabled = (
+        configured_candidate_count > 0
+        and source_candidate_count > 0
+        and source_candidate_count < bounded_candidate_ceiling
+    )
+    active_columns = int(route.get("active_columns") or 0)
+    route_bank_saturation = active_columns / max(1, int(source_candidate_count))
+    explicit_saturation = route.get("route_bank_saturation")
+    if explicit_saturation is None:
+        explicit_saturation = route.get("route_saturation")
+    if explicit_saturation is not None:
+        try:
+            route_bank_saturation = float(explicit_saturation)
+        except (TypeError, ValueError):
+            pass
+    route_pressure = (
+        route_bank_saturation >= float(cfg.route_saturation_threshold)
+        or bool(route.get("route_bank_pressure"))
+        or bool(route.get("route_saturation_pressure"))
+    )
+    candidate_growth = min(
+        max(0, int(cfg.max_route_candidate_growth)),
+        max(0, bounded_candidate_ceiling - source_candidate_count),
+    )
+    target_candidate_count = source_candidate_count + candidate_growth
+    ready = (
+        expert_count > 0
+        and bool(bounded_bank_enabled)
+        and bool(route_pressure)
+        and target_candidate_count > source_candidate_count
+    )
+    status = "ready_for_operator_review" if ready else "collect_more_route_bank_pressure"
+    proposal_body = {
+        "proposal_kind": "route_bank_expansion",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(expert_count),
+        "source_route_candidate_count": int(source_candidate_count),
+        "target_route_candidate_count": int(target_candidate_count),
+        "added_route_candidate_count": int(
+            max(0, target_candidate_count - source_candidate_count)
+        ),
+        "configured_route_candidate_count": int(configured_candidate_count),
+        "bounded_route_candidate_ceiling": int(bounded_candidate_ceiling),
+        "route_bank_saturation": float(route_bank_saturation),
+        "route_pressure": bool(route_pressure),
+        "bounded_bank_enabled": bool(bounded_bank_enabled),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "route_bank_pressure": bool(route_pressure),
+            "bounded_bank_enabled": bool(bounded_bank_enabled),
+            "bounded_route_candidate_ceiling_preserved": bool(
+                target_candidate_count <= bounded_candidate_ceiling
+            ),
+            "no_parameter_topology_change": True,
+            "avoids_all_column_route_scan": bool(
+                target_candidate_count < expert_count
+                or len(model.routed_experts.sleeping_expert_ids()) > 0
+            ),
+        },
+    }
+
+
 def apply_language_structural_plasticity_transaction(
     model: MarulhoLanguageModel,
     proposal: Mapping[str, Any],
@@ -843,6 +1010,14 @@ def apply_language_structural_plasticity_transaction(
                 int(value) for value in list(body.get("deep_sleep_expert_ids") or [])
             ],
         )
+    elif proposal_kind == "route_bank_expansion":
+        candidate = _clone_route_bank_expanded_model(
+            model,
+            target_route_candidate_count=int(
+                body.get("target_route_candidate_count")
+                or model.config.route_candidate_count
+            ),
+        )
     else:
         target_expert_count = int(body.get("target_expert_count") or model.config.expert_count)
         candidate = _clone_expanded_model(model, target_expert_count=target_expert_count)
@@ -880,6 +1055,22 @@ def apply_language_structural_plasticity_transaction(
             "source_expert_count": int(model.config.expert_count),
             "target_expert_count": int(final_model.config.expert_count),
             "candidate_target_expert_count": int(candidate.config.expert_count),
+            "source_route_candidate_count": int(model.config.route_candidate_count),
+            "target_route_candidate_count": int(
+                final_model.config.route_candidate_count
+            ),
+            "candidate_target_route_candidate_count": int(
+                candidate.config.route_candidate_count
+            ),
+            "route_bank_candidate_count_delta": int(
+                max(
+                    0,
+                    candidate.config.route_candidate_count
+                    - model.config.route_candidate_count,
+                )
+                if proposal_kind == "route_bank_expansion"
+                else 0
+            ),
             "added_expert_count": int(
                 max(0, candidate.config.expert_count - model.config.expert_count)
                 if proposal_kind == "expert_spawn"
@@ -960,6 +1151,9 @@ def apply_language_structural_plasticity_transaction(
             ),
             "eligible_for_reviewed_deep_sleep_promotion": bool(
                 accepted and proposal_kind == "expert_deep_sleep"
+            ),
+            "eligible_for_reviewed_route_bank_expansion_promotion": bool(
+                accepted and proposal_kind == "route_bank_expansion"
             ),
             "eligible_for_reviewed_structural_promotion": bool(accepted),
             "checkpoint_backed": True,

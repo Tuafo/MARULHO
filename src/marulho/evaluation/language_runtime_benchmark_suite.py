@@ -51,6 +51,7 @@ from marulho.training.language_structural_plasticity import (
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
+    build_language_structural_route_bank_expansion_proposal,
 )
 
 
@@ -1194,8 +1195,54 @@ def run_language_runtime_benchmark_suite(
             ),
         )
     )
+    structural_route_bank_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=5,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+        )
+    )
+    route_bank_proposal = build_language_structural_route_bank_expansion_proposal(
+        structural_route_bank_model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 5,
+            "active_columns": 2,
+            "route_candidate_count": 2,
+            "output_candidate_count": 1,
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+            "route_bank_pressure": True,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            route_saturation_threshold=0.5,
+            max_route_candidate_growth=2,
+        ),
+    )
+    structural_route_bank_candidate, structural_route_bank_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_route_bank_model,
+            route_bank_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-route-bank-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                max_route_candidate_growth=2,
+                max_eval_loss_delta=100.0,
+            ),
+        )
+    )
     sleep_eval = evaluate_language_model(structural_sleep_candidate, old_split.eval)
     sleep_routing = sleep_eval["spike_telemetry"]["routing"]
+    route_bank_eval = evaluate_language_model(
+        structural_route_bank_candidate,
+        old_split.eval,
+    )
+    route_bank_routing = route_bank_eval["spike_telemetry"]["routing"]
     categories.append(
         _category(
             "growth_prune_safety",
@@ -1213,6 +1260,14 @@ def run_language_runtime_benchmark_suite(
                 and sleep_proposal["mutates_runtime_state"] is False
                 and structural_sleep_report["checkpoint"]["checkpoint_restore_verified"]
                 and structural_sleep_report["rollback_evidence"]["rollback_verified"]
+                and route_bank_proposal["mutates_runtime_state"] is False
+                and structural_route_bank_report["checkpoint"][
+                    "checkpoint_restore_verified"
+                ]
+                and structural_route_bank_report["rollback_evidence"][
+                    "rollback_verified"
+                ]
+                and not route_bank_routing["runs_all_columns"]
                 else "fail"
             ),
             evidence={
@@ -1264,6 +1319,33 @@ def run_language_runtime_benchmark_suite(
                     "candidate_rows_scored"
                 ],
                 "deep_sleep_runs_all_columns": sleep_routing["runs_all_columns"],
+                "route_bank_proposal_mutates_runtime_state": route_bank_proposal[
+                    "mutates_runtime_state"
+                ],
+                "route_bank_transaction_applied": structural_route_bank_report[
+                    "applied"
+                ],
+                "route_bank_checkpoint_backed": structural_route_bank_report[
+                    "promotion_gate"
+                ]["checkpoint_backed"],
+                "route_bank_rollback_verified": structural_route_bank_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "route_bank_source_candidate_count": structural_route_bank_report[
+                    "mutation"
+                ]["source_route_candidate_count"],
+                "route_bank_target_candidate_count": structural_route_bank_report[
+                    "mutation"
+                ]["target_route_candidate_count"],
+                "route_bank_candidate_rows_scored": route_bank_routing[
+                    "candidate_rows_scored"
+                ],
+                "route_bank_runs_all_columns": route_bank_routing[
+                    "runs_all_columns"
+                ],
+                "route_bank_candidate_id_source": route_bank_routing[
+                    "candidate_id_source"
+                ],
             },
             missing=(),
         )

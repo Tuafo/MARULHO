@@ -35,6 +35,7 @@ from marulho.training.language_structural_plasticity import (
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
+    build_language_structural_route_bank_expansion_proposal,
 )
 
 
@@ -876,6 +877,95 @@ def test_language_structural_plasticity_deep_sleeps_experts_with_checkpoint(
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_deep_sleep_promotion"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is False
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_expands_route_bank_with_checkpoint(
+    tmp_path,
+) -> None:
+    torch.manual_seed(27)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=5,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+
+    proposal = build_language_structural_route_bank_expansion_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 5,
+            "active_columns": 2,
+            "route_candidate_count": 2,
+            "output_candidate_count": 1,
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+            "route_bank_pressure": True,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            route_saturation_threshold=0.5,
+            max_route_candidate_growth=2,
+        ),
+    )
+    route_bank_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-route-bank-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_route_candidate_growth=2,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    route_bank_eval = evaluate_language_model(route_bank_model, split.eval)
+    route_bank_routing = route_bank_eval["spike_telemetry"]["routing"]
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-route-bank.pt",
+        route_bank_model,
+        tokenizer,
+        metadata={"transaction": "route_bank_expansion"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["surface"] == "marulho_language_structural_plasticity_proposal.v1"
+    assert proposal["proposal"]["proposal_kind"] == "route_bank_expansion"
+    assert proposal["proposal"]["source_route_candidate_count"] == 2
+    assert proposal["proposal"]["target_route_candidate_count"] == 4
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["avoids_all_column_route_scan"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "route_bank_expansion"
+    assert report["mutation"]["source_expert_count"] == 5
+    assert report["mutation"]["target_expert_count"] == 5
+    assert report["mutation"]["source_route_candidate_count"] == 2
+    assert report["mutation"]["target_route_candidate_count"] == 4
+    assert report["mutation"]["route_bank_candidate_count_delta"] == 2
+    assert route_bank_model.config.expert_count == 5
+    assert route_bank_model.config.route_candidate_count == 4
+    assert route_bank_routing["route_candidate_count"] == 4
+    assert route_bank_routing["candidate_rows_scored"] == (
+        split.eval[0].input_ids.numel() * 4
+    )
+    assert route_bank_routing["runs_all_columns"] is False
+    assert metadata["transaction"] == "route_bank_expansion"
+    assert restored_model.config.route_candidate_count == 4
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"][
+        "eligible_for_reviewed_route_bank_expansion_promotion"
+    ] is True
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
 
 
