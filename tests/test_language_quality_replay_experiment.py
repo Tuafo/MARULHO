@@ -59,8 +59,33 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
                 source_text=source_text,
                 max_new_tokens=4,
                 min_new_tokens=1,
-                min_prefix_match_chars=1,
+                min_prefix_match_chars=0,
                 min_prefix_match_fraction=0.0,
+                min_printable_fraction=0.0,
+                min_distinct_bigram_fraction=0.0,
+                max_token_run_length=64,
+            ),
+        ),
+        heldout_prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="Replay protects",
+                source_text=source_text,
+                max_new_tokens=4,
+                min_new_tokens=1,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+                min_printable_fraction=0.0,
+                min_distinct_bigram_fraction=0.0,
+                max_token_run_length=64,
+            ),
+            LanguageGenerationPromptCase(
+                prompt_text="Long sustained runs",
+                source_text=source_text,
+                max_new_tokens=4,
+                min_new_tokens=1,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+                min_printable_fraction=0.0,
                 min_distinct_bigram_fraction=0.0,
                 max_token_run_length=64,
             ),
@@ -126,7 +151,7 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     )
     assert report["heldout_prompt_suite"]["enabled"] is True
     assert report["heldout_prompt_suite"]["case_count"] == 2
-    assert report["heldout_prompt_suite"]["source"] == "auto_source_prompt_cases"
+    assert report["heldout_prompt_suite"]["source"] == "explicit_heldout_prompt_cases"
     assert report["heldout_prompt_suite"]["not_used_for_replay_training"] is True
     assert report["heldout_generation_coherence_before"]["checkpoint_path"] == str(parent)
     assert report["heldout_generation_coherence_after"]["checkpoint_path"] == str(child)
@@ -149,6 +174,22 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["benchmark_suite_report"]["surface"] == (
         "marulho_language_runtime_benchmark_suite.v1"
     )
+    assert report["benchmark_suite_report"]["promotion_gate"][
+        "quality_replay_evidence_available"
+    ] is True
+    suite_categories = {
+        item["name"]: item for item in report["benchmark_suite_report"]["categories"]
+    }
+    suite_quality_replay = suite_categories["generation_coherence"]["evidence"][
+        "quality_replay_evidence"
+    ]
+    assert suite_quality_replay["quality_replay_available"] is True
+    assert suite_quality_replay["best_report"]["selected_candidate_id"] == (
+        "candidate-00"
+    )
+    assert suite_quality_replay["best_report"]["selected_child_checkpoint_path"] == (
+        str(child)
+    )
     assert report["experiment_review"]["records_hard_prompt_training_pressure"] is True
     assert report["experiment_review"]["records_candidate_child_selection"] is True
     assert report["experiment_review"]["candidate_count"] == 1
@@ -157,6 +198,9 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["experiment_review"]["records_same_child_sustained_runtime"] is True
     assert report["experiment_review"]["records_multiple_sustained_targets"] is True
     assert report["experiment_review"]["records_benchmark_suite_aggregation"] is True
+    assert report["experiment_review"][
+        "benchmark_suite_quality_replay_evidence_available"
+    ] is True
     assert report["experiment_review"]["promotes_generation_quality_claim"] is False
     assert (tmp_path / "README.md").exists()
 

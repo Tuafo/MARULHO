@@ -973,26 +973,16 @@ def run_language_quality_replay_experiment(
         else sustained_summary
     )
 
-    benchmark_suite_report: dict[str, Any]
     benchmark_suite_output = str(cfg.benchmark_suite_output_path or "").strip()
-    if benchmark_suite_output:
-        benchmark_suite_report = run_language_runtime_benchmark_suite(
-            output_path=benchmark_suite_output,
-            sustained_target_tokens=8,
-            sustained_evidence_paths=[
-                str(report.get("output_path") or "")
-                for report in sustained_reports
-                if report.get("output_path")
-            ],
-            generation_coherence_evidence_paths=(str(after_coherence_path),),
-            gpu_kernel_evidence_paths=tuple(cfg.benchmark_gpu_kernel_evidence_paths),
-        )
-    else:
-        benchmark_suite_report = {
-            "surface": "marulho_language_quality_replay_benchmark_suite.v1",
-            "enabled": False,
-            "reason": "benchmark_suite_output_path_not_requested",
-        }
+    benchmark_suite_report: dict[str, Any] = {
+        "surface": "marulho_language_quality_replay_benchmark_suite.v1",
+        "enabled": False,
+        "reason": (
+            "benchmark_suite_output_path_not_requested"
+            if not benchmark_suite_output
+            else "quality_replay_report_not_written_yet"
+        ),
+    }
 
     coherence_delta = _coherence_delta(before_coherence, after_coherence)
     heldout_coherence_delta = (
@@ -1152,6 +1142,33 @@ def run_language_quality_replay_experiment(
         },
     }
     write_json_report_with_readme(output, report)
+    if benchmark_suite_output:
+        benchmark_suite_report = run_language_runtime_benchmark_suite(
+            output_path=benchmark_suite_output,
+            sustained_target_tokens=8,
+            sustained_evidence_paths=[
+                str(item.get("output_path") or "")
+                for item in sustained_reports
+                if item.get("output_path")
+            ],
+            generation_coherence_evidence_paths=(str(after_coherence_path),),
+            quality_replay_evidence_paths=(str(output),),
+            gpu_kernel_evidence_paths=tuple(cfg.benchmark_gpu_kernel_evidence_paths),
+        )
+        report["benchmark_suite_report"] = benchmark_suite_report
+        report["experiment_review"]["records_benchmark_suite_aggregation"] = bool(
+            benchmark_suite_report.get("surface")
+            == "marulho_language_runtime_benchmark_suite.v1"
+        )
+        report["experiment_review"][
+            "benchmark_suite_quality_replay_evidence_available"
+        ] = bool(
+            dict(benchmark_suite_report.get("promotion_gate") or {}).get(
+                "quality_replay_evidence_available",
+                False,
+            )
+        )
+        write_json_report_with_readme(output, report)
     return report
 
 

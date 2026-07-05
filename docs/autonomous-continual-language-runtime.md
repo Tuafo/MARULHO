@@ -706,9 +706,14 @@ category only when they are final MARULHO-owned LM reports that reach the
 diagnostic and long-gate token counts. Existing
 `marulho_language_generation_coherence_report.v1` reports can satisfy
 generation coherence only when a grounded prompt suite passes and still leaves
-broad quality/runtime promotion false. The structural safety category now
-exercises expert-spawn growth, explicit expert-prune, explicit expert-merge,
-and explicit expert-deep-sleep checkpoint transactions.
+broad quality/runtime promotion false. Existing
+`marulho_language_quality_replay_experiment.v1` reports can enrich generation
+coherence when selected-child replay is MARULHO-owned, parent-preserving,
+heldout-protective, rollback-backed, and paired with same-child sustained
+evidence; `language_quality_replay_experiment.py` can now self-ingest its own
+final report into a requested benchmark suite. The structural safety category
+now exercises expert-spawn growth, explicit expert-prune, explicit
+expert-merge, and explicit expert-deep-sleep checkpoint transactions.
 
 `language-suite-rmsnorm-kernel.json` ingests both the RMSNorm kernel report and
 the updated sustained LM reports. It records `long_run_throughput=pass`,
