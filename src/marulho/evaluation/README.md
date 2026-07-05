@@ -334,6 +334,16 @@ harnesses.
   `eligible_for_live_parent_replacement=false`, `writes_live_checkpoint=false`,
   `mutates_runtime_state=false`, and `promotes_runtime_claim=false`; the next
   step is an operator-reviewed installation gate, not a status/read mutation.
+- `MarulhoBrain.install_language_checkpoint_from_promotion_review()` is now that
+  operator-reviewed installation gate. It consumes the promotion-review packet,
+  requires explicit operator approval, re-hashes the selected child checkpoint,
+  verifies lineage/rollback fields, loads the MARULHO LM checkpoint through
+  `load_language_model_checkpoint`, installs it into brain-owned
+  `marulho_lm_head` runtime state, and records a checkpointed
+  `marulho_brain_language_checkpoint_installation.v1` report. Failed approval
+  or hash evidence blocks without mutating the active language path. The install
+  report remains a parent-installation fact, not a broad runtime-promotion
+  claim.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled

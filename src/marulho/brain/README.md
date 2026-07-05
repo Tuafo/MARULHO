@@ -69,6 +69,18 @@ packet from saved reports. It can mark a selected child checkpoint
 `ready_for_operator_parent_promotion_review`, but it does not call
 `MarulhoBrain.install_language_model_runtime()`, does not write a live brain
 checkpoint, and does not mutate runtime state from a status/read surface.
+`MarulhoBrain.install_language_checkpoint_from_promotion_review()` is the
+brain-owned follow-up mutation point. It requires an explicit operator approval
+record, re-hashes the selected child checkpoint, verifies the review lineage and
+rollback fields, loads the MARULHO language checkpoint through the training
+loader, installs it as `active_language_path=marulho_lm_head`, and records a
+`language_checkpoint_install` trace plus a checkpointed installation report.
+The brain LM adapter accepts padded model-vocab checkpoints such as the
+`524288` house-scale shape only when their generation policy is capped to the
+tokenizer rows, preserving the no-full-padded-vocab decode boundary.
+Blocked approval or hash evidence leaves the active runtime unchanged. The
+method does not run from status/read surfaces, does not use a service-owned
+cognition path, and still keeps `promotes_runtime_claim=false`.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

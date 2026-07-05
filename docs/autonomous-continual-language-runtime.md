@@ -572,6 +572,15 @@ the same transaction shape:
 Failure must restore the previous checkpoint or keep the child quarantined. No
 service endpoint may mutate state through a read/status path.
 
+The current controlled checkpoint-evolution chain now has a brain-owned
+installation step after review. `language_checkpoint_promotion_review.py`
+remains read-only evidence. `MarulhoBrain.install_language_checkpoint_from_promotion_review()`
+is the explicit mutation point: it requires operator approval, re-verifies the
+child checkpoint hash and review lineage, loads the MARULHO-owned LM checkpoint
+through the training loader, installs it into the active brain language runtime,
+and records a checkpointed installation report. It does not run from
+service/status reads and does not promote a broad runtime claim by itself.
+
 ## Triton Kernel Map
 
 Kernel promotion starts with correctness and complete-runtime evidence.

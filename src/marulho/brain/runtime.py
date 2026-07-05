@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
+from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 from threading import Event, RLock, Thread, current_thread
 import time
@@ -21,7 +24,11 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_checkpoint_evolution import LanguageCheckpointEvolutionConfig
 from marulho.training.language_continual_learning import LanguageContinualLearningConfig
-from marulho.training.language_model import LanguageBatch, MarulhoLanguageModel
+from marulho.training.language_model import (
+    LanguageBatch,
+    MarulhoLanguageModel,
+    load_language_model_checkpoint,
+)
 from marulho.training.language_structural_plasticity import LanguageStructuralPlasticityConfig
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
@@ -29,6 +36,32 @@ from marulho.training.trainer import MarulhoTrainer
 
 DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_QUANTUM_TOKENS = 16
+LANGUAGE_CHECKPOINT_PROMOTION_REVIEW_SURFACE = (
+    "marulho_language_checkpoint_promotion_review.v1"
+)
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _resolve_artifact_path(
+    value: Any,
+    *,
+    base_dir: str | Path | None = None,
+) -> Path:
+    path = Path(str(value or ""))
+    if path.is_absolute():
+        return path
+    return Path(base_dir or Path.cwd()) / path
 
 
 class MarulhoBrain:
@@ -132,11 +165,17 @@ class MarulhoBrain:
         tokenizer: ByteLevelLanguageTokenizer,
         *,
         evaluation_report: Mapping[str, Any] | None = None,
+        checkpoint_installation_report: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         runtime = BrainLanguageModelRuntime(
             model,
             tokenizer,
             evaluation_report=evaluation_report,
+            checkpoint_installation_reports=(
+                ()
+                if checkpoint_installation_report is None
+                else (checkpoint_installation_report,)
+            ),
         )
         runtime.to_device(self.trainer.model.device)
         self._language_runtime = runtime
@@ -149,6 +188,156 @@ class MarulhoBrain:
             "external_llm_used": False,
             "loads_external_checkpoint": False,
         }
+
+    def install_language_checkpoint_from_promotion_review(
+        self,
+        promotion_review_path: str | Path,
+        *,
+        operator_approved: bool,
+        operator_id: str | None = None,
+        approval_note: str = "",
+        artifact_base_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        review_path = Path(promotion_review_path)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        gate = _mapping(review.get("promotion_gate"))
+        candidate = _mapping(review.get("candidate_checkpoint"))
+        lineage = _mapping(review.get("lineage"))
+        candidate_path_text = str(candidate.get("checkpoint_path") or "")
+        candidate_path = _resolve_artifact_path(
+            candidate_path_text,
+            base_dir=artifact_base_dir,
+        )
+        expected_hash = str(candidate.get("checkpoint_sha256") or "")
+        candidate_exists = candidate_path.is_file()
+        candidate_hash = _sha256_file(candidate_path) if candidate_exists else ""
+        review_file_hash = _sha256_file(review_path)
+        approved = bool(operator_approved)
+        approval_record = {
+            "surface": "marulho_brain_language_checkpoint_install_approval.v1",
+            "operator_approved": approved,
+            "operator_id": operator_id,
+            "approval_note": str(approval_note),
+            "approved_at": datetime.now(timezone.utc).isoformat() if approved else None,
+        }
+        required = {
+            "promotion_review_surface_valid": review.get("surface")
+            == LANGUAGE_CHECKPOINT_PROMOTION_REVIEW_SURFACE,
+            "promotion_review_ready": review.get("status")
+            == "ready_for_operator_parent_promotion_review",
+            "promotion_review_ready_flag": review.get("ready") is True,
+            "operator_review_eligible": gate.get(
+                "eligible_for_operator_parent_promotion_review"
+            )
+            is True,
+            "review_did_not_install_live_parent": gate.get(
+                "eligible_for_live_parent_replacement"
+            )
+            is False
+            and gate.get("writes_live_checkpoint") is False
+            and gate.get("mutates_runtime_state") is False,
+            "review_runtime_claim_not_promoted": gate.get("promotes_runtime_claim")
+            is False,
+            "candidate_checkpoint_hash_verified_by_review": candidate.get(
+                "checkpoint_hash_verified"
+            )
+            is True,
+            "candidate_checkpoint_file_exists": candidate_exists,
+            "candidate_checkpoint_hash_matches_file": bool(expected_hash)
+            and candidate_hash == expected_hash,
+            "lineage_quality_parent_matches_evolved_child": lineage.get(
+                "quality_parent_matches_evolved_child_hash"
+            )
+            is True,
+            "lineage_rollback_verified": lineage.get(
+                "rollback_to_evolution_parent_verified"
+            )
+            is True,
+        }
+        missing = [name for name, passed in required.items() if not bool(passed)]
+        if not approved:
+            missing.append("operator_approval_recorded")
+        status = (
+            "installed_reviewed_language_checkpoint"
+            if not missing
+            else "blocked_language_checkpoint_installation"
+        )
+        base_report: dict[str, Any] = {
+            "surface": "marulho_brain_language_checkpoint_installation.v1",
+            "status": status,
+            "installed": False,
+            "runtime_owner": "MarulhoBrain",
+            "promotion_review_path": str(review_path),
+            "promotion_review_sha256": review_file_hash,
+            "candidate_checkpoint": {
+                "path": candidate_path_text,
+                "resolved_path": str(candidate_path),
+                "expected_sha256": expected_hash,
+                "actual_sha256": candidate_hash,
+                "file_exists": candidate_exists,
+                "hash_verified": bool(expected_hash and candidate_hash == expected_hash),
+            },
+            "lineage": dict(lineage),
+            "approval": approval_record,
+            "required_evidence": required,
+            "missing_evidence": missing,
+            "mutates_runtime_state": False,
+            "writes_live_checkpoint": False,
+            "status_read_mutation": False,
+            "service_owned_cognition": False,
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "promotes_runtime_claim": False,
+        }
+        if missing:
+            return base_report
+
+        model, tokenizer, metadata = load_language_model_checkpoint(
+            candidate_path,
+            map_location="cpu",
+        )
+        install = self.install_language_model(
+            model,
+            tokenizer,
+            evaluation_report=review,
+        )
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_checkpoint_install",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=status,
+            )
+        )
+        report = {
+            **base_report,
+            "installed": True,
+            "active_language_path": self._active_language_path(),
+            "tokenizer_hash": tokenizer.vocabulary_hash(),
+            "vocab_size": int(tokenizer.vocab_size),
+            "model_vocab_size": int(model.config.vocab_size),
+            "model_device": self._device_string(),
+            "checkpoint_metadata": dict(metadata),
+            "install": dict(install),
+            "trace": trace,
+            "mutates_runtime_state": True,
+            "live_parent_replacement_applied": True,
+        }
+        if self._language_runtime is not None:
+            self._language_runtime.record_checkpoint_installation(report)
+            language_summary = self._language_runtime.summary()
+            report["language_model"] = language_summary
+            report["install"]["language_model"] = language_summary
+        return report
 
     def learn_language_window(
         self,

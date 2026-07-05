@@ -35,6 +35,39 @@ from marulho.training.language_structural_plasticity import (
 )
 
 
+def _validate_runtime_vocab_policy(
+    model: MarulhoLanguageModel,
+    tokenizer: ByteLevelLanguageTokenizer,
+) -> dict[str, Any]:
+    model_vocab_size = int(model.config.vocab_size)
+    tokenizer_vocab_size = int(tokenizer.vocab_size)
+    generation_vocab_size = int(model.config.generation_vocab_size)
+    if generation_vocab_size <= 0:
+        generation_vocab_size = model_vocab_size
+    if model_vocab_size < tokenizer_vocab_size:
+        raise ValueError("Language model vocab size is smaller than tokenizer state")
+    if generation_vocab_size > model_vocab_size:
+        raise ValueError("Language model generation vocab size exceeds model vocab size")
+    padded_vocab_rows = max(0, model_vocab_size - tokenizer_vocab_size)
+    if padded_vocab_rows > 0 and generation_vocab_size != tokenizer_vocab_size:
+        raise ValueError(
+            "Padded-vocab brain language runtime requires generation_vocab_size "
+            "to match the tokenizer vocab size"
+        )
+    return {
+        "surface": "marulho_brain_language_runtime_vocab_policy.v1",
+        "model_vocab_size": model_vocab_size,
+        "tokenizer_vocab_size": tokenizer_vocab_size,
+        "generation_vocab_size": generation_vocab_size,
+        "padded_vocab_rows": padded_vocab_rows,
+        "padded_vocab_decode_policy": (
+            "limit_generation_to_tokenizer_vocab_rows"
+            if padded_vocab_rows > 0
+            else "full_tokenizer_vocab_generation"
+        ),
+    }
+
+
 class BrainLanguageModelRuntime:
     """Brain-owned adapter for the training-owned MARULHO LM head."""
 
@@ -49,9 +82,9 @@ class BrainLanguageModelRuntime:
         learning_reports: Sequence[Mapping[str, Any]] = (),
         structural_reports: Sequence[Mapping[str, Any]] = (),
         checkpoint_evolution_reports: Sequence[Mapping[str, Any]] = (),
+        checkpoint_installation_reports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
-        if int(model.config.vocab_size) != int(tokenizer.vocab_size):
-            raise ValueError("Language model vocab size must match tokenizer state")
+        self.vocab_policy = _validate_runtime_vocab_policy(model, tokenizer)
         self.model = model
         self.tokenizer = tokenizer
         self.evaluation_report = dict(evaluation_report or {})
@@ -59,6 +92,9 @@ class BrainLanguageModelRuntime:
         self.structural_reports = [dict(report) for report in structural_reports][-16:]
         self.checkpoint_evolution_reports = [
             dict(report) for report in checkpoint_evolution_reports
+        ][-16:]
+        self.checkpoint_installation_reports = [
+            dict(report) for report in checkpoint_installation_reports
         ][-16:]
         self.model.eval()
 
@@ -133,6 +169,9 @@ class BrainLanguageModelRuntime:
             "checkpointed_language_components": True,
             "tokenizer_hash": self.tokenizer.vocabulary_hash(),
             "vocab_size": self.tokenizer.vocab_size,
+            "model_vocab_size": int(self.model.config.vocab_size),
+            "generation_vocab_size": int(self.model.generation_vocab_size),
+            "vocab_policy": dict(self.vocab_policy),
             "device": str(self.device),
             "heldout_loss": self.evaluation_report.get("heldout_loss"),
             "heldout_perplexity": self.evaluation_report.get("heldout_perplexity"),
@@ -150,6 +189,9 @@ class BrainLanguageModelRuntime:
             "checkpointed_language_components": True,
             "tokenizer_hash": self.tokenizer.vocabulary_hash(),
             "vocab_size": self.tokenizer.vocab_size,
+            "model_vocab_size": int(self.model.config.vocab_size),
+            "generation_vocab_size": int(self.model.generation_vocab_size),
+            "vocab_policy": dict(self.vocab_policy),
             "device": str(self.device),
             "heldout_evaluation_available": bool(self.evaluation_report),
             "heldout_loss": self.evaluation_report.get("heldout_loss"),
@@ -166,6 +208,14 @@ class BrainLanguageModelRuntime:
             "last_checkpoint_evolution": (
                 dict(self.checkpoint_evolution_reports[-1])
                 if self.checkpoint_evolution_reports
+                else None
+            ),
+            "checkpoint_installation_count": len(
+                self.checkpoint_installation_reports
+            ),
+            "last_checkpoint_installation": (
+                dict(self.checkpoint_installation_reports[-1])
+                if self.checkpoint_installation_reports
                 else None
             ),
         }
@@ -189,6 +239,7 @@ class BrainLanguageModelRuntime:
             "active_language_path": self.active_language_path,
             "tokenizer": self.tokenizer.state_dict(),
             "tokenizer_hash": self.tokenizer.vocabulary_hash(),
+            "vocab_policy": dict(self.vocab_policy),
             "config": asdict(self.model.config),
             "model_state": {
                 key: value.detach().cpu()
@@ -200,10 +251,20 @@ class BrainLanguageModelRuntime:
             "checkpoint_evolution_reports": [
                 dict(report) for report in self.checkpoint_evolution_reports
             ],
+            "checkpoint_installation_reports": [
+                dict(report) for report in self.checkpoint_installation_reports
+            ],
             "owned_by_marulho": True,
             "external_llm_used": False,
             "loads_external_checkpoint": False,
         }
+
+    def record_checkpoint_installation(
+        self,
+        report: Mapping[str, Any],
+    ) -> None:
+        self.checkpoint_installation_reports.append(dict(report))
+        self.checkpoint_installation_reports = self.checkpoint_installation_reports[-16:]
 
     def learn_continual_window(
         self,
@@ -383,6 +444,11 @@ class BrainLanguageModelRuntime:
             checkpoint_evolution_reports=[
                 item
                 for item in list(state.get("checkpoint_evolution_reports") or [])
+                if isinstance(item, Mapping)
+            ],
+            checkpoint_installation_reports=[
+                item
+                for item in list(state.get("checkpoint_installation_reports") or [])
                 if isinstance(item, Mapping)
             ],
         )

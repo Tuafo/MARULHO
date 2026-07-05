@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -20,6 +21,7 @@ from marulho.training.language_model import (
     MarulhoLanguageModel,
     build_language_model_splits,
     evaluate_language_model,
+    save_language_model_checkpoint,
 )
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
@@ -76,6 +78,82 @@ def _language_model_fixture() -> tuple[
     )
     report = evaluate_language_model(model, split.eval)
     return model, tokenizer, report
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_ready_language_checkpoint_promotion_review(
+    tmp_path: Path,
+    *,
+    padded_vocab_rows: int = 0,
+) -> tuple[Path, Path, str]:
+    if padded_vocab_rows > 0:
+        tokenizer = ByteLevelLanguageTokenizer()
+        model = MarulhoLanguageModel(
+            LanguageModelConfig(
+                vocab_size=tokenizer.vocab_size + int(padded_vocab_rows),
+                embedding_dim=8,
+                state_dim=12,
+                generation_vocab_size=tokenizer.vocab_size,
+            )
+        )
+    else:
+        model, tokenizer, _report = _language_model_fixture()
+    checkpoint_path = tmp_path / "selected-child.pt"
+    save_language_model_checkpoint(
+        checkpoint_path,
+        model,
+        tokenizer,
+        metadata={
+            "source": "test_reviewed_child",
+            "owned_by_marulho": True,
+        },
+    )
+    checkpoint_hash = _sha256_file(checkpoint_path)
+    review_path = tmp_path / "promotion-review.json"
+    review_path.write_text(
+        json.dumps(
+            {
+                "surface": "marulho_language_checkpoint_promotion_review.v1",
+                "status": "ready_for_operator_parent_promotion_review",
+                "ready": True,
+                "candidate_checkpoint": {
+                    "surface": "marulho_language_checkpoint_promotion_candidate.v1",
+                    "selected_candidate_id": "candidate-03",
+                    "checkpoint_path": checkpoint_path.name,
+                    "checkpoint_sha256": checkpoint_hash,
+                    "checkpoint_file_exists": True,
+                    "checkpoint_file_sha256": checkpoint_hash,
+                    "checkpoint_hash_verified": True,
+                },
+                "lineage": {
+                    "surface": "marulho_language_checkpoint_promotion_lineage.v1",
+                    "quality_parent_matches_evolved_child_hash": True,
+                    "rollback_to_evolution_parent_verified": True,
+                },
+                "promotion_gate": {
+                    "surface": "marulho_language_checkpoint_promotion_gate.v1",
+                    "status": "ready_for_operator_parent_promotion_review",
+                    "eligible_for_operator_parent_promotion_review": True,
+                    "eligible_for_live_parent_replacement": False,
+                    "operator_approval_recorded": False,
+                    "writes_live_checkpoint": False,
+                    "mutates_runtime_state": False,
+                    "promotes_parent_promotion": False,
+                    "promotes_generation_quality_claim": False,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return review_path, checkpoint_path, checkpoint_hash
 
 
 def test_marulho_brain_feed_tick_generate_and_trace() -> None:
@@ -190,6 +268,116 @@ def test_marulho_brain_uses_checkpointed_lm_head_when_installed(tmp_path: Path) 
     assert restored.status()["active_language_path"] == "marulho_lm_head"
     assert restored_generation["active_language_path"] == "marulho_lm_head"
     assert restored_generation["generated_token_ids"] == generation["generated_token_ids"]
+
+
+def test_marulho_brain_installs_reviewed_language_checkpoint(tmp_path: Path) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    review_path, _checkpoint_path, checkpoint_hash = (
+        _write_ready_language_checkpoint_promotion_review(
+            tmp_path,
+            padded_vocab_rows=16,
+        )
+    )
+
+    install = brain.install_language_checkpoint_from_promotion_review(
+        review_path,
+        operator_approved=True,
+        operator_id="pytest-operator",
+        approval_note="install reviewed child into brain-owned runtime",
+        artifact_base_dir=tmp_path,
+    )
+    generation = brain.generate(prompt="marulho", max_tokens=4)
+    status = brain.status()
+    saved = brain.save(tmp_path / "reviewed-language-brain.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_status = restored.status()
+
+    assert install["surface"] == "marulho_brain_language_checkpoint_installation.v1"
+    assert install["status"] == "installed_reviewed_language_checkpoint"
+    assert install["installed"] is True
+    assert install["runtime_owner"] == "MarulhoBrain"
+    assert install["active_language_path"] == "marulho_lm_head"
+    assert install["model_vocab_size"] == status["language_model"]["model_vocab_size"]
+    assert status["language_model"]["vocab_policy"]["padded_vocab_rows"] == 16
+    assert status["language_model"]["vocab_policy"]["padded_vocab_decode_policy"] == (
+        "limit_generation_to_tokenizer_vocab_rows"
+    )
+    assert install["candidate_checkpoint"]["hash_verified"] is True
+    assert install["candidate_checkpoint"]["actual_sha256"] == checkpoint_hash
+    assert install["approval"]["operator_approved"] is True
+    assert install["mutates_runtime_state"] is True
+    assert install["writes_live_checkpoint"] is False
+    assert install["status_read_mutation"] is False
+    assert install["service_owned_cognition"] is False
+    assert install["external_llm_used"] is False
+    assert install["loads_external_checkpoint"] is False
+    assert install["promotes_runtime_claim"] is False
+    assert install["trace"]["event"] == "language_checkpoint_install"
+    assert install["install"]["language_model"]["checkpoint_installation_count"] == 1
+    assert generation["active_language_path"] == "marulho_lm_head"
+    assert generation["checkpointed_language_components"] is True
+    assert generation["generation_decode"]["generation_vocab_size"] == (
+        status["language_model"]["vocab_size"]
+    )
+    assert generation["generation_decode"]["padded_vocab_rows_masked"] == 16
+    assert status["language_model"]["checkpoint_installation_count"] == 1
+    assert status["language_model"]["last_checkpoint_installation"]["status"] == (
+        "installed_reviewed_language_checkpoint"
+    )
+    assert restored_status["active_language_path"] == "marulho_lm_head"
+    assert restored_status["language_model"]["checkpoint_installation_count"] == 1
+    assert restored_status["language_model"]["last_checkpoint_installation"][
+        "candidate_checkpoint"
+    ]["hash_verified"] is True
+
+
+def test_marulho_brain_blocks_reviewed_language_checkpoint_without_operator_approval(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    review_path, _checkpoint_path, _checkpoint_hash = (
+        _write_ready_language_checkpoint_promotion_review(tmp_path)
+    )
+
+    install = brain.install_language_checkpoint_from_promotion_review(
+        review_path,
+        operator_approved=False,
+        artifact_base_dir=tmp_path,
+    )
+
+    assert install["status"] == "blocked_language_checkpoint_installation"
+    assert install["installed"] is False
+    assert install["mutates_runtime_state"] is False
+    assert "operator_approval_recorded" in install["missing_evidence"]
+    assert brain.status()["active_language_path"] == "local_transition_readout"
+    assert brain.status()["language_model"]["checkpointed_language_components"] is False
+
+
+def test_marulho_brain_blocks_reviewed_language_checkpoint_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    review_path, _checkpoint_path, _checkpoint_hash = (
+        _write_ready_language_checkpoint_promotion_review(tmp_path)
+    )
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    review["candidate_checkpoint"]["checkpoint_sha256"] = "wrong"
+    review["candidate_checkpoint"]["checkpoint_file_sha256"] = "wrong"
+    review_path.write_text(json.dumps(review), encoding="utf-8")
+
+    install = brain.install_language_checkpoint_from_promotion_review(
+        review_path,
+        operator_approved=True,
+        operator_id="pytest-operator",
+        artifact_base_dir=tmp_path,
+    )
+
+    assert install["status"] == "blocked_language_checkpoint_installation"
+    assert install["installed"] is False
+    assert install["mutates_runtime_state"] is False
+    assert install["candidate_checkpoint"]["hash_verified"] is False
+    assert "candidate_checkpoint_hash_matches_file" in install["missing_evidence"]
+    assert brain.status()["active_language_path"] == "local_transition_readout"
 
 
 def test_brain_service_uses_restored_lm_head_without_service_owner(tmp_path: Path) -> None:
