@@ -54,10 +54,13 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
 
     control = report["arms"]["memory_slots_disabled_control"]
     bounded = report["arms"]["bounded_memory_slots_enabled"]
+    triton_training = report["arms"]["bounded_memory_slots_triton_training_autograd"]
     assert control["success"] is True
     assert bounded["success"] is True
+    assert triton_training["success"] is True
     assert control["token_count"] == 32
     assert bounded["token_count"] == 32
+    assert triton_training["token_count"] == 32
     assert control["sampled_vocab_training"] is True
     assert bounded["sampled_vocab_training"] is True
     assert control["full_vocab_logits_materialized"] is False
@@ -77,6 +80,22 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
     assert bounded["candidate_slots_scored"] == 32
     assert bounded["runs_all_slots"] is False
     assert bounded["memory_gate_readback"] is False
+    assert bounded["candidate_id_source"] == "precomputed_batch_memory_candidate_ids"
+    assert bounded["memory_slot_retrieval_backend"] == (
+        "torch_autograd_bounded_memory_slots"
+    )
+    assert bounded["memory_slot_triton_stats_delta"]["triton_autograd_used"] is False
+    assert bounded["training_window_memory_slot_triton_stats_delta"][
+        "triton_autograd_used"
+    ] is False
+    assert triton_training["memory_triton_training_autograd_requested"] is True
+    assert triton_training["candidate_id_source"] == (
+        "precomputed_batch_memory_candidate_ids"
+    )
+    assert triton_training["memory_slot_retrieval_backend"] in {
+        "torch_autograd_bounded_memory_slots",
+        "triton_forward_torch_backward_bounded_memory_slots",
+    }
     assert bounded["memory_slot_nonzero_count"] > 0
     assert bounded["initial_memory_slot_gate_value"] == 0.0
     assert bounded["memory_slot_trainable_neutral_initialization"] is True
@@ -86,11 +105,16 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
     comparison = report["comparison"]
     assert comparison["control_success"] is True
     assert comparison["bounded_success"] is True
+    assert comparison["triton_training_success"] is True
     assert comparison["bounded_memory_enabled"] is True
     assert comparison["bounded_avoids_all_slot_scan"] is True
     assert comparison["bounded_trainable_neutral_initialization"] is True
     assert comparison["bounded_memory_slot_gate_gradient_nonzero"] is True
     assert comparison["bounded_sampled_vocab_loss_without_full_logits"] is True
+    assert comparison["bounded_memory_slot_retrieval_backend"] == (
+        "torch_autograd_bounded_memory_slots"
+    )
+    assert comparison["triton_training_autograd_used"] is False
     assert comparison["evidence_status"] == "measured_bounded_memory_slot_training_impact"
 
     gate = report["promotion_gate"]
@@ -101,5 +125,7 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
     assert gate["trainable_neutral_initialization"] is True
     assert gate["memory_gate_gradient_nonzero"] is True
     assert gate["complete_training_step_impact_available"] is True
+    assert gate["triton_training_autograd_measured"] is True
+    assert gate["triton_training_autograd_used"] is False
     assert gate["promotes_hot_path"] is False
     assert gate["promotes_runtime_claim"] is False

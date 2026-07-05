@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import os
 from pathlib import Path
 import time
 from typing import Any, Mapping
 
 import torch
 
+from marulho.core.language_memory_slots_triton import (
+    language_memory_slots_triton_stats,
+    language_memory_slots_triton_stats_delta,
+)
 from marulho.core.language_sampled_vocab_ce_triton import (
     language_sampled_vocab_ce_triton_stats,
     language_sampled_vocab_ce_triton_stats_delta,
@@ -349,6 +354,7 @@ def _run_training_steps(
             assume_no_sleeping_experts=assume_no_sleeping,
             sampled_vocab_ids=batch.sampled_vocab_ids,
             sampled_target_positions=batch.sampled_target_positions,
+            memory_candidate_ids=batch.memory_candidate_ids,
         )
         loss = result["loss"]
         loss.backward()
@@ -403,6 +409,12 @@ def _memory_summary(
         ),
         "memory_slot_initialization": memory.get("memory_slot_initialization"),
         "memory_slot_init_std": memory.get("memory_slot_init_std"),
+        "memory_slot_retrieval_backend": memory.get("memory_slot_retrieval_backend"),
+        "memory_slot_triton_stats_delta": (
+            dict(memory.get("memory_slot_triton_stats_delta"))
+            if isinstance(memory.get("memory_slot_triton_stats_delta"), Mapping)
+            else {}
+        ),
     }
 
 
@@ -416,7 +428,14 @@ def _run_arm(
     config: MemorySlotTrainingImpactConfig,
     tokenizer: ByteLevelLanguageTokenizer,
     device: torch.device,
+    memory_triton_training_autograd: bool,
 ) -> dict[str, Any]:
+    previous_memory_triton_training = os.environ.get(
+        "MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING"
+    )
+    os.environ["MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING"] = (
+        "1" if bool(memory_triton_training_autograd) else "0"
+    )
     if device.type == "cuda":
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
@@ -447,6 +466,7 @@ def _run_arm(
                 assume_no_sleeping_experts=bool(model.routed_experts.enabled),
                 sampled_vocab_ids=cached_batch.sampled_vocab_ids,
                 sampled_target_positions=cached_batch.sampled_target_positions,
+                memory_candidate_ids=cached_batch.memory_candidate_ids,
             )
         initial_memory = _memory_summary(telemetry_probe.get("telemetry", {}))
         memory_slot_nonzero_count = (
@@ -468,6 +488,7 @@ def _run_arm(
         )
         warmup_tokens = warmup[0]
         sampled_vocab_ce_stats_before = language_sampled_vocab_ce_triton_stats()
+        memory_slots_stats_before = language_memory_slots_triton_stats()
         cuda_synchronized_before_timing_start = _sync_if_cuda(device)
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
@@ -490,6 +511,10 @@ def _run_arm(
         sampled_vocab_ce_stats_delta = language_sampled_vocab_ce_triton_stats_delta(
             sampled_vocab_ce_stats_before,
             language_sampled_vocab_ce_triton_stats(),
+        )
+        memory_slots_stats_delta = language_memory_slots_triton_stats_delta(
+            memory_slots_stats_before,
+            language_memory_slots_triton_stats(),
         )
         elapsed = max(0.0, time.perf_counter() - started)
         telemetry = (
@@ -531,6 +556,12 @@ def _run_arm(
             "loss_kind": str(last_result.get("loss_kind")),
             "loss_evidence": loss_evidence,
             "sampled_vocab_ce_triton_stats_delta": sampled_vocab_ce_stats_delta,
+            "training_window_memory_slot_triton_stats_delta": (
+                memory_slots_stats_delta
+            ),
+            "memory_triton_training_autograd_requested": bool(
+                memory_triton_training_autograd
+            ),
             "full_vocab_logits_materialized": bool(
                 loss_evidence.get("full_vocab_logits_materialized", True)
             ),
@@ -548,6 +579,13 @@ def _run_arm(
             "memory_fallback_reason": memory.get("fallback_reason"),
             "candidate_id_source": memory.get("candidate_id_source"),
             "memory_gate_readback": bool(memory.get("memory_gate_readback", False)),
+            "memory_slot_retrieval_backend": memory.get(
+                "memory_slot_retrieval_backend"
+            ),
+            "memory_slot_triton_stats_delta": memory.get(
+                "memory_slot_triton_stats_delta",
+                {},
+            ),
             "memory_slot_nonzero_count": int(memory_slot_nonzero_count),
             "initial_memory_slot_gate_value": initial_memory_slot_gate_value,
             "memory_slot_trainable_neutral_initialization": bool(
@@ -586,6 +624,10 @@ def _run_arm(
             "loss_kind": None,
             "loss_evidence": {},
             "sampled_vocab_ce_triton_stats_delta": {},
+            "training_window_memory_slot_triton_stats_delta": {},
+            "memory_triton_training_autograd_requested": bool(
+                memory_triton_training_autograd
+            ),
             "full_vocab_logits_materialized": False,
             "sampled_vocab_training": True,
             "memory_enabled": False,
@@ -597,6 +639,8 @@ def _run_arm(
             "memory_fallback_reason": f"{type(exc).__name__}: {exc}",
             "candidate_id_source": None,
             "memory_gate_readback": False,
+            "memory_slot_retrieval_backend": None,
+            "memory_slot_triton_stats_delta": {},
             "memory_slot_nonzero_count": 0,
             "initial_memory_slot_gate_value": None,
             "memory_slot_trainable_neutral_initialization": False,
@@ -607,6 +651,12 @@ def _run_arm(
             "cuda_memory": _cuda_memory(device),
         }
     finally:
+        if previous_memory_triton_training is None:
+            os.environ.pop("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING", None)
+        else:
+            os.environ[
+                "MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING"
+            ] = previous_memory_triton_training
         del optimizers
         del model
         if device.type == "cuda":
@@ -622,11 +672,16 @@ def _ratio(numerator: float, denominator: float) -> float | None:
 def _comparison(
     control: Mapping[str, Any],
     bounded: Mapping[str, Any],
+    triton_training: Mapping[str, Any],
 ) -> dict[str, Any]:
     control_success = bool(control.get("success"))
     bounded_success = bool(bounded.get("success"))
     control_tps = float(control.get("tokens_per_second", 0.0) or 0.0)
     bounded_tps = float(bounded.get("tokens_per_second", 0.0) or 0.0)
+    triton_training_success = bool(triton_training.get("success"))
+    triton_training_tps = float(
+        triton_training.get("tokens_per_second", 0.0) or 0.0
+    )
     bounded_peak = float(
         (bounded.get("cuda_memory") or {}).get("peak_allocated_mib", 0.0)
         if isinstance(bounded.get("cuda_memory"), Mapping)
@@ -659,6 +714,17 @@ def _comparison(
         and bool(bounded.get("sampled_vocab_training", False))
         and not bool(bounded.get("full_vocab_logits_materialized", True))
     )
+    triton_training_stats = (
+        triton_training.get("training_window_memory_slot_triton_stats_delta")
+        if isinstance(
+            triton_training.get("training_window_memory_slot_triton_stats_delta"),
+            Mapping,
+        )
+        else {}
+    )
+    triton_training_used = bool(
+        triton_training_stats.get("triton_autograd_used", False)
+    )
     if control_success and bounded_success and bounded_avoids_all_slot_scan:
         evidence_status = "measured_bounded_memory_slot_training_impact"
     elif control_success and bounded_success:
@@ -671,7 +737,17 @@ def _comparison(
         "bounded_success": bounded_success,
         "control_tokens_per_second": control_tps,
         "bounded_tokens_per_second": bounded_tps,
+        "triton_training_success": triton_training_success,
+        "triton_training_tokens_per_second": triton_training_tps,
         "bounded_vs_control_tokens_per_second_ratio": _ratio(bounded_tps, control_tps),
+        "triton_training_vs_control_tokens_per_second_ratio": _ratio(
+            triton_training_tps,
+            control_tps,
+        ),
+        "triton_training_vs_bounded_tokens_per_second_ratio": _ratio(
+            triton_training_tps,
+            bounded_tps,
+        ),
         "control_peak_cuda_allocated_mib": control_peak,
         "bounded_peak_cuda_allocated_mib": bounded_peak,
         "bounded_vs_control_peak_cuda_allocated_ratio": _ratio(
@@ -701,6 +777,18 @@ def _comparison(
             slot_gradient.get("nonzero", False)
         ),
         "bounded_sampled_vocab_loss_without_full_logits": sampled_loss,
+        "bounded_memory_slot_retrieval_backend": bounded.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "triton_training_memory_slot_retrieval_backend": triton_training.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "triton_training_autograd_used": triton_training_used,
+        "triton_training_autograd_faster_than_bounded": bool(
+            triton_training_success
+            and bounded_success
+            and triton_training_tps > bounded_tps
+        ),
         "evidence_status": evidence_status,
     }
 
@@ -740,6 +828,7 @@ def run_language_memory_slot_training_impact(
             config=cfg,
             tokenizer=tokenizer,
             device=device,
+            memory_triton_training_autograd=False,
         )
         bounded_report = _run_arm(
             "bounded_memory_slots_enabled",
@@ -750,8 +839,20 @@ def run_language_memory_slot_training_impact(
             config=cfg,
             tokenizer=tokenizer,
             device=device,
+            memory_triton_training_autograd=False,
         )
-        comparison = _comparison(control_report, bounded_report)
+        triton_training_report = _run_arm(
+            "bounded_memory_slots_triton_training_autograd",
+            memory_slot_count=int(cfg.memory_slot_count),
+            memory_slot_candidate_count=int(cfg.bounded_memory_slot_candidate_count),
+            base_state=base_state,
+            batch=batch,
+            config=cfg,
+            tokenizer=tokenizer,
+            device=device,
+            memory_triton_training_autograd=True,
+        )
+        comparison = _comparison(control_report, bounded_report, triton_training_report)
         report = {
             "artifact_kind": ARTIFACT_KIND,
             "surface": SURFACE,
@@ -778,6 +879,7 @@ def run_language_memory_slot_training_impact(
             "arms": {
                 "memory_slots_disabled_control": control_report,
                 "bounded_memory_slots_enabled": bounded_report,
+                "bounded_memory_slots_triton_training_autograd": triton_training_report,
             },
             "comparison": comparison,
             "review": {
@@ -808,6 +910,13 @@ def run_language_memory_slot_training_impact(
                 ),
                 "bounded_memory_slots_receive_gradient_after_gate_update": bool(
                     comparison["bounded_memory_slots_gradient_nonzero"]
+                ),
+                "compares_triton_training_autograd_backend": True,
+                "triton_training_autograd_used": bool(
+                    comparison["triton_training_autograd_used"]
+                ),
+                "triton_training_autograd_faster_than_bounded": bool(
+                    comparison["triton_training_autograd_faster_than_bounded"]
                 ),
                 "memory_gate_readback": bool(comparison["memory_gate_readback"]),
                 "promotes_hot_path": False,
@@ -842,6 +951,15 @@ def run_language_memory_slot_training_impact(
                 ),
                 "complete_training_step_impact_available": bool(
                     comparison["control_success"] and comparison["bounded_success"]
+                ),
+                "triton_training_autograd_measured": bool(
+                    comparison["triton_training_success"]
+                ),
+                "triton_training_autograd_used": bool(
+                    comparison["triton_training_autograd_used"]
+                ),
+                "triton_training_autograd_faster_than_bounded": bool(
+                    comparison["triton_training_autograd_faster_than_bounded"]
                 ),
                 "promotes_hot_path": False,
                 "promotes_runtime_claim": False,
@@ -919,8 +1037,12 @@ def main() -> int:
     print(
         "wrote "
         f"{args.output} bounded_tps={comparison['bounded_tokens_per_second']:.3f} "
+        "triton_training_tps="
+        f"{comparison['triton_training_tokens_per_second']:.3f} "
         f"control_tps={comparison['control_tokens_per_second']:.3f} "
-        f"ratio={comparison['bounded_vs_control_tokens_per_second_ratio']}"
+        f"ratio={comparison['bounded_vs_control_tokens_per_second_ratio']} "
+        "triton_vs_bounded="
+        f"{comparison['triton_training_vs_bounded_tokens_per_second_ratio']}"
     )
     return 0
 

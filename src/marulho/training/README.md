@@ -232,7 +232,7 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-nograd-evalmatched-524288.json`
   keeps the same eval-matched online shape and routes heldout old/new/replay
   evaluation memory retrieval through `triton_no_grad_bounded_memory_slots`.
-  Gradient-enabled online updates remain on
+  Gradient-enabled online updates in that historical artifact remain on
   `torch_autograd_bounded_memory_slots`, so memory-slot gate and slot gradients
   stay intact. The run accepts the update, improves new-domain heldout loss by
   `5.8408`, improves old-domain loss by `5.2584`, improves replay loss by
@@ -241,13 +241,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   all six old/new/replay before/after eval sections. Against the no-memory
   decode-control report, the matched total-window tax improves to `-14.350%`
   while the update-loop tax remains `-20.105%`; treat this as heldout-eval
-  backend acceleration and keep the next speed target on gradient-enabled
-  memory retrieval/update integration.
+  backend acceleration. The next full-window check is rerunning this continual
+  shape on the newer default training backend.
   The matching kernel report
   `reports/language_kernel_evidence/memory-slots-triton-20260705.json` passes
   three CUDA `float32` shape sweeps for `language_memory_slot_retrieval` with
   geometric microbenchmark speedup `4.950x`; `float16` remains explicitly
   unsupported.
+  The newer training-impact follow-up below promotes supported CUDA gradient
+  training to `triton_forward_torch_backward_bounded_memory_slots`; the full
+  continual-learning window still needs a rerun on that default before the
+  update-loop tax can be closed.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -523,6 +527,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   update. This is trainability and long training-window impact evidence, not a
   hot-path promotion; sustained generation and longer online-learning windows
   still need separate measurement before memory-slot growth can promote.
+  The 2026-07-05 follow-up
+  `reports/language_training_experiments/memory-slot-training-impact-triton-autograd-compare-524288-b16-s64-t524288-long.json`
+  keeps the same `524288` optimizer-token shape, feeds precomputed batch memory
+  candidate IDs into the measured update window, and compares forced-off torch
+  autograd against Triton-forward/custom-autograd memory retrieval. Disabled
+  memory reached `3171.113` train tokens/sec, bounded torch autograd reached
+  `3076.582` (`0.970x` control), and bounded Triton-forward/custom-autograd
+  reached `3110.440` (`0.981x` control, `1.011x` versus bounded torch). The
+  Triton training arm records `512` Triton autograd forwards, `512` custom
+  backward calls, zero fallback memory-slot calls, precomputed memory
+  candidates, and nonzero gate/slot gradients, so supported CUDA `float32`
+  training now defaults to that backend with forced-off torch available through
+  `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=0`.
 - `MarulhoLanguageModel.forward_step` applies the same bounded memory-slot
   retrieval used by batched training before routed experts, so checkpointed
   streaming generation can execute memory slots rather than bypassing them. The

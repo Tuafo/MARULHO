@@ -27,6 +27,8 @@ _DEFAULT_MIN_ROWS = 128
 @dataclass
 class _MemorySlotsTritonStats:
     triton_forward_calls: int = 0
+    triton_autograd_forward_calls: int = 0
+    torch_autograd_backward_calls: int = 0
     triton_forward_elements: int = 0
     torch_fallback_calls: int = 0
     torch_fallback_elements: int = 0
@@ -66,12 +68,22 @@ def _min_rows() -> int:
         return _DEFAULT_MIN_ROWS
 
 
+def _triton_training_autograd_enabled() -> bool:
+    raw = os.environ.get("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def language_memory_slots_triton_stats() -> dict[str, Any]:
     return {
         "surface": "marulho_language_memory_slots_triton_stats.v1",
         "triton_available": bool(triton is not None),
         "default_min_rows": _min_rows(),
+        "triton_training_autograd_enabled": _triton_training_autograd_enabled(),
         "triton_forward_calls": int(_STATS.triton_forward_calls),
+        "triton_autograd_forward_calls": int(_STATS.triton_autograd_forward_calls),
+        "torch_autograd_backward_calls": int(_STATS.torch_autograd_backward_calls),
         "triton_forward_elements": int(_STATS.triton_forward_elements),
         "torch_fallback_calls": int(_STATS.torch_fallback_calls),
         "torch_fallback_elements": int(_STATS.torch_fallback_elements),
@@ -88,6 +100,8 @@ def language_memory_slots_triton_stats_delta(
 ) -> dict[str, Any]:
     int_fields = (
         "triton_forward_calls",
+        "triton_autograd_forward_calls",
+        "torch_autograd_backward_calls",
         "triton_forward_elements",
         "torch_fallback_calls",
         "torch_fallback_elements",
@@ -105,6 +119,7 @@ def language_memory_slots_triton_stats_delta(
         "last_device": after.get("last_device"),
         "last_dtype": after.get("last_dtype"),
         "triton_kernel_used": int(delta["triton_forward_calls"]) > 0,
+        "triton_autograd_used": int(delta["triton_autograd_forward_calls"]) > 0,
     }
 
 
@@ -162,6 +177,24 @@ def can_use_language_memory_slots_triton(
         return False
     if torch.is_grad_enabled():
         return False
+    return can_use_language_memory_slots_triton_autograd(
+        hidden,
+        candidate_ids,
+        memory_slots,
+        memory_slot_gate,
+        active_count,
+    )
+
+
+def can_use_language_memory_slots_triton_autograd(
+    hidden: torch.Tensor,
+    candidate_ids: torch.Tensor,
+    memory_slots: torch.Tensor,
+    memory_slot_gate: torch.Tensor,
+    active_count: int,
+) -> bool:
+    if triton is None or tl is None:
+        return False
     tensors = (hidden, memory_slots, memory_slot_gate)
     if not all(isinstance(value, torch.Tensor) for value in tensors):
         return False
@@ -198,6 +231,24 @@ def should_use_language_memory_slots_triton(
     active_count: int,
 ) -> bool:
     if not can_use_language_memory_slots_triton(
+        hidden,
+        candidate_ids,
+        memory_slots,
+        memory_slot_gate,
+        active_count,
+    ):
+        return False
+    return int(hidden.shape[0]) >= _min_rows()
+
+
+def should_use_language_memory_slots_triton_autograd(
+    hidden: torch.Tensor,
+    candidate_ids: torch.Tensor,
+    memory_slots: torch.Tensor,
+    memory_slot_gate: torch.Tensor,
+    active_count: int,
+) -> bool:
+    if not can_use_language_memory_slots_triton_autograd(
         hidden,
         candidate_ids,
         memory_slots,
@@ -348,6 +399,120 @@ def _language_memory_slots_triton_forward(
     return output
 
 
+class _LanguageMemorySlotsAutograd(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        hidden: torch.Tensor,
+        candidate_ids: torch.Tensor,
+        memory_slots: torch.Tensor,
+        memory_slot_gate: torch.Tensor,
+        active_count: int,
+    ) -> torch.Tensor:
+        runtime_candidate_ids = candidate_ids.to(
+            device=hidden.device,
+            dtype=torch.long,
+        ).contiguous()
+        output = _language_memory_slots_triton_forward(
+            hidden,
+            runtime_candidate_ids,
+            memory_slots,
+            memory_slot_gate,
+            int(active_count),
+        )
+        ctx.save_for_backward(
+            hidden,
+            runtime_candidate_ids,
+            memory_slots,
+            memory_slot_gate,
+        )
+        ctx.active_count = int(active_count)
+        _STATS.triton_autograd_forward_calls += 1
+        return output
+
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_output: torch.Tensor,
+    ) -> tuple[torch.Tensor | None, None, torch.Tensor | None, torch.Tensor | None, None]:
+        hidden, candidate_ids, memory_slots, memory_slot_gate = ctx.saved_tensors
+        candidate_count = int(candidate_ids.shape[1])
+        active = min(max(1, int(ctx.active_count)), candidate_count)
+        state_dim = int(hidden.shape[1])
+        scale = 1.0 / math.sqrt(max(1, state_dim))
+
+        candidate_values = memory_slots.index_select(
+            0,
+            candidate_ids.reshape(-1),
+        ).reshape(
+            int(hidden.shape[0]),
+            candidate_count,
+            state_dim,
+        )
+        scores = (
+            hidden.unsqueeze(-2).to(candidate_values.dtype) * candidate_values
+        ).sum(dim=-1) * scale
+        if active < candidate_count:
+            top_scores, top_positions = torch.topk(scores, k=active, dim=-1)
+            selected_values = candidate_values.gather(
+                dim=-2,
+                index=top_positions.unsqueeze(-1).expand(
+                    int(hidden.shape[0]),
+                    active,
+                    state_dim,
+                ),
+            )
+            selected_slot_ids = candidate_ids.gather(dim=-1, index=top_positions)
+        else:
+            top_scores = scores
+            selected_values = candidate_values
+            selected_slot_ids = candidate_ids
+
+        weights = F.softmax(top_scores, dim=-1)
+        context = (selected_values * weights.unsqueeze(-1)).sum(dim=-2)
+        gate = torch.tanh(memory_slot_gate).to(
+            device=hidden.device,
+            dtype=hidden.dtype,
+        )
+        grad_output_runtime = grad_output.to(device=hidden.device, dtype=hidden.dtype)
+        grad_context = grad_output_runtime * gate
+        score_grad = weights * (
+            grad_context.unsqueeze(-2)
+            * (selected_values - context.unsqueeze(-2))
+        ).sum(dim=-1)
+
+        grad_hidden = None
+        if ctx.needs_input_grad[0]:
+            grad_hidden = grad_output_runtime + (
+                score_grad.unsqueeze(-1) * selected_values
+            ).sum(dim=-2) * scale
+
+        grad_memory_slots = None
+        if ctx.needs_input_grad[2]:
+            grad_selected_values = (
+                grad_context.unsqueeze(-2) * weights.unsqueeze(-1)
+                + score_grad.unsqueeze(-1) * hidden.unsqueeze(-2) * scale
+            )
+            grad_memory_slots = torch.zeros_like(memory_slots)
+            grad_memory_slots.index_add_(
+                0,
+                selected_slot_ids.reshape(-1),
+                grad_selected_values.reshape(-1, state_dim).to(memory_slots.dtype),
+            )
+
+        grad_gate = None
+        if ctx.needs_input_grad[3]:
+            gate_tanh = torch.tanh(memory_slot_gate)
+            gate_scale = 1.0 - gate_tanh * gate_tanh
+            grad_gate = (
+                (grad_output_runtime * context).sum().to(memory_slot_gate.dtype)
+                * gate_scale
+            ).reshape_as(memory_slot_gate)
+
+        _STATS.torch_autograd_backward_calls += 1
+        return grad_hidden, None, grad_memory_slots, grad_gate, None
+
+
 def language_memory_slots(
     hidden: torch.Tensor,
     candidate_ids: torch.Tensor,
@@ -358,26 +523,60 @@ def language_memory_slots(
     prefer_triton: bool = True,
     force_triton: bool = False,
 ) -> torch.Tensor:
+    requires_grad = bool(
+        hidden.requires_grad
+        or memory_slots.requires_grad
+        or memory_slot_gate.requires_grad
+    )
     if bool(prefer_triton) and hidden.device.type == "cuda":
-        use_triton = (
-            can_use_language_memory_slots_triton(
-                hidden,
-                candidate_ids,
-                memory_slots,
-                memory_slot_gate,
-                active_count,
+        if requires_grad:
+            use_triton = (
+                can_use_language_memory_slots_triton_autograd(
+                    hidden,
+                    candidate_ids,
+                    memory_slots,
+                    memory_slot_gate,
+                    active_count,
+                )
+                if bool(force_triton)
+                else should_use_language_memory_slots_triton_autograd(
+                    hidden,
+                    candidate_ids,
+                    memory_slots,
+                    memory_slot_gate,
+                    active_count,
+                )
             )
-            if bool(force_triton)
-            else should_use_language_memory_slots_triton(
-                hidden,
-                candidate_ids,
-                memory_slots,
-                memory_slot_gate,
-                active_count,
+            if not bool(force_triton):
+                use_triton = bool(use_triton and _triton_training_autograd_enabled())
+        else:
+            use_triton = (
+                can_use_language_memory_slots_triton(
+                    hidden,
+                    candidate_ids,
+                    memory_slots,
+                    memory_slot_gate,
+                    active_count,
+                )
+                if bool(force_triton)
+                else should_use_language_memory_slots_triton(
+                    hidden,
+                    candidate_ids,
+                    memory_slots,
+                    memory_slot_gate,
+                    active_count,
+                )
             )
-        )
         if use_triton:
             try:
+                if requires_grad:
+                    return _LanguageMemorySlotsAutograd.apply(
+                        hidden,
+                        candidate_ids,
+                        memory_slots,
+                        memory_slot_gate,
+                        int(active_count),
+                    )
                 return _language_memory_slots_triton_forward(
                     hidden,
                     candidate_ids,

@@ -1738,38 +1738,25 @@ class MarulhoLanguageModel(nn.Module):
                 else "torch_no_grad_bounded_memory_slots"
             )
         else:
-            candidate_values = self.memory_slots.index_select(
-                0,
-                candidate_ids.reshape(-1),
-            ).reshape(*candidate_ids.shape, int(self.config.state_dim))
-            memory_scores = (
-                hidden.unsqueeze(-2) * candidate_values
-            ).sum(dim=-1) / math.sqrt(max(1, int(self.config.state_dim)))
-            if active_count < candidate_count:
-                top_scores, top_positions = torch.topk(
-                    memory_scores,
-                    k=active_count,
-                    dim=-1,
-                )
-                selected_values = candidate_values.gather(
-                    dim=-2,
-                    index=top_positions.unsqueeze(-1).expand(
-                        *top_positions.shape,
-                        int(self.config.state_dim),
-                    ),
-                )
-            else:
-                top_scores = memory_scores
-                selected_values = candidate_values
-            memory_weights = torch.softmax(top_scores, dim=-1)
-            memory_context = (selected_values * memory_weights.unsqueeze(-1)).sum(dim=-2)
-            gate = torch.tanh(self.memory_slot_gate).to(device=hidden.device, dtype=hidden.dtype)
-            routed = hidden + (memory_context * gate)
+            flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
+            flat_candidate_ids = candidate_ids.reshape(-1, candidate_count)
+            routed = language_memory_slots(
+                flat_hidden,
+                flat_candidate_ids,
+                self.memory_slots,
+                self.memory_slot_gate,
+                active_count,
+                prefer_triton=True,
+            ).reshape_as(hidden)
             memory_slots_triton_delta = language_memory_slots_triton_stats_delta(
                 memory_slots_triton_before,
                 language_memory_slots_triton_stats(),
             )
-            retrieval_backend = "torch_autograd_bounded_memory_slots"
+            retrieval_backend = (
+                "triton_forward_torch_backward_bounded_memory_slots"
+                if bool(memory_slots_triton_delta.get("triton_autograd_used", False))
+                else "torch_autograd_bounded_memory_slots"
+            )
         runs_all_slots = candidate_count >= slot_count
         return routed, {
             "surface": "marulho_language_memory_slots.v1",

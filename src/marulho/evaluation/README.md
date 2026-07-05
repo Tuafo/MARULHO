@@ -105,6 +105,15 @@ harnesses.
   `reports/language_kernel_evidence/memory-slots-triton-20260705.json` report
   passes three CUDA `float32` shapes for `language_memory_slot_retrieval` with
   `4.950x` geometric microbenchmark speedup and marks `float16` unsupported.
+- `language_memory_slot_training_impact.py` compares forced-off torch
+  memory-slot autograd with supported CUDA Triton-forward/custom-autograd on the
+  same complete optimizer-step window. The current
+  `reports/language_training_experiments/memory-slot-training-impact-triton-autograd-compare-524288-b16-s64-t524288-long.json`
+  report measures `524288` optimizer tokens per arm, records `512` Triton
+  autograd forwards plus `512` custom backward calls, and improves bounded
+  memory-slot training from `3076.582` to `3110.440` train tokens/sec versus
+  forced-off torch autograd. It is training-backend evidence; the full
+  continual-learning update window still needs a matching rerun.
 - `language_eligibility_trace_runtime_impact.py` measures complete no-grad LM
   forward impact for deferred eligibility-trace updates. The current `524288`
   model-vocab batch-16/seq-64 report rejects deferred final-scan eligibility as
@@ -411,6 +420,13 @@ harnesses.
   `float16` memory-slot retrieval is explicitly unsupported until parity is
   proven. The runtime benchmark suite now includes
   `bounded_memory_slot_retrieval_parity` in GPU kernel correctness.
+- Current 2026-07-05 memory-slot training-backend evidence in
+  `reports/language_training_experiments/memory-slot-training-impact-triton-autograd-compare-524288-b16-s64-t524288-long.json`
+  promotes supported CUDA `float32` memory-slot training forward to
+  Triton-forward/custom-autograd by default. The forced-off torch arm reached
+  `3076.582` train tokens/sec, the Triton training arm reached `3110.440`, and
+  both arms measured `524288` optimizer tokens with precomputed memory
+  candidate IDs and nonzero gate/slot gradients.
 - Current 2026-07-04 sampled-vocab training-impact evidence in
   `reports/language_training_experiments/sampled-vocab-training-impact-default-policy-524288-b16-r8-sampled-only.json`
   measures full MARULHO LM training steps, not a kernel microbenchmark. It uses
@@ -758,6 +774,7 @@ python -m marulho.evaluation.language_expert_dispatch_runtime_impact --output re
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_triton_kernel_report --kernel memory-slots --output reports/language_kernel_evidence/memory-slots-triton-20260705.json --shape 1024x128 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --memory-slot-count 1024 --memory-slot-candidate-count 8 --active-memory-slots 2 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_memory_slot_training_impact --output reports/language_training_experiments/memory-slot-training-impact-triton-autograd-compare-524288-b16-s64-t524288-long.json --device cuda --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --memory-slot-count 1024 --bounded-memory-slot-candidate-count 8 --active-memory-slot-count 2 --sequence-length 64 --batch-size 16 --warmup-steps 8 --repeats 512 --recurrent-gradient-horizon 8 --gradient-clip-interval 8
 python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-default-policy-524288-b16-r8-sampled-only.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 2 --repeats 8 --skip-dense-baseline --device cuda
 MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING=1 python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-forced-triton-autograd-524288-b16-r8-sampled-only.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 2 --repeats 8 --skip-dense-baseline --device cuda
 python -m marulho.evaluation.language_training_experiment --output reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744.json --model-vocab-size 524288 --sampled-vocab-size 1024 --state-dim 128 --embedding-dim 64 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --stride 32 --batch-size 16 --max-train-batches 256 --train-epochs 4 --generation-tokens 96 --sustained-target-tokens 524288 --sustained-timeout-seconds 1800 --device cuda
