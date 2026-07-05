@@ -215,6 +215,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   throughput and `+1.363%` total-window throughput versus the prior memory-slot
   report, but it still pays `-16.626%` update throughput and `-44.074%`
   total-window throughput versus the no-memory decode-control report.
+  The eval-matched comparison report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-precomputed-candidates-evalmatched-524288.json`
+  uses `match_comparison_eval_batches` to trim heldout eval to the no-memory
+  decode-control report's `22` old and `27` new eval batches. It records
+  `records_comparison_eval_batch_match=true`, accepts the update, improves
+  new-domain heldout loss by `5.8439`, improves old-domain loss by `5.2648`,
+  improves replay loss by `5.2623`, reaches `2969.385` update tokens/sec and
+  `1723.213` total-window tokens/sec, and keeps bounded precomputed memory
+  candidates with `runs_all_slots=false`. With eval counts matched, memory
+  slots pay `-19.471%` update throughput and `-15.987%` total-window
+  throughput versus the no-memory decode-control report; the memory shape is
+  still intentionally different, so this is a fair eval-count comparison rather
+  than a same-architecture speed promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -411,9 +424,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sampled/padded continual-learning evidence runner for old/new/replay windows.
   It writes JSON plus README reports, applies the CUDA math policy, caps heldout
   eval batch counts when comparing same-shape runs, records throughput deltas,
-  and captures MARULHO-owned before/after generation-quality probes. Optional
-  repetition-penalty and no-repeat-ngram decode controls are recorded as decode
-  policy and counters, not hidden generation authority or quality promotion.
+  can optionally match old/new eval batch counts to a comparison report for
+  fair total-window comparisons, and captures MARULHO-owned before/after
+  generation-quality probes. Optional repetition-penalty and no-repeat-ngram
+  decode controls are recorded as decode policy and counters, not hidden
+  generation authority or quality promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
   LM expert growth, column split, synapse-bundle hidden-capacity growth,
   memory-slot expansion, explicit expert prune, explicit expert retire,

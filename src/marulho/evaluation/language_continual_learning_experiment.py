@@ -71,6 +71,7 @@ class LanguageContinualLearningExperimentConfig:
     eval_fraction: float = 0.2
     max_old_eval_batches: int = 0
     max_new_eval_batches: int = 0
+    match_comparison_eval_batches: bool = False
     max_new_batches: int = 4
     max_replay_batches: int = 4
     generation_tokens: int = 48
@@ -159,6 +160,47 @@ def _load_report(path: str | Path | None) -> dict[str, Any] | None:
     if not resolved.exists():
         return None
     return json.loads(resolved.read_text(encoding="utf-8"))
+
+
+def _comparison_eval_batch_limits(
+    *,
+    comparison_report_path: str | Path | None,
+    enabled: bool,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "surface": "marulho_language_continual_eval_batch_match_policy.v1",
+        "enabled": bool(enabled),
+        "comparison_report": (
+            str(comparison_report_path) if comparison_report_path is not None else None
+        ),
+        "old_eval_batch_limit": None,
+        "new_eval_batch_limit": None,
+        "status": "disabled",
+    }
+    if not bool(enabled):
+        return payload
+    comparison = _load_report(comparison_report_path)
+    if comparison is None:
+        payload["status"] = "comparison_report_missing"
+        return payload
+    old_count = int(
+        (comparison.get("old_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    new_count = int(
+        (comparison.get("new_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    payload.update(
+        {
+            "old_eval_batch_limit": old_count if old_count > 0 else None,
+            "new_eval_batch_limit": new_count if new_count > 0 else None,
+            "status": (
+                "matched_comparison_eval_batch_counts"
+                if old_count > 0 and new_count > 0
+                else "comparison_eval_batch_counts_missing"
+            ),
+        }
+    )
+    return payload
 
 
 def _percent_delta(current: float, baseline: float) -> float | None:
@@ -309,6 +351,8 @@ def _same_shape_comparison(
         "same_update_token_count": True,
         "same_old_eval_batch_count": True,
         "same_new_eval_batch_count": True,
+        "same_shape_for_update_throughput": True,
+        "same_shape_for_total_window_throughput": True,
         "notes": (
             "Same sampled/padded continual-learning shape when model vocab, "
             "sampled vocab, update batch count, replay batch count, max steps, "
@@ -429,6 +473,20 @@ def _same_shape_comparison(
                 )
                 - _phase(comparison, "post_update_evaluation_seconds"),
             }
+        )
+        same_update_shape = bool(
+            payload["same_model_vocab_size"]
+            and payload["same_sampled_vocab_size"]
+            and payload["same_memory_slot_count"]
+            and payload["same_memory_slot_candidate_count"]
+            and payload["same_active_memory_slot_count"]
+            and payload["same_update_token_count"]
+        )
+        payload["same_shape_for_update_throughput"] = same_update_shape
+        payload["same_shape_for_total_window_throughput"] = bool(
+            same_update_shape
+            and payload["same_old_eval_batch_count"]
+            and payload["same_new_eval_batch_count"]
         )
         comparison_quality = comparison.get("generation_quality_after")
         if isinstance(comparison_quality, dict):
@@ -551,6 +609,10 @@ def run_language_continual_learning_experiment(
         old_text, old_source = _read_text(old_corpus_path, default=DEFAULT_OLD_CORPUS)
         new_text, new_source = _read_text(new_corpus_path, default=DEFAULT_NEW_CORPUS)
         model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
+        eval_batch_match_policy = _comparison_eval_batch_limits(
+            comparison_report_path=comparison_report_path,
+            enabled=bool(cfg.match_comparison_eval_batches),
+        )
         old_split = build_language_model_splits(
             [old_text],
             tokenizer,
@@ -583,8 +645,14 @@ def run_language_continual_learning_experiment(
         )
         used_new_batches = _trim(new_split.train, int(cfg.max_new_batches))
         used_replay_batches = _trim(old_split.train, int(cfg.max_replay_batches))
-        old_eval_batches = _trim(old_split.eval, int(cfg.max_old_eval_batches))
-        new_eval_batches = _trim(new_split.eval, int(cfg.max_new_eval_batches))
+        old_eval_limit = int(cfg.max_old_eval_batches)
+        new_eval_limit = int(cfg.max_new_eval_batches)
+        if eval_batch_match_policy["old_eval_batch_limit"] is not None:
+            old_eval_limit = int(eval_batch_match_policy["old_eval_batch_limit"])
+        if eval_batch_match_policy["new_eval_batch_limit"] is not None:
+            new_eval_limit = int(eval_batch_match_policy["new_eval_batch_limit"])
+        old_eval_batches = _trim(old_split.eval, old_eval_limit)
+        new_eval_batches = _trim(new_split.eval, new_eval_limit)
         generation_before, generation_quality_before = _generation_quality_probe(
             model,
             tokenizer,
@@ -618,6 +686,7 @@ def run_language_continual_learning_experiment(
                 "experiment_config": asdict(cfg),
                 "continual_learning_config": asdict(learning_config),
                 "model_config": asdict(model.config),
+                "eval_batch_match_policy": eval_batch_match_policy,
                 "split": {
                     "old": old_split.report,
                     "new": new_split.report,
@@ -678,6 +747,12 @@ def run_language_continual_learning_experiment(
             "records_eval_metric_readback": (
                 report["old_domain_before"].get("metric_readback_mode")
                 == "deferred_gpu_scalar_aggregation"
+            ),
+            "records_comparison_eval_batch_match": bool(
+                report["eval_batch_match_policy"].get("status")
+                == "matched_comparison_eval_batch_counts"
+                and report["baseline_comparison"].get("same_old_eval_batch_count")
+                and report["baseline_comparison"].get("same_new_eval_batch_count")
             ),
             "records_window_phase_timings": bool(
                 report["learning_evidence"].get("window_phase_timings")
@@ -765,6 +840,7 @@ def main() -> int:
     parser.add_argument("--eval-fraction", type=float, default=0.2)
     parser.add_argument("--max-old-eval-batches", type=int, default=0)
     parser.add_argument("--max-new-eval-batches", type=int, default=0)
+    parser.add_argument("--match-comparison-eval-batches", action="store_true")
     parser.add_argument("--max-new-batches", type=int, default=4)
     parser.add_argument("--max-replay-batches", type=int, default=4)
     parser.add_argument("--generation-tokens", type=int, default=48)
@@ -810,6 +886,7 @@ def main() -> int:
         eval_fraction=args.eval_fraction,
         max_old_eval_batches=args.max_old_eval_batches,
         max_new_eval_batches=args.max_new_eval_batches,
+        match_comparison_eval_batches=bool(args.match_comparison_eval_batches),
         max_new_batches=args.max_new_batches,
         max_replay_batches=args.max_replay_batches,
         generation_tokens=args.generation_tokens,

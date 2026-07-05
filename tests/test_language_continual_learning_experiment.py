@@ -4,8 +4,38 @@ import json
 
 from marulho.evaluation.language_continual_learning_experiment import (
     LanguageContinualLearningExperimentConfig,
+    _comparison_eval_batch_limits,
     run_language_continual_learning_experiment,
 )
+
+
+def test_comparison_eval_batch_limits_read_comparison_report(tmp_path) -> None:
+    comparison = tmp_path / "comparison.json"
+    comparison.write_text(
+        json.dumps(
+            {
+                "old_domain_before": {"eval_batch_count": 3},
+                "new_domain_before": {"eval_batch_count": 5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    disabled = _comparison_eval_batch_limits(
+        comparison_report_path=comparison,
+        enabled=False,
+    )
+    matched = _comparison_eval_batch_limits(
+        comparison_report_path=comparison,
+        enabled=True,
+    )
+
+    assert disabled["enabled"] is False
+    assert disabled["status"] == "disabled"
+    assert matched["enabled"] is True
+    assert matched["status"] == "matched_comparison_eval_batch_counts"
+    assert matched["old_eval_batch_limit"] == 3
+    assert matched["new_eval_batch_limit"] == 5
 
 
 def test_language_continual_learning_experiment_writes_deferred_eval_report(
