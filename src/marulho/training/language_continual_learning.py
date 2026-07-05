@@ -166,6 +166,7 @@ class LanguageContinualLearningConfig:
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 1
     sparse_vocab_optimizer: bool = True
+    dense_adamw_backend: str = "default"
     collect_training_telemetry: bool = False
     forgetting_tolerance: float = 0.10
     replay_retention_tolerance: float = 0.10
@@ -334,6 +335,21 @@ def _continual_optimizer_policy(
     model: MarulhoLanguageModel,
     config: LanguageContinualLearningConfig,
 ) -> tuple[list[torch.optim.Optimizer], str]:
+    dense_backend = str(config.dense_adamw_backend).strip().lower()
+    if dense_backend not in {"default", "foreach", "fused"}:
+        raise ValueError(
+            "dense_adamw_backend must be one of: default, foreach, fused"
+        )
+    if dense_backend == "fused" and model.device.type != "cuda":
+        raise ValueError("dense_adamw_backend=fused requires a CUDA model")
+    adamw_kwargs: dict[str, bool] = {}
+    adamw_policy_suffix = ""
+    if dense_backend == "foreach":
+        adamw_kwargs["foreach"] = True
+        adamw_policy_suffix = "_foreach"
+    elif dense_backend == "fused":
+        adamw_kwargs["fused"] = True
+        adamw_policy_suffix = "_fused"
     sparse_names: set[str] = set()
     if bool(model.config.sparse_token_embedding_gradients):
         sparse_names.add("token_embedding.weight")
@@ -341,8 +357,12 @@ def _continual_optimizer_policy(
         sparse_names.add("lm_head.weight")
     if not sparse_names:
         return [
-            torch.optim.AdamW(model.parameters(), lr=float(config.learning_rate))
-        ], "AdamW_all_parameters"
+            torch.optim.AdamW(
+                model.parameters(),
+                lr=float(config.learning_rate),
+                **adamw_kwargs,
+            )
+        ], f"AdamW{adamw_policy_suffix}_all_parameters"
     if not bool(config.sparse_vocab_optimizer):
         raise ValueError(
             "sparse_vocab_optimizer must be enabled for models with sparse vocab gradients"
@@ -358,12 +378,26 @@ def _continual_optimizer_policy(
             dense_params.append(parameter)
     optimizers: list[torch.optim.Optimizer] = []
     if dense_params:
-        optimizers.append(torch.optim.AdamW(dense_params, lr=float(config.learning_rate)))
+        optimizers.append(
+            torch.optim.AdamW(
+                dense_params,
+                lr=float(config.learning_rate),
+                **adamw_kwargs,
+            )
+        )
     if sparse_params:
-        optimizers.append(torch.optim.SparseAdam(sparse_params, lr=float(config.learning_rate)))
+        optimizers.append(
+            torch.optim.SparseAdam(
+                sparse_params,
+                lr=float(config.learning_rate),
+            )
+        )
     if not optimizers:
         raise ValueError("Language continual learning model has no trainable parameters")
-    return optimizers, "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+    return (
+        optimizers,
+        f"AdamW{adamw_policy_suffix}_dense_core_plus_SparseAdam_vocab_rows",
+    )
 
 
 def _clip_grad_norm_sparse_aware(
@@ -834,6 +868,7 @@ def run_language_continual_learning_window(
             },
             "optimizer_step_count": int(optimizer_step_count),
             "optimizer_policy": optimizer_policy,
+            "dense_adamw_backend": str(cfg.dense_adamw_backend),
             "gradient_clip_mode": (
                 "disabled"
                 if float(cfg.max_grad_norm) <= 0.0 or gradient_clip_interval <= 0

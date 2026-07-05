@@ -87,6 +87,7 @@ class LanguageContinualLearningExperimentConfig:
     replay_loss_weight: float = 0.25
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 1
+    dense_adamw_backend: str = "default"
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
@@ -1099,6 +1100,7 @@ def run_language_continual_learning_experiment(
             replay_retention_tolerance=float(cfg.replay_retention_tolerance),
             rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
             sparse_vocab_optimizer=bool(cfg.sparse_vocab_optimizer),
+            dense_adamw_backend=str(cfg.dense_adamw_backend),
             max_grad_norm=float(cfg.max_grad_norm),
             gradient_clip_interval=max(0, int(cfg.gradient_clip_interval)),
             collect_training_telemetry=bool(cfg.collect_training_telemetry),
@@ -1332,8 +1334,14 @@ def run_language_continual_learning_experiment(
                 == "marulho_language_continual_generation_quality_delta.v1"
             ),
             "records_sparse_optimizer_policy": (
-                report["learning_evidence"].get("optimizer_policy")
-                == "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+                str(report["learning_evidence"].get("optimizer_policy", ""))
+                .startswith("AdamW")
+                and str(report["learning_evidence"].get("optimizer_policy", ""))
+                .endswith("_dense_core_plus_SparseAdam_vocab_rows")
+            ),
+            "records_dense_adamw_backend": bool(
+                report["learning_evidence"].get("dense_adamw_backend")
+                == str(cfg.dense_adamw_backend)
             ),
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
@@ -1388,6 +1396,11 @@ def main() -> int:
     parser.add_argument("--replay-loss-weight", type=float, default=0.25)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--gradient-clip-interval", type=int, default=1)
+    parser.add_argument(
+        "--dense-adamw-backend",
+        choices=("default", "foreach", "fused"),
+        default="default",
+    )
     parser.add_argument("--forgetting-tolerance", type=float, default=100.0)
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
@@ -1443,6 +1456,7 @@ def main() -> int:
         replay_loss_weight=args.replay_loss_weight,
         max_grad_norm=args.max_grad_norm,
         gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
+        dense_adamw_backend=args.dense_adamw_backend,
         forgetting_tolerance=args.forgetting_tolerance,
         replay_retention_tolerance=args.replay_retention_tolerance,
         rollback_on_forgetting=bool(args.rollback_on_forgetting),

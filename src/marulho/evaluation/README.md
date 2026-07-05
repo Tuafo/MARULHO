@@ -164,7 +164,9 @@ harnesses.
   torch-autograd rather than Triton autograd.
 - `language_continual_learning_experiment.py` exposes full-window backend
   toggles through `--sampled-vocab-ce-triton-training` and
-  `--memory-slots-triton-training`, records
+  `--memory-slots-triton-training`, plus
+  `--dense-adamw-backend {default,foreach,fused}` for dense parameters while
+  sparse sampled-vocab rows remain on `SparseAdam`. It records
   `marulho_language_continual_training_backend_policy.v1`, and writes
   `training_sampled_vocab_ce_backend_summary` plus
   `training_memory_slot_backend_summary`. The `524288` no-memory sampled-vocab
@@ -179,7 +181,11 @@ harnesses.
   still trails bounded torch autograd (`3128.685` versus `3144.572` update
   tokens/sec, `-0.505%`). Both reports accept the online update with rollback
   verified; both are backend rejection evidence, not quality or runtime
-  promotion.
+  promotion. The dense AdamW backend sweep is also rejection evidence for now:
+  the current-code default rerun reaches `3174.883` update tokens/sec and
+  `2902.962` total-window tokens/sec, `foreach` reaches `3164.245` and
+  `2900.942`, and `fused` reaches `3147.494` and `2879.977`, with rollback
+  verified in all three runs.
 - `language_eligibility_trace_runtime_impact.py` measures complete no-grad LM
   forward impact for deferred eligibility-trace updates. The current `524288`
   model-vocab batch-16/seq-64 report rejects deferred final-scan eligibility as

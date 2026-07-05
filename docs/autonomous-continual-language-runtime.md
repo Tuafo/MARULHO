@@ -182,7 +182,14 @@ The explicit 2026-07-05 backend sweep keeps those defaults for now:
 (`512` Triton/autograd calls, zero memory fallback) but drops the memory-slot
 update run from `3144.572` to `3128.685` tokens/sec. Both opt-in reports accept
 the online update with rollback verified, so they are useful backend evidence,
-but not maintained-default promotions.
+but not maintained-default promotions. The dense optimizer sweep adds
+`--dense-adamw-backend {default,foreach,fused}` for dense parameters while
+sparse sampled-vocab rows remain on `SparseAdam`: the current-code default rerun
+reaches `3174.883` update tokens/sec and `2902.962` total-window tokens/sec,
+while `foreach` reaches `3164.245` and `2900.942` and `fused` reaches
+`3147.494` and `2879.977`. All three accept the online update with rollback
+verified, but the mutable backend knob stays experimental because neither
+non-default optimizer backend wins the complete measured window.
 
 The target runtime must preserve these boundaries:
 

@@ -1735,6 +1735,7 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["new_domain_loss_delta"] > 0.0
     assert report["learning_evidence"]["final_parameter_delta_l2"] > 0.0
     assert report["learning_evidence"]["optimizer_policy"] == "AdamW_all_parameters"
+    assert report["learning_evidence"]["dense_adamw_backend"] == "default"
     assert report["learning_evidence"]["optimizer_step_count"] == 8
     assert report["learning_evidence"]["gradient_clip_mode"] == (
         "sparse_aware_device_norm_every_step"
@@ -1856,6 +1857,7 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
             max_steps=2,
             replay_loss_weight=0.25,
             gradient_clip_interval=2,
+            dense_adamw_backend="foreach",
             forgetting_tolerance=100.0,
             replay_retention_tolerance=100.0,
             rollback_on_forgetting=False,
@@ -1869,8 +1871,9 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert report["sampled_vocab_size"] == 32
     assert report["sparse_vocab_optimizer"] is True
     assert evidence["optimizer_policy"] == (
-        "AdamW_dense_core_plus_SparseAdam_vocab_rows"
+        "AdamW_foreach_dense_core_plus_SparseAdam_vocab_rows"
     )
+    assert evidence["dense_adamw_backend"] == "foreach"
     assert evidence["optimizer_step_count"] == 4
     assert evidence["gradient_clip_mode"] == (
         "sparse_aware_device_norm_every_n_steps"

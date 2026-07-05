@@ -520,7 +520,9 @@ developmental and consolidation runners, query runners, and long-run evidence.
   adds `512` bounded torch-autograd fallback calls only in the memory arm.
 - `language_continual_learning_experiment.py` exposes the mutable backend
   switches `--sampled-vocab-ce-triton-training` and
-  `--memory-slots-triton-training`, records
+  `--memory-slots-triton-training`, plus the dense optimizer switch
+  `--dense-adamw-backend {default,foreach,fused}` while sparse sampled-vocab
+  rows stay on `SparseAdam`. It records
   `training_backend_policy`, and writes sampled-vocab CE plus memory-slot
   backend summaries. The `524288` sampled-vocab CE opt-in report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-sampled-ce-triton-train-evalmatched-update524288-20260705.json`
@@ -536,7 +538,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   and `2857.102` total-window tokens/sec versus the default memory-slot
   `3144.572` and `2880.835` (`-0.505%` update, `-0.824%` total-window), so
   bounded torch autograd remains the faster maintained memory-training backend
-  until a complete-window report wins.
+  until a complete-window report wins. The dense AdamW sweep reruns the
+  current no-memory default at `3174.883` update tokens/sec and `2902.962`
+  total-window tokens/sec, while `foreach` reaches `3164.245` and `2900.942`
+  and `fused` reaches `3147.494` and `2879.977`; both alternatives accept the
+  online update with rollback verified, but neither beats the current default.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
   positions plus bounded memory and route candidate IDs from `LanguageBatch`,
   so continual before/after heldout and replay evaluations can reuse the same

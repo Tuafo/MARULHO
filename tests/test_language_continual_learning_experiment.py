@@ -195,6 +195,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_eval_metric_readback"] is True
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
     assert report["experiment_review"]["records_training_backend_policy"] is True
+    assert report["experiment_review"]["records_dense_adamw_backend"] is True
     assert report["experiment_review"]["records_memory_slot_path"] is True
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
@@ -277,6 +278,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert sampled_backend["sampled_vocab_training"] is True
     assert sampled_backend["triton_training_autograd_requested"] is False
     assert sampled_backend["triton_kernel_used"] is False
+    assert report["learning_evidence"]["dense_adamw_backend"] == "default"
     precompute = report["learning_evidence"]["sampled_vocab_precompute"]
     assert precompute["new_batches"]["memory_candidate_precompute"]["enabled"] is True
     assert precompute["new_batches"]["memory_candidate_precompute"][
