@@ -49,11 +49,13 @@ from marulho.training.language_structural_plasticity import (
     apply_language_structural_plasticity_transaction,
     build_language_structural_column_split_proposal,
     build_language_structural_deep_sleep_proposal,
+    build_language_structural_memory_slot_expansion_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
     build_language_structural_retire_proposal,
     build_language_structural_route_bank_expansion_proposal,
+    build_language_structural_synapse_bundle_proposal,
 )
 
 
@@ -1324,6 +1326,87 @@ def run_language_runtime_benchmark_suite(
             ),
         )
     )
+    structural_synapse_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=24,
+        )
+    )
+    synapse_bundle_proposal = build_language_structural_synapse_bundle_proposal(
+        structural_synapse_model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 3,
+            "active_columns": 1,
+            "synapse_bundle_pressure": True,
+            "high_surprise_expert_ids": [1],
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_synapse_bundle_hidden_growth=8,
+        ),
+    )
+    structural_synapse_candidate, structural_synapse_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_synapse_model,
+            synapse_bundle_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-synapse-bundle-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                max_synapse_bundle_hidden_growth=8,
+                max_eval_loss_delta=100.0,
+            ),
+        )
+    )
+    structural_memory_model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+            memory_slot_count=0,
+            memory_slot_candidate_count=0,
+            active_memory_slot_count=1,
+        )
+    )
+    memory_slot_proposal = build_language_structural_memory_slot_expansion_proposal(
+        structural_memory_model,
+        routing_evidence={
+            "surface": "marulho_language_memory_slots.v1",
+            "memory_slot_pressure": True,
+            "novel_concept_cluster": True,
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_memory_slot_growth=4,
+            max_memory_slot_candidate_count=2,
+        ),
+    )
+    structural_memory_candidate, structural_memory_report = (
+        apply_language_structural_plasticity_transaction(
+            structural_memory_model,
+            memory_slot_proposal,
+            eval_batches=old_split.eval,
+            checkpoint_path=output.parent / "language-suite-memory-slot-baseline.pt",
+            operator_approved=True,
+            config=LanguageStructuralPlasticityConfig(
+                max_memory_slot_growth=4,
+                max_memory_slot_candidate_count=2,
+                max_eval_loss_delta=100.0,
+            ),
+        )
+    )
     sleep_eval = evaluate_language_model(structural_sleep_candidate, old_split.eval)
     sleep_routing = sleep_eval["spike_telemetry"]["routing"]
     route_bank_eval = evaluate_language_model(
@@ -1331,6 +1414,8 @@ def run_language_runtime_benchmark_suite(
         old_split.eval,
     )
     route_bank_routing = route_bank_eval["spike_telemetry"]["routing"]
+    memory_eval = evaluate_language_model(structural_memory_candidate, old_split.eval)
+    memory_slot_evidence = memory_eval["spike_telemetry"]["memory"]
     categories.append(
         _category(
             "growth_prune_safety",
@@ -1366,6 +1451,21 @@ def run_language_runtime_benchmark_suite(
                     "rollback_verified"
                 ]
                 and not route_bank_routing["runs_all_columns"]
+                and synapse_bundle_proposal["mutates_runtime_state"] is False
+                and structural_synapse_report["checkpoint"][
+                    "checkpoint_restore_verified"
+                ]
+                and structural_synapse_report["rollback_evidence"][
+                    "rollback_verified"
+                ]
+                and memory_slot_proposal["mutates_runtime_state"] is False
+                and structural_memory_report["checkpoint"][
+                    "checkpoint_restore_verified"
+                ]
+                and structural_memory_report["rollback_evidence"][
+                    "rollback_verified"
+                ]
+                and not memory_slot_evidence["runs_all_slots"]
                 else "fail"
             ),
             evidence={
@@ -1477,6 +1577,58 @@ def run_language_runtime_benchmark_suite(
                     "runs_all_columns"
                 ],
                 "route_bank_candidate_id_source": route_bank_routing[
+                    "candidate_id_source"
+                ],
+                "synapse_bundle_proposal_mutates_runtime_state": synapse_bundle_proposal[
+                    "mutates_runtime_state"
+                ],
+                "synapse_bundle_transaction_applied": structural_synapse_report[
+                    "applied"
+                ],
+                "synapse_bundle_checkpoint_backed": structural_synapse_report[
+                    "promotion_gate"
+                ]["checkpoint_backed"],
+                "synapse_bundle_rollback_verified": structural_synapse_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "synapse_bundle_source_hidden_dim": structural_synapse_report[
+                    "mutation"
+                ]["source_expert_hidden_dim"],
+                "synapse_bundle_target_hidden_dim": structural_synapse_report[
+                    "mutation"
+                ]["target_expert_hidden_dim"],
+                "synapse_bundle_hidden_growth": structural_synapse_report[
+                    "mutation"
+                ]["synapse_bundle_hidden_growth"],
+                "memory_slot_proposal_mutates_runtime_state": memory_slot_proposal[
+                    "mutates_runtime_state"
+                ],
+                "memory_slot_transaction_applied": structural_memory_report[
+                    "applied"
+                ],
+                "memory_slot_checkpoint_backed": structural_memory_report[
+                    "promotion_gate"
+                ]["checkpoint_backed"],
+                "memory_slot_rollback_verified": structural_memory_report[
+                    "rollback_evidence"
+                ]["rollback_verified"],
+                "memory_slot_source_count": structural_memory_report["mutation"][
+                    "source_memory_slot_count"
+                ],
+                "memory_slot_target_count": structural_memory_report["mutation"][
+                    "target_memory_slot_count"
+                ],
+                "memory_slot_candidate_count": memory_slot_evidence[
+                    "candidate_slot_count"
+                ],
+                "memory_slot_active_count": memory_slot_evidence[
+                    "active_slots_per_token"
+                ],
+                "memory_slot_candidate_slots_scored": memory_slot_evidence[
+                    "candidate_slots_scored"
+                ],
+                "memory_slot_runs_all_slots": memory_slot_evidence["runs_all_slots"],
+                "memory_slot_candidate_id_source": memory_slot_evidence[
                     "candidate_id_source"
                 ],
             },

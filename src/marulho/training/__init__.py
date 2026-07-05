@@ -34,9 +34,11 @@ from .language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
     build_language_structural_column_split_proposal,
+    build_language_structural_memory_slot_expansion_proposal,
     build_language_structural_plasticity_proposal,
     build_language_structural_retire_proposal,
     build_language_structural_route_bank_expansion_proposal,
+    build_language_structural_synapse_bundle_proposal,
 )
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
@@ -58,9 +60,11 @@ __all__ = [
     "evaluate_language_model",
     "apply_language_structural_plasticity_transaction",
     "build_language_structural_column_split_proposal",
+    "build_language_structural_memory_slot_expansion_proposal",
     "build_language_structural_plasticity_proposal",
     "build_language_structural_retire_proposal",
     "build_language_structural_route_bank_expansion_proposal",
+    "build_language_structural_synapse_bundle_proposal",
     "load_language_model_checkpoint",
     "run_language_checkpoint_evolution",
     "run_language_continual_learning_window",

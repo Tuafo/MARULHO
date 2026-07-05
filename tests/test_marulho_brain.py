@@ -814,6 +814,153 @@ def test_marulho_brain_language_route_bank_transaction_is_checkpointed(
     ] == 4
 
 
+def test_marulho_brain_language_synapse_bundle_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural synapse bundle growth widens expert hidden capacity. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=16,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 3,
+            "active_columns": 1,
+            "synapse_bundle_pressure": True,
+            "high_surprise_expert_ids": [1],
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_synapse_bundle_hidden_growth=4,
+        ),
+        mutation_kind="synapse_bundle",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-synapse-bundle-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_synapse_bundle_hidden_growth=4,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    status = brain.status()
+    last_transaction = status["language_model"]["last_structural_transaction"]
+
+    assert proposal["proposal"]["proposal_kind"] == "synapse_bundle_growth"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 3
+    assert transaction["report"]["mutation"]["source_expert_hidden_dim"] == 16
+    assert transaction["report"]["mutation"]["target_expert_hidden_dim"] == 20
+    assert transaction["report"]["mutation"]["synapse_bundle_hidden_growth"] == 4
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_synapse_bundle_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert last_transaction["mutation"]["proposal_kind"] == "synapse_bundle_growth"
+
+
+def test_marulho_brain_language_memory_slot_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural memory slot expansion keeps bounded retrieval evidence. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            memory_slot_count=0,
+            memory_slot_candidate_count=0,
+            active_memory_slot_count=1,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_language_memory_slots.v1",
+            "memory_slot_pressure": True,
+            "novel_concept_cluster": True,
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_memory_slot_growth=4,
+            max_memory_slot_candidate_count=2,
+        ),
+        mutation_kind="memory_slot",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-memory-slot-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_memory_slot_growth=4,
+            max_memory_slot_candidate_count=2,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    status = brain.status()
+    last_transaction = status["language_model"]["last_structural_transaction"]
+
+    assert proposal["proposal"]["proposal_kind"] == "memory_slot_expansion"
+    assert proposal["proposal"]["target_memory_slot_count"] == 4
+    assert proposal["proposal"]["target_memory_slot_candidate_count"] == 2
+    assert proposal["proposal"]["avoids_all_slot_scan"] is True
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["source_memory_slot_count"] == 0
+    assert transaction["report"]["mutation"]["target_memory_slot_count"] == 4
+    assert transaction["report"]["mutation"]["target_memory_slot_candidate_count"] == 2
+    assert transaction["report"]["mutation"]["memory_slot_count_delta"] == 4
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_memory_slot_expansion_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert last_transaction["mutation"]["proposal_kind"] == "memory_slot_expansion"
+
+
 def test_marulho_brain_language_checkpoint_evolution_keeps_parent_installed(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     tokenizer = ByteLevelLanguageTokenizer()

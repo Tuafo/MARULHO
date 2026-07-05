@@ -22,6 +22,10 @@ from marulho.training.language_model import (
 class LanguageStructuralPlasticityConfig:
     max_added_experts: int = 2
     max_split_experts: int = 1
+    max_synapse_bundle_hidden_growth: int = 16
+    max_memory_slot_growth: int = 4
+    max_memory_slot_count: int = 0
+    max_memory_slot_candidate_count: int = 4
     max_pruned_experts: int = 1
     max_merged_expert_pairs: int = 1
     max_deep_sleep_experts: int = 1
@@ -433,6 +437,124 @@ def _clone_split_model(
     return split_model
 
 
+def _clone_synapse_bundle_expanded_model(
+    model: MarulhoLanguageModel,
+    *,
+    target_expert_hidden_dim: int,
+) -> MarulhoLanguageModel:
+    if not model.routed_experts.enabled:
+        raise ValueError("synapse bundle growth requires routed experts")
+    old_hidden_dim = int(model.routed_experts.expert_hidden_dim)
+    target_hidden_dim = max(int(target_expert_hidden_dim), old_hidden_dim)
+    if target_hidden_dim <= old_hidden_dim:
+        raise ValueError("target_expert_hidden_dim must grow expert hidden capacity")
+    new_config = replace(model.config, expert_hidden_dim=target_hidden_dim)
+    expanded = MarulhoLanguageModel(new_config).to(model.device)
+    expanded_state = expanded.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in expanded_state and expanded_state[key].shape == source_value.shape:
+            expanded_state[key] = source_value.detach().clone().to(expanded_state[key].device)
+    expanded.load_state_dict(expanded_state)
+    with torch.no_grad():
+        expanded.routed_experts.sleeping_expert_mask.copy_(
+            model.routed_experts.sleeping_expert_mask.to(
+                device=expanded.routed_experts.sleeping_expert_mask.device
+            )
+        )
+        expanded.routed_experts.route_keys.copy_(
+            model.routed_experts.route_keys.to(
+                device=expanded.routed_experts.route_keys.device,
+                dtype=expanded.routed_experts.route_keys.dtype,
+            )
+        )
+        expanded.routed_experts.route_bias.copy_(
+            model.routed_experts.route_bias.to(
+                device=expanded.routed_experts.route_bias.device,
+                dtype=expanded.routed_experts.route_bias.dtype,
+            )
+        )
+        for expert_id in range(int(model.routed_experts.expert_count)):
+            source_expert = model.routed_experts.experts[expert_id]
+            target_expert = expanded.routed_experts.experts[expert_id]
+            target_expert[0].weight[:old_hidden_dim].copy_(
+                source_expert[0].weight.detach().to(
+                    device=target_expert[0].weight.device,
+                    dtype=target_expert[0].weight.dtype,
+                )
+            )
+            target_expert[0].bias[:old_hidden_dim].copy_(
+                source_expert[0].bias.detach().to(
+                    device=target_expert[0].bias.device,
+                    dtype=target_expert[0].bias.dtype,
+                )
+            )
+            target_expert[0].weight[old_hidden_dim:].zero_()
+            target_expert[0].bias[old_hidden_dim:].zero_()
+            target_expert[2].weight[:, :old_hidden_dim].copy_(
+                source_expert[2].weight.detach().to(
+                    device=target_expert[2].weight.device,
+                    dtype=target_expert[2].weight.dtype,
+                )
+            )
+            target_expert[2].weight[:, old_hidden_dim:].zero_()
+            target_expert[2].bias.copy_(
+                source_expert[2].bias.detach().to(
+                    device=target_expert[2].bias.device,
+                    dtype=target_expert[2].bias.dtype,
+                )
+            )
+    expanded.train(model.training)
+    return expanded
+
+
+def _clone_memory_slot_expanded_model(
+    model: MarulhoLanguageModel,
+    *,
+    target_memory_slot_count: int,
+    target_memory_slot_candidate_count: int,
+    target_active_memory_slot_count: int,
+) -> MarulhoLanguageModel:
+    source_slot_count = max(0, int(model.config.memory_slot_count))
+    target_slot_count = max(int(target_memory_slot_count), source_slot_count)
+    if target_slot_count <= source_slot_count:
+        raise ValueError("target_memory_slot_count must grow memory slots")
+    target_candidate_count = min(
+        max(1, int(target_memory_slot_candidate_count)),
+        target_slot_count,
+    )
+    target_active_count = min(
+        max(1, int(target_active_memory_slot_count)),
+        target_candidate_count,
+    )
+    new_config = replace(
+        model.config,
+        memory_slot_count=target_slot_count,
+        memory_slot_candidate_count=target_candidate_count,
+        active_memory_slot_count=target_active_count,
+    )
+    expanded = MarulhoLanguageModel(new_config).to(model.device)
+    expanded_state = expanded.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in expanded_state and expanded_state[key].shape == source_value.shape:
+            expanded_state[key] = source_value.detach().clone().to(expanded_state[key].device)
+    expanded.load_state_dict(expanded_state)
+    with torch.no_grad():
+        if source_slot_count > 0 and model.memory_slots is not None:
+            assert expanded.memory_slots is not None
+            expanded.memory_slots[:source_slot_count].copy_(
+                model.memory_slots.detach().to(
+                    device=expanded.memory_slots.device,
+                    dtype=expanded.memory_slots.dtype,
+                )
+            )
+        if source_slot_count <= 0 and expanded.memory_slot_gate is not None:
+            expanded.memory_slot_gate.zero_()
+    expanded.train(model.training)
+    return expanded
+
+
 def _route_bank_candidate_ceiling(model: MarulhoLanguageModel) -> int:
     if not model.routed_experts.enabled:
         return 0
@@ -775,6 +897,211 @@ def build_language_structural_column_split_proposal(
             <= max(0, min(int(cfg.max_split_experts), int(cfg.max_added_experts))),
             "parent_experts_checkpointed_before_split": True,
             "child_experts_initialized_from_parent": bool(split_ids),
+        },
+    }
+
+
+def build_language_structural_synapse_bundle_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    source_hidden_dim = int(model.routed_experts.expert_hidden_dim) if model.routed_experts.enabled else 0
+    growth = min(
+        max(0, int(cfg.max_synapse_bundle_hidden_growth)),
+        max(0, max(1, source_hidden_dim) // 2),
+    )
+    target_hidden_dim = source_hidden_dim + growth
+    explicit_ids = set(
+        _normalise_expert_ids(
+            route.get("synapse_bundle_candidate_expert_ids")
+            or route.get("new_synapse_bundle_expert_ids")
+            or route.get("high_surprise_expert_ids")
+            or learning.get("high_surprise_expert_ids")
+        )
+    )
+    replay_conflict = bool(
+        route.get("replay_conflict")
+        or learning.get("replay_conflict")
+        or learning.get("replay_conflict_detected")
+    )
+    low_confidence = bool(
+        route.get("low_confidence_high_uncertainty")
+        or learning.get("low_confidence_high_uncertainty")
+        or learning.get("low_confidence_with_high_uncertainty")
+    )
+    pressure = bool(
+        route.get("synapse_bundle_pressure")
+        or learning.get("synapse_bundle_pressure")
+        or explicit_ids
+        or replay_conflict
+        or low_confidence
+    )
+    affected_ids = tuple(range(expert_count))
+    ready = (
+        expert_count > 0
+        and source_hidden_dim > 0
+        and target_hidden_dim > source_hidden_dim
+        and bool(pressure)
+    )
+    status = "ready_for_operator_review" if ready else "collect_more_synapse_bundle_pressure"
+    proposal_body = {
+        "proposal_kind": "synapse_bundle_growth",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(expert_count),
+        "source_expert_hidden_dim": int(source_hidden_dim),
+        "target_expert_hidden_dim": int(target_hidden_dim),
+        "added_hidden_units_per_expert": int(max(0, target_hidden_dim - source_hidden_dim)),
+        "affected_expert_ids": list(affected_ids),
+        "explicit_candidate_expert_ids": sorted(explicit_ids),
+        "synapse_bundle_pressure": bool(pressure),
+        "replay_conflict": bool(replay_conflict),
+        "low_confidence_high_uncertainty": bool(low_confidence),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "synapse_bundle_pressure": bool(pressure),
+            "bounded_hidden_growth": bool(
+                target_hidden_dim - source_hidden_dim
+                <= int(cfg.max_synapse_bundle_hidden_growth)
+            ),
+            "existing_synapses_preserved": True,
+            "new_bundle_initially_neutral": True,
+        },
+    }
+
+
+def build_language_structural_memory_slot_expansion_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    source_slot_count = max(0, int(model.config.memory_slot_count))
+    slot_ceiling = int(cfg.max_memory_slot_count)
+    if slot_ceiling <= 0:
+        slot_ceiling = source_slot_count + max(0, int(cfg.max_memory_slot_growth))
+    growth = min(
+        max(0, int(cfg.max_memory_slot_growth)),
+        max(0, slot_ceiling - source_slot_count),
+    )
+    target_slot_count = source_slot_count + growth
+    max_candidate_count = max(1, int(cfg.max_memory_slot_candidate_count))
+    bounded_candidate_ceiling = (
+        max(1, target_slot_count - 1)
+        if target_slot_count > 1
+        else target_slot_count
+    )
+    target_candidate_count = min(max_candidate_count, bounded_candidate_ceiling)
+    target_active_count = min(
+        max(1, int(model.config.active_memory_slot_count)),
+        max(1, target_candidate_count),
+    )
+    novel_cluster = bool(
+        route.get("novel_concept_cluster")
+        or learning.get("novel_concept_cluster")
+        or learning.get("novel_concept_cluster_detected")
+    )
+    replay_conflict = bool(
+        route.get("replay_conflict")
+        or learning.get("replay_conflict")
+        or learning.get("replay_conflict_detected")
+    )
+    high_surprise = bool(
+        route.get("high_surprise")
+        or learning.get("high_surprise")
+        or learning.get("repeated_high_surprise")
+    )
+    pressure = bool(
+        route.get("memory_slot_pressure")
+        or learning.get("memory_slot_pressure")
+        or novel_cluster
+        or replay_conflict
+        or high_surprise
+    )
+    avoids_all_slot_scan = bool(
+        target_slot_count <= 1 or target_candidate_count < target_slot_count
+    )
+    ready = (
+        target_slot_count > source_slot_count
+        and bool(pressure)
+        and bool(avoids_all_slot_scan)
+    )
+    status = "ready_for_operator_review" if ready else "collect_more_memory_slot_pressure"
+    proposal_body = {
+        "proposal_kind": "memory_slot_expansion",
+        "source_expert_count": int(model.config.expert_count),
+        "target_expert_count": int(model.config.expert_count),
+        "source_memory_slot_count": int(source_slot_count),
+        "target_memory_slot_count": int(target_slot_count),
+        "added_memory_slot_count": int(max(0, target_slot_count - source_slot_count)),
+        "target_memory_slot_candidate_count": int(target_candidate_count),
+        "target_active_memory_slot_count": int(target_active_count),
+        "memory_slot_pressure": bool(pressure),
+        "novel_concept_cluster": bool(novel_cluster),
+        "replay_conflict": bool(replay_conflict),
+        "high_surprise": bool(high_surprise),
+        "avoids_all_slot_scan": bool(avoids_all_slot_scan),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "memory_slot_pressure": bool(pressure),
+            "bounded_slot_growth": bool(
+                target_slot_count - source_slot_count
+                <= int(cfg.max_memory_slot_growth)
+            ),
+            "avoids_all_slot_scan": bool(avoids_all_slot_scan),
+            "new_slots_initially_neutral": True,
         },
     }
 
@@ -1335,6 +1662,30 @@ def apply_language_structural_plasticity_transaction(
                 or model.config.route_candidate_count
             ),
         )
+    elif proposal_kind == "synapse_bundle_growth":
+        candidate = _clone_synapse_bundle_expanded_model(
+            model,
+            target_expert_hidden_dim=int(
+                body.get("target_expert_hidden_dim")
+                or model.config.expert_hidden_dim
+            ),
+        )
+    elif proposal_kind == "memory_slot_expansion":
+        candidate = _clone_memory_slot_expanded_model(
+            model,
+            target_memory_slot_count=int(
+                body.get("target_memory_slot_count")
+                or model.config.memory_slot_count
+            ),
+            target_memory_slot_candidate_count=int(
+                body.get("target_memory_slot_candidate_count")
+                or model.config.memory_slot_candidate_count
+            ),
+            target_active_memory_slot_count=int(
+                body.get("target_active_memory_slot_count")
+                or model.config.active_memory_slot_count
+            ),
+        )
     else:
         target_expert_count = int(body.get("target_expert_count") or model.config.expert_count)
         candidate = _clone_expanded_model(model, target_expert_count=target_expert_count)
@@ -1378,6 +1729,50 @@ def apply_language_structural_plasticity_transaction(
             ),
             "candidate_target_route_candidate_count": int(
                 candidate.config.route_candidate_count
+            ),
+            "source_expert_hidden_dim": int(model.config.expert_hidden_dim),
+            "target_expert_hidden_dim": int(final_model.config.expert_hidden_dim),
+            "candidate_target_expert_hidden_dim": int(
+                candidate.config.expert_hidden_dim
+            ),
+            "synapse_bundle_hidden_growth": int(
+                max(
+                    0,
+                    candidate.config.expert_hidden_dim - model.config.expert_hidden_dim,
+                )
+                if proposal_kind == "synapse_bundle_growth"
+                else 0
+            ),
+            "source_memory_slot_count": int(model.config.memory_slot_count),
+            "target_memory_slot_count": int(final_model.config.memory_slot_count),
+            "candidate_target_memory_slot_count": int(
+                candidate.config.memory_slot_count
+            ),
+            "source_memory_slot_candidate_count": int(
+                model.config.memory_slot_candidate_count
+            ),
+            "target_memory_slot_candidate_count": int(
+                final_model.config.memory_slot_candidate_count
+            ),
+            "candidate_target_memory_slot_candidate_count": int(
+                candidate.config.memory_slot_candidate_count
+            ),
+            "source_active_memory_slot_count": int(
+                model.config.active_memory_slot_count
+            ),
+            "target_active_memory_slot_count": int(
+                final_model.config.active_memory_slot_count
+            ),
+            "candidate_target_active_memory_slot_count": int(
+                candidate.config.active_memory_slot_count
+            ),
+            "memory_slot_count_delta": int(
+                max(
+                    0,
+                    candidate.config.memory_slot_count - model.config.memory_slot_count,
+                )
+                if proposal_kind == "memory_slot_expansion"
+                else 0
             ),
             "route_bank_candidate_count_delta": int(
                 max(
@@ -1500,6 +1895,12 @@ def apply_language_structural_plasticity_transaction(
             ),
             "eligible_for_reviewed_route_bank_expansion_promotion": bool(
                 accepted and proposal_kind == "route_bank_expansion"
+            ),
+            "eligible_for_reviewed_synapse_bundle_promotion": bool(
+                accepted and proposal_kind == "synapse_bundle_growth"
+            ),
+            "eligible_for_reviewed_memory_slot_expansion_promotion": bool(
+                accepted and proposal_kind == "memory_slot_expansion"
             ),
             "eligible_for_reviewed_structural_promotion": bool(accepted),
             "checkpoint_backed": True,

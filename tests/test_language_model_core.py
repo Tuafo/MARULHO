@@ -33,11 +33,13 @@ from marulho.training.language_structural_plasticity import (
     apply_language_structural_plasticity_transaction,
     build_language_structural_column_split_proposal,
     build_language_structural_deep_sleep_proposal,
+    build_language_structural_memory_slot_expansion_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
     build_language_structural_retire_proposal,
     build_language_structural_route_bank_expansion_proposal,
+    build_language_structural_synapse_bundle_proposal,
 )
 
 
@@ -562,6 +564,58 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert all_awake_routing["candidate_rows_scored"] == (
         split.train[0].input_ids.numel() * 3
     )
+
+
+def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_path) -> None:
+    torch.manual_seed(14)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+            memory_slot_count=4,
+            memory_slot_candidate_count=2,
+            active_memory_slot_count=1,
+        )
+    )
+
+    result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
+    result["loss"].backward()
+    memory = result["telemetry"]["memory"]
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-memory-slots.pt",
+        model,
+        tokenizer,
+        metadata={"transaction": "memory_slots_enabled"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert memory["surface"] == "marulho_language_memory_slots.v1"
+    assert memory["enabled"] is True
+    assert memory["total_slots"] == 4
+    assert memory["candidate_slot_count"] == 2
+    assert memory["active_slots_per_token"] == 1
+    assert memory["candidate_slots_scored"] == split.train[0].input_ids.numel() * 2
+    assert memory["runs_all_slots"] is False
+    assert memory["fallback_reason"] is None
+    assert memory["candidate_id_source"] == "token_hash_memory_slot_bank"
+    assert memory["memory_gate_readback"] is False
+    assert memory["memory_device"] == "cpu"
+    assert model.memory_slots is not None
+    assert model.memory_slots.grad is not None
+    assert metadata["transaction"] == "memory_slots_enabled"
+    assert restored_model.config.memory_slot_count == 4
+    assert restored_model.config.memory_slot_candidate_count == 2
+    assert restored_model.config.active_memory_slot_count == 1
+    assert restored_model.memory_slots is not None
+    assert tuple(restored_model.memory_slots.shape) == (4, 20)
 
 
 def test_language_model_sleeping_experts_are_skipped_by_route_candidates() -> None:
@@ -1132,6 +1186,205 @@ def test_language_structural_plasticity_expands_route_bank_with_checkpoint(
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"][
         "eligible_for_reviewed_route_bank_expansion_promotion"
+    ] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_grows_synapse_bundle_with_checkpoint(
+    tmp_path,
+) -> None:
+    torch.manual_seed(28)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=24,
+        )
+    )
+    source_first_weights = [
+        expert[0].weight.detach().clone()
+        for expert in model.routed_experts.experts
+    ]
+    source_first_biases = [
+        expert[0].bias.detach().clone()
+        for expert in model.routed_experts.experts
+    ]
+    source_second_weights = [
+        expert[2].weight.detach().clone()
+        for expert in model.routed_experts.experts
+    ]
+    source_second_biases = [
+        expert[2].bias.detach().clone()
+        for expert in model.routed_experts.experts
+    ]
+
+    proposal = build_language_structural_synapse_bundle_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 3,
+            "active_columns": 1,
+            "synapse_bundle_pressure": True,
+            "high_surprise_expert_ids": [1],
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_synapse_bundle_hidden_growth=8,
+        ),
+    )
+    grown_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-synapse-bundle-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_synapse_bundle_hidden_growth=8,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-synapse-bundle.pt",
+        grown_model,
+        tokenizer,
+        metadata={"transaction": "synapse_bundle_growth"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["proposal"]["proposal_kind"] == "synapse_bundle_growth"
+    assert proposal["proposal"]["source_expert_hidden_dim"] == 24
+    assert proposal["proposal"]["target_expert_hidden_dim"] == 32
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["new_bundle_initially_neutral"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "synapse_bundle_growth"
+    assert report["mutation"]["source_expert_hidden_dim"] == 24
+    assert report["mutation"]["target_expert_hidden_dim"] == 32
+    assert report["mutation"]["synapse_bundle_hidden_growth"] == 8
+    assert grown_model.config.expert_count == 3
+    assert grown_model.config.expert_hidden_dim == 32
+    for expert_id, expert in enumerate(grown_model.routed_experts.experts):
+        torch.testing.assert_close(expert[0].weight[:24], source_first_weights[expert_id])
+        torch.testing.assert_close(expert[0].bias[:24], source_first_biases[expert_id])
+        torch.testing.assert_close(expert[2].weight[:, :24], source_second_weights[expert_id])
+        torch.testing.assert_close(expert[2].bias, source_second_biases[expert_id])
+        assert torch.count_nonzero(expert[0].weight[24:]).item() == 0
+        assert torch.count_nonzero(expert[0].bias[24:]).item() == 0
+        assert torch.count_nonzero(expert[2].weight[:, 24:]).item() == 0
+    assert metadata["transaction"] == "synapse_bundle_growth"
+    assert restored_model.config.expert_hidden_dim == 32
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"][
+        "eligible_for_reviewed_synapse_bundle_promotion"
+    ] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_expands_memory_slots_with_checkpoint(
+    tmp_path,
+) -> None:
+    torch.manual_seed(30)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            memory_slot_count=0,
+            memory_slot_candidate_count=0,
+            active_memory_slot_count=1,
+        )
+    )
+
+    proposal = build_language_structural_memory_slot_expansion_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_language_memory_slots.v1",
+            "memory_slot_pressure": True,
+            "novel_concept_cluster": True,
+            "candidate_rows_scored": 30,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_memory_slot_growth=4,
+            max_memory_slot_candidate_count=2,
+        ),
+    )
+    memory_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-memory-slot-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_memory_slot_growth=4,
+            max_memory_slot_candidate_count=2,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    memory_eval = evaluate_language_model(memory_model, split.eval)
+    memory = memory_eval["spike_telemetry"]["memory"]
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-memory-slot-expanded.pt",
+        memory_model,
+        tokenizer,
+        metadata={"transaction": "memory_slot_expansion"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["proposal"]["proposal_kind"] == "memory_slot_expansion"
+    assert proposal["proposal"]["source_memory_slot_count"] == 0
+    assert proposal["proposal"]["target_memory_slot_count"] == 4
+    assert proposal["proposal"]["target_memory_slot_candidate_count"] == 2
+    assert proposal["proposal"]["target_active_memory_slot_count"] == 1
+    assert proposal["proposal"]["avoids_all_slot_scan"] is True
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["new_slots_initially_neutral"] is True
+    assert report["surface"] == "marulho_language_structural_plasticity_transaction.v1"
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "memory_slot_expansion"
+    assert report["mutation"]["source_memory_slot_count"] == 0
+    assert report["mutation"]["target_memory_slot_count"] == 4
+    assert report["mutation"]["memory_slot_count_delta"] == 4
+    assert report["mutation"]["target_memory_slot_candidate_count"] == 2
+    assert report["mutation"]["target_active_memory_slot_count"] == 1
+    assert memory_model.config.memory_slot_count == 4
+    assert memory_model.config.memory_slot_candidate_count == 2
+    assert memory_model.config.active_memory_slot_count == 1
+    assert memory["enabled"] is True
+    assert memory["total_slots"] == 4
+    assert memory["candidate_slot_count"] == 2
+    assert memory["active_slots_per_token"] == 1
+    assert memory["candidate_slots_scored"] == split.eval[0].input_ids.numel() * 2
+    assert memory["runs_all_slots"] is False
+    assert memory["memory_gate_readback"] is False
+    assert metadata["transaction"] == "memory_slot_expansion"
+    assert restored_model.config.memory_slot_count == 4
+    assert restored_model.config.memory_slot_candidate_count == 2
+    assert restored_model.memory_slots is not None
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"][
+        "eligible_for_reviewed_memory_slot_expansion_promotion"
     ] is True
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
 

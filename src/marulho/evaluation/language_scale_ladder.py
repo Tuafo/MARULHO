@@ -78,18 +78,46 @@ def estimate_language_model_parameters(
     route_bank = int((expert_count * state_dim) + expert_count) if expert_count else 0
     per_expert = _expert_parameter_count_per_column(config)
     expert_total = int(expert_count * per_expert)
+    memory_slots = int(max(0, int(config.memory_slot_count)) * state_dim)
+    memory_slot_gate = 1 if int(config.memory_slot_count) > 0 else 0
     lm_head = int((state_dim * vocab_size) + vocab_size)
-    total = int(token_embedding + state_block + route_bank + expert_total + lm_head)
+    total = int(
+        token_embedding
+        + state_block
+        + route_bank
+        + expert_total
+        + memory_slots
+        + memory_slot_gate
+        + lm_head
+    )
     active_experts = min(active_expert_count, max(0, route_candidate_count))
     route_candidate_scored_parameters = (
         int(route_candidate_count * (state_dim + 1)) if expert_count else 0
     )
+    memory_candidate_count = (
+        0
+        if int(config.memory_slot_count) <= 0
+        else (
+            min(
+                int(config.memory_slot_count),
+                max(1, int(config.active_memory_slot_count)),
+            )
+            if int(config.memory_slot_candidate_count) <= 0
+            else min(int(config.memory_slot_count), int(config.memory_slot_candidate_count))
+        )
+    )
+    active_memory_slots = min(
+        max(1, int(config.active_memory_slot_count)),
+        max(0, int(memory_candidate_count)),
+    )
+    memory_active_parameters = int(active_memory_slots * state_dim)
     active_parameters_per_token = int(
         embedding_dim
         + state_block
         + lm_head
         + (active_experts * per_expert)
         + route_candidate_scored_parameters
+        + memory_active_parameters
     )
     dtype_size = max(1, int(dtype_bytes))
     return {
@@ -101,9 +129,14 @@ def estimate_language_model_parameters(
             "selective_spiking_state_block": state_block,
             "route_bank": route_bank,
             "routed_experts": expert_total,
+            "memory_slots": memory_slots,
+            "memory_slot_gate": memory_slot_gate,
             "lm_head_dense_vocab": lm_head,
         },
         "expert_parameters_per_column": int(per_expert),
+        "memory_slot_count": int(max(0, int(config.memory_slot_count))),
+        "memory_slot_candidate_count": int(memory_candidate_count),
+        "active_memory_slot_count_per_token": int(active_memory_slots),
         "active_parameters_per_token_estimate": active_parameters_per_token,
         "active_parameter_fraction_estimate": (
             float(active_parameters_per_token) / float(total) if total > 0 else 0.0

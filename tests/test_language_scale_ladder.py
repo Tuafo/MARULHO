@@ -38,6 +38,32 @@ def test_language_scale_estimate_matches_instantiated_small_model() -> None:
     assert estimate["sampled_or_adaptive_vocab_xent_present"] is False
 
 
+def test_language_scale_estimate_counts_bounded_memory_slots() -> None:
+    config = LanguageModelConfig(
+        vocab_size=256,
+        embedding_dim=12,
+        state_dim=20,
+        expert_count=3,
+        active_expert_count=1,
+        route_candidate_count=2,
+        expert_hidden_dim=32,
+        memory_slot_count=4,
+        memory_slot_candidate_count=2,
+        active_memory_slot_count=1,
+    )
+    model = MarulhoLanguageModel(config)
+    actual = sum(parameter.numel() for parameter in model.parameters())
+    estimate = estimate_language_model_parameters(config)
+
+    assert estimate["total_parameters"] == actual
+    assert estimate["parameter_breakdown"]["memory_slots"] == 80
+    assert estimate["parameter_breakdown"]["memory_slot_gate"] == 1
+    assert estimate["memory_slot_count"] == 4
+    assert estimate["memory_slot_candidate_count"] == 2
+    assert estimate["active_memory_slot_count_per_token"] == 1
+    assert estimate["active_parameters_per_token_estimate"] < actual
+
+
 def test_default_language_scale_ladder_defines_target_classes() -> None:
     entries = default_language_scale_ladder()
     by_name = {entry.name: entry for entry in entries}

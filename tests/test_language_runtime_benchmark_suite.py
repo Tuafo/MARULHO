@@ -293,12 +293,24 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert categories["growth_prune_safety"]["evidence"]["route_bank_source_candidate_count"] == 2
     assert categories["growth_prune_safety"]["evidence"]["route_bank_target_candidate_count"] == 4
     assert categories["growth_prune_safety"]["evidence"]["route_bank_runs_all_columns"] is False
+    assert categories["growth_prune_safety"]["evidence"]["synapse_bundle_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["synapse_bundle_source_hidden_dim"] == 24
+    assert categories["growth_prune_safety"]["evidence"]["synapse_bundle_target_hidden_dim"] == 32
+    assert categories["growth_prune_safety"]["evidence"]["synapse_bundle_hidden_growth"] == 8
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_source_count"] == 0
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_target_count"] == 4
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_candidate_count"] == 2
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_active_count"] == 1
+    assert categories["growth_prune_safety"]["evidence"]["memory_slot_runs_all_slots"] is False
     assert "column_split_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "prune_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "retire_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "merge_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "deep_sleep_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "route_bank_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
+    assert "synapse_bundle_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
+    assert "memory_slot_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert categories["growth_prune_safety"]["missing_evidence"] == []
     assert categories["long_run_throughput"]["status"] == "smoke_only"
     assert categories["long_run_throughput"]["evidence"]["smoke_token_delta"] == 4

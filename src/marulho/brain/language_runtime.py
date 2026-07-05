@@ -25,11 +25,13 @@ from marulho.training.language_structural_plasticity import (
     apply_language_structural_plasticity_transaction,
     build_language_structural_column_split_proposal,
     build_language_structural_deep_sleep_proposal,
+    build_language_structural_memory_slot_expansion_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
     build_language_structural_retire_proposal,
     build_language_structural_route_bank_expansion_proposal,
+    build_language_structural_synapse_bundle_proposal,
 )
 
 
@@ -249,6 +251,20 @@ class BrainLanguageModelRuntime:
             )
         if str(mutation_kind) in {"route_bank", "route_bank_expansion"}:
             return build_language_structural_route_bank_expansion_proposal(
+                self.model,
+                routing_evidence=routing_evidence,
+                learning_evidence=learning_evidence,
+                config=config,
+            )
+        if str(mutation_kind) in {"synapse_bundle", "synapse_bundle_growth"}:
+            return build_language_structural_synapse_bundle_proposal(
+                self.model,
+                routing_evidence=routing_evidence,
+                learning_evidence=learning_evidence,
+                config=config,
+            )
+        if str(mutation_kind) in {"memory_slot", "memory_slot_expansion"}:
+            return build_language_structural_memory_slot_expansion_proposal(
                 self.model,
                 routing_evidence=routing_evidence,
                 learning_evidence=learning_evidence,

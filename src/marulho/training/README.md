@@ -379,21 +379,27 @@ developmental and consolidation runners, query runners, and long-run evidence.
   repetition-penalty and no-repeat-ngram decode controls are recorded as decode
   policy and counters, not hidden generation authority or quality promotion.
 - `language_structural_plasticity.py` is the Iteration 7 transaction path for
-  LM expert growth, column split, explicit expert prune, explicit expert
-  retire, explicit expert merge, explicit expert deep sleep, and bounded
-  route-bank expansion. It builds non-mutating expert-spawn proposals from
-  route/learning pressure, column-split proposals from overload or high-surprise
+  LM expert growth, column split, synapse-bundle hidden-capacity growth,
+  memory-slot expansion, explicit expert prune, explicit expert retire,
+  explicit expert merge, explicit expert deep sleep, and bounded route-bank
+  expansion. It builds non-mutating expert-spawn proposals from route/learning
+  pressure, column-split proposals from overload or high-surprise pressure,
+  synapse-bundle proposals from high-surprise/replay-conflict/uncertainty
+  pressure, memory-slot proposals from novel-concept/replay-conflict/surprise
   pressure, expert-prune proposals from explicit inactive or low-utility expert
   evidence, expert-retire proposals from terminal stale/dead/harmful evidence,
-  expert-merge proposals from duplicate or high-similarity expert-pair evidence,
-  expert-deep-sleep proposals from stale, low-activation, low-utility,
+  expert-merge proposals from duplicate or high-similarity expert-pair
+  evidence, expert-deep-sleep proposals from stale, low-activation, low-utility,
   high-cost, or dead-spike expert evidence, and route-bank proposals from
   bounded candidate saturation.
   Application requires operator approval, writes a baseline checkpoint snapshot,
   applies the candidate topology/config change or checkpointed sleep mask under
   heldout non-regression, and records rollback hashes before accepting the
   candidate. Route-bank expansion is capped so all-awake runs do not silently
-  become dense/all-column route scans.
+  become dense/all-column route scans; memory-slot expansion uses bounded
+  token-hash candidate retrieval so added slots do not silently become an
+  all-slot retrieval path; synapse-bundle growth preserves old expert weights
+  and initializes the added hidden rows/columns neutrally.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,

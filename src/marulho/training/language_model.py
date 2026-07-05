@@ -63,6 +63,9 @@ class LanguageModelConfig:
     sparse_token_embedding_gradients: bool = False
     generation_vocab_size: int = 0
     recurrent_gradient_horizon: int = 0
+    memory_slot_count: int = 0
+    memory_slot_candidate_count: int = 0
+    active_memory_slot_count: int = 1
     active_language_path: str = "marulho_lm_head"
 
 
@@ -1382,6 +1385,12 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("generation_vocab_size cannot exceed vocab_size")
         if int(config.recurrent_gradient_horizon) < 0:
             raise ValueError("recurrent_gradient_horizon must be non-negative")
+        if int(config.memory_slot_count) < 0:
+            raise ValueError("memory_slot_count must be non-negative")
+        if int(config.memory_slot_candidate_count) < 0:
+            raise ValueError("memory_slot_candidate_count must be non-negative")
+        if int(config.active_memory_slot_count) < 1:
+            raise ValueError("active_memory_slot_count must be at least one")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
@@ -1402,6 +1411,13 @@ class MarulhoLanguageModel(nn.Module):
             route_candidate_count=config.route_candidate_count,
             expert_hidden_dim=config.expert_hidden_dim,
         )
+        memory_slot_count = max(0, int(config.memory_slot_count))
+        if memory_slot_count > 0:
+            self.memory_slots = nn.Parameter(torch.zeros(memory_slot_count, config.state_dim))
+            self.memory_slot_gate = nn.Parameter(torch.zeros(()))
+        else:
+            self.register_parameter("memory_slots", None)
+            self.register_parameter("memory_slot_gate", None)
         self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
 
     @property
@@ -1508,6 +1524,11 @@ class MarulhoLanguageModel(nn.Module):
             state,
             collect_telemetry=collect_telemetry,
         )
+        hidden, memory_telemetry = self._apply_memory_slots(
+            hidden,
+            input_ids.to(self.device),
+            collect_telemetry=collect_telemetry,
+        )
         route_candidates = self._language_route_candidates(
             input_ids.to(self.device),
             assume_no_sleeping_experts=assume_no_sleeping_experts,
@@ -1524,12 +1545,113 @@ class MarulhoLanguageModel(nn.Module):
             "external_llm_used": False,
             "owned_by_marulho": True,
             "vocab_size": self.config.vocab_size,
+            "memory": memory_telemetry,
             "routing": routing_telemetry,
         }
         return {
             "hidden": hidden,
             "state": next_state,
             "telemetry": telemetry,
+        }
+
+    def _memory_slot_candidate_count(self) -> int:
+        slot_count = max(0, int(self.config.memory_slot_count))
+        if slot_count <= 0:
+            return 0
+        configured = int(self.config.memory_slot_candidate_count)
+        if configured <= 0:
+            return min(slot_count, max(1, int(self.config.active_memory_slot_count)))
+        return min(slot_count, configured)
+
+    def _language_memory_candidates(self, input_ids: torch.Tensor) -> torch.Tensor | None:
+        slot_count = max(0, int(self.config.memory_slot_count))
+        candidate_count = self._memory_slot_candidate_count()
+        if slot_count <= 0 or candidate_count <= 0:
+            return None
+        offsets = torch.arange(candidate_count, device=input_ids.device, dtype=torch.long)
+        return (input_ids.to(torch.long).unsqueeze(-1) + offsets) % int(slot_count)
+
+    def _apply_memory_slots(
+        self,
+        hidden: torch.Tensor,
+        input_ids: torch.Tensor,
+        *,
+        collect_telemetry: bool,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        slot_count = max(0, int(self.config.memory_slot_count))
+        if slot_count <= 0 or self.memory_slots is None:
+            return hidden, {
+                "surface": "marulho_language_memory_slots.v1",
+                "enabled": False,
+                "total_slots": 0,
+                "candidate_slot_count": 0,
+                "active_slots_per_token": 0,
+                "candidate_slots_scored": 0,
+                "runs_all_slots": False,
+                "fallback_reason": "language_memory_slots_disabled",
+                "memory_device": str(hidden.device),
+                "active_parameters_per_token": 0,
+            }
+        candidate_ids = self._language_memory_candidates(input_ids)
+        if candidate_ids is None:
+            return hidden, {
+                "surface": "marulho_language_memory_slots.v1",
+                "enabled": True,
+                "total_slots": int(slot_count),
+                "candidate_slot_count": 0,
+                "active_slots_per_token": 0,
+                "candidate_slots_scored": 0,
+                "runs_all_slots": False,
+                "fallback_reason": "memory_slot_candidate_plan_empty",
+                "memory_device": str(hidden.device),
+                "active_parameters_per_token": 0,
+            }
+        candidate_count = int(candidate_ids.shape[-1])
+        active_count = min(max(1, int(self.config.active_memory_slot_count)), candidate_count)
+        candidate_values = self.memory_slots.index_select(
+            0,
+            candidate_ids.reshape(-1),
+        ).reshape(*candidate_ids.shape, int(self.config.state_dim))
+        memory_scores = (
+            hidden.unsqueeze(-2) * candidate_values
+        ).sum(dim=-1) / math.sqrt(max(1, int(self.config.state_dim)))
+        if active_count < candidate_count:
+            top_scores, top_positions = torch.topk(
+                memory_scores,
+                k=active_count,
+                dim=-1,
+            )
+            selected_values = candidate_values.gather(
+                dim=-2,
+                index=top_positions.unsqueeze(-1).expand(
+                    *top_positions.shape,
+                    int(self.config.state_dim),
+                ),
+            )
+        else:
+            top_scores = memory_scores
+            selected_values = candidate_values
+        memory_weights = torch.softmax(top_scores, dim=-1)
+        memory_context = (selected_values * memory_weights.unsqueeze(-1)).sum(dim=-2)
+        gate = torch.tanh(self.memory_slot_gate).to(device=hidden.device, dtype=hidden.dtype)
+        routed = hidden + (memory_context * gate)
+        runs_all_slots = candidate_count >= slot_count
+        return routed, {
+            "surface": "marulho_language_memory_slots.v1",
+            "enabled": True,
+            "total_slots": int(slot_count),
+            "candidate_slot_count": int(candidate_count),
+            "active_slots_per_token": int(active_count),
+            "candidate_slots_scored": int(hidden.shape[0] * hidden.shape[1] * candidate_count),
+            "runs_all_slots": bool(runs_all_slots),
+            "fallback_reason": "memory_slot_candidate_plan_unbounded"
+            if bool(runs_all_slots)
+            else None,
+            "memory_device": str(hidden.device),
+            "active_parameters_per_token": int(active_count * int(self.config.state_dim)),
+            "candidate_id_source": "token_hash_memory_slot_bank",
+            "memory_gate_readback": False,
+            "collect_telemetry": bool(collect_telemetry),
         }
 
     def _language_route_candidates(
