@@ -1066,6 +1066,24 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
     assert report["promotion_gate"]["quality_replay_evidence_available"] is True
+    assert (
+        report["promotion_gate"][
+            "controlled_decode_house_scale_evidence_available"
+        ]
+        is True
+    )
+    assert (
+        report["promotion_gate"][
+            "generation_controlled_decode_house_scale_aligned"
+        ]
+        is True
+    )
+    assert (
+        report["promotion_gate"][
+            "quality_replay_controlled_decode_house_scale_aligned"
+        ]
+        is True
+    )
     assert report["promotion_gate"]["missing_required_category_names"] == []
     assert report["promotion_gate"]["status"] == "ready_for_review"
 
@@ -1262,6 +1280,24 @@ def test_language_runtime_benchmark_suite_blocks_mixed_controlled_decode_checkpo
         is False
     )
     assert quality_replay_alignment["controlled_decode_house_scale_required"] is True
+    assert (
+        report["promotion_gate"][
+            "controlled_decode_house_scale_evidence_available"
+        ]
+        is True
+    )
+    assert (
+        report["promotion_gate"][
+            "generation_controlled_decode_house_scale_aligned"
+        ]
+        is False
+    )
+    assert (
+        report["promotion_gate"][
+            "quality_replay_controlled_decode_house_scale_aligned"
+        ]
+        is False
+    )
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence"
     ]

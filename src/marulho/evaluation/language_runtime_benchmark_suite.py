@@ -2683,6 +2683,9 @@ def run_language_runtime_benchmark_suite(
             "matching_report_count": 0,
             "missing_evidence": [],
         }
+    quality_replay_long_run_alignment = generation_category["evidence"][
+        "quality_replay_long_run_alignment"
+    ]
 
     parameter_estimate = estimate_language_model_parameters(base_model.config)
     categories.append(
@@ -2973,6 +2976,20 @@ def run_language_runtime_benchmark_suite(
                 "quality_replay_available"
             ],
             "long_run_evidence_available": not long_run_missing,
+            "controlled_decode_house_scale_evidence_available": bool(
+                long_run_evidence.get("controlled_decode_house_scale_gate_reached")
+            ),
+            "generation_controlled_decode_house_scale_aligned": bool(
+                generation_long_run_alignment.get(
+                    "same_checkpoint_controlled_decode_house_scale_available"
+                )
+            ),
+            "quality_replay_controlled_decode_house_scale_aligned": bool(
+                isinstance(quality_replay_long_run_alignment, Mapping)
+                and quality_replay_long_run_alignment.get(
+                    "same_child_controlled_decode_house_scale_available"
+                )
+            ),
             "missing_required_category_names": [
                 item["name"] for item in missing_categories
             ],
