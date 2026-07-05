@@ -334,9 +334,7 @@ class MarulhoBrain:
         }
         if self._language_runtime is not None:
             self._language_runtime.record_checkpoint_installation(report)
-            language_summary = self._language_runtime.summary()
-            report["language_model"] = language_summary
-            report["install"]["language_model"] = language_summary
+            report["language_model"] = self._language_runtime.summary()
         return report
 
     def learn_language_window(

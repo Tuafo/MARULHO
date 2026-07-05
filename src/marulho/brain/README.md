@@ -81,6 +81,18 @@ tokenizer rows, preserving the no-full-padded-vocab decode boundary.
 Blocked approval or hash evidence leaves the active runtime unchanged. The
 method does not run from status/read surfaces, does not use a service-owned
 cognition path, and still keeps `promotes_runtime_claim=false`.
+`language_brain_checkpoint_runtime_evidence.py` now verifies the next restored
+brain step: install the reviewed child, save a brain checkpoint, restore it, and
+generate from `MarulhoBrain`. The current CUDA report
+`reports/language_brain_runtime/evo-child-quality-repair-installed-brain-runtime-8192-20260705.json`
+restores the installed `524288` model-vocab parent as `marulho_lm_head` and
+reaches the 8192 diagnostic boundary through `MarulhoBrain.generate()` at
+`109.981` tokens/sec. The same restored language runtime reaches the 524288
+house-scale target at `7917.913` tokens/sec through the training-owned
+`torch_cuda_graph_burst_decode_controls` sustained path, so the remaining
+bottleneck is the high-level brain generation API loop, not the installed LM
+checkpoint or CUDA graph path. This remains evidence, not a broad runtime
+promotion.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

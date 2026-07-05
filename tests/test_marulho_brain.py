@@ -313,7 +313,7 @@ def test_marulho_brain_installs_reviewed_language_checkpoint(tmp_path: Path) -> 
     assert install["loads_external_checkpoint"] is False
     assert install["promotes_runtime_claim"] is False
     assert install["trace"]["event"] == "language_checkpoint_install"
-    assert install["install"]["language_model"]["checkpoint_installation_count"] == 1
+    assert install["language_model"]["checkpoint_installation_count"] == 1
     assert generation["active_language_path"] == "marulho_lm_head"
     assert generation["checkpointed_language_components"] is True
     assert generation["generation_decode"]["generation_vocab_size"] == (

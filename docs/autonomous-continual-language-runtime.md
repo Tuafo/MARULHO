@@ -580,6 +580,14 @@ child checkpoint hash and review lineage, loads the MARULHO-owned LM checkpoint
 through the training loader, installs it into the active brain language runtime,
 and records a checkpointed installation report. It does not run from
 service/status reads and does not promote a broad runtime claim by itself.
+`language_brain_checkpoint_runtime_evidence.py` then verifies the installed
+parent from a saved/restored `MarulhoBrain` checkpoint. The first real CUDA
+report proves restore and MARULHO-owned generation, but separates the slow
+high-level brain API loop (`109.981` tokens/sec at 8192) from the restored
+training-owned CUDA graph path (`7917.913` tokens/sec at 524288). The next
+runtime-performance step is to expose the fast training-owned sustained path
+through a brain-owned generation surface without moving the algorithm into
+service/status code.
 
 ## Triton Kernel Map
 

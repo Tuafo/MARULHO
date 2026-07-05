@@ -344,6 +344,20 @@ harnesses.
   or hash evidence blocks without mutating the active language path. The install
   report remains a parent-installation fact, not a broad runtime-promotion
   claim.
+- `language_brain_checkpoint_runtime_evidence.py` verifies the installed parent
+  path from the brain side. The current report
+  `reports/language_brain_runtime/evo-child-quality-repair-installed-brain-runtime-8192-20260705.json`
+  installs the reviewed `candidate-03` child into `MarulhoBrain`, saves
+  `reports/language_brain_runtime/evo-child-quality-repair-installed-brain-runtime-20260705.pt`,
+  restores that brain checkpoint, and proves restored
+  `active_language_path=marulho_lm_head` with no status-read mutation. The
+  restored brain API generation path reaches `8192/8192` at `109.981`
+  tokens/sec, while the same restored installed LM runtime reaches
+  `524288/524288` at `7917.913` tokens/sec through the training-owned
+  `torch_cuda_graph_burst_decode_controls` path in
+  `reports/language_brain_runtime/evo-child-quality-repair-installed-brain-training-owned-sustained-524288-20260705.json`.
+  This report identifies the high-level `MarulhoBrain.generate()` loop as the
+  next speed bottleneck and keeps `promotes_runtime_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
