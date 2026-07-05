@@ -426,9 +426,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`.
   The paired win is `+3.959%` training and `+2.942%` sustained generation, with
   batch total down from `0.346854` to `0.333647 ms/token`.
-- The sampled-vocab batch-precompute training path keeps the same all-awake
-  routed shape but precomputes sampled row IDs and target positions outside the
-  measured update window. The local 2026-07-04 report
+- The sampled-vocab and memory-candidate batch-precompute training path keeps
+  the same all-awake routed shape but precomputes sampled row IDs, target
+  positions, and bounded memory candidate IDs outside the measured update
+  window. The local 2026-07-04 report
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288-63744.json`
   trains `63744` tokens at `3041.246` train tokens/sec, records
   `sampled_vocab_precompute.enabled=true`, improves forward/loss from
@@ -437,7 +438,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sustained run reached `7203.369` tokens/sec, and a same-checkpoint current-code
   sustained rerun of the retained all-awake checkpoint reached `7206.201`
   tokens/sec, so this is a training hot-window speed slice rather than an
-  inference promotion.
+  inference promotion. Memory-slot fast experiments now report
+  `memory_candidate_precompute` and feed `precomputed_batch_memory_candidate_ids`
+  into the measured loss call instead of rebuilding token-hash candidate plans
+  inside the hot update loop.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, and bounded memory-candidate construction

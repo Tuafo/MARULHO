@@ -260,8 +260,21 @@ def test_language_training_experiment_reports_memory_slot_training_and_sustain(
     assert report["training"]["memory_candidate_slots_scored"] > 0
     assert report["training"]["memory_runs_all_slots"] is False
     assert report["training"]["memory_candidate_id_source"] == (
-        "token_hash_memory_slot_bank"
+        "precomputed_batch_memory_candidate_ids"
     )
+    memory_precompute = report["training"]["memory_candidate_precompute"]
+    assert memory_precompute["surface"] == (
+        "marulho_language_memory_candidate_batch_precompute.v1"
+    )
+    assert memory_precompute["enabled"] is True
+    assert memory_precompute["hot_update_window_precomputed"] is True
+    assert memory_precompute["candidate_id_source"] == (
+        "precomputed_batch_memory_candidate_ids"
+    )
+    assert memory_precompute["batch_count"] == 2
+    assert report["training"]["sampled_vocab_precompute"][
+        "memory_candidate_precompute"
+    ] == memory_precompute
     assert report["training"]["memory_gate_readback"] is False
     memory_slots = report["sustained_summary"]["memory_slots"]
     assert memory_slots["surface"] == "marulho_language_sustained_memory_slots.v1"

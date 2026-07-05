@@ -656,6 +656,7 @@ def _train_language_model(
                 assume_no_sleeping_experts=assume_no_sleeping,
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
+                memory_candidate_ids=batch.memory_candidate_ids,
             )
             stage_profiler.record_elapsed(
                 "forward_loss",
@@ -856,6 +857,16 @@ def _train_language_model(
         "loss_kind": last_loss_kind,
         "loss_evidence": last_loss_evidence,
         "sampled_vocab_precompute": sampled_vocab_precompute,
+        "memory_candidate_precompute": sampled_vocab_precompute.get(
+            "memory_candidate_precompute",
+            {
+                "surface": "marulho_language_memory_candidate_batch_precompute.v1",
+                "enabled": False,
+                "reason": "precompute_report_missing",
+                "batch_count": 0,
+                "device": str(model.device),
+            },
+        ),
         "sampled_vocab_training": bool(
             last_loss_evidence.get("sampled_vocab_training", False)
         ),

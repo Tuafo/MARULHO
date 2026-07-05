@@ -84,8 +84,11 @@ harnesses.
   norm metrics as device scalars, performs one CUDA synchronization before
   stopping the measured training timer, and reads aggregate scalars back after
   the hot update window. It supports padded model vocabularies, sampled vocab
-  loss, sparse vocab-row optimization, and tokenizer-row generation decode
-  limits. It is meant to accelerate model experiments, not create a new
+  loss, sparse vocab-row optimization, tokenizer-row generation decode limits,
+  sampled-vocab batch precompute, and bounded memory-candidate precompute. The
+  measured update loop receives `precomputed_batch_memory_candidate_ids` for
+  memory-slot batches so candidate-plan construction does not run inside the
+  hot loss call. It is meant to accelerate model experiments, not create a new
   promotion gate.
 - `language_state_block_runtime_impact.py` measures complete no-grad LM forward
   impact for state-block sequence-buffer experiments. The current
