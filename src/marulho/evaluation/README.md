@@ -217,16 +217,20 @@ harnesses.
   builds replay pressure from grounded prompt continuations, can run one or
   more isolated child candidate arms with different learning/replay settings,
   ranks them by trained-prompt repair, heldout non-regression, replay/old-domain
-  evidence, and update throughput, writes child checkpoints, then records
-  selected-child generation coherence, heldout source-prompt coherence not used
-  for replay training, one or more sustained runtime targets, and optional
-  benchmark-suite aggregation. When `benchmark_suite_output_path` is set, it
-  writes its selected-child report first, runs the benchmark suite with that
-  report as quality-replay evidence, forwards optional memory-slot runtime
-  impact, memory-slot architecture-cost, structural-plasticity, and GPU-kernel
-  evidence paths, then rewrites the final report with the suite result. It is
-  meant to move quality and speed evidence together without turning the
-  benchmark suite into a gate-only workflow or hiding prompt regressions.
+  evidence, accepted online-update status, and update throughput, writes child
+  checkpoints, then records selected-child generation coherence, heldout
+  source-prompt coherence not used for replay training, one or more sustained
+  runtime targets, and optional benchmark-suite aggregation. Its sustained
+  summary distinguishes same-child controlled-decode evidence from ordinary
+  sustained runs, including controlled house-scale availability when a selected
+  child reaches `524288` tokens with decode controls. When
+  `benchmark_suite_output_path` is set, it writes its selected-child report
+  first, runs the benchmark suite with that report as quality-replay evidence,
+  forwards optional memory-slot runtime impact, memory-slot architecture-cost,
+  structural-plasticity, and GPU-kernel evidence paths, then rewrites the final
+  report with the suite result. It is meant to move quality and speed evidence
+  together without turning the benchmark suite into a gate-only workflow or
+  hiding prompt regressions.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and

@@ -466,8 +466,20 @@ def _heldout_generalization_review(
         "same_child_house_scale_sustained_runtime": bool(
             sustained_summary.get("house_scale_524288_available", False)
         ),
+        "same_child_controlled_decode_sustained_runtime": bool(
+            sustained_summary.get("controlled_decode_available", False)
+        ),
+        "same_child_controlled_decode_house_scale_sustained_runtime": bool(
+            sustained_summary.get(
+                "controlled_decode_house_scale_524288_available",
+                False,
+            )
+        ),
         "same_child_sustained_runtime_success": bool(
             sustained_summary.get("all_success", False)
+        ),
+        "same_child_controlled_decode_sustained_runtime_success": bool(
+            sustained_summary.get("controlled_decode_all_success", False)
         ),
         "promotes_generation_quality_claim": False,
         "promotes_runtime_claim": False,
@@ -482,7 +494,7 @@ def _candidate_selection_rank(
 ) -> tuple[float, ...]:
     learning = dict(learning_report.get("learning_evidence") or {})
     heldout = dict(heldout_delta or {})
-    accepted_update = str(learning_report.get("status")) == "accepted_update"
+    accepted_update = _learning_update_accepted(learning_report)
     update_tokens_per_second = float(learning.get("tokens_per_second", 0.0) or 0.0)
     old_forgetting = float(learning.get("old_domain_forgetting", 0.0) or 0.0)
     replay_retention = float(
@@ -507,7 +519,16 @@ def _candidate_selection_score(rank: Sequence[float]) -> float:
     return float(sum(float(value) * weight for value, weight in zip(rank, weights)))
 
 
+def _learning_update_accepted(learning_report: Mapping[str, Any]) -> bool:
+    return str(learning_report.get("status") or "") in {
+        "accepted_online_update",
+        "accepted_update",
+    }
+
+
 def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    learning_summary = dict(candidate.get("learning_summary") or {})
+    selection_rank = [float(value) for value in candidate.get("selection_rank", ())]
     return {
         "candidate_id": candidate["candidate_id"],
         "candidate_index": int(candidate["candidate_index"]),
@@ -515,19 +536,14 @@ def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any
         "child_checkpoint_path": str(candidate.get("child_checkpoint_path") or ""),
         "child_checkpoint_sha256": str(candidate.get("child_checkpoint_sha256") or ""),
         "learning_config": dict(candidate.get("learning_config") or {}),
-        "learning_status": dict(candidate.get("learning_summary") or {}).get("status"),
+        "learning_status": learning_summary.get("status"),
+        "learning_update_accepted": _learning_update_accepted(learning_summary),
         "update_tokens_per_second": float(
-            dict(candidate.get("learning_summary") or {}).get(
-                "tokens_per_second",
-                0.0,
-            )
+            learning_summary.get("tokens_per_second", 0.0)
             or 0.0
         ),
         "total_window_tokens_per_second": float(
-            dict(candidate.get("learning_summary") or {}).get(
-                "total_window_tokens_per_second",
-                0.0,
-            )
+            learning_summary.get("total_window_tokens_per_second", 0.0)
             or 0.0
         ),
         "trained_generation_coherence_delta": dict(
@@ -541,9 +557,33 @@ def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any
         "quality_generalization_review": dict(
             candidate.get("quality_generalization_review") or {}
         ),
-        "selection_rank": [float(value) for value in candidate.get("selection_rank", ())],
+        "selection_rank": selection_rank,
+        "selection_rank_learning_acceptance": (
+            selection_rank[6] if len(selection_rank) > 6 else 0.0
+        ),
         "selection_score": float(candidate.get("selection_score", 0.0) or 0.0),
     }
+
+
+def _sustained_report_uses_decode_controls(report: Mapping[str, Any]) -> bool:
+    generation_decode = (
+        report.get("generation_decode")
+        if isinstance(report.get("generation_decode"), Mapping)
+        else {}
+    )
+    execution_evidence = (
+        report.get("execution_evidence")
+        if isinstance(report.get("execution_evidence"), Mapping)
+        else {}
+    )
+    return bool(
+        generation_decode.get("decode_controls_requested")
+        or execution_evidence.get("decode_controls_requested")
+        or generation_decode.get("repetition_penalty_applied")
+        or generation_decode.get("no_repeat_ngram_applied")
+        or execution_evidence.get("repetition_penalty_applied")
+        or execution_evidence.get("no_repeat_ngram_applied")
+    )
 
 
 def _sustained_summary(
@@ -560,6 +600,17 @@ def _sustained_summary(
     diagnostic_reports = [
         report for report in reports if int(report.get("target_tokens", 0) or 0) >= 8192
     ]
+    controlled_reports = [
+        report for report in reports if _sustained_report_uses_decode_controls(report)
+    ]
+    controlled_successful = [
+        report for report in controlled_reports if bool(report.get("success"))
+    ]
+    controlled_house_reports = [
+        report
+        for report in controlled_reports
+        if int(report.get("target_tokens", 0) or 0) >= 524288
+    ]
     token_rates = [
         float(report.get("tokens_per_second", 0.0) or 0.0)
         for report in successful
@@ -574,6 +625,14 @@ def _sustained_summary(
         "diagnostic_8192_available": bool(diagnostic_reports),
         "long_run_131072_available": bool(long_run_reports),
         "house_scale_524288_available": bool(house_scale_reports),
+        "controlled_decode_report_count": len(controlled_reports),
+        "controlled_decode_successful_report_count": len(controlled_successful),
+        "controlled_decode_available": bool(controlled_reports),
+        "controlled_decode_all_success": bool(controlled_reports)
+        and len(controlled_successful) == len(controlled_reports),
+        "controlled_decode_house_scale_524288_available": bool(
+            controlled_house_reports
+        ),
         "max_target_tokens": max(target_tokens, default=0),
         "max_tokens_per_second": max(token_rates, default=0.0),
         "min_tokens_per_second": min(token_rates, default=0.0),
@@ -588,6 +647,9 @@ def _sustained_summary(
                 ),
                 "success": bool(report.get("success")),
                 "report_status": report.get("report_status"),
+                "decode_controls_requested": _sustained_report_uses_decode_controls(
+                    report
+                ),
                 "backend": dict(report.get("execution_evidence") or {}).get(
                     "backend"
                 ),
@@ -609,6 +671,11 @@ def _disabled_sustained_summary() -> dict[str, Any]:
         "diagnostic_8192_available": False,
         "long_run_131072_available": False,
         "house_scale_524288_available": False,
+        "controlled_decode_report_count": 0,
+        "controlled_decode_successful_report_count": 0,
+        "controlled_decode_available": False,
+        "controlled_decode_all_success": False,
+        "controlled_decode_house_scale_524288_available": False,
         "max_target_tokens": 0,
         "max_tokens_per_second": 0.0,
         "min_tokens_per_second": 0.0,
@@ -1128,6 +1195,12 @@ def run_language_quality_replay_experiment(
             "records_house_scale_sustained_runtime": bool(
                 sustained_summary["house_scale_524288_available"]
             ),
+            "records_controlled_decode_sustained_runtime": bool(
+                sustained_summary["controlled_decode_available"]
+            ),
+            "records_controlled_decode_house_scale_sustained_runtime": bool(
+                sustained_summary["controlled_decode_house_scale_524288_available"]
+            ),
             "records_benchmark_suite_aggregation": bool(
                 benchmark_suite_report.get("surface")
                 == "marulho_language_runtime_benchmark_suite.v1"
@@ -1140,6 +1213,9 @@ def run_language_quality_replay_experiment(
                 generalization_review["heldout_regressed_prompt_count"]
             ),
             "same_child_sustained_runtime_success": bool(sustained_success),
+            "same_child_controlled_decode_sustained_runtime_success": bool(
+                sustained_summary["controlled_decode_all_success"]
+            ),
             "promotes_generation_quality_claim": False,
             "promotes_runtime_claim": False,
         },

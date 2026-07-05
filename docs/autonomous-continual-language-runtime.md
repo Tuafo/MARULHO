@@ -778,9 +778,12 @@ coherence when selected-child replay is MARULHO-owned, parent-preserving,
 heldout-protective, rollback-backed, and paired with same-child sustained
 evidence; `language_quality_replay_experiment.py` can now self-ingest its own
 final report into a requested benchmark suite and forward optional memory-slot,
-structural-plasticity, and GPU-kernel evidence paths. The structural safety
-category now exercises expert-spawn growth, explicit expert-prune, explicit
-expert-merge, and explicit expert-deep-sleep checkpoint transactions.
+structural-plasticity, and GPU-kernel evidence paths. Candidate ranking treats
+current `accepted_online_update` reports as accepted learning, and quality
+replay now records whether controlled-decode sustained evidence belongs to the
+same selected child. The structural safety category now exercises expert-spawn
+growth, explicit expert-prune, explicit expert-merge, and explicit
+expert-deep-sleep checkpoint transactions.
 
 `language-suite-rmsnorm-kernel.json` ingests both the RMSNorm kernel report and
 the updated sustained LM reports. It records `long_run_throughput=pass`,

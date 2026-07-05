@@ -253,8 +253,8 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
             learning_rate=1e-3,
             replay_loss_weight=0.25,
             gradient_clip_interval=1,
-            generation_repetition_penalty=1.0,
-            generation_no_repeat_ngram_size=0,
+            generation_repetition_penalty=1.15,
+            generation_no_repeat_ngram_size=2,
             heldout_prompt_case_count=2,
             sustained_target_token_counts=(2, 3),
             sustained_tick_tokens=1,
@@ -303,6 +303,12 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     ] is True
     assert len(report["candidate_selection"]["candidates"]) == 1
     assert report["candidate_selection"]["candidates"][0]["selected"] is True
+    assert report["candidate_selection"]["candidates"][0][
+        "learning_update_accepted"
+    ] is True
+    assert report["candidate_selection"]["candidates"][0][
+        "selection_rank_learning_acceptance"
+    ] == 1.0
     assert report["generation_coherence_after"]["checkpoint_path"] == str(child)
     assert report["generation_coherence_delta"]["surface"] == (
         "marulho_language_quality_replay_coherence_delta.v1"
@@ -322,9 +328,24 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["quality_generalization_review"][
         "heldout_prompt_coherence_recorded"
     ] is True
+    assert report["quality_generalization_review"][
+        "same_child_controlled_decode_sustained_runtime"
+    ] is True
+    assert report["quality_generalization_review"][
+        "same_child_controlled_decode_sustained_runtime_success"
+    ] is True
     assert report["sustained_runtime_evidence_summary"]["all_success"] is True
     assert report["sustained_runtime_evidence_summary"]["report_count"] == 2
     assert report["sustained_runtime_evidence_summary"]["target_tokens"] == [2, 3]
+    assert report["sustained_runtime_evidence_summary"][
+        "controlled_decode_available"
+    ] is True
+    assert report["sustained_runtime_evidence_summary"][
+        "controlled_decode_all_success"
+    ] is True
+    assert report["sustained_runtime_evidence_summary"][
+        "controlled_decode_report_count"
+    ] == 2
     assert len(report["sustained_runtime_evidence_reports"]) == 2
     assert {
         item["checkpoint_path"] for item in report["sustained_runtime_evidence_reports"]
@@ -374,6 +395,12 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["experiment_review"]["records_heldout_generation_coherence"] is True
     assert report["experiment_review"]["records_same_child_sustained_runtime"] is True
     assert report["experiment_review"]["records_multiple_sustained_targets"] is True
+    assert report["experiment_review"][
+        "records_controlled_decode_sustained_runtime"
+    ] is True
+    assert report["experiment_review"][
+        "same_child_controlled_decode_sustained_runtime_success"
+    ] is True
     assert report["experiment_review"]["records_benchmark_suite_aggregation"] is True
     assert report["experiment_review"][
         "benchmark_suite_quality_replay_evidence_available"
@@ -462,6 +489,13 @@ def test_language_quality_replay_experiment_selects_from_multiple_child_candidat
     assert selection["candidate_count"] == 2
     assert len(selection["candidates"]) == 2
     assert len(selected_candidates) == 1
+    assert all(
+        candidate["learning_update_accepted"] for candidate in selection["candidates"]
+    )
+    assert all(
+        candidate["selection_rank_learning_acceptance"] == 1.0
+        for candidate in selection["candidates"]
+    )
     assert selected in {"candidate-00", "candidate-01"}
     assert Path(report["child_checkpoint_path"]).exists()
     assert Path(report["child_checkpoint_path"]).name.startswith(
