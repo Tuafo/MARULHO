@@ -233,6 +233,34 @@ harnesses.
   `5537.062` token/sec controlled house-scale run remains speed evidence plus a
   quality blocker. The controlled coherence command below currently writes the
   blocked report and exits nonzero by design.
+- The 2026-07-05 `diagnostic-post-window-evidence` memory-slot checkpoint also
+  demonstrated why short diagnostic training is not enough quality evidence:
+  the parent prompt suite failed `0/4`, and a four-candidate hard-prompt replay
+  sweep selected `candidate-01` only as the least-bad child; it still failed
+  `0/4`, with trained mean prefix moving only from `1.0` to `1.25` characters.
+  Its same-child sustained runs did complete at `8192`, `131072`, and `524288`
+  tokens, peaking at `4528.098` tokens/sec, but suite aggregation stayed
+  blocked on `generation_coherence`. Preserve that report as rejection
+  evidence, not a quality repair.
+- The current same-architecture repair is longer training, not a decode trick.
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-524288-20260705.json`
+  trains the `524288` vocab, `1024` sampled-row, routed-expert, bounded
+  memory-slot shape for `128` optimizer records at `3009.616` train tokens/sec,
+  lowers heldout loss from `7.0983` to `0.0890`, and records
+  `per_step_evidence_dict_build=false`. The paired grounded suite
+  `reports/language_generation_coherence/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-grounded-prompt-suite-20260705.json`
+  passes `4/4` cases with mean prefix `32.75` chars, printable fraction `1.0`,
+  and next-character match rate `1.0`. Same-checkpoint controlled sustained
+  reports reach `8192/8192` at `3496.802`, `131072/131072` at `4400.930`, and
+  `524288/524288` at `4524.673` tokens/sec through
+  `torch_cuda_graph_burst_decode_controls`, with zero external/eager/decode
+  control fallbacks and bounded `1024` memory slots (`8` candidates, `2`
+  active, `runs_all_slots=false`). The suite
+  `language-suite-memory-slot-longtrain-quality-speed-20260705.json` is
+  `ready_for_review` with `17/17` pass/smoke categories and no missing required
+  category, while keeping `promotes_runtime_claim=false` and
+  `promotes_hot_path=false` because one-token sustained decode still reports
+  Triton kernel fallback.
 - The current aligned same-scale controlled evidence uses
   `cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt`. Its anchored
   controlled prompt suite passed `4/4` cases with mean prefix match `16.75`,

@@ -124,6 +124,17 @@ uses the PLIF-surrogate checkpoint and passes `4/4` anchored prompts with mean
 prefix match `46` characters, mean prefix fraction `0.71875`, printable
 fraction `1.0`, and next-character match rate `1.0`. It is prompt-suite
 coherence evidence, not a human review or broad generation-quality claim.
+The 2026-07-05 bounded memory-slot longtrain checkpoint
+`reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-524288-20260705-checkpoint.pt`
+extends that evidence to the `524288` model-vocab, `1024` sampled-row,
+`16`-expert, `1024` memory-slot architecture. Its grounded prompt suite passes
+`4/4` cases with mean prefix match `32.75` characters, printable fraction
+`1.0`, and next-character match rate `1.0`; same-checkpoint controlled
+sustained reports reach `8192`, `131072`, and `524288` tokens at `3496.802`,
+`4400.930`, and `4524.673` tokens/sec. This repairs the short diagnostic
+memory-slot checkpoint that failed `0/4` coherence even after a shallow
+quality-replay sweep. It remains review evidence only: broad generation quality,
+runtime promotion, and one-token Triton hot-path promotion remain false.
 
 The target runtime must preserve these boundaries:
 
@@ -771,6 +782,17 @@ long-run reports, all six LM-head kernel reports, and
 `generation_coherence=pass`, `gpu_kernel_correctness=pass`,
 `long_run_throughput=pass`, `missing_category_count=0`, and suite status
 `ready_for_review`, while keeping `promotes_runtime_claim=false`.
+
+`language-suite-memory-slot-longtrain-quality-speed-20260705.json` is the
+current same-checkpoint suite for the bounded memory-slot LM shape. It ingests
+the longtrain memory-slot checkpoint's grounded prompt-suite report, controlled
+`8192`/`131072`/`524288` sustained reports, memory-slot runtime and
+architecture-cost reports, structural-plasticity evidence, and all current
+LM-head kernel reports. It records `generation_coherence=pass`,
+`long_run_throughput=pass`, `gpu_kernel_correctness=pass`,
+`memory_slot_architecture_cost=pass`, `missing_category_count=0`, and suite
+status `ready_for_review`, while keeping `promotes_runtime_claim=false` because
+human review and sustained one-token Triton promotion are still open.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

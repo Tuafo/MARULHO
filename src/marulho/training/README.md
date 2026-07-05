@@ -447,6 +447,20 @@ developmental and consolidation runners, query runners, and long-run evidence.
   training batch. Reports keep loss, route, and memory evidence while recording
   `hot_update_evidence_mode=post_window_telemetry_probe` and
   `per_step_evidence_dict_build=false`.
+- The 2026-07-05 memory-slot longtrain checkpoint
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-524288-20260705.json`
+  keeps the same `524288` model vocab, `1024` sampled rows, horizon-8, TF32,
+  clip-8, `16` routed experts, and `1024` bounded memory slots, but trains the
+  default corpus for `128` optimizer records instead of the prior `8`-batch
+  diagnostic. It reaches `3009.616` train tokens/sec, keeps
+  `torch_autograd_bounded_memory_slots`, scores bounded precomputed memory
+  candidates without all-slot scans, lowers heldout loss from `7.0983` to
+  `0.0890`, and improves the source-continuation probe to `25.0` mean prefix
+  chars. The same checkpoint passes the grounded prompt suite at `4/4` cases
+  and sustains controlled decode at `8192`, `131072`, and `524288` tokens on
+  CUDA graph burst. This is current same-checkpoint quality/speed evidence for
+  the bounded memory-slot LM shape, not a runtime-promotion claim; streaming
+  decode still reports Triton fallback for one-token kernels.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded
