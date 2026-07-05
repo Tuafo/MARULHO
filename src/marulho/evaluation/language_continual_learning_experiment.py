@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -90,6 +91,8 @@ class LanguageContinualLearningExperimentConfig:
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
     collect_training_telemetry: bool = False
+    sampled_vocab_ce_triton_training: bool = False
+    memory_slots_triton_training: bool = False
     cuda_allow_tf32: bool = True
     cuda_float32_matmul_precision: str = "high"
     seed: int = 20260704
@@ -160,6 +163,54 @@ def _load_report(path: str | Path | None) -> dict[str, Any] | None:
     if not resolved.exists():
         return None
     return json.loads(resolved.read_text(encoding="utf-8"))
+
+
+def _apply_training_backend_policy(
+    config: LanguageContinualLearningExperimentConfig,
+) -> dict[str, Any]:
+    env_names = {
+        "sampled_vocab_ce_triton_training": (
+            "MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING"
+        ),
+        "memory_slots_triton_training": (
+            "MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING"
+        ),
+    }
+    requested = {
+        "sampled_vocab_ce_triton_training": bool(
+            config.sampled_vocab_ce_triton_training
+        ),
+        "memory_slots_triton_training": bool(config.memory_slots_triton_training),
+    }
+    previous = {key: os.environ.get(name) for key, name in env_names.items()}
+    for key, name in env_names.items():
+        os.environ[name] = "1" if requested[key] else "0"
+    return {
+        "surface": "marulho_language_continual_training_backend_policy.v1",
+        "scope": "continual_learning_experiment_process",
+        "env_names": env_names,
+        "previous_env": previous,
+        "requested": requested,
+        "active": {
+            key: os.environ.get(name)
+            for key, name in env_names.items()
+        },
+    }
+
+
+def _restore_training_backend_policy(policy: dict[str, Any]) -> None:
+    env_names = policy.get("env_names")
+    previous = policy.get("previous_env")
+    if not isinstance(env_names, dict) or not isinstance(previous, dict):
+        return
+    for key, name in env_names.items():
+        if not isinstance(name, str):
+            continue
+        old_value = previous.get(key)
+        if old_value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = str(old_value)
 
 
 def _comparison_eval_batch_limits(
@@ -404,6 +455,62 @@ def _training_memory_slot_backend_summary(report: dict[str, Any]) -> dict[str, A
         ),
         "candidate_id_source": memory_dict.get("candidate_id_source"),
         "runs_all_slots": bool(memory_dict.get("runs_all_slots", False)),
+    }
+
+
+def _training_sampled_vocab_ce_backend_summary(
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    evidence = report.get("learning_evidence")
+    evidence_dict = evidence if isinstance(evidence, dict) else {}
+    accounting = evidence_dict.get("training_window_triton_accounting")
+    accounting_dict = accounting if isinstance(accounting, dict) else {}
+    triton_delta = accounting_dict.get("language_sampled_vocab_ce_triton")
+    if not isinstance(triton_delta, dict):
+        loss_evidence = evidence_dict.get("loss_evidence")
+        loss_dict = loss_evidence if isinstance(loss_evidence, dict) else {}
+        triton_delta = loss_dict.get("triton_stats_delta")
+    triton_delta_dict = triton_delta if isinstance(triton_delta, dict) else {}
+    backend_policy = report.get("training_backend_policy")
+    policy_dict = backend_policy if isinstance(backend_policy, dict) else {}
+    requested = policy_dict.get("requested")
+    requested_dict = requested if isinstance(requested, dict) else {}
+    return {
+        "surface": "marulho_language_continual_training_sampled_vocab_ce_backend.v1",
+        "training_window_stats_recorded": bool(triton_delta_dict),
+        "sampled_vocab_training": bool(
+            evidence_dict.get("sampled_vocab_training", False)
+        ),
+        "loss_backend": (
+            (evidence_dict.get("loss_evidence") or {}).get("loss_backend")
+            if isinstance(evidence_dict.get("loss_evidence"), dict)
+            else None
+        ),
+        "triton_training_autograd_requested": bool(
+            requested_dict.get("sampled_vocab_ce_triton_training", False)
+        ),
+        "triton_kernel_used": bool(
+            triton_delta_dict.get("triton_kernel_used", False)
+        ),
+        "triton_autograd_forward_calls": int(
+            triton_delta_dict.get("triton_autograd_forward_calls", 0) or 0
+        ),
+        "torch_autograd_backward_calls": int(
+            triton_delta_dict.get("torch_autograd_backward_calls", 0) or 0
+        ),
+        "sparse_weight_backward_calls": int(
+            triton_delta_dict.get("sparse_weight_backward_calls", 0) or 0
+        ),
+        "triton_forward_calls": int(
+            triton_delta_dict.get("triton_forward_calls", 0) or 0
+        ),
+        "torch_fallback_calls": int(
+            triton_delta_dict.get("torch_fallback_calls", 0) or 0
+        ),
+        "triton_failure_count": int(
+            triton_delta_dict.get("triton_failure_count", 0) or 0
+        ),
+        "last_failure": triton_delta_dict.get("last_failure"),
     }
 
 
@@ -954,8 +1061,10 @@ def run_language_continual_learning_experiment(
     cfg = config or LanguageContinualLearningExperimentConfig()
     device = _resolve_device(cfg.device)
     torch.manual_seed(int(cfg.seed))
-    cuda_math_policy = _apply_cuda_math_policy(device, cfg)
+    training_backend_policy = _apply_training_backend_policy(cfg)
+    cuda_math_policy: dict[str, Any] = {"before": None}
     try:
+        cuda_math_policy = _apply_cuda_math_policy(device, cfg)
         tokenizer = ByteLevelLanguageTokenizer()
         old_text, old_source = _read_text(old_corpus_path, default=DEFAULT_OLD_CORPUS)
         new_text, new_source = _read_text(new_corpus_path, default=DEFAULT_NEW_CORPUS)
@@ -1036,6 +1145,7 @@ def run_language_continual_learning_experiment(
                 "experiment_surface": SURFACE,
                 "experiment_config": asdict(cfg),
                 "continual_learning_config": asdict(learning_config),
+                "training_backend_policy": training_backend_policy,
                 "model_config": asdict(model.config),
                 "eval_batch_match_policy": eval_batch_match_policy,
                 "split": {
@@ -1081,8 +1191,15 @@ def run_language_continual_learning_experiment(
         report["training_memory_slot_backend_summary"] = (
             _training_memory_slot_backend_summary(report)
         )
+        report["training_sampled_vocab_ce_backend_summary"] = (
+            _training_sampled_vocab_ce_backend_summary(report)
+        )
         report["experiment_review"] = {
             "fast_mutable_experiment": True,
+            "records_training_backend_policy": bool(
+                report["training_backend_policy"].get("surface")
+                == "marulho_language_continual_training_backend_policy.v1"
+            ),
             "records_actual_continual_learning": bool(
                 report["learning_evidence"]["update_token_count"] > 0
             ),
@@ -1187,6 +1304,20 @@ def run_language_continual_learning_experiment(
                     False,
                 )
             ),
+            "records_training_sampled_vocab_ce_backend_summary": bool(
+                report["training_sampled_vocab_ce_backend_summary"].get(
+                    "surface",
+                )
+                == (
+                    "marulho_language_continual_training_sampled_vocab_ce_backend.v1"
+                )
+            ),
+            "records_training_sampled_vocab_ce_triton_autograd": bool(
+                report["training_sampled_vocab_ce_backend_summary"].get(
+                    "triton_kernel_used",
+                    False,
+                )
+            ),
             "records_eval_memory_slot_triton_backend": bool(
                 report["eval_memory_slot_backend_summary"].get(
                     "any_triton_kernel_used",
@@ -1213,6 +1344,7 @@ def run_language_continual_learning_experiment(
         before_policy = cuda_math_policy.get("before")
         if isinstance(before_policy, dict):
             _restore_cuda_math_policy(before_policy)
+        _restore_training_backend_policy(training_backend_policy)
 
 
 def main() -> int:
@@ -1260,6 +1392,8 @@ def main() -> int:
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
     parser.add_argument("--collect-training-telemetry", action="store_true")
+    parser.add_argument("--sampled-vocab-ce-triton-training", action="store_true")
+    parser.add_argument("--memory-slots-triton-training", action="store_true")
     parser.add_argument("--disable-cuda-tf32", action="store_true")
     parser.add_argument(
         "--cuda-float32-matmul-precision",
@@ -1313,6 +1447,10 @@ def main() -> int:
         replay_retention_tolerance=args.replay_retention_tolerance,
         rollback_on_forgetting=bool(args.rollback_on_forgetting),
         collect_training_telemetry=bool(args.collect_training_telemetry),
+        sampled_vocab_ce_triton_training=bool(
+            args.sampled_vocab_ce_triton_training
+        ),
+        memory_slots_triton_training=bool(args.memory_slots_triton_training),
         cuda_allow_tf32=not bool(args.disable_cuda_tf32),
         cuda_float32_matmul_precision=args.cuda_float32_matmul_precision,
         seed=args.seed,

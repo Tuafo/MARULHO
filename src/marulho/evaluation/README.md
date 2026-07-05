@@ -162,6 +162,24 @@ harnesses.
   and PLIF as Triton-active in training, sampled-vocab CE as the maintained
   torch-autograd selected-row path, and memory-slot training as bounded
   torch-autograd rather than Triton autograd.
+- `language_continual_learning_experiment.py` exposes full-window backend
+  toggles through `--sampled-vocab-ce-triton-training` and
+  `--memory-slots-triton-training`, records
+  `marulho_language_continual_training_backend_policy.v1`, and writes
+  `training_sampled_vocab_ce_backend_summary` plus
+  `training_memory_slot_backend_summary`. The `524288` no-memory sampled-vocab
+  CE Triton report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-sampled-ce-triton-train-evalmatched-update524288-20260705.json`
+  proves the opt-in path uses `512` Triton/autograd calls with zero fallback,
+  but it is slower than the default selected-row torch path (`3083.988` versus
+  `3171.732` update tokens/sec, `-2.766%`). The `524288` memory-slot
+  Triton-training report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-train-evalmatched-update524288-20260705.json`
+  proves `512` memory-slot Triton/autograd calls with zero memory fallback, but
+  still trails bounded torch autograd (`3128.685` versus `3144.572` update
+  tokens/sec, `-0.505%`). Both reports accept the online update with rollback
+  verified; both are backend rejection evidence, not quality or runtime
+  promotion.
 - `language_eligibility_trace_runtime_impact.py` measures complete no-grad LM
   forward impact for deferred eligibility-trace updates. The current `524288`
   model-vocab batch-16/seq-64 report rejects deferred final-scan eligibility as

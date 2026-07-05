@@ -174,6 +174,15 @@ PLIF, route top-k, expert dispatch, memory slots, and sampled-vocab CE inside
 the measured update window; current training accounting shows RMSNorm and PLIF
 as Triton-active, sampled-vocab CE on the maintained torch-autograd selected-row
 path, and memory-slot training on bounded torch autograd.
+The explicit 2026-07-05 backend sweep keeps those defaults for now:
+`--sampled-vocab-ce-triton-training` makes sampled-vocab CE fully Triton-active
+(`512` Triton/autograd calls, zero fallback) but drops update throughput from
+`3171.732` to `3083.988` tokens/sec, and
+`--memory-slots-triton-training` makes memory-slot training fully Triton-active
+(`512` Triton/autograd calls, zero memory fallback) but drops the memory-slot
+update run from `3144.572` to `3128.685` tokens/sec. Both opt-in reports accept
+the online update with rollback verified, so they are useful backend evidence,
+but not maintained-default promotions.
 
 The target runtime must preserve these boundaries:
 

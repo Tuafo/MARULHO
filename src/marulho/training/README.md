@@ -518,6 +518,25 @@ developmental and consolidation runners, query runners, and long-run evidence.
   failures, while sampled-vocab CE remains on the maintained torch-autograd
   selected-row path (`512` fallback calls per arm), and memory-slot training
   adds `512` bounded torch-autograd fallback calls only in the memory arm.
+- `language_continual_learning_experiment.py` exposes the mutable backend
+  switches `--sampled-vocab-ce-triton-training` and
+  `--memory-slots-triton-training`, records
+  `training_backend_policy`, and writes sampled-vocab CE plus memory-slot
+  backend summaries. The `524288` sampled-vocab CE opt-in report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-sampled-ce-triton-train-evalmatched-update524288-20260705.json`
+  accepts the online update with rollback verified, uses `512`
+  sampled-vocab CE Triton/autograd calls with zero fallback and zero failures,
+  but reaches only `3083.988` update tokens/sec and `2803.980` total-window
+  tokens/sec versus the default no-memory `3171.732` and `2910.873`
+  (`-2.766%` update, `-3.672%` total-window), so it remains rejection evidence
+  for the maintained default. The memory-slot Triton-training opt-in report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-train-evalmatched-update524288-20260705.json`
+  accepts the update, uses `512` memory-slot Triton/autograd calls with zero
+  memory fallback and zero failures, and reaches `3128.685` update tokens/sec
+  and `2857.102` total-window tokens/sec versus the default memory-slot
+  `3144.572` and `2880.835` (`-0.505%` update, `-0.824%` total-window), so
+  bounded torch autograd remains the faster maintained memory-training backend
+  until a complete-window report wins.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
   positions plus bounded memory and route candidate IDs from `LanguageBatch`,
   so continual before/after heldout and replay evaluations can reuse the same

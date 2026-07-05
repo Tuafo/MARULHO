@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 
 from marulho.evaluation.language_continual_learning_experiment import (
     LanguageContinualLearningExperimentConfig,
+    _apply_training_backend_policy,
     _comparison_eval_batch_limits,
     _memory_slot_architecture_cost_comparison,
+    _restore_training_backend_policy,
     run_language_continual_learning_experiment,
 )
 
@@ -124,6 +127,31 @@ def test_memory_slot_architecture_cost_compares_no_memory_baseline(tmp_path) -> 
     assert cost["delta_vs_no_memory_after_mean_distinct_bigram_fraction"] == 0.25
 
 
+def test_training_backend_policy_sets_and_restores_env(monkeypatch) -> None:
+    monkeypatch.setenv("MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING", "1")
+    monkeypatch.delenv("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING", raising=False)
+
+    policy = _apply_training_backend_policy(
+        LanguageContinualLearningExperimentConfig(
+            sampled_vocab_ce_triton_training=False,
+            memory_slots_triton_training=True,
+        )
+    )
+
+    assert policy["surface"] == (
+        "marulho_language_continual_training_backend_policy.v1"
+    )
+    assert policy["previous_env"]["sampled_vocab_ce_triton_training"] == "1"
+    assert policy["previous_env"]["memory_slots_triton_training"] is None
+    assert os.environ["MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING"] == "0"
+    assert os.environ["MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING"] == "1"
+
+    _restore_training_backend_policy(policy)
+
+    assert os.environ["MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING"] == "1"
+    assert "MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING" not in os.environ
+
+
 def test_language_continual_learning_experiment_writes_deferred_eval_report(
     tmp_path,
 ) -> None:
@@ -166,6 +194,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     )
     assert report["experiment_review"]["records_eval_metric_readback"] is True
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
+    assert report["experiment_review"]["records_training_backend_policy"] is True
     assert report["experiment_review"]["records_memory_slot_path"] is True
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
@@ -184,6 +213,18 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     )
     assert (
         report["experiment_review"]["records_training_memory_slot_triton_autograd"]
+        is False
+    )
+    assert (
+        report["experiment_review"][
+            "records_training_sampled_vocab_ce_backend_summary"
+        ]
+        is True
+    )
+    assert (
+        report["experiment_review"][
+            "records_training_sampled_vocab_ce_triton_autograd"
+        ]
         is False
     )
     assert report["experiment_review"]["records_generation_quality_probe"] is True
@@ -223,6 +264,19 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert training_backend["candidate_id_source"] == (
         "precomputed_batch_memory_candidate_ids"
     )
+    backend_policy = report["training_backend_policy"]
+    assert backend_policy["requested"]["sampled_vocab_ce_triton_training"] is False
+    assert backend_policy["requested"]["memory_slots_triton_training"] is False
+    assert backend_policy["active"]["sampled_vocab_ce_triton_training"] == "0"
+    assert backend_policy["active"]["memory_slots_triton_training"] == "0"
+    sampled_backend = report["training_sampled_vocab_ce_backend_summary"]
+    assert sampled_backend["surface"] == (
+        "marulho_language_continual_training_sampled_vocab_ce_backend.v1"
+    )
+    assert sampled_backend["training_window_stats_recorded"] is True
+    assert sampled_backend["sampled_vocab_training"] is True
+    assert sampled_backend["triton_training_autograd_requested"] is False
+    assert sampled_backend["triton_kernel_used"] is False
     precompute = report["learning_evidence"]["sampled_vocab_precompute"]
     assert precompute["new_batches"]["memory_candidate_precompute"]["enabled"] is True
     assert precompute["new_batches"]["memory_candidate_precompute"][
