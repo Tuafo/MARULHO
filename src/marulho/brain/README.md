@@ -64,6 +64,11 @@ checkpoint-evolution evaluator. It records parent/child checkpoint lineage,
 child-only learning/replay/growth evidence, parent rollback verification, and a
 `language_checkpoint_evolution` trace, but it does not replace the installed
 parent language model. Promotion remains a separate operator-reviewed gate.
+`language_checkpoint_promotion_review.py` now writes that separate evaluation
+packet from saved reports. It can mark a selected child checkpoint
+`ready_for_operator_parent_promotion_review`, but it does not call
+`MarulhoBrain.install_language_model_runtime()`, does not write a live brain
+checkpoint, and does not mutate runtime state from a status/read surface.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

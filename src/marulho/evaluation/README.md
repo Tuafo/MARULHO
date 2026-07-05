@@ -323,6 +323,17 @@ harnesses.
   house-scale controlled sustained, memory-slot cost/runtime, structural, and
   GPU-kernel evidence; it is `ready_for_review` with no failed or missing
   required categories and keeps `promotes_runtime_claim=false`.
+- `language_checkpoint_promotion_review.py` turns that report set into an
+  operator-review packet without installing a checkpoint. The current review
+  `reports/language_checkpoint_promotion/evo-child-quality-repair-parent-promotion-review-20260705.json`
+  verifies the selected `candidate-03` checkpoint hash, verifies that the
+  quality-replay parent hash matches the evolved child checkpoint hash, keeps
+  rollback bound to the evolved child parent, requires the combined suite's
+  `ready_for_review` gate, and records
+  `ready_for_operator_parent_promotion_review`. It explicitly keeps
+  `eligible_for_live_parent_replacement=false`, `writes_live_checkpoint=false`,
+  `mutates_runtime_state=false`, and `promotes_runtime_claim=false`; the next
+  step is an operator-reviewed installation gate, not a status/read mutation.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
