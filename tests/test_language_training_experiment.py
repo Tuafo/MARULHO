@@ -212,6 +212,70 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["experiment_review"]["records_padded_vocab_decode_policy"] is True
 
 
+def test_language_training_experiment_reports_memory_slot_training_and_sustain(
+    tmp_path,
+) -> None:
+    output = tmp_path / "language-memory-slots.json"
+
+    report = run_language_training_experiment(
+        output_path=output,
+        prompts=("MARULHO",),
+        config=LanguageTrainingExperimentConfig(
+            model_vocab_size=384,
+            sampled_vocab_size=32,
+            sparse_vocab_optimizer=True,
+            embedding_dim=10,
+            state_dim=16,
+            expert_count=3,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=24,
+            recurrent_gradient_horizon=4,
+            memory_slot_count=4,
+            memory_slot_candidate_count=2,
+            active_memory_slot_count=1,
+            sequence_length=12,
+            stride=6,
+            batch_size=2,
+            max_train_batches=2,
+            train_epochs=1,
+            generation_tokens=4,
+            sustained_target_tokens=3,
+            sustained_tick_tokens=2,
+            sustained_quantum_tokens=1,
+            sustained_timeout_seconds=30.0,
+            device="cpu",
+        ),
+    )
+
+    assert report["model_config"]["memory_slot_count"] == 4
+    assert report["model_config"]["memory_slot_candidate_count"] == 2
+    assert report["model_config"]["active_memory_slot_count"] == 1
+    assert report["training"]["sampled_vocab_training"] is True
+    assert report["training"]["full_vocab_logits_materialized"] is False
+    assert report["training"]["memory_enabled"] is True
+    assert report["training"]["memory_total_slots"] == 4
+    assert report["training"]["memory_candidate_slot_count"] == 2
+    assert report["training"]["memory_active_slots_per_token"] == 1
+    assert report["training"]["memory_candidate_slots_scored"] > 0
+    assert report["training"]["memory_runs_all_slots"] is False
+    assert report["training"]["memory_candidate_id_source"] == (
+        "token_hash_memory_slot_bank"
+    )
+    assert report["training"]["memory_gate_readback"] is False
+    memory_slots = report["sustained_summary"]["memory_slots"]
+    assert memory_slots["surface"] == "marulho_language_sustained_memory_slots.v1"
+    assert memory_slots["enabled"] is True
+    assert memory_slots["total_slots"] == 4
+    assert memory_slots["candidate_slot_count"] == 2
+    assert memory_slots["active_slots_per_token"] == 1
+    assert memory_slots["runs_all_slots"] is False
+    assert memory_slots["candidate_id_source"] == "token_hash_memory_slot_bank"
+    assert memory_slots["memory_gate_readback"] is False
+    assert report["experiment_review"]["records_memory_slot_path"] is True
+    assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
+
+
 def test_language_training_experiment_restores_cuda_math_policy(tmp_path) -> None:
     before_matmul = bool(torch.backends.cuda.matmul.allow_tf32)
     before_cudnn = bool(torch.backends.cudnn.allow_tf32)

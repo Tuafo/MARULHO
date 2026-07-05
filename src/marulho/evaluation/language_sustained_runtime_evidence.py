@@ -621,6 +621,7 @@ def _report_payload(
         exception=exception,
     )
     routing = telemetry.get("routing") if isinstance(telemetry.get("routing"), Mapping) else {}
+    memory = telemetry.get("memory") if isinstance(telemetry.get("memory"), Mapping) else {}
     active_language_path = str(model.config.active_language_path)
     model_device = model.device
     execution = dict(execution_evidence or _new_execution_evidence(model))
@@ -747,6 +748,28 @@ def _report_payload(
             "external_lm_fallback_count": 0,
         },
         "execution_evidence": execution,
+        "memory_slots": {
+            "surface": "marulho_language_sustained_memory_slots.v1",
+            "enabled": bool(memory.get("enabled", False)),
+            "total_slots": int(memory.get("total_slots", 0) or 0),
+            "candidate_slot_count": int(memory.get("candidate_slot_count", 0) or 0),
+            "active_slots_per_token": int(
+                memory.get("active_slots_per_token", 0) or 0
+            ),
+            "candidate_slots_scored": int(
+                memory.get("candidate_slots_scored", 0) or 0
+            ),
+            "runs_all_slots": bool(memory.get("runs_all_slots", False)),
+            "fallback_reason": memory.get("fallback_reason"),
+            "candidate_id_source": memory.get("candidate_id_source"),
+            "memory_gate_readback": bool(memory.get("memory_gate_readback", False)),
+            "memory_device": memory.get("memory_device"),
+            "active_parameters_per_token": int(
+                memory.get("active_parameters_per_token", 0) or 0
+            ),
+            "memory_slot_initialization": memory.get("memory_slot_initialization"),
+            "memory_slot_init_std": memory.get("memory_slot_init_std"),
+        },
         "active_columns": int(_routing_value(routing, "active_columns", 0) or 0),
         "total_columns": int(_routing_value(routing, "total_columns", 0) or 0),
         "active_parameters_per_token": int(

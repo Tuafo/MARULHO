@@ -58,6 +58,10 @@ class LanguageTrainingExperimentConfig:
     expert_hidden_dim: int = 96
     adaptive_timestep_budget: int = 1
     recurrent_gradient_horizon: int = 0
+    memory_slot_count: int = 0
+    memory_slot_candidate_count: int = 0
+    active_memory_slot_count: int = 1
+    memory_slot_init_std: float = 0.02
     sequence_length: int = 32
     stride: int = 16
     batch_size: int = 8
@@ -129,6 +133,10 @@ def _model_config(
             if model_vocab_size > int(tokenizer.vocab_size)
             else 0
         ),
+        memory_slot_count=max(0, int(config.memory_slot_count)),
+        memory_slot_candidate_count=max(0, int(config.memory_slot_candidate_count)),
+        active_memory_slot_count=max(1, int(config.active_memory_slot_count)),
+        memory_slot_init_std=float(config.memory_slot_init_std),
     )
 
 
@@ -735,6 +743,9 @@ def _train_language_model(
     routing_telemetry = last_state_block_telemetry.get("routing")
     if not isinstance(routing_telemetry, dict):
         routing_telemetry = {}
+    memory_telemetry = last_state_block_telemetry.get("memory")
+    if not isinstance(memory_telemetry, dict):
+        memory_telemetry = {}
     return {
         "surface": "marulho_language_training_experiment_update.v1",
         "train_batch_count": len(batches),
@@ -784,6 +795,26 @@ def _train_language_model(
             routing_telemetry.get("expert_dispatch_backend")
             == "torch_selected_expert_batched_matmul_dispatch"
         ),
+        "memory_enabled": bool(memory_telemetry.get("enabled", False)),
+        "memory_total_slots": int(memory_telemetry.get("total_slots", 0) or 0),
+        "memory_candidate_slot_count": int(
+            memory_telemetry.get("candidate_slot_count", 0) or 0
+        ),
+        "memory_active_slots_per_token": int(
+            memory_telemetry.get("active_slots_per_token", 0) or 0
+        ),
+        "memory_candidate_slots_scored": int(
+            memory_telemetry.get("candidate_slots_scored", 0) or 0
+        ),
+        "memory_runs_all_slots": bool(memory_telemetry.get("runs_all_slots", False)),
+        "memory_candidate_id_source": memory_telemetry.get("candidate_id_source"),
+        "memory_gate_readback": bool(
+            memory_telemetry.get("memory_gate_readback", False)
+        ),
+        "memory_slot_initialization": memory_telemetry.get(
+            "memory_slot_initialization"
+        ),
+        "memory_slot_init_std": memory_telemetry.get("memory_slot_init_std"),
         "token_count": int(token_count),
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed if elapsed > 0.0 else 0.0,
@@ -996,6 +1027,7 @@ def run_language_training_experiment(
                 "generation_vocab_size": sustained_report.get("generation_vocab_size"),
                 "padded_vocab_rows": sustained_report.get("padded_vocab_rows"),
                 "generation_decode": sustained_report.get("generation_decode"),
+                "memory_slots": sustained_report.get("memory_slots"),
             },
             "experiment_review": {
                 "fast_mutable_experiment": True,
@@ -1008,6 +1040,23 @@ def run_language_training_experiment(
                 ),
                 "records_padded_vocab_decode_policy": bool(
                     max(0, int(model.config.vocab_size) - int(tokenizer.vocab_size)) > 0
+                ),
+                "records_memory_slot_path": bool(
+                    training.get("memory_enabled", False)
+                    and isinstance(sustained_report.get("memory_slots"), dict)
+                    and sustained_report.get("memory_slots", {}).get("enabled") is True
+                ),
+                "records_bounded_memory_slot_path": bool(
+                    training.get("memory_enabled", False)
+                    and not bool(training.get("memory_runs_all_slots", False))
+                    and isinstance(sustained_report.get("memory_slots"), dict)
+                    and sustained_report.get("memory_slots", {}).get("enabled") is True
+                    and not bool(
+                        sustained_report.get("memory_slots", {}).get(
+                            "runs_all_slots",
+                            False,
+                        )
+                    )
                 ),
                 "records_cuda_math_policy": bool(cuda_math_policy.get("applied", False)),
                 "promotes_runtime_claim": False,
@@ -1041,6 +1090,10 @@ def main() -> int:
     parser.add_argument("--route-candidate-count", type=int, default=4)
     parser.add_argument("--expert-hidden-dim", type=int, default=96)
     parser.add_argument("--recurrent-gradient-horizon", type=int, default=0)
+    parser.add_argument("--memory-slot-count", type=int, default=0)
+    parser.add_argument("--memory-slot-candidate-count", type=int, default=0)
+    parser.add_argument("--active-memory-slot-count", type=int, default=1)
+    parser.add_argument("--memory-slot-init-std", type=float, default=0.02)
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--stride", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -1072,6 +1125,10 @@ def main() -> int:
         route_candidate_count=args.route_candidate_count,
         expert_hidden_dim=args.expert_hidden_dim,
         recurrent_gradient_horizon=max(0, int(args.recurrent_gradient_horizon)),
+        memory_slot_count=max(0, int(args.memory_slot_count)),
+        memory_slot_candidate_count=max(0, int(args.memory_slot_candidate_count)),
+        active_memory_slot_count=max(1, int(args.active_memory_slot_count)),
+        memory_slot_init_std=float(args.memory_slot_init_std),
         sequence_length=args.sequence_length,
         stride=args.stride,
         batch_size=args.batch_size,

@@ -646,6 +646,62 @@ def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_pat
     assert tuple(restored_model.memory_slots.shape) == (4, 20)
 
 
+def test_language_model_forward_step_uses_bounded_memory_slots() -> None:
+    torch.manual_seed(141)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    base_config = LanguageModelConfig(
+        vocab_size=tokenizer.vocab_size,
+        embedding_dim=12,
+        state_dim=20,
+        expert_count=2,
+        active_expert_count=1,
+        route_candidate_count=2,
+    )
+    memory_config = LanguageModelConfig(
+        vocab_size=tokenizer.vocab_size,
+        embedding_dim=12,
+        state_dim=20,
+        expert_count=2,
+        active_expert_count=1,
+        route_candidate_count=2,
+        memory_slot_count=4,
+        memory_slot_candidate_count=2,
+        active_memory_slot_count=1,
+    )
+    torch.manual_seed(141)
+    disabled_model = MarulhoLanguageModel(base_config)
+    torch.manual_seed(141)
+    model = MarulhoLanguageModel(memory_config)
+    token_ids = split.train[0].input_ids[:, 0]
+
+    disabled_result = disabled_model.forward_step(
+        token_ids,
+        collect_telemetry=False,
+        decode_vocab_only=True,
+    )
+    memory_result = model.forward_step(
+        token_ids,
+        collect_telemetry=True,
+        decode_vocab_only=True,
+    )
+    memory = memory_result["telemetry"]["memory"]
+
+    torch.testing.assert_close(memory_result["logits"], disabled_result["logits"])
+    assert memory["surface"] == "marulho_language_memory_slots.v1"
+    assert memory["enabled"] is True
+    assert memory["total_slots"] == 4
+    assert memory["candidate_slot_count"] == 2
+    assert memory["active_slots_per_token"] == 1
+    assert memory["candidate_slots_scored"] == token_ids.numel() * 2
+    assert memory["runs_all_slots"] is False
+    assert memory["candidate_id_source"] == "token_hash_memory_slot_bank"
+    assert memory["memory_gate_readback"] is False
+    assert memory_result["telemetry"]["generation_decode"][
+        "full_model_vocab_logits_materialized"
+    ] is True
+
+
 def test_language_model_sleeping_experts_are_skipped_by_route_candidates() -> None:
     torch.manual_seed(15)
     tokenizer = ByteLevelLanguageTokenizer()

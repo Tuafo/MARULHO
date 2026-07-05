@@ -1928,12 +1928,17 @@ class MarulhoLanguageModel(nn.Module):
             state,
             collect_telemetry=collect_telemetry,
         )
+        hidden_sequence, memory_telemetry = self._apply_memory_slots(
+            hidden.unsqueeze(1),
+            token_ids.view(-1, 1),
+            collect_telemetry=collect_telemetry,
+        )
         route_candidates = self._language_route_candidates(
             token_ids.view(-1, 1),
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
         hidden, routing_telemetry = self.routed_experts(
-            hidden.unsqueeze(1),
+            hidden_sequence,
             route_candidates,
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
@@ -1948,6 +1953,7 @@ class MarulhoLanguageModel(nn.Module):
             "external_llm_used": False,
             "owned_by_marulho": True,
             "vocab_size": self.config.vocab_size,
+            "memory": memory_telemetry,
             "routing": routing_telemetry,
         }
         if bool(decode_vocab_only):

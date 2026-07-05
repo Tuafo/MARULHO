@@ -435,6 +435,22 @@ developmental and consolidation runners, query runners, and long-run evidence.
   update. This is trainability and long training-window impact evidence, not a
   hot-path promotion; sustained generation and longer online-learning windows
   still need separate measurement before memory-slot growth can promote.
+- `MarulhoLanguageModel.forward_step` applies the same bounded memory-slot
+  retrieval used by batched training before routed experts, so checkpointed
+  streaming generation can execute memory slots rather than bypassing them. The
+  local integrated CUDA report
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-524288.json`
+  trains the `524288` model-vocab, `1024` sampled-row, horizon-8, TF32,
+  clip-interval-8 memory-slot shape for `31936` tokens at `3112.320` train
+  tokens/sec, improves heldout loss by `5.3550`, saves a checkpoint, and
+  sustains `524288/524288` generated tokens at `5780.913` tokens/sec on
+  `torch_cuda_graph_burst`. The paired sustained report records `32768` graph
+  replays, zero graph failures, `generation_vocab_size=262`, no full model-vocab
+  logits during generation, `1024` memory slots, `8` bounded candidates,
+  `2` active slots, `64` scored memory candidates per streaming step,
+  `runs_all_slots=false`, `memory_gate_readback=false`, and
+  `records_bounded_memory_slot_path=true`. This is checkpointed memory-slot
+  sustained evidence, not a runtime-promotion or language-quality claim.
 - `language_checkpoint_evolution.py` is the first Iteration 8 evaluation path
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,
