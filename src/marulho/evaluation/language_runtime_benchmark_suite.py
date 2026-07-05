@@ -88,6 +88,8 @@ STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE = (
 STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND = (
     "marulho_language_structural_plasticity_transaction"
 )
+QUALITY_REPLAY_SURFACE = "marulho_language_quality_replay_experiment.v1"
+QUALITY_REPLAY_ARTIFACT_KIND = "marulho_language_quality_replay_experiment"
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
@@ -118,6 +120,17 @@ def _read_generation_coherence_report(path: str | Path) -> dict[str, Any]:
         payload = json.load(handle)
     if not isinstance(payload, dict):
         raise ValueError(f"Generation coherence report is not an object: {report_path}")
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
+def _read_quality_replay_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Quality replay report is not an object: {report_path}")
     payload = dict(payload)
     payload.setdefault("path", str(report_path))
     return payload
@@ -586,6 +599,314 @@ def _generation_long_run_alignment_evidence(
             []
             if evidence_available
             else ["same_checkpoint_generation_coherence_long_run"]
+        ),
+    }
+
+
+def _quality_replay_selected_candidate(
+    report: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    selection = (
+        report.get("candidate_selection")
+        if isinstance(report.get("candidate_selection"), Mapping)
+        else {}
+    )
+    selected_id = str(selection.get("selected_candidate_id") or "")
+    candidates = selection.get("candidates")
+    if not isinstance(candidates, Sequence) or isinstance(candidates, (str, bytes)):
+        return None
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        if candidate.get("selected") is True:
+            return dict(candidate)
+    for candidate in candidates:
+        if (
+            isinstance(candidate, Mapping)
+            and selected_id
+            and str(candidate.get("candidate_id") or "") == selected_id
+        ):
+            return dict(candidate)
+    return None
+
+
+def _valid_language_quality_replay_report(report: Mapping[str, Any]) -> bool:
+    selection = (
+        report.get("candidate_selection")
+        if isinstance(report.get("candidate_selection"), Mapping)
+        else {}
+    )
+    lineage = (
+        report.get("checkpoint_lineage")
+        if isinstance(report.get("checkpoint_lineage"), Mapping)
+        else {}
+    )
+    learning_report = (
+        report.get("learning_evidence")
+        if isinstance(report.get("learning_evidence"), Mapping)
+        else {}
+    )
+    learning_gate = (
+        learning_report.get("promotion_gate")
+        if isinstance(learning_report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    rollback = (
+        learning_report.get("rollback_evidence")
+        if isinstance(learning_report.get("rollback_evidence"), Mapping)
+        else {}
+    )
+    trained_delta = (
+        report.get("generation_coherence_delta")
+        if isinstance(report.get("generation_coherence_delta"), Mapping)
+        else {}
+    )
+    heldout_delta = (
+        report.get("heldout_generation_coherence_delta")
+        if isinstance(report.get("heldout_generation_coherence_delta"), Mapping)
+        else {}
+    )
+    after_gate = (
+        (report.get("generation_coherence_after") or {}).get("promotion_gate")
+        if isinstance(report.get("generation_coherence_after"), Mapping)
+        and isinstance(
+            (report.get("generation_coherence_after") or {}).get("promotion_gate"),
+            Mapping,
+        )
+        else {}
+    )
+    heldout_after_gate = (
+        (report.get("heldout_generation_coherence_after") or {}).get(
+            "promotion_gate"
+        )
+        if isinstance(report.get("heldout_generation_coherence_after"), Mapping)
+        and isinstance(
+            (report.get("heldout_generation_coherence_after") or {}).get(
+                "promotion_gate"
+            ),
+            Mapping,
+        )
+        else {}
+    )
+    review = (
+        report.get("quality_generalization_review")
+        if isinstance(report.get("quality_generalization_review"), Mapping)
+        else {}
+    )
+    selected = _quality_replay_selected_candidate(report)
+    selected_child_path = str(selection.get("selected_child_checkpoint_path") or "")
+    selected_path_matches = bool(
+        selected is not None
+        and selected_child_path
+        and _normalized_evidence_path(selected.get("child_checkpoint_path"))
+        == _normalized_evidence_path(selected_child_path)
+        and _normalized_evidence_path(report.get("child_checkpoint_path"))
+        == _normalized_evidence_path(selected_child_path)
+    )
+    return (
+        report.get("artifact_kind") == QUALITY_REPLAY_ARTIFACT_KIND
+        and report.get("surface") == QUALITY_REPLAY_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and selected_path_matches
+        and bool(selection.get("selected_candidate_id"))
+        and int(selection.get("candidate_count", 0) or 0) >= 1
+        and selection.get("mutates_parent_checkpoint") is False
+        and selection.get("heldout_cases_used_for_replay_training") is False
+        and selection.get("saves_child_checkpoint_per_candidate") is True
+        and selection.get("runs_sustained_runtime_only_for_selected_child") is True
+        and lineage.get("writes_child_checkpoint") is True
+        and lineage.get("mutates_parent_checkpoint") is False
+        and learning_report.get("status") == "accepted_online_update"
+        and learning_report.get("external_llm_used") is False
+        and learning_report.get("loads_external_checkpoint") is False
+        and learning_report.get("active_language_path") == "marulho_lm_head"
+        and learning_gate.get("eligible_for_online_learning_review") is True
+        and learning_gate.get("rollback_available") is True
+        and rollback.get("restore_verified") is True
+        and after_gate.get("generation_coherence_available") is True
+        and heldout_after_gate.get("generation_coherence_available") is True
+        and review.get("heldout_prompt_coherence_available") is True
+        and int(review.get("heldout_regressed_prompt_count", 0) or 0) == 0
+        and int(trained_delta.get("regressed_prompt_count", 0) or 0) == 0
+        and int(heldout_delta.get("regressed_prompt_count", 0) or 0) == 0
+    )
+
+
+def _quality_replay_report_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    selection = (
+        report.get("candidate_selection")
+        if isinstance(report.get("candidate_selection"), Mapping)
+        else {}
+    )
+    learning_report = (
+        report.get("learning_evidence")
+        if isinstance(report.get("learning_evidence"), Mapping)
+        else {}
+    )
+    learning_evidence = (
+        learning_report.get("learning_evidence")
+        if isinstance(learning_report.get("learning_evidence"), Mapping)
+        else {}
+    )
+    trained_delta = (
+        report.get("generation_coherence_delta")
+        if isinstance(report.get("generation_coherence_delta"), Mapping)
+        else {}
+    )
+    heldout_delta = (
+        report.get("heldout_generation_coherence_delta")
+        if isinstance(report.get("heldout_generation_coherence_delta"), Mapping)
+        else {}
+    )
+    review = (
+        report.get("quality_generalization_review")
+        if isinstance(report.get("quality_generalization_review"), Mapping)
+        else {}
+    )
+    selected = _quality_replay_selected_candidate(report) or {}
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "parent_checkpoint_path": report.get("parent_checkpoint_path"),
+        "selected_child_checkpoint_path": selection.get(
+            "selected_child_checkpoint_path"
+        ),
+        "selected_candidate_id": selection.get("selected_candidate_id"),
+        "candidate_count": int(selection.get("candidate_count", 0) or 0),
+        "selection_policy": selection.get("selection_policy"),
+        "selected_learning_config": dict(
+            selected.get("learning_config")
+            if isinstance(selected.get("learning_config"), Mapping)
+            else {}
+        ),
+        "selected_update_tokens_per_second": selected.get(
+            "update_tokens_per_second",
+            learning_evidence.get("tokens_per_second"),
+        ),
+        "selected_total_window_tokens_per_second": selected.get(
+            "total_window_tokens_per_second",
+            learning_evidence.get("total_window_tokens_per_second"),
+        ),
+        "selected_update_token_count": learning_evidence.get("update_token_count"),
+        "selected_new_domain_loss_delta": learning_evidence.get(
+            "new_domain_loss_delta"
+        ),
+        "selected_old_domain_forgetting": learning_evidence.get(
+            "old_domain_forgetting"
+        ),
+        "selected_general_replay_retention_delta": learning_evidence.get(
+            "general_replay_retention_delta"
+        ),
+        "trained_repaired_prompt_count": int(
+            trained_delta.get("repaired_prompt_count", 0) or 0
+        ),
+        "trained_regressed_prompt_count": int(
+            trained_delta.get("regressed_prompt_count", 0) or 0
+        ),
+        "trained_mean_prefix_match_chars_delta": trained_delta.get(
+            "mean_prefix_match_chars_delta"
+        ),
+        "heldout_repaired_prompt_count": int(
+            heldout_delta.get("repaired_prompt_count", 0) or 0
+        ),
+        "heldout_regressed_prompt_count": int(
+            heldout_delta.get("regressed_prompt_count", 0) or 0
+        ),
+        "heldout_mean_prefix_match_chars_delta": heldout_delta.get(
+            "mean_prefix_match_chars_delta"
+        ),
+        "heldout_case_pass_rate": review.get("heldout_case_pass_rate"),
+        "heldout_case_count": int(review.get("heldout_case_count", 0) or 0),
+        "heldout_prompt_coherence_available": bool(
+            review.get("heldout_prompt_coherence_available")
+        ),
+        "promotes_generation_quality_claim": bool(
+            review.get("promotes_generation_quality_claim", False)
+        ),
+        "promotes_runtime_claim": False,
+    }
+
+
+def _language_quality_replay_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_quality_replay_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: float(
+            (
+                (_quality_replay_selected_candidate(item) or {}).get(
+                    "update_tokens_per_second",
+                    0.0,
+                )
+                or 0.0
+            )
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "quality_replay_available": best_report is not None,
+        "best_report": (
+            None if best_report is None else _quality_replay_report_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_language_quality_replay_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_generation_quality_claim": False,
+        "promotes_runtime_claim": False,
+    }
+
+
+def _quality_replay_long_run_alignment_evidence(
+    quality_replay_evidence: Mapping[str, Any],
+    long_run_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    best_report = (
+        quality_replay_evidence.get("best_report")
+        if isinstance(quality_replay_evidence.get("best_report"), Mapping)
+        else {}
+    )
+    child_checkpoint = best_report.get("selected_child_checkpoint_path")
+    child_checkpoint_key = _normalized_evidence_path(child_checkpoint)
+    long_reports = _long_run_report_summaries(long_run_evidence)
+    matching_reports = [
+        report
+        for report in long_reports
+        if child_checkpoint_key
+        and _normalized_evidence_path(report.get("checkpoint_path"))
+        == child_checkpoint_key
+    ]
+    matching_long_reports = [
+        report for report in matching_reports if _token_delta(report) >= 131072
+    ]
+    matching_house_reports = [
+        report for report in matching_reports if _token_delta(report) >= 524288
+    ]
+    evidence_available = bool(child_checkpoint_key and matching_long_reports)
+    return {
+        "surface": "marulho_language_quality_replay_long_run_alignment.v1",
+        "selected_child_checkpoint_path": child_checkpoint,
+        "long_run_checkpoint_paths": [
+            report.get("checkpoint_path") for report in long_reports
+        ],
+        "matching_report_count": len(matching_reports),
+        "same_child_long_run_available": evidence_available,
+        "same_child_house_scale_available": bool(matching_house_reports),
+        "matching_reports": matching_reports,
+        "missing_evidence": (
+            [] if evidence_available else ["same_child_quality_replay_long_run"]
         ),
     }
 
@@ -1420,6 +1741,7 @@ def run_language_runtime_benchmark_suite(
     structural_plasticity_evidence_paths: Sequence[str | Path] = (),
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
     generation_coherence_evidence_paths: Sequence[str | Path] = (),
+    quality_replay_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run a compact benchmark-suite smoke pass and write an evidence report."""
 
@@ -1492,8 +1814,15 @@ def run_language_runtime_benchmark_suite(
     generation_coherence_evidence = _language_generation_coherence_evidence(
         generation_coherence_reports
     )
+    quality_replay_reports = [
+        _read_quality_replay_report(path) for path in quality_replay_evidence_paths
+    ]
+    quality_replay_evidence = _language_quality_replay_evidence(
+        quality_replay_reports
+    )
     generation_coherence_missing = tuple(
         generation_coherence_evidence["missing_evidence"]
+        + quality_replay_evidence["missing_evidence"]
     )
     generation_category = _category(
         "generation_coherence",
@@ -1504,6 +1833,7 @@ def run_language_runtime_benchmark_suite(
             "external_llm_used": generation["external_llm_used"],
             "review_kind": "token_stream_smoke_not_human_quality_review",
             **generation_coherence_evidence,
+            "quality_replay_evidence": quality_replay_evidence,
         },
         missing=generation_coherence_missing,
     )
@@ -2286,6 +2616,32 @@ def run_language_runtime_benchmark_suite(
         generation_category["missing_evidence"].extend(
             generation_long_run_alignment["missing_evidence"]
         )
+    if quality_replay_evidence["quality_replay_available"]:
+        quality_replay_long_run_alignment = (
+            _quality_replay_long_run_alignment_evidence(
+                quality_replay_evidence,
+                long_run_evidence,
+            )
+        )
+        generation_category["evidence"]["quality_replay_long_run_alignment"] = (
+            quality_replay_long_run_alignment
+        )
+        if (
+            not long_run_missing
+            and quality_replay_long_run_alignment["missing_evidence"]
+        ):
+            generation_category["status"] = "smoke_only"
+            generation_category["missing_evidence"].extend(
+                quality_replay_long_run_alignment["missing_evidence"]
+            )
+    else:
+        generation_category["evidence"]["quality_replay_long_run_alignment"] = {
+            "surface": "marulho_language_quality_replay_long_run_alignment.v1",
+            "same_child_long_run_available": False,
+            "same_child_house_scale_available": False,
+            "matching_report_count": 0,
+            "missing_evidence": [],
+        }
 
     parameter_estimate = estimate_language_model_parameters(base_model.config)
     categories.append(
@@ -2550,6 +2906,9 @@ def run_language_runtime_benchmark_suite(
             "generation_coherence_evidence": [
                 str(Path(path)) for path in generation_coherence_evidence_paths
             ],
+            "quality_replay_evidence": [
+                str(Path(path)) for path in quality_replay_evidence_paths
+            ],
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
             "checkpoint_evolution_dir": str(output.parent / "language-suite-evolution"),
@@ -2569,6 +2928,9 @@ def run_language_runtime_benchmark_suite(
                 "grounding_support_available"
             ],
             "generation_coherence_available": not generation_coherence_missing,
+            "quality_replay_evidence_available": quality_replay_evidence[
+                "quality_replay_available"
+            ],
             "long_run_evidence_available": not long_run_missing,
             "missing_required_category_names": [
                 item["name"] for item in missing_categories
@@ -2634,6 +2996,13 @@ def main() -> int:
         default=[],
         help="Existing marulho_language_generation_coherence_report JSON report.",
     )
+    parser.add_argument(
+        "--quality-replay-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Existing marulho_language_quality_replay_experiment JSON report.",
+    )
     args = parser.parse_args()
     run_language_runtime_benchmark_suite(
         output_path=args.output,
@@ -2650,6 +3019,7 @@ def main() -> int:
         ),
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
         generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),
+        quality_replay_evidence_paths=tuple(args.quality_replay_evidence),
     )
     return 0
 

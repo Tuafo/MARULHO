@@ -15,6 +15,8 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     MEMORY_SLOT_RUNTIME_IMPACT_SURFACE,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
+    QUALITY_REPLAY_ARTIFACT_KIND,
+    QUALITY_REPLAY_SURFACE,
     RMSNORM_KERNEL_NAME,
     ROUTE_TOPK_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
@@ -176,6 +178,209 @@ def _write_generation_coherence_report(
                     "generation_coherence_available": True,
                     "grounded_prompt_suite_available": True,
                     "human_review_available": False,
+                    "promotes_generation_quality_claim": False,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_quality_replay_report(
+    path,
+    *,
+    parent_checkpoint_path: str = "reports/language_training_experiments/parent.pt",
+    child_checkpoint_path: str = "reports/language_training_experiments/checkpoint.pt",
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": QUALITY_REPLAY_ARTIFACT_KIND,
+                "surface": QUALITY_REPLAY_SURFACE,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "parent_checkpoint_path": parent_checkpoint_path,
+                "parent_checkpoint_sha256": "parent-hash",
+                "child_checkpoint_path": child_checkpoint_path,
+                "child_checkpoint_sha256": "child-hash",
+                "checkpoint_lineage": {
+                    "surface": "marulho_language_quality_replay_checkpoint_lineage.v1",
+                    "parent_checkpoint_path": parent_checkpoint_path,
+                    "child_checkpoint_path": child_checkpoint_path,
+                    "parent_checkpoint_sha256": "parent-hash",
+                    "child_checkpoint_sha256": "child-hash",
+                    "candidate_count": 2,
+                    "selected_candidate_id": "candidate-01",
+                    "candidate_child_checkpoint_paths": [
+                        "reports/language_training_experiments/rejected-child.pt",
+                        child_checkpoint_path,
+                    ],
+                    "writes_child_checkpoint": True,
+                    "mutates_parent_checkpoint": False,
+                },
+                "candidate_selection": {
+                    "surface": "marulho_language_quality_replay_candidate_selection.v1",
+                    "enabled": True,
+                    "candidate_count": 2,
+                    "selection_policy": (
+                        "prefer_min_heldout_regression_then_heldout_gain_then_"
+                        "trained_gain_then_learning_acceptance_then_update_throughput"
+                    ),
+                    "selected_candidate_id": "candidate-01",
+                    "selected_candidate_index": 1,
+                    "selected_child_checkpoint_path": child_checkpoint_path,
+                    "selected_child_checkpoint_sha256": "child-hash",
+                    "selected_selection_rank": [
+                        -0.0,
+                        0.0,
+                        6.75,
+                        -0.0,
+                        1.0,
+                        18.0,
+                        0.0,
+                        -0.0,
+                        -0.0,
+                        2796.957,
+                    ],
+                    "selected_selection_score": 18552.797,
+                    "saves_child_checkpoint_per_candidate": True,
+                    "runs_sustained_runtime_only_for_selected_child": True,
+                    "mutates_parent_checkpoint": False,
+                    "heldout_cases_used_for_replay_training": False,
+                    "candidates": [
+                        {
+                            "candidate_id": "candidate-00",
+                            "candidate_index": 0,
+                            "selected": False,
+                            "child_checkpoint_path": (
+                                "reports/language_training_experiments/rejected-child.pt"
+                            ),
+                            "child_checkpoint_sha256": "rejected-hash",
+                            "learning_status": "accepted_online_update",
+                            "learning_config": {
+                                "learning_rate": 0.0008,
+                                "replay_loss_weight": 0.35,
+                                "max_steps": 2,
+                            },
+                            "update_tokens_per_second": 3183.914,
+                            "total_window_tokens_per_second": 1934.635,
+                            "heldout_generation_coherence_delta": {
+                                "surface": (
+                                    "marulho_language_quality_replay_coherence_delta.v1"
+                                ),
+                                "regressed_prompt_count": 1,
+                                "repaired_prompt_count": 0,
+                                "mean_prefix_match_chars_delta": 2.5,
+                            },
+                        },
+                        {
+                            "candidate_id": "candidate-01",
+                            "candidate_index": 1,
+                            "selected": True,
+                            "child_checkpoint_path": child_checkpoint_path,
+                            "child_checkpoint_sha256": "child-hash",
+                            "learning_status": "accepted_online_update",
+                            "learning_config": {
+                                "learning_rate": 0.0001,
+                                "replay_loss_weight": 2.5,
+                                "max_steps": 1,
+                            },
+                            "update_tokens_per_second": 2796.957,
+                            "total_window_tokens_per_second": 1271.694,
+                            "trained_generation_coherence_delta": {
+                                "surface": (
+                                    "marulho_language_quality_replay_coherence_delta.v1"
+                                ),
+                                "regressed_prompt_count": 0,
+                                "repaired_prompt_count": 1,
+                                "mean_prefix_match_chars_delta": 18.0,
+                            },
+                            "heldout_generation_coherence_delta": {
+                                "surface": (
+                                    "marulho_language_quality_replay_coherence_delta.v1"
+                                ),
+                                "regressed_prompt_count": 0,
+                                "repaired_prompt_count": 0,
+                                "mean_prefix_match_chars_delta": 6.75,
+                            },
+                        },
+                    ],
+                },
+                "learning_evidence": {
+                    "artifact_kind": "marulho_language_continual_learning_window",
+                    "surface": "marulho_language_continual_learning_window.v1",
+                    "owned_by_marulho": True,
+                    "external_llm_used": False,
+                    "loads_external_checkpoint": False,
+                    "active_language_path": "marulho_lm_head",
+                    "status": "accepted_online_update",
+                    "learning_evidence": {
+                        "tokens_per_second": 2796.957,
+                        "total_window_tokens_per_second": 1271.694,
+                        "update_token_count": 16384,
+                        "new_domain_loss_delta": 0.058,
+                        "old_domain_forgetting": -0.054,
+                        "general_replay_retention_delta": -0.051,
+                    },
+                    "rollback_evidence": {
+                        "restore_verified": True,
+                        "rollback_required": False,
+                    },
+                    "promotion_gate": {
+                        "eligible_for_online_learning_review": True,
+                        "rollback_available": True,
+                    },
+                },
+                "generation_coherence_after": {
+                    "checkpoint_path": child_checkpoint_path,
+                    "promotion_gate": {
+                        "generation_coherence_available": True,
+                        "grounded_prompt_suite_available": True,
+                    },
+                    "summary": {
+                        "case_count": 4,
+                        "passed_case_count": 4,
+                        "case_pass_rate": 1.0,
+                    },
+                },
+                "heldout_generation_coherence_after": {
+                    "checkpoint_path": child_checkpoint_path,
+                    "promotion_gate": {
+                        "generation_coherence_available": True,
+                        "grounded_prompt_suite_available": True,
+                    },
+                    "summary": {
+                        "case_count": 4,
+                        "passed_case_count": 4,
+                        "case_pass_rate": 1.0,
+                    },
+                },
+                "generation_coherence_delta": {
+                    "surface": "marulho_language_quality_replay_coherence_delta.v1",
+                    "regressed_prompt_count": 0,
+                    "repaired_prompt_count": 1,
+                    "mean_prefix_match_chars_delta": 18.0,
+                },
+                "heldout_generation_coherence_delta": {
+                    "surface": "marulho_language_quality_replay_coherence_delta.v1",
+                    "regressed_prompt_count": 0,
+                    "repaired_prompt_count": 0,
+                    "mean_prefix_match_chars_delta": 6.75,
+                },
+                "quality_generalization_review": {
+                    "surface": "marulho_language_quality_replay_generalization_review.v1",
+                    "trained_prompt_coherence_available": True,
+                    "heldout_prompt_coherence_recorded": True,
+                    "heldout_prompt_coherence_available": True,
+                    "heldout_case_count": 4,
+                    "heldout_passed_case_count": 4,
+                    "heldout_case_pass_rate": 1.0,
+                    "heldout_regressed_prompt_count": 0,
+                    "heldout_repaired_prompt_count": 0,
+                    "heldout_mean_prefix_match_chars_delta": 6.75,
                     "promotes_generation_quality_claim": False,
                     "promotes_runtime_claim": False,
                 },
@@ -582,6 +787,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
     memory_slot_kernel = tmp_path / "memory-slot-retrieval-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
+    quality_replay = tmp_path / "quality-replay.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
     structural_plasticity = tmp_path / "structural-plasticity.json"
@@ -623,6 +829,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         kernel_name=MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
     )
     _write_generation_coherence_report(generation_coherence)
+    _write_quality_replay_report(quality_replay)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
     _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
     _write_structural_plasticity_experiment_report(structural_plasticity)
@@ -648,6 +855,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             memory_slot_kernel,
         ),
         generation_coherence_evidence_paths=(generation_coherence,),
+        quality_replay_evidence_paths=(quality_replay,),
     )
     categories = {item["name"]: item for item in report["categories"]}
     long_run = categories["long_run_throughput"]
@@ -750,6 +958,44 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         generation_category["evidence"]["best_report"]["review_kind"]
         == "automated_grounded_prompt_suite_not_human_review"
     )
+    quality_replay_evidence = generation_category["evidence"][
+        "quality_replay_evidence"
+    ]
+    assert quality_replay_evidence["quality_replay_available"] is True
+    assert quality_replay_evidence["valid_report_count"] == 1
+    assert quality_replay_evidence["best_report"]["candidate_count"] == 2
+    assert (
+        quality_replay_evidence["best_report"]["selected_candidate_id"]
+        == "candidate-01"
+    )
+    assert (
+        quality_replay_evidence["best_report"]["selected_child_checkpoint_path"]
+        == "reports/language_training_experiments/checkpoint.pt"
+    )
+    assert (
+        quality_replay_evidence["best_report"]["selected_update_tokens_per_second"]
+        == 2796.957
+    )
+    assert (
+        quality_replay_evidence["best_report"]["trained_repaired_prompt_count"]
+        == 1
+    )
+    assert (
+        quality_replay_evidence["best_report"]["heldout_regressed_prompt_count"]
+        == 0
+    )
+    assert (
+        quality_replay_evidence["best_report"][
+            "heldout_mean_prefix_match_chars_delta"
+        ]
+        == 6.75
+    )
+    quality_replay_alignment = generation_category["evidence"][
+        "quality_replay_long_run_alignment"
+    ]
+    assert quality_replay_alignment["same_child_long_run_available"] is True
+    assert quality_replay_alignment["same_child_house_scale_available"] is True
+    assert quality_replay_alignment["matching_report_count"] == 3
     assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
     assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
     assert gpu_kernel_category["evidence"]["plif_triton_forward_parity"] is True
@@ -810,6 +1056,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     ]
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
+    assert report["promotion_gate"]["quality_replay_evidence_available"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == []
     assert report["promotion_gate"]["status"] == "ready_for_review"
 

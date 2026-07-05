@@ -202,9 +202,13 @@ harnesses.
   `marulho_language_structural_plasticity_experiment.v1` reports can enrich the
   growth/prune safety category when their transactions are MARULHO-owned,
   operator-approved, checkpoint-backed, rollback-verified, heldout-non-
-  regressing, and bounded for route-bank or memory-slot expansion. Human review
-  and broad generation-quality/runtime promotion remain false unless separately
-  proven.
+  regressing, and bounded for route-bank or memory-slot expansion. Saved
+  `marulho_language_quality_replay_experiment.v1` reports can enrich the
+  generation-coherence category with selected-child replay evidence when the
+  replay experiment is MARULHO-owned, checkpoint-lineaged, parent-preserving,
+  heldout-protective, rollback-backed, and externally paired with same-child
+  long-run evidence. Human review and broad generation-quality/runtime
+  promotion remain false unless separately proven.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
@@ -241,11 +245,15 @@ harnesses.
   `torch_cuda_graph_burst_decode_controls`, with graph-compatible decode
   controls, zero CPU token copy, and zero decode-control fallbacks. Suite
   aggregation
-  `language-suite-quality-replay-protective-selected-child-controlled-aligned.json`
-  reports `ready_for_review`, generation `pass`, long-run throughput `pass`,
-  GPU kernel correctness `pass`, all `15/15` categories pass/smoke, and
-  `promotes_runtime_claim=false`. This is checkpoint-selected quality/speed
-  tradeoff evidence, not a broad generation-quality or runtime promotion.
+  `language-suite-quality-replay-protective-selected-child-quality-ingested.json`
+  now ingests the quality-replay report itself through
+  `--quality-replay-evidence`, pairs selected child checkpoint lineage with the
+  same-child `8192` and `524288` sustained reports, and reports
+  `ready_for_review`, generation `pass`, long-run throughput `pass`, GPU kernel
+  correctness `pass`, memory-slot cost `pass`, structural plasticity `pass`,
+  all `17/17` categories pass/smoke, and `promotes_runtime_claim=false`. This
+  is checkpoint-selected quality/speed tradeoff evidence, not a broad
+  generation-quality or runtime promotion.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
@@ -830,6 +838,7 @@ python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint re
 python -m marulho.evaluation.language_sustained_runtime_evidence --checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --output reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-524288-sustained.json --target-tokens 524288 --tick-tokens 128 --quantum-tokens 16 --timeout-seconds 1200 --map-location cuda --generation-repetition-penalty 1.15 --generation-no-repeat-ngram-size 3 --no-environment-snapshot
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-default-policy-controlled-aligned.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-sampled-padded-default-policy-decode-controls-graph-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/cuda-sampled-padded-default-policy-anchored-decode-controls-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-sampled-vocab-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
+python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-quality-replay-protective-selected-child-quality-ingested.json --sustained-target-tokens 8 --sustained-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-8192.json --sustained-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-selected-child-sustained-524288.json --generation-coherence-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective-candidate-03-child-coherence.json --quality-replay-evidence reports/language_quality_replay/cuda-sampled-padded-default-policy-candidate-sweep-heldout-protective.json --memory-slot-runtime-impact-evidence reports/language_training_experiments/memory-slot-runtime-impact-triton-nograd-524288-b16-s64.json --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json --structural-plasticity-evidence reports/language_structural_plasticity/structural-memory-route-524288.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/eligibility-trace-triton-20260705.json --gpu-kernel-evidence reports/language_kernel_evidence/memory-slots-triton-20260705.json
 python -m marulho.evaluation.language_generation_coherence --checkpoint reports/language_training_experiments/cuda-plif-surrogate-8192-checkpoint.pt --output reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --map-location cuda --min-case-pass-rate 1.0
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-generation-coherence.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --generation-coherence-evidence reports/language_generation_coherence/plif-surrogate-grounded-prompt-suite-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json
 ```
