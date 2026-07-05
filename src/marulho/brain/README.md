@@ -109,6 +109,19 @@ replay loss (`-4.0014`), restores the learned brain checkpoint, and then reaches
 `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec through
 `torch_cuda_graph_burst_decode_controls`. This is installed-parent learning and
 speed evidence, still with `promotes_runtime_claim=false`.
+`language_brain_structural_plasticity_evidence.py` verifies installed-brain
+structural mutation after learning. It loads the learned brain checkpoint, saves
+and restores the pre-structure brain, proposes and applies structure through
+`MarulhoBrain`, saves and restores the post-structure brain, then can run
+post-mutation sustained generation. The current CUDA report
+`reports/language_brain_structural_plasticity/evo-child-quality-repair-installed-learned-brain-route-bank-structure-524288-20260705.json`
+applies route-bank expansion from `8` to `12` bounded candidates on the learned
+`524288` model-vocab brain, verifies checkpoint restore and rollback evidence,
+records no status-read mutation, restores the post-structure brain checkpoint,
+and sustains `524288/524288` post-structure tokens at `8060.863` tokens/sec
+through `torch_cuda_graph_burst_decode_controls` with zero tracked Triton
+failures. This is installed-brain structural evidence, not a runtime or
+language-quality promotion.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

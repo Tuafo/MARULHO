@@ -5,6 +5,8 @@ import json
 from marulho.evaluation.language_runtime_benchmark_suite import (
     BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND,
     BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE,
+    BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND,
+    BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE,
     ELIGIBILITY_TRACE_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND,
@@ -619,6 +621,103 @@ def _write_brain_installed_continual_learning_report(path) -> None:
     )
 
 
+def _write_brain_installed_structural_plasticity_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND,
+                "surface": BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE,
+                "status": "final",
+                "report_status": "final",
+                "runtime_owner": "MarulhoBrain",
+                "active_language_path": "marulho_lm_head",
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "structural_transaction_summary": {
+                    "surface": (
+                        "marulho_brain_installed_structural_transaction_summary.v1"
+                    ),
+                    "brain_surface": (
+                        "marulho_brain_language_structural_transaction.v1"
+                    ),
+                    "training_surface": STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE,
+                    "status": "applied_structural_mutation",
+                    "trace_event": "language_structure",
+                    "applied": True,
+                    "operator_approved": True,
+                    "proposal_kind": "route_bank_expansion",
+                    "source_expert_count": 18,
+                    "target_expert_count": 18,
+                    "source_route_candidate_count": 8,
+                    "target_route_candidate_count": 12,
+                    "route_bank_candidate_count_delta": 4,
+                    "source_memory_slot_count": 1024,
+                    "target_memory_slot_count": 1024,
+                    "memory_slot_count_delta": 0,
+                    "checkpoint_restore_verified": True,
+                    "rollback_verified": True,
+                    "heldout_non_regression": True,
+                    "eligible_for_reviewed_structural_promotion": True,
+                },
+                "pre_structural_brain_checkpoint": {
+                    "surface": "marulho_brain_pre_structure_installed_checkpoint.v1",
+                    "path": "reports/language_brain_structural/pre.pt",
+                    "restore_verified": True,
+                },
+                "post_structural_brain_checkpoint": {
+                    "surface": "marulho_brain_post_structure_checkpoint.v1",
+                    "path": "reports/language_brain_structural/post.pt",
+                    "restore_verified": True,
+                },
+                "post_structure_sustained_window": {
+                    "surface": (
+                        "marulho_brain_post_structure_sustained_generation_summary.v1"
+                    ),
+                    "enabled": True,
+                    "success": True,
+                    "token_delta": 524288,
+                    "tokens_per_second": 8060.863,
+                    "backend": "torch_cuda_graph_burst_decode_controls",
+                    "tracked_triton_kernel_failure_count": 0,
+                    "external_llm_used": False,
+                    "service_owned_cognition": False,
+                    "promotes_runtime_claim": False,
+                },
+                "promotion_gate": {
+                    "surface": (
+                        "marulho_language_brain_installed_structural_gate.v1"
+                    ),
+                    "loaded_installed_brain_checkpoint": True,
+                    "batch_tokenizer_matches_installed_runtime": True,
+                    "pre_structure_brain_checkpoint_restore_verified": True,
+                    "proposal_runs_through_marulho_brain": True,
+                    "proposal_non_mutating": True,
+                    "structural_apply_runs_through_marulho_brain": True,
+                    "language_structure_trace_recorded": True,
+                    "records_checkpoint_backed_transaction": True,
+                    "records_rollback_evidence": True,
+                    "records_reviewed_structural_mutation": True,
+                    "post_structure_brain_checkpoint_restore_verified": True,
+                    "post_structure_status_restores_transaction": True,
+                    "post_structure_sustained_enabled": True,
+                    "post_structure_sustained_target_reached": True,
+                    "post_structure_sustained_8192_boundary_reached": True,
+                    "post_structure_sustained_131072_boundary_reached": True,
+                    "post_structure_sustained_524288_boundary_reached": True,
+                    "status_read_mutation_absent": True,
+                    "external_llm_absent": True,
+                    "service_owned_cognition_absent": True,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_structural_plasticity_experiment_report(path) -> None:
     path.write_text(
         json.dumps(
@@ -996,6 +1095,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     brain_installed_continual_learning = (
         tmp_path / "brain-installed-continual-learning.json"
     )
+    brain_installed_structural_plasticity = (
+        tmp_path / "brain-installed-structural-plasticity.json"
+    )
     structural_plasticity = tmp_path / "structural-plasticity.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
@@ -1042,6 +1144,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     _write_brain_installed_continual_learning_report(
         brain_installed_continual_learning
     )
+    _write_brain_installed_structural_plasticity_report(
+        brain_installed_structural_plasticity
+    )
     _write_structural_plasticity_experiment_report(structural_plasticity)
 
     report = run_language_runtime_benchmark_suite(
@@ -1050,6 +1155,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
         brain_installed_continual_learning_evidence_paths=(
             brain_installed_continual_learning,
+        ),
+        brain_installed_structural_plasticity_evidence_paths=(
+            brain_installed_structural_plasticity,
         ),
         memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
         memory_slot_architecture_cost_evidence_paths=(
@@ -1220,6 +1328,34 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert saved_structural["transaction_summaries"][0][
         "target_memory_slot_count"
     ] == 1024
+    brain_structural = growth_prune_category["evidence"][
+        "brain_installed_structural_plasticity_evidence"
+    ]
+    assert brain_structural["brain_installed_structural_plasticity_available"] is True
+    assert brain_structural["valid_report_count"] == 1
+    assert brain_structural["best_report"]["runtime_owner"] == "MarulhoBrain"
+    assert brain_structural["best_report"]["brain_surface"] == (
+        "marulho_brain_language_structural_transaction.v1"
+    )
+    assert brain_structural["best_report"]["proposal_kind"] == "route_bank_expansion"
+    assert brain_structural["best_report"]["source_route_candidate_count"] == 8
+    assert brain_structural["best_report"]["target_route_candidate_count"] == 12
+    assert brain_structural["best_report"]["checkpoint_restore_verified"] is True
+    assert brain_structural["best_report"]["rollback_verified"] is True
+    assert (
+        brain_structural["best_report"]["post_structure_sustained_token_delta"]
+        == 524288
+    )
+    assert (
+        brain_structural["best_report"]["post_structure_sustained_tokens_per_second"]
+        == 8060.863
+    )
+    assert (
+        brain_structural["best_report"][
+            "post_structure_sustained_524288_boundary_reached"
+        ]
+        is True
+    )
     assert rollback_category["status"] == "pass"
     saved_evolution = rollback_category["evidence"][
         "saved_checkpoint_evolution_evidence"
@@ -1361,6 +1497,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert report["promotion_gate"]["quality_replay_evidence_available"] is True
     assert report["promotion_gate"][
         "brain_installed_continual_learning_evidence_available"
+    ] is True
+    assert report["promotion_gate"][
+        "brain_installed_structural_plasticity_evidence_available"
     ] is True
     assert report["promotion_gate"][
         "checkpoint_evolution_evidence_available"

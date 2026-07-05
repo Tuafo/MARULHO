@@ -637,6 +637,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   checkpoints, checkpoint restore verification, rollback verification, and
   heldout non-regression. This is structural transaction evidence, not runtime
   or generation-quality promotion.
+- `evaluation/language_brain_structural_plasticity_evidence.py` verifies the
+  same structural path through an installed learned `MarulhoBrain`. The current
+  CUDA report
+  `reports/language_brain_structural_plasticity/evo-child-quality-repair-installed-learned-brain-route-bank-structure-524288-20260705.json`
+  applies route-bank expansion from `8` to `12` bounded candidates on the
+  learned `524288` model-vocab brain, records non-mutating proposal evidence,
+  checkpoint restore and rollback evidence, post-structure brain checkpoint
+  restore, no status-read mutation, and `524288/524288` post-structure
+  sustained generation at `8060.863` tokens/sec with zero tracked Triton
+  failures. This is installed-brain route-bank evidence, not a language-quality
+  promotion.
 - `evaluation/language_memory_slot_runtime_impact.py` is the complete-forward
   evidence report for the LM memory-slot path. The local 2026-07-05 CUDA
   report

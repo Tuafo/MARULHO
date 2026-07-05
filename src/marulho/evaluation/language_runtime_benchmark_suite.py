@@ -82,6 +82,12 @@ BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE = (
 BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND = (
     "marulho_language_brain_installed_continual_learning_evidence"
 )
+BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE = (
+    "marulho_language_brain_installed_structural_plasticity_evidence.v1"
+)
+BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND = (
+    "marulho_language_brain_installed_structural_plasticity_evidence"
+)
 STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE = (
     "marulho_language_structural_plasticity_experiment.v1"
 )
@@ -281,6 +287,21 @@ def _read_brain_installed_continual_learning_report(
     return payload
 
 
+def _read_brain_installed_structural_plasticity_report(
+    path: str | Path,
+) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Brain-installed structural-plasticity report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
 def _read_structural_plasticity_evidence_report(path: str | Path) -> dict[str, Any]:
     report_path = Path(path)
     with report_path.open("r", encoding="utf-8") as handle:
@@ -426,6 +447,100 @@ def _valid_brain_installed_continual_learning_report(
         and gate.get("records_update_throughput") is True
         and gate.get("records_total_window_throughput") is True
         and gate.get("learned_brain_checkpoint_restore_verified") is True
+        and gate.get("status_read_mutation_absent") is True
+        and gate.get("external_llm_absent") is True
+        and gate.get("service_owned_cognition_absent") is True
+        and gate.get("promotes_runtime_claim") is False
+    )
+
+
+def _valid_brain_installed_structural_plasticity_report(
+    report: Mapping[str, Any],
+) -> bool:
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    summary = (
+        report.get("structural_transaction_summary")
+        if isinstance(report.get("structural_transaction_summary"), Mapping)
+        else {}
+    )
+    pre_checkpoint = (
+        report.get("pre_structural_brain_checkpoint")
+        if isinstance(report.get("pre_structural_brain_checkpoint"), Mapping)
+        else {}
+    )
+    post_checkpoint = (
+        report.get("post_structural_brain_checkpoint")
+        if isinstance(report.get("post_structural_brain_checkpoint"), Mapping)
+        else {}
+    )
+    sustained = (
+        report.get("post_structure_sustained_window")
+        if isinstance(report.get("post_structure_sustained_window"), Mapping)
+        else {}
+    )
+    mutation = {
+        "proposal_kind": summary.get("proposal_kind"),
+        "target_expert_count": summary.get("target_expert_count"),
+        "target_route_candidate_count": summary.get("target_route_candidate_count"),
+        "target_memory_slot_count": summary.get("target_memory_slot_count"),
+        "target_memory_slot_candidate_count": summary.get(
+            "target_memory_slot_candidate_count"
+        ),
+        "target_active_memory_slot_count": summary.get(
+            "target_active_memory_slot_count"
+        ),
+    }
+    sustained_ok = (
+        gate.get("post_structure_sustained_enabled") is not True
+        or (
+            gate.get("post_structure_sustained_target_reached") is True
+            and sustained.get("success") is True
+            and _finite_positive(sustained.get("tokens_per_second"))
+        )
+    )
+    return (
+        report.get("artifact_kind") == BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND
+        and report.get("surface") == BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE
+        and report.get("report_status") == "final"
+        and report.get("status") == "final"
+        and report.get("runtime_owner") == "MarulhoBrain"
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("service_owned_cognition") is False
+        and report.get("status_read_mutation") is False
+        and summary.get("brain_surface") == "marulho_brain_language_structural_transaction.v1"
+        and summary.get("training_surface") == STRUCTURAL_PLASTICITY_TRANSACTION_SURFACE
+        and summary.get("status") == "applied_structural_mutation"
+        and summary.get("trace_event") == "language_structure"
+        and summary.get("applied") is True
+        and summary.get("operator_approved") is True
+        and summary.get("checkpoint_restore_verified") is True
+        and summary.get("rollback_verified") is True
+        and summary.get("heldout_non_regression") is True
+        and summary.get("eligible_for_reviewed_structural_promotion") is True
+        and _structural_transaction_bounded_route_bank(mutation)
+        and _structural_transaction_bounded_memory_slots(mutation)
+        and pre_checkpoint.get("restore_verified") is True
+        and post_checkpoint.get("restore_verified") is True
+        and gate.get("loaded_installed_brain_checkpoint") is True
+        and gate.get("batch_tokenizer_matches_installed_runtime") is True
+        and gate.get("pre_structure_brain_checkpoint_restore_verified") is True
+        and gate.get("proposal_runs_through_marulho_brain") is True
+        and gate.get("proposal_non_mutating") is True
+        and gate.get("structural_apply_runs_through_marulho_brain") is True
+        and gate.get("language_structure_trace_recorded") is True
+        and gate.get("records_checkpoint_backed_transaction") is True
+        and gate.get("records_rollback_evidence") is True
+        and gate.get("records_reviewed_structural_mutation") is True
+        and gate.get("post_structure_brain_checkpoint_restore_verified") is True
+        and gate.get("post_structure_status_restores_transaction") is True
+        and sustained_ok
         and gate.get("status_read_mutation_absent") is True
         and gate.get("external_llm_absent") is True
         and gate.get("service_owned_cognition_absent") is True
@@ -1851,6 +1966,149 @@ def _language_brain_installed_continual_learning_evidence(
     }
 
 
+def _brain_installed_structural_plasticity_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = (
+        report.get("structural_transaction_summary")
+        if isinstance(report.get("structural_transaction_summary"), Mapping)
+        else {}
+    )
+    pre_checkpoint = (
+        report.get("pre_structural_brain_checkpoint")
+        if isinstance(report.get("pre_structural_brain_checkpoint"), Mapping)
+        else {}
+    )
+    post_checkpoint = (
+        report.get("post_structural_brain_checkpoint")
+        if isinstance(report.get("post_structural_brain_checkpoint"), Mapping)
+        else {}
+    )
+    sustained = (
+        report.get("post_structure_sustained_window")
+        if isinstance(report.get("post_structure_sustained_window"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "runtime_owner": report.get("runtime_owner"),
+        "active_language_path": report.get("active_language_path"),
+        "brain_surface": summary.get("brain_surface"),
+        "training_surface": summary.get("training_surface"),
+        "transaction_status": summary.get("status"),
+        "trace_event": summary.get("trace_event"),
+        "applied": bool(summary.get("applied", False)),
+        "proposal_kind": summary.get("proposal_kind"),
+        "source_expert_count": summary.get("source_expert_count"),
+        "target_expert_count": summary.get("target_expert_count"),
+        "source_route_candidate_count": summary.get("source_route_candidate_count"),
+        "target_route_candidate_count": summary.get("target_route_candidate_count"),
+        "route_bank_candidate_count_delta": summary.get(
+            "route_bank_candidate_count_delta"
+        ),
+        "source_memory_slot_count": summary.get("source_memory_slot_count"),
+        "target_memory_slot_count": summary.get("target_memory_slot_count"),
+        "memory_slot_count_delta": summary.get("memory_slot_count_delta"),
+        "checkpoint_restore_verified": bool(
+            summary.get("checkpoint_restore_verified", False)
+        ),
+        "rollback_verified": bool(summary.get("rollback_verified", False)),
+        "heldout_non_regression": bool(
+            summary.get("heldout_non_regression", False)
+        ),
+        "pre_structure_checkpoint_path": pre_checkpoint.get("path"),
+        "pre_structure_checkpoint_restore_verified": bool(
+            pre_checkpoint.get("restore_verified", False)
+        ),
+        "post_structure_checkpoint_path": post_checkpoint.get("path"),
+        "post_structure_checkpoint_restore_verified": bool(
+            post_checkpoint.get("restore_verified", False)
+        ),
+        "post_structure_sustained_enabled": bool(sustained.get("enabled", False)),
+        "post_structure_sustained_success": bool(sustained.get("success", False)),
+        "post_structure_sustained_token_delta": int(
+            sustained.get("token_delta", 0) or 0
+        ),
+        "post_structure_sustained_tokens_per_second": float(
+            sustained.get("tokens_per_second", 0.0) or 0.0
+        ),
+        "post_structure_sustained_backend": sustained.get("backend"),
+        "post_structure_sustained_triton_failure_count": int(
+            sustained.get("tracked_triton_kernel_failure_count", 0) or 0
+        ),
+        "post_structure_sustained_524288_boundary_reached": bool(
+            gate.get("post_structure_sustained_524288_boundary_reached", False)
+        ),
+        "status_read_mutation_absent": bool(
+            gate.get("status_read_mutation_absent", False)
+        ),
+        "promotes_runtime_claim": False,
+    }
+
+
+def _language_brain_installed_structural_plasticity_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_brain_installed_structural_plasticity_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: (
+            int(
+                (item.get("post_structure_sustained_window") or {}).get(
+                    "token_delta",
+                    0,
+                )
+                if isinstance(
+                    item.get("post_structure_sustained_window"),
+                    Mapping,
+                )
+                else 0
+            ),
+            float(
+                (item.get("post_structure_sustained_window") or {}).get(
+                    "tokens_per_second",
+                    0.0,
+                )
+                if isinstance(
+                    item.get("post_structure_sustained_window"),
+                    Mapping,
+                )
+                else 0.0
+            ),
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "surface": "marulho_language_brain_installed_structural_saved_evidence.v1",
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "brain_installed_structural_plasticity_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _brain_installed_structural_plasticity_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_brain_installed_structural_plasticity_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+
+
 def _structural_plasticity_transactions_from_report(
     report: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
@@ -2187,6 +2445,7 @@ def run_language_runtime_benchmark_suite(
     sustained_target_tokens: int = 8,
     sustained_evidence_paths: Sequence[str | Path] = (),
     brain_installed_continual_learning_evidence_paths: Sequence[str | Path] = (),
+    brain_installed_structural_plasticity_evidence_paths: Sequence[str | Path] = (),
     memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
     memory_slot_architecture_cost_evidence_paths: Sequence[str | Path] = (),
     structural_plasticity_evidence_paths: Sequence[str | Path] = (),
@@ -2370,6 +2629,18 @@ def run_language_runtime_benchmark_suite(
         brain_installed_learning_evidence.get("best_report")
         if isinstance(brain_installed_learning_evidence.get("best_report"), Mapping)
         else {}
+    )
+    brain_installed_structural_reports = [
+        _read_brain_installed_structural_plasticity_report(path)
+        for path in brain_installed_structural_plasticity_evidence_paths
+    ]
+    brain_installed_structural_evidence = (
+        _language_brain_installed_structural_plasticity_evidence(
+            brain_installed_structural_reports
+        )
+    )
+    brain_installed_structural_missing = tuple(
+        brain_installed_structural_evidence["missing_evidence"]
     )
     learning_model = _new_model(tokenizer)
     learning_report = run_language_continual_learning_window(
@@ -2898,12 +3169,15 @@ def run_language_runtime_benchmark_suite(
     saved_structural_missing = tuple(
         saved_structural_plasticity_evidence["missing_evidence"]
     )
+    structural_missing = tuple(
+        saved_structural_missing + brain_installed_structural_missing
+    )
     categories.append(
         _category(
             "growth_prune_safety",
             status=(
                 "fail"
-                if saved_structural_missing
+                if structural_missing
                 else (
                 "pass"
                 if proposal["mutates_runtime_state"] is False
@@ -3120,8 +3394,11 @@ def run_language_runtime_benchmark_suite(
                 "saved_structural_plasticity_evidence": (
                     saved_structural_plasticity_evidence
                 ),
+                "brain_installed_structural_plasticity_evidence": (
+                    brain_installed_structural_evidence
+                ),
             },
-            missing=saved_structural_missing,
+            missing=structural_missing,
         )
     )
 
@@ -3557,6 +3834,10 @@ def run_language_runtime_benchmark_suite(
                 str(Path(path))
                 for path in brain_installed_continual_learning_evidence_paths
             ],
+            "brain_installed_structural_plasticity_evidence": [
+                str(Path(path))
+                for path in brain_installed_structural_plasticity_evidence_paths
+            ],
             "memory_slot_runtime_impact_evidence": [
                 str(Path(path))
                 for path in memory_slot_runtime_impact_evidence_paths
@@ -3605,6 +3886,11 @@ def run_language_runtime_benchmark_suite(
             "brain_installed_continual_learning_evidence_available": bool(
                 brain_installed_learning_evidence[
                     "brain_installed_continual_learning_available"
+                ]
+            ),
+            "brain_installed_structural_plasticity_evidence_available": bool(
+                brain_installed_structural_evidence[
+                    "brain_installed_structural_plasticity_available"
                 ]
             ),
             "checkpoint_evolution_evidence_available": (
@@ -3675,6 +3961,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--brain-installed-structural-plasticity-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_brain_installed_structural_plasticity_evidence "
+            "JSON report."
+        ),
+    )
+    parser.add_argument(
         "--memory-slot-architecture-cost-evidence",
         type=Path,
         action="append",
@@ -3725,6 +4021,9 @@ def main() -> int:
         sustained_evidence_paths=tuple(args.sustained_evidence),
         brain_installed_continual_learning_evidence_paths=tuple(
             args.brain_installed_continual_learning_evidence
+        ),
+        brain_installed_structural_plasticity_evidence_paths=tuple(
+            args.brain_installed_structural_plasticity_evidence
         ),
         memory_slot_runtime_impact_evidence_paths=tuple(
             args.memory_slot_runtime_impact_evidence

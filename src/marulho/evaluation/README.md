@@ -374,6 +374,23 @@ harnesses.
   `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec with
   all tracked generation Triton kernels active and zero tracked failures. This
   is public brain-surface continual-learning evidence, not a runtime promotion.
+- `language_brain_structural_plasticity_evidence.py` verifies installed-brain
+  structural mutation from the brain side. It loads the learned brain checkpoint,
+  saves and restores the pre-structure brain, builds eval batches with the
+  checkpoint tokenizer, proposes and applies structure through
+  `MarulhoBrain.propose_language_structure()` and
+  `MarulhoBrain.apply_language_structure()`, saves and restores the
+  post-structure brain, and can run post-mutation sustained generation. The
+  current CUDA report
+  `reports/language_brain_structural_plasticity/evo-child-quality-repair-installed-learned-brain-route-bank-structure-524288-20260705.json`
+  applies route-bank expansion from `8` to `12` bounded candidates on the
+  learned `524288` model-vocab brain, verifies baseline checkpoint restore and
+  rollback evidence, records no status-read mutation, restores the
+  post-structure brain checkpoint, and reaches `524288/524288` post-structure
+  sustained tokens at `8060.863` tokens/sec through
+  `torch_cuda_graph_burst_decode_controls` with zero tracked Triton failures.
+  This is public brain-surface structural evidence, not a runtime or
+  generation-quality promotion.
 - `language_runtime_benchmark_suite.py` now accepts
   `--brain-installed-continual-learning-evidence` so that public brain-owned
   learning reports can strengthen the central continual-learning, forgetting,
@@ -384,6 +401,9 @@ harnesses.
   forgetting, replay recovery, and checkpoint restore at `pass`, records the
   `524288` brain update-token count plus `3079.877` update tokens/sec, and
   reaches `ready_for_review` while still keeping `promotes_runtime_claim=false`.
+  It also accepts `--brain-installed-structural-plasticity-evidence` so
+  installed-brain structural reports can strengthen the growth/prune category
+  separately from standalone structural transactions.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
