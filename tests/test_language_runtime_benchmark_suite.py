@@ -736,6 +736,22 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         "diagnostic_boundary_reached"
     ] is False
     assert categories["long_run_throughput"]["evidence"]["long_run_gate_reached"] is False
+    rollback = categories["rollback"]
+    assert rollback["status"] == "pass"
+    assert rollback["evidence"]["rollback_to_parent_verified"] is True
+    assert rollback["evidence"]["parent_runtime_unchanged"] is True
+    assert rollback["evidence"]["checkpoint_lineage_complete"] is True
+    assert rollback["evidence"]["child_initial_matches_parent_state"] is True
+    assert rollback["evidence"]["child_final_matches_child_runtime"] is True
+    assert rollback["evidence"]["child_final_differs_from_parent_state"] is True
+    assert rollback["evidence"]["parent_checkpoint_sha256"]
+    assert rollback["evidence"]["child_final_checkpoint_sha256"]
+    assert rollback["evidence"]["parent_kept_installed"] is True
+    assert rollback["evidence"]["isolated_child_training"] is True
+    assert rollback["evidence"]["child_update_token_count"] > 0
+    assert rollback["evidence"]["operator_review_required"] is True
+    assert rollback["evidence"]["long_run_evidence_required_for_promotion"] is True
+    assert rollback["evidence"]["checkpoint_storage_device"] == "cpu"
     assert categories["service_contract"]["evidence"]["status_read_mutates_token_count"] is False
     assert categories["memory_slot_runtime_impact"]["status"] == "smoke_only"
     assert (

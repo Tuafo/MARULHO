@@ -1610,6 +1610,9 @@ def test_language_checkpoint_evolution_forks_child_without_mutating_parent(tmp_p
     )
 
     lineage = report["lineage"]
+    checkpoint_lineage = report["checkpoint_lineage"]
+    runtime_evidence = report["runtime_evidence"]
+    review = report["evolution_review"]
     gate = report["promotion_gate"]
     assert report["surface"] == "marulho_language_checkpoint_evolution.v1"
     assert report["mutates_parent_runtime"] is False
@@ -1618,15 +1621,51 @@ def test_language_checkpoint_evolution_forks_child_without_mutating_parent(tmp_p
     assert lineage["parent_state_hash_before"] == lineage["parent_state_hash_after"]
     assert lineage["parent_training_mode_before"] is True
     assert lineage["parent_training_mode_after"] is True
+    assert lineage["parent_state_hash_before"] == lineage["child_state_hash_initial"]
     assert lineage["parent_state_hash_before"] != lineage["child_state_hash_final"]
     assert Path(lineage["parent_checkpoint"]).exists()
     assert Path(lineage["child_initial_checkpoint"]).exists()
     assert Path(lineage["child_final_checkpoint"]).exists()
+    assert checkpoint_lineage["surface"] == (
+        "marulho_language_checkpoint_evolution_lineage.v1"
+    )
+    assert checkpoint_lineage["lineage_complete"] is True
+    assert checkpoint_lineage["child_initial_matches_parent_state"] is True
+    assert checkpoint_lineage["child_final_matches_child_runtime"] is True
+    assert checkpoint_lineage["child_final_differs_from_parent_state"] is True
+    assert checkpoint_lineage["mutates_parent_checkpoint"] is False
+    assert checkpoint_lineage["parent_checkpoint_sha256"]
+    assert checkpoint_lineage["child_initial_checkpoint_sha256"]
+    assert checkpoint_lineage["child_final_checkpoint_sha256"]
+    assert runtime_evidence["surface"] == (
+        "marulho_language_checkpoint_evolution_runtime_truth.v1"
+    )
+    assert runtime_evidence["parent_model_device"] == str(model.device)
+    assert runtime_evidence["child_model_device"] == str(child.device)
+    assert runtime_evidence["checkpoint_storage_device"] == "cpu"
+    assert runtime_evidence["child_update_token_count"] > 0
+    assert runtime_evidence["child_optimizer_step_count"] > 0
+    assert runtime_evidence["per_step_metric_cpu_sync"] is False
+    assert review["surface"] == "marulho_language_checkpoint_evolution_review.v1"
+    assert review["lineage_complete"] is True
+    assert review["isolated_child_training"] is True
+    assert review["parent_kept_installed"] is True
+    assert (
+        review["child_update_token_count"]
+        == runtime_evidence["child_update_token_count"]
+    )
+    assert review["structural_growth_attempted"] is True
+    assert review["structural_checkpoint_backed"] is True
+    assert review["operator_review_required"] is True
+    assert review["long_run_evidence_required_for_promotion"] is True
+    assert review["promotion_mutates_parent_runtime"] is False
     assert report["comparison"]["parent_rollback_verified"] is True
     assert report["comparison"]["parent_training_mode_unchanged"] is True
     assert gate["parent_runtime_unchanged"] is True
     assert gate["rollback_to_parent_verified"] is True
     assert gate["child_checkpoint_available"] is True
+    assert gate["checkpoint_lineage_complete"] is True
+    assert gate["long_run_evidence_required_for_parent_promotion"] is True
     assert report["structural_transaction"]["checkpoint"]["checkpoint_restore_verified"] is True
     assert child.config.expert_count >= model.config.expert_count
 

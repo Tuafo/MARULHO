@@ -687,7 +687,12 @@ developmental and consolidation runners, query runners, and long-run evidence.
   for controlled LM checkpoint evolution. It writes a parent checkpoint, forks
   an isolated child checkpoint, runs child-only learning/replay/optional growth,
   compares parent and child heldout evidence, verifies rollback to the parent
-  hash, and emits lineage metadata for later operator promotion review.
+  hash, and emits file-hashed parent/child checkpoint lineage, child training
+  device/backend evidence, update-token counts, structural transaction review
+  facts, and a compact `marulho_language_checkpoint_evolution_review.v1`
+  surface for later operator promotion review. Parent promotion still requires
+  separate long-run evidence; this evaluator only produces a reviewable child
+  candidate.
 - LM-head sustained report writing lives in
   `marulho.evaluation.language_sustained_runtime_evidence`, not in status or
   service code. It can stream this package's checkpointed LM state for

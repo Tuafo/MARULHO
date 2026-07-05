@@ -2835,6 +2835,21 @@ def run_language_runtime_benchmark_suite(
             rollback_on_forgetting=False,
         ),
     )
+    evolution_lineage = (
+        evolution_report.get("checkpoint_lineage")
+        if isinstance(evolution_report.get("checkpoint_lineage"), Mapping)
+        else {}
+    )
+    evolution_review = (
+        evolution_report.get("evolution_review")
+        if isinstance(evolution_report.get("evolution_review"), Mapping)
+        else {}
+    )
+    evolution_runtime = (
+        evolution_report.get("runtime_evidence")
+        if isinstance(evolution_report.get("runtime_evidence"), Mapping)
+        else {}
+    )
     categories.append(
         _category(
             "rollback",
@@ -2842,6 +2857,10 @@ def run_language_runtime_benchmark_suite(
                 "pass"
                 if evolution_report["promotion_gate"]["rollback_to_parent_verified"]
                 and evolution_report["promotion_gate"]["parent_runtime_unchanged"]
+                and evolution_report["promotion_gate"]["checkpoint_lineage_complete"]
+                and evolution_lineage.get("lineage_complete") is True
+                and evolution_review.get("parent_kept_installed") is True
+                and evolution_review.get("isolated_child_training") is True
                 else "fail"
             ),
             evidence={
@@ -2852,6 +2871,44 @@ def run_language_runtime_benchmark_suite(
                     "parent_runtime_unchanged"
                 ],
                 "lineage_id": evolution_report["lineage"]["lineage_id"],
+                "checkpoint_lineage_complete": evolution_report["promotion_gate"][
+                    "checkpoint_lineage_complete"
+                ],
+                "child_initial_matches_parent_state": evolution_lineage.get(
+                    "child_initial_matches_parent_state"
+                ),
+                "child_final_matches_child_runtime": evolution_lineage.get(
+                    "child_final_matches_child_runtime"
+                ),
+                "child_final_differs_from_parent_state": evolution_lineage.get(
+                    "child_final_differs_from_parent_state"
+                ),
+                "parent_checkpoint_sha256": evolution_lineage.get(
+                    "parent_checkpoint_sha256"
+                ),
+                "child_final_checkpoint_sha256": evolution_lineage.get(
+                    "child_final_checkpoint_sha256"
+                ),
+                "parent_kept_installed": evolution_review.get("parent_kept_installed"),
+                "isolated_child_training": evolution_review.get(
+                    "isolated_child_training"
+                ),
+                "child_update_token_count": evolution_review.get(
+                    "child_update_token_count"
+                ),
+                "operator_review_required": evolution_review.get(
+                    "operator_review_required"
+                ),
+                "long_run_evidence_required_for_promotion": evolution_review.get(
+                    "long_run_evidence_required_for_promotion"
+                ),
+                "child_training_device": evolution_runtime.get("child_training_device"),
+                "child_training_dense_adamw_backend": evolution_runtime.get(
+                    "child_training_dense_adamw_backend"
+                ),
+                "checkpoint_storage_device": evolution_runtime.get(
+                    "checkpoint_storage_device"
+                ),
             },
         )
     )
