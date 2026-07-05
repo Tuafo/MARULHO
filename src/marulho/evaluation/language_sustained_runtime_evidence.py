@@ -769,6 +769,12 @@ def _report_payload(
             ),
             "memory_slot_initialization": memory.get("memory_slot_initialization"),
             "memory_slot_init_std": memory.get("memory_slot_init_std"),
+            "memory_slot_retrieval_backend": memory.get(
+                "memory_slot_retrieval_backend"
+            ),
+            "memory_slot_triton_stats_delta": memory.get(
+                "memory_slot_triton_stats_delta"
+            ),
         },
         "active_columns": int(_routing_value(routing, "active_columns", 0) or 0),
         "total_columns": int(_routing_value(routing, "total_columns", 0) or 0),

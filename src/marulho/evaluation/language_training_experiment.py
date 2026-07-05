@@ -808,6 +808,12 @@ def _train_language_model(
         ),
         "memory_runs_all_slots": bool(memory_telemetry.get("runs_all_slots", False)),
         "memory_candidate_id_source": memory_telemetry.get("candidate_id_source"),
+        "memory_slot_retrieval_backend": memory_telemetry.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "memory_slot_triton_stats_delta": memory_telemetry.get(
+            "memory_slot_triton_stats_delta"
+        ),
         "memory_gate_readback": bool(
             memory_telemetry.get("memory_gate_readback", False)
         ),

@@ -132,6 +132,10 @@ def _memory_slot_learning_summary(
         "precomputed_candidate_ids_used": bool(
             source.get("precomputed_candidate_ids_used", False)
         ),
+        "memory_slot_retrieval_backend": source.get("memory_slot_retrieval_backend"),
+        "memory_slot_triton_stats_delta": source.get(
+            "memory_slot_triton_stats_delta"
+        ),
         "memory_gate_readback": bool(source.get("memory_gate_readback", False)),
         "memory_slot_initialization": source.get("memory_slot_initialization"),
         "memory_slot_init_std": float(

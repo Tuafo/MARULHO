@@ -268,6 +268,12 @@ def _run_arm(
             "memory_active_parameters_per_token": int(
                 memory.get("active_parameters_per_token", 0) or 0
             ),
+            "memory_slot_retrieval_backend": memory.get(
+                "memory_slot_retrieval_backend"
+            ),
+            "memory_slot_triton_stats_delta": memory.get(
+                "memory_slot_triton_stats_delta"
+            ),
             "memory_slot_nonzero_count": int(memory_slot_nonzero_count),
             "memory_slot_gate_initial_value": memory_slot_gate_initial_value,
             "memory_slot_trainable_neutral_initialization": bool(
@@ -323,6 +329,8 @@ def _run_arm(
             "memory_gate_readback": False,
             "memory_device": str(device),
             "memory_active_parameters_per_token": 0,
+            "memory_slot_retrieval_backend": "failed",
+            "memory_slot_triton_stats_delta": None,
             "memory_slot_nonzero_count": 0,
             "memory_slot_gate_initial_value": None,
             "memory_slot_trainable_neutral_initialization": False,
@@ -437,8 +445,28 @@ def _comparison(
         "bounded_candidate_slots_scored_per_forward": int(
             bounded.get("candidate_slots_scored", 0) or 0
         ),
+        "bounded_memory_slot_retrieval_backend": bounded.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "bounded_memory_slot_triton_kernel_used": bool(
+            (
+                bounded.get("memory_slot_triton_stats_delta")
+                if isinstance(bounded.get("memory_slot_triton_stats_delta"), Mapping)
+                else {}
+            ).get("triton_kernel_used", False)
+        ),
         "all_slot_candidate_slots_scored_per_forward": int(
             all_slot.get("candidate_slots_scored", 0) or 0
+        ),
+        "all_slot_memory_slot_retrieval_backend": all_slot.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "all_slot_memory_slot_triton_kernel_used": bool(
+            (
+                all_slot.get("memory_slot_triton_stats_delta")
+                if isinstance(all_slot.get("memory_slot_triton_stats_delta"), Mapping)
+                else {}
+            ).get("triton_kernel_used", False)
         ),
         "bounded_neutral_initialization_parity": bounded_parity,
         "all_slot_neutral_initialization_parity": all_slot_parity,
@@ -548,6 +576,13 @@ def run_language_memory_slot_runtime_impact(
             ),
             "gradient_training_unchanged": True,
             "one_token_streaming_policy_unchanged": True,
+            "records_memory_slot_retrieval_backend": bool(
+                bounded_report.get("memory_slot_retrieval_backend")
+            ),
+            "records_memory_slot_triton_stats": isinstance(
+                bounded_report.get("memory_slot_triton_stats_delta"),
+                Mapping,
+            ),
             "promotes_hot_path": False,
             "promotes_runtime_claim": False,
             "next_experiment": (

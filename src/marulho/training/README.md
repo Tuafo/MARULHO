@@ -228,6 +228,26 @@ developmental and consolidation runners, query runners, and long-run evidence.
   throughput versus the no-memory decode-control report; the memory shape is
   still intentionally different, so this is a fair eval-count comparison rather
   than a same-architecture speed promotion.
+  The no-grad memory-slot Triton follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-nograd-evalmatched-524288.json`
+  keeps the same eval-matched online shape and routes heldout old/new/replay
+  evaluation memory retrieval through `triton_no_grad_bounded_memory_slots`.
+  Gradient-enabled online updates remain on
+  `torch_autograd_bounded_memory_slots`, so memory-slot gate and slot gradients
+  stay intact. The run accepts the update, improves new-domain heldout loss by
+  `5.8408`, improves old-domain loss by `5.2584`, improves replay loss by
+  `5.2560`, reaches `2945.988` update tokens/sec and `1756.779`
+  total-window tokens/sec, and records Triton no-grad eval memory retrieval in
+  all six old/new/replay before/after eval sections. Against the no-memory
+  decode-control report, the matched total-window tax improves to `-14.350%`
+  while the update-loop tax remains `-20.105%`; treat this as heldout-eval
+  backend acceleration and keep the next speed target on gradient-enabled
+  memory retrieval/update integration.
+  The matching kernel report
+  `reports/language_kernel_evidence/memory-slots-triton-20260705.json` passes
+  three CUDA `float32` shape sweeps for `language_memory_slot_retrieval` with
+  geometric microbenchmark speedup `4.950x`; `float16` remains explicitly
+  unsupported.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -469,6 +489,23 @@ developmental and consolidation runners, query runners, and long-run evidence.
   memory-capacity runtime-impact evidence, not a hot-path promotion or
   generation-quality claim; training and sustained-generation impact are
   separate gates.
+  The no-grad Triton retrieval follow-up
+  `reports/language_training_experiments/memory-slot-runtime-impact-triton-nograd-524288-b16-s64.json`
+  repeats that complete-forward shape after adding
+  `language_memory_slots_triton.py`. Bounded retrieval records
+  `memory_slot_retrieval_backend=triton_no_grad_bounded_memory_slots`,
+  `bounded_memory_slot_triton_kernel_used=true`, still scores only `8192`
+  candidates per forward, and reaches `12087.778` tokens/sec versus
+  `12468.722` disabled-memory control (`0.969x`). The all-slot contrast stays
+  on the torch fallback because `1024` candidates exceed the Triton candidate
+  policy, scores `1048576` candidates, reaches `10880.043` tokens/sec, and
+  peaks at `1440.856 MiB` versus `411.333 MiB` for bounded retrieval. This is
+  bounded no-grad retrieval acceleration evidence, not autograd training
+  promotion.
+  The matching kernel report
+  `reports/language_kernel_evidence/memory-slots-triton-20260705.json` records
+  parity for three CUDA `float32` shapes and `4.950x` geometric microbenchmark
+  speedup over the PyTorch selected-slot reference.
 - `evaluation/language_memory_slot_training_impact.py` is the complete
   optimizer-step evidence report for the LM memory-slot path. The local
   2026-07-05 CUDA report

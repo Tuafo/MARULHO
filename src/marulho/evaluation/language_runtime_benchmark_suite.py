@@ -79,6 +79,7 @@ ELIGIBILITY_TRACE_KERNEL_NAME = "language_local_eligibility_trace_update"
 ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
+MEMORY_SLOT_RETRIEVAL_KERNEL_NAME = "language_memory_slot_retrieval"
 SUPPORTED_GPU_KERNEL_NAMES = {
     RMSNORM_KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
@@ -88,6 +89,7 @@ SUPPORTED_GPU_KERNEL_NAMES = {
     ROUTE_TOPK_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
+    MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
 }
 
 
@@ -900,6 +902,14 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    memory_slot_retrieval_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == MEMORY_SLOT_RETRIEVAL_KERNEL_NAME
+        ),
+        None,
+    )
     missing = []
     if rmsnorm_report is None:
         missing.append("rmsnorm_triton_parity")
@@ -917,6 +927,8 @@ def _language_gpu_kernel_evidence(
         missing.append("block_sparse_expert_dispatch_parity")
     if sampled_vocab_report is None:
         missing.append("sampled_vocab_cross_entropy_parity")
+    if memory_slot_retrieval_report is None:
+        missing.append("bounded_memory_slot_retrieval_parity")
     return {
         "report_count": len(reports),
         "valid_report_count": len(valid_reports),
@@ -972,6 +984,14 @@ def _language_gpu_kernel_evidence(
             None
             if sampled_vocab_report is None
             else _gpu_kernel_report_summary(sampled_vocab_report)
+        ),
+        "bounded_memory_slot_retrieval_parity": (
+            memory_slot_retrieval_report is not None
+        ),
+        "bounded_memory_slot_retrieval_report": (
+            None
+            if memory_slot_retrieval_report is None
+            else _gpu_kernel_report_summary(memory_slot_retrieval_report)
         ),
         "lm_triton_kernel_used": bool(valid_reports),
         "pytorch_fallback_available": True,

@@ -24,6 +24,13 @@ from marulho.core.language_eligibility_trace_triton import (
     language_eligibility_trace_triton_stats,
     language_eligibility_trace_triton_stats_delta,
 )
+from marulho.core.language_memory_slots_triton import (
+    can_use_language_memory_slots_triton,
+    language_memory_slots,
+    language_memory_slots_torch_reference,
+    language_memory_slots_triton_stats,
+    language_memory_slots_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     can_use_language_plif_triton,
     can_use_language_plif_surrogate_triton,
@@ -75,6 +82,7 @@ SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
 ELIGIBILITY_TRACE_KERNEL_NAME = "language_local_eligibility_trace_update"
 ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
+MEMORY_SLOTS_KERNEL_NAME = "language_memory_slot_retrieval"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
 KERNEL_NAME = RMSNORM_KERNEL_NAME
 
@@ -989,6 +997,184 @@ def _route_topk_shape_kernel_result(
         }
 
 
+def _memory_slots_inputs(
+    *,
+    rows: int,
+    cols: int,
+    memory_slot_count: int,
+    memory_slot_candidate_count: int,
+    dtype: torch.dtype,
+) -> dict[str, torch.Tensor]:
+    hidden = torch.randn(rows, cols, device="cuda", dtype=dtype)
+    memory_slots = torch.randn(memory_slot_count, cols, device="cuda", dtype=dtype)
+    candidate_offsets = torch.arange(
+        memory_slot_candidate_count,
+        device="cuda",
+        dtype=torch.long,
+    ).view(1, memory_slot_candidate_count)
+    row_offsets = (
+        torch.arange(rows, device="cuda", dtype=torch.long).view(rows, 1)
+        * memory_slot_candidate_count
+    )
+    candidate_ids = (row_offsets + candidate_offsets).remainder(memory_slot_count)
+    return {
+        "hidden": hidden,
+        "candidate_ids": candidate_ids,
+        "memory_slots": memory_slots,
+        "memory_slot_gate": torch.tensor(0.35, device="cuda", dtype=dtype),
+    }
+
+
+def _memory_slots_reference_call(
+    inputs: dict[str, torch.Tensor],
+    *,
+    active_count: int,
+) -> torch.Tensor:
+    with torch.no_grad():
+        return language_memory_slots_torch_reference(**inputs, active_count=active_count)
+
+
+def _memory_slots_triton_call(
+    inputs: dict[str, torch.Tensor],
+    *,
+    active_count: int,
+) -> torch.Tensor:
+    with torch.no_grad():
+        return language_memory_slots(
+            **inputs,
+            active_count=active_count,
+            prefer_triton=True,
+            force_triton=True,
+        )
+
+
+def _memory_slots_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    memory_slot_count: int,
+    memory_slot_candidate_count: int,
+    active_memory_slots: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is not torch.float32:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": MEMORY_SLOTS_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "memory_slot_count": int(memory_slot_count),
+            "memory_slot_candidate_count": int(memory_slot_candidate_count),
+            "active_memory_slots": int(active_memory_slots),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_for_memory_slot_retrieval",
+            "parity_passed": False,
+        }
+    if int(memory_slot_candidate_count) > int(memory_slot_count):
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": MEMORY_SLOTS_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "memory_slot_count": int(memory_slot_count),
+            "memory_slot_candidate_count": int(memory_slot_candidate_count),
+            "active_memory_slots": int(active_memory_slots),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_memory_candidate_count_gt_slot_count",
+            "parity_passed": False,
+        }
+
+    inputs = _memory_slots_inputs(
+        rows=rows,
+        cols=cols,
+        memory_slot_count=memory_slot_count,
+        memory_slot_candidate_count=memory_slot_candidate_count,
+        dtype=dtype,
+    )
+    active_count = min(int(active_memory_slots), int(memory_slot_candidate_count))
+    before_stats = language_memory_slots_triton_stats()
+    try:
+        with torch.no_grad():
+            supported = can_use_language_memory_slots_triton(
+                **inputs,
+                active_count=active_count,
+            )
+            reference = language_memory_slots_torch_reference(
+                **inputs,
+                active_count=active_count,
+            )
+            triton_output = language_memory_slots(
+                **inputs,
+                active_count=active_count,
+                prefer_triton=True,
+                force_triton=True,
+            )
+        torch.cuda.synchronize()
+        diff = (triton_output.float() - reference.float()).abs()
+        max_abs_error = float(diff.max().detach().cpu().item())
+        denominator = reference.float().abs().clamp_min(1e-8)
+        max_rel_error = float((diff / denominator).max().detach().cpu().item())
+        tolerance = 1e-5
+        parity_passed = bool(max_abs_error <= tolerance or max_rel_error <= tolerance)
+        torch_ms = _benchmark_cuda(
+            lambda: _memory_slots_reference_call(inputs, active_count=active_count),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            lambda: _memory_slots_triton_call(inputs, active_count=active_count),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_memory_slots_triton_stats()
+        stats_delta = language_memory_slots_triton_stats_delta(
+            before_stats,
+            after_stats,
+        )
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": MEMORY_SLOTS_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "memory_slot_count": int(memory_slot_count),
+            "memory_slot_candidate_count": int(memory_slot_candidate_count),
+            "active_memory_slots": int(active_count),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed and supported else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed and supported),
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_memory_slots_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": MEMORY_SLOTS_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "memory_slot_count": int(memory_slot_count),
+            "memory_slot_candidate_count": int(memory_slot_candidate_count),
+            "active_memory_slots": int(active_count),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": False,
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_memory_slots_triton_stats_delta(
+                before_stats,
+                after_stats,
+            ),
+        }
+
+
 def _expert_dispatch_shape_kernel_result(
     *,
     rows: int,
@@ -1289,6 +1475,9 @@ def run_language_triton_kernel_report(
     route_candidate_count: int = 8,
     active_experts: int = 4,
     expert_hidden_dim: int = 0,
+    memory_slot_count: int = 1024,
+    memory_slot_candidate_count: int = 8,
+    active_memory_slots: int = 2,
     vocab_size: int = 8192,
     sampled_vocab_size: int = 1024,
     warmup: int = 20,
@@ -1369,6 +1558,16 @@ def run_language_triton_kernel_report(
         kernel_backlog_item = "block_sparse_expert_dispatch_combine"
         selected_triton_available = bool(
             language_expert_dispatch_triton_stats()["triton_available"]
+        )
+    elif normalized_kernel in {
+        "memory-slots",
+        "memory-slot-retrieval",
+        "language-memory-slot-retrieval",
+    }:
+        kernel_name = MEMORY_SLOTS_KERNEL_NAME
+        kernel_backlog_item = "bounded_memory_slot_retrieval"
+        selected_triton_available = bool(
+            language_memory_slots_triton_stats()["triton_available"]
         )
     elif normalized_kernel in {
         "sampled-vocab-ce",
@@ -1472,6 +1671,19 @@ def run_language_triton_kernel_report(
                             repeats=int(repeats),
                         )
                     )
+                elif kernel_name == MEMORY_SLOTS_KERNEL_NAME:
+                    shape_results.append(
+                        _memory_slots_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            memory_slot_count=int(memory_slot_count),
+                            memory_slot_candidate_count=int(memory_slot_candidate_count),
+                            active_memory_slots=int(active_memory_slots),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
                 else:
                     shape_results.append(
                         _sampled_vocab_ce_shape_kernel_result(
@@ -1498,6 +1710,8 @@ def run_language_triton_kernel_report(
             "unsupported_dtype_for_route_vote_topk",
             "unsupported_route_candidate_count_gt_expert_count",
             "unsupported_dtype_for_expert_dispatch",
+            "unsupported_dtype_for_memory_slot_retrieval",
+            "unsupported_memory_candidate_count_gt_slot_count",
             "unsupported_dtype_for_sampled_vocab_cross_entropy",
         }
     ]
@@ -1533,6 +1747,7 @@ def run_language_triton_kernel_report(
             "selective_scan_triton_parity",
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
         ]
@@ -1542,6 +1757,7 @@ def run_language_triton_kernel_report(
             "selective_scan_triton_parity",
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
         ]
@@ -1550,6 +1766,7 @@ def run_language_triton_kernel_report(
             "selective_scan_triton_parity",
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
         ]
@@ -1557,6 +1774,7 @@ def run_language_triton_kernel_report(
         remaining_kernel_backlog = [
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
         ]
@@ -1564,15 +1782,23 @@ def run_language_triton_kernel_report(
         remaining_kernel_backlog = [
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
     elif kernel_name == ROUTE_TOPK_KERNEL_NAME:
         remaining_kernel_backlog = [
             "block_sparse_expert_dispatch_parity",
+            "bounded_memory_slot_retrieval_parity",
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "bounded_memory_slot_retrieval_parity",
+            "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
+        ]
+    elif kernel_name == MEMORY_SLOTS_KERNEL_NAME:
         remaining_kernel_backlog = [
             "sampled_vocab_cross_entropy_parity",
             "local_eligibility_trace_update_parity",
@@ -1633,6 +1859,15 @@ def run_language_triton_kernel_report(
                 item
                 for item in remaining_kernel_backlog
                 if item != "block_sparse_expert_dispatch_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == MEMORY_SLOTS_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "bounded_memory_slot_retrieval_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "bounded_memory_slot_retrieval_parity"
             ],
         ]
     if not parity_passed and kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME:
@@ -1703,6 +1938,19 @@ def run_language_triton_kernel_report(
                 if kernel_name == EXPERT_DISPATCH_KERNEL_NAME
                 else None
             ),
+            "memory_slot_count": (
+                int(memory_slot_count) if kernel_name == MEMORY_SLOTS_KERNEL_NAME else None
+            ),
+            "memory_slot_candidate_count": (
+                int(memory_slot_candidate_count)
+                if kernel_name == MEMORY_SLOTS_KERNEL_NAME
+                else None
+            ),
+            "active_memory_slots": (
+                int(active_memory_slots)
+                if kernel_name == MEMORY_SLOTS_KERNEL_NAME
+                else None
+            ),
             "vocab_size": (
                 int(vocab_size) if kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME else None
             ),
@@ -1743,6 +1991,7 @@ def main() -> int:
             "eligibility-trace",
             "route-topk",
             "expert-dispatch",
+            "memory-slots",
             "sampled-vocab-ce",
         ),
         default="rmsnorm-forward",
@@ -1793,6 +2042,24 @@ def main() -> int:
         help="Hidden size for expert-dispatch evidence; 0 uses 2x shape cols.",
     )
     parser.add_argument(
+        "--memory-slot-count",
+        type=int,
+        default=1024,
+        help="Total memory slots for memory-slot retrieval evidence.",
+    )
+    parser.add_argument(
+        "--memory-slot-candidate-count",
+        type=int,
+        default=8,
+        help="Candidate memory slots scored per row for memory-slot retrieval evidence.",
+    )
+    parser.add_argument(
+        "--active-memory-slots",
+        type=int,
+        default=2,
+        help="Active memory slots combined per row for memory-slot retrieval evidence.",
+    )
+    parser.add_argument(
         "--vocab-size",
         type=int,
         default=8192,
@@ -1818,6 +2085,9 @@ def main() -> int:
         route_candidate_count=args.route_candidate_count,
         active_experts=args.active_experts,
         expert_hidden_dim=args.expert_hidden_dim,
+        memory_slot_count=args.memory_slot_count,
+        memory_slot_candidate_count=args.memory_slot_candidate_count,
+        active_memory_slots=args.active_memory_slots,
         vocab_size=args.vocab_size,
         sampled_vocab_size=args.sampled_vocab_size,
         warmup=args.warmup,

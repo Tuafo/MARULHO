@@ -39,6 +39,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   `language_expert_dispatch_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for block-sparse
   routed expert rows.
+- The LM-head bounded memory-slot retrieval Triton primitive in
+  `language_memory_slots_triton.py`, including forced no-grad parity execution,
+  PyTorch fallback, and runtime-use counters for selected memory-slot context
+  rows.
 - The LM-head sampled-vocabulary cross-entropy Triton primitive in
   `language_sampled_vocab_ce_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, forceable custom-autograd training probes, and
@@ -87,6 +91,16 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   The current complete no-grad LM forward impact report shows a `1.057x` win at
   the batch-16/seq-64 routed-expert shape while keeping broad hot-path
   promotion false.
+- Language memory-slot retrieval uses Triton for no-grad CUDA bounded memory
+  rows where the row-count policy allows it. Gradient training stays on the
+  PyTorch autograd path so the memory gate and selected slot vectors receive
+  gradients. The current complete no-grad `524288` batch-16/seq-64 forward
+  impact report improves bounded retrieval from the previous `0.839x` control
+  ratio to `0.969x`, keeps all-slot scans out of the bounded path, and keeps
+  broad hot-path promotion false until gradient-enabled update impact improves.
+  The dedicated kernel report passes three CUDA `float32` shape sweeps with
+  `4.950x` geometric microbenchmark speedup; `float16` and autograd training
+  remain fallback paths until separate parity evidence exists.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
   rows and selected vocabulary IDs that include all targets. Gradient training
   can force the Triton-forward/custom-autograd path with

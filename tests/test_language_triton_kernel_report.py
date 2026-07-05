@@ -10,6 +10,9 @@ from marulho.core.language_expert_dispatch_triton import (
 from marulho.core.language_eligibility_trace_triton import (
     language_eligibility_trace_triton_stats,
 )
+from marulho.core.language_memory_slots_triton import (
+    language_memory_slots_triton_stats,
+)
 from marulho.core.language_plif_triton import language_plif_triton_stats
 from marulho.core.language_rmsnorm_triton import language_rmsnorm_triton_stats
 from marulho.core.language_route_topk_triton import language_route_topk_triton_stats
@@ -24,6 +27,7 @@ from marulho.evaluation.language_triton_kernel_report import (
     EXPERT_DISPATCH_KERNEL_NAME,
     ELIGIBILITY_TRACE_KERNEL_NAME,
     KERNEL_NAME,
+    MEMORY_SLOTS_KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     ROUTE_TOPK_KERNEL_NAME,
@@ -281,6 +285,46 @@ def test_language_triton_kernel_report_writes_sampled_vocab_ce_evidence(tmp_path
         assert report["valid_shape_result_count"] >= 1
         assert report["promotion_gate"]["kernel_parity_available"] is True
         assert report["shape_results"][0]["sampled_vocab_size"] == 128
+        assert report["shape_results"][0]["stats_delta"]["triton_kernel_used"] is True
+    else:
+        assert report["promotion_gate"]["status"] == "unavailable"
+        assert report["valid_shape_result_count"] == 0
+
+
+def test_language_triton_kernel_report_writes_memory_slots_evidence(tmp_path) -> None:
+    output = tmp_path / "memory-slots-triton.json"
+
+    report = run_language_triton_kernel_report(
+        output_path=output,
+        kernel="memory-slots",
+        shapes=((64, 32),),
+        dtypes=("float32",),
+        memory_slot_count=32,
+        memory_slot_candidate_count=4,
+        active_memory_slots=2,
+        warmup=1,
+        repeats=2,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert report["artifact_kind"] == ARTIFACT_KIND
+    assert written["surface"] == SURFACE
+    assert report["kernel_name"] == MEMORY_SLOTS_KERNEL_NAME
+    assert report["external_llm_used"] is False
+    assert report["promotion_gate"]["promotes_hot_path"] is False
+    assert (
+        "bounded_memory_slot_retrieval_parity"
+        not in report["promotion_gate"]["remaining_kernel_backlog"]
+    )
+
+    if torch.cuda.is_available() and bool(
+        language_memory_slots_triton_stats()["triton_available"]
+    ):
+        assert report["parity_passed"] is True
+        assert report["valid_shape_result_count"] >= 1
+        assert report["promotion_gate"]["kernel_parity_available"] is True
+        assert report["shape_results"][0]["memory_slot_candidate_count"] == 4
+        assert report["shape_results"][0]["active_memory_slots"] == 2
         assert report["shape_results"][0]["stats_delta"]["triton_kernel_used"] is True
     else:
         assert report["promotion_gate"]["status"] == "unavailable"

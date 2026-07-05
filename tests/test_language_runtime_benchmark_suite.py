@@ -9,6 +9,7 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     GENERATION_COHERENCE_SURFACE,
     KERNEL_ARTIFACT_KIND,
     KERNEL_SURFACE,
+    MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
     MEMORY_SLOT_RUNTIME_IMPACT_ARTIFACT_KIND,
     MEMORY_SLOT_RUNTIME_IMPACT_SURFACE,
     PLIF_FORWARD_KERNEL_NAME,
@@ -314,6 +315,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         ]
         is False
     )
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
+            "bounded_memory_slot_retrieval_parity"
+        ]
+        is False
+    )
     assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
     assert (
         "plif_triton_forward_parity"
@@ -325,6 +332,10 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     )
     assert (
         "local_eligibility_trace_update_parity"
+        in categories["gpu_kernel_correctness"]["missing_evidence"]
+    )
+    assert (
+        "bounded_memory_slot_retrieval_parity"
         in categories["gpu_kernel_correctness"]["missing_evidence"]
     )
     assert categories["generation_coherence"]["status"] == "smoke_only"
@@ -417,6 +428,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
+    memory_slot_kernel = tmp_path / "memory-slot-retrieval-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     _write_sustained_report(diagnostic, token_delta=8192)
@@ -452,6 +464,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         sampled_vocab_kernel,
         kernel_name=SAMPLED_VOCAB_CE_KERNEL_NAME,
     )
+    _write_gpu_kernel_report(
+        memory_slot_kernel,
+        kernel_name=MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
+    )
     _write_generation_coherence_report(generation_coherence)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
 
@@ -469,6 +485,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,
+            memory_slot_kernel,
         ),
         generation_coherence_evidence_paths=(generation_coherence,),
     )
@@ -563,9 +580,14 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         gpu_kernel_category["evidence"]["sampled_vocab_cross_entropy_parity"]
         is True
     )
+    assert (
+        gpu_kernel_category["evidence"]["bounded_memory_slot_retrieval_parity"]
+        is True
+    )
     assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
         EXPERT_DISPATCH_KERNEL_NAME,
         ELIGIBILITY_TRACE_KERNEL_NAME,
+        MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
         PLIF_FORWARD_KERNEL_NAME,
         PLIF_SURROGATE_KERNEL_NAME,
         RMSNORM_KERNEL_NAME,
@@ -592,6 +614,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert "sampled_vocab_cross_entropy_parity" not in gpu_kernel_category[
         "missing_evidence"
     ]
+    assert "bounded_memory_slot_retrieval_parity" not in gpu_kernel_category[
+        "missing_evidence"
+    ]
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == []
@@ -613,6 +638,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
     route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
+    memory_slot_kernel = tmp_path / "memory-slot-retrieval-triton.json"
 
     _write_sustained_report(
         diagnostic,
@@ -654,6 +680,10 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
         sampled_vocab_kernel,
         kernel_name=SAMPLED_VOCAB_CE_KERNEL_NAME,
     )
+    _write_gpu_kernel_report(
+        memory_slot_kernel,
+        kernel_name=MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
+    )
 
     report = run_language_runtime_benchmark_suite(
         output_path=output,
@@ -668,6 +698,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
             route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,
+            memory_slot_kernel,
         ),
         generation_coherence_evidence_paths=(generation_coherence,),
     )

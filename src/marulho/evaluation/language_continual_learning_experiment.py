@@ -291,6 +291,68 @@ def _generation_quality_delta(
     }
 
 
+def _eval_memory_slot_backend_summary(report: dict[str, Any]) -> dict[str, Any]:
+    sections: dict[str, dict[str, Any]] = {}
+    for name in (
+        "old_domain_before",
+        "new_domain_before",
+        "old_domain_after",
+        "new_domain_after",
+        "replay_before",
+        "replay_after",
+    ):
+        section = report.get(name)
+        if not isinstance(section, dict):
+            continue
+        telemetry = section.get("spike_telemetry")
+        if not isinstance(telemetry, dict):
+            continue
+        memory = telemetry.get("memory")
+        if not isinstance(memory, dict):
+            continue
+        triton_delta = memory.get("memory_slot_triton_stats_delta")
+        triton_delta_dict = triton_delta if isinstance(triton_delta, dict) else {}
+        sections[name] = {
+            "surface": "marulho_language_continual_eval_memory_slot_backend.v1",
+            "eval_batch_count": int(section.get("eval_batch_count", 0) or 0),
+            "tokens_per_second": float(section.get("tokens_per_second", 0.0) or 0.0),
+            "memory_slot_retrieval_backend": memory.get(
+                "memory_slot_retrieval_backend"
+            ),
+            "triton_kernel_used": bool(
+                triton_delta_dict.get("triton_kernel_used", False)
+            ),
+            "triton_forward_calls": int(
+                triton_delta_dict.get("triton_forward_calls", 0) or 0
+            ),
+            "torch_fallback_calls": int(
+                triton_delta_dict.get("torch_fallback_calls", 0) or 0
+            ),
+            "candidate_slots_scored": int(
+                memory.get("candidate_slots_scored", 0) or 0
+            ),
+            "candidate_id_source": memory.get("candidate_id_source"),
+            "runs_all_slots": bool(memory.get("runs_all_slots", False)),
+        }
+    return {
+        "surface": "marulho_language_continual_eval_memory_slot_backend_summary.v1",
+        "section_count": len(sections),
+        "sections": sections,
+        "any_triton_kernel_used": any(
+            bool(section.get("triton_kernel_used", False))
+            for section in sections.values()
+        ),
+        "all_recorded_sections_bounded": (
+            all(
+                not bool(section.get("runs_all_slots", False))
+                for section in sections.values()
+            )
+            if sections
+            else False
+        ),
+    }
+
+
 def _same_shape_comparison(
     report: dict[str, Any],
     *,
@@ -718,6 +780,9 @@ def run_language_continual_learning_experiment(
             precompute_report_path=precompute_report_path,
             deferred_metric_report_path=deferred_metric_report_path,
         )
+        report["eval_memory_slot_backend_summary"] = _eval_memory_slot_backend_summary(
+            report
+        )
         report["experiment_review"] = {
             "fast_mutable_experiment": True,
             "records_actual_continual_learning": bool(
@@ -788,6 +853,23 @@ def run_language_continual_learning_experiment(
                 and report["learning_evidence"]["sampled_vocab_precompute"][
                     "replay_batches"
                 ]["memory_candidate_precompute"].get("enabled", False)
+            ),
+            "records_memory_slot_retrieval_backend": bool(
+                report["learning_evidence"]["memory_slots"].get(
+                    "memory_slot_retrieval_backend"
+                )
+            ),
+            "records_memory_slot_triton_stats": isinstance(
+                report["learning_evidence"]["memory_slots"].get(
+                    "memory_slot_triton_stats_delta"
+                ),
+                dict,
+            ),
+            "records_eval_memory_slot_triton_backend": bool(
+                report["eval_memory_slot_backend_summary"].get(
+                    "any_triton_kernel_used",
+                    False,
+                )
             ),
             "records_generation_quality_probe": bool(
                 report["generation_quality_after"]["generation_count"] > 0
