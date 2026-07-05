@@ -96,6 +96,19 @@ runtime reaches the 524288 house-scale target at `8064.765` tokens/sec through
 `reports/language_brain_runtime/evo-child-quality-repair-installed-brain-public-sustained-524288-20260705.json`.
 This keeps the algorithm out of service/status code and remains evidence, not a
 broad runtime promotion.
+`language_brain_continual_learning_evidence.py` verifies the next installed
+parent step through `MarulhoBrain.learn_language_window()`: install the reviewed
+parent, save and restore the brain, run a brain-owned continual-learning window
+with replay/forgetting metrics, save and restore the learned brain checkpoint,
+then optionally run post-learning sustained generation. The current CUDA report
+`reports/language_brain_continual_learning/evo-child-quality-repair-installed-parent-continual-update524288-20260705.json`
+accepts a `524288` update-token window at `3079.877` update tokens/sec and
+`2810.819` total-window tokens/sec, improves new-domain heldout loss by
+`4.7118`, improves old-domain loss instead of forgetting (`-4.0211`), improves
+replay loss (`-4.0014`), restores the learned brain checkpoint, and then reaches
+`524288/524288` post-learning sustained tokens at `8132.276` tokens/sec through
+`torch_cuda_graph_burst_decode_controls`. This is installed-parent learning and
+speed evidence, still with `promotes_runtime_claim=false`.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

@@ -275,6 +275,18 @@ developmental and consolidation runners, query runners, and long-run evidence.
   This keeps memory slots as a small bounded cost, not an all-slot scan or the
   primary training bottleneck; it does not promote broad language quality or
   erase the older pair's higher absolute update throughput.
+  The installed-parent brain evidence runner now exercises this same
+  training-owned continual window through `MarulhoBrain.learn_language_window()`
+  instead of a standalone model shortcut. The current CUDA report
+  `reports/language_brain_continual_learning/evo-child-quality-repair-installed-parent-continual-update524288-20260705.json`
+  accepts `524288` update tokens at `3079.877` update tokens/sec and
+  `2810.819` total-window tokens/sec on `cuda:0`, keeps bounded memory slots on
+  `torch_autograd_bounded_memory_slots`, scores `4194304` precomputed memory
+  candidates without all-slot scans, records old/new/replay heldout evidence,
+  and restores the learned `MarulhoBrain` checkpoint before post-learning
+  sustained generation. This proves brain-owned orchestration of the learning
+  window; trainer code still owns optimizer, replay, sampled-vocab, memory-slot,
+  and Triton/backend policy.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,

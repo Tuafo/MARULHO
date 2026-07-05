@@ -358,6 +358,22 @@ harnesses.
   `reports/language_brain_runtime/evo-child-quality-repair-installed-brain-public-sustained-524288-20260705.json`.
   This closes the private-evaluation reach-in for the fast installed-parent
   path and keeps `promotes_runtime_claim=false`.
+- `language_brain_continual_learning_evidence.py` verifies installed-parent
+  online learning from the brain side. It installs the reviewed parent, saves
+  and restores the brain before learning, uses the verified checkpoint tokenizer
+  only to build old/new/replay `LanguageBatch` inputs, calls
+  `MarulhoBrain.learn_language_window()`, saves and restores the learned brain,
+  and can run a post-learning sustained generation check. The current CUDA
+  report
+  `reports/language_brain_continual_learning/evo-child-quality-repair-installed-parent-continual-update524288-20260705.json`
+  accepts `524288` update tokens at `3079.877` update tokens/sec and
+  `2810.819` total-window tokens/sec, records `4194304` bounded memory-slot
+  candidates without all-slot scans, improves new-domain loss by `4.7118`,
+  improves old-domain loss instead of forgetting (`-4.0211`), improves replay
+  loss (`-4.0014`), verifies the learned brain checkpoint restore, and reaches
+  `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec with
+  all tracked generation Triton kernels active and zero tracked failures. This
+  is public brain-surface continual-learning evidence, not a runtime promotion.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
