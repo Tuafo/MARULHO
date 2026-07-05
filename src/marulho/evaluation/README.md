@@ -276,7 +276,32 @@ harnesses.
   structural review evidence, then feed `language_runtime_benchmark_suite.py`
   through `--checkpoint-evolution-evidence`. They do not promote the child into
   the parent runtime; parent promotion still requires separate 131072/524288
-  sustained evidence.
+  sustained evidence. Checkpoint artifacts are written under a short hashed
+  `evo-*` directory derived from the output path, so long descriptive report
+  names remain usable on Windows without weakening checkpoint lineage.
+- The 2026-07-05 controlled child evolution report
+  `reports/language_checkpoint_evolution/memory-slot-longtrain-triton-min1-child-evolution-update524288-20260705.json`
+  starts from the memory-slot longtrain Triton-min1 parent checkpoint at the
+  `524288` model-vocab, `1024` sampled-row, `16` expert, `1024` memory-slot
+  shape. It runs isolated child learning plus replay for `1048576` accounted
+  update tokens, reaches `3112.667` child update tokens/sec and `2762.033`
+  total-window tokens/sec on `cuda:0`, keeps per-step metric CPU sync disabled,
+  accepts the online update, applies a reviewed `expert_spawn` transaction from
+  `16` to `18` experts, verifies rollback to the parent, and leaves the parent
+  runtime unchanged. The child is eligible for operator promotion review but
+  does not promote the parent or runtime claim by itself.
+- Same-child controlled sustained reports for that evolved checkpoint reach
+  `8192`, `131072`, and `524288` tokens at `4710.929`, `7794.403`, and
+  `8066.423` tokens/sec through `torch_cuda_graph_burst_decode_controls` on
+  `cuda:0`. The `524288` report uses `32768` graph replays, materializes no
+  full `524288`-row generation logits, keeps decode controls on device, scores
+  bounded memory slots without all-slot scans, and records all five tracked
+  Triton kernels active with zero tracked Triton fallback or failure calls.
+  The same-child grounded prompt suite still fails `0/4` cases with mean prefix
+  `0.75` chars, so
+  `language-suite-checkpoint-evolution-child-20260705.json` remains blocked on
+  `generation_coherence` while passing the speed, rollback, checkpoint,
+  structural, active-compute, and GPU-kernel evidence categories.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled

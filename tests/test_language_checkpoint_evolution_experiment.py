@@ -13,7 +13,10 @@ from marulho.evaluation.language_checkpoint_evolution_experiment import (
 def test_language_checkpoint_evolution_experiment_writes_saved_evidence(
     tmp_path,
 ) -> None:
-    output = tmp_path / "checkpoint-evolution.json"
+    output = tmp_path / (
+        "checkpoint-evolution-with-long-descriptive-output-name-for-windows-path-"
+        "safety.json"
+    )
 
     report = run_language_checkpoint_evolution_experiment(
         output_path=output,
@@ -66,4 +69,8 @@ def test_language_checkpoint_evolution_experiment_writes_saved_evidence(
     assert report["experiment_review"]["records_training_backend_policy"] is True
     assert report["split"]["used_child_train_tokens"] > 0
     assert report["split"]["used_replay_tokens"] > 0
+    checkpoint_dir = output.parent / report["checkpoint_dir"]
+    assert checkpoint_dir.exists()
+    assert checkpoint_dir.name.startswith("evo-")
+    assert len(str(checkpoint_dir.resolve())) < 160
     assert (tmp_path / "README.md").exists()

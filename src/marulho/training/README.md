@@ -495,6 +495,21 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `8192`, `131072`, and `524288` tokens at `4784.503`, `7740.123`, and
   `8013.881` tokens/sec with all five tracked Triton kernels active and zero
   tracked Triton fallback calls.
+- The controlled child evolution slice from that checkpoint keeps the same
+  large-vocab sampled/memory-slot shape and forks a child under checkpoint
+  lineage instead of mutating the parent. The report
+  `reports/language_checkpoint_evolution/memory-slot-longtrain-triton-min1-child-evolution-update524288-20260705.json`
+  accounts `1048576` child update tokens, uses
+  `AdamW_dense_core_plus_SparseAdam_vocab_rows`, runs the child model and
+  optimizer on `cuda:0`, reaches `3112.667` child update tokens/sec and
+  `2762.033` total-window tokens/sec, keeps `per_step_metric_cpu_sync=false`,
+  accepts the online update, and applies a checkpoint-backed `expert_spawn`
+  transaction from `16` to `18` experts with parent rollback verified. The
+  evolved child sustains `8192`, `131072`, and `524288` controlled decode
+  tokens at `4710.929`, `7794.403`, and `8066.423` tokens/sec with CUDA graph
+  burst and all five tracked Triton kernels active. Its prompt-suite coherence
+  is still blocked at `0/4`, so this is reviewable child-evolution and speed
+  evidence, not parent promotion or language-quality promotion.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded

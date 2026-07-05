@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import hashlib
 import os
 from pathlib import Path
 from typing import Any, Sequence
@@ -167,6 +168,11 @@ def _batch_token_count(batches: Sequence[LanguageBatch]) -> int:
     return int(sum(int(batch.target_ids.numel()) for batch in batches))
 
 
+def _checkpoint_dir_for_output(output: Path) -> Path:
+    digest = hashlib.sha256(str(output.resolve()).encode("utf-8")).hexdigest()[:12]
+    return output.parent / f"evo-{digest}"
+
+
 def _apply_training_backend_policy(
     config: LanguageCheckpointEvolutionExperimentConfig,
 ) -> dict[str, Any]:
@@ -323,7 +329,7 @@ def run_language_checkpoint_evolution_experiment(
             route_saturation_threshold=float(cfg.route_saturation_threshold),
             max_eval_loss_delta=float(cfg.max_structural_eval_loss_delta),
         )
-        checkpoint_dir = output.parent / f"{output.stem}-checkpoints"
+        checkpoint_dir = _checkpoint_dir_for_output(output)
         _child, evolution_report = run_language_checkpoint_evolution(
             parent_model,
             tokenizer,
