@@ -467,6 +467,21 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `131072`, and `524288` tokens at `4460.070`, `7778.335`, and `8044.912`
   tokens/sec with all five tracked Triton kernels active and zero tracked
   Triton fallback calls.
+- The same 2026-07-05 longtrain command rerun after that default policy change
+  writes
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-triton-min1-524288-20260705.json`.
+  It keeps the `524288` vocab, `1024` sampled-row, `16` expert, `1024`
+  memory-slot shape and reaches `3019.697` train tokens/sec for `127488`
+  optimizer tokens. PLIF training records `8256` Triton forward calls, `8192`
+  Triton backward calls, zero PLIF fallback calls, and zero Triton failures;
+  bounded memory-slot training remains intentionally on
+  `torch_autograd_bounded_memory_slots` so slot gradients stay on the maintained
+  path. Heldout loss reaches `0.0862`, the source-continuation probe reaches
+  `92.0` mean prefix chars, the grounded prompt suite passes `4/4` cases with
+  mean prefix `29.5`, and same-checkpoint controlled sustained reports reach
+  `8192`, `131072`, and `524288` tokens at `4784.503`, `7740.123`, and
+  `8013.881` tokens/sec with all five tracked Triton kernels active and zero
+  tracked Triton fallback calls.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded

@@ -145,6 +145,16 @@ refreshed suite
 `reports/language_benchmark_suite/language-suite-memory-slot-longtrain-triton-min1-quality-speed-20260705.json`
 is `ready_for_review` with `17/17` pass/smoke categories, while still keeping
 runtime-promotion false pending review.
+The same longtrain shape rerun after that policy change produces
+`reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-triton-min1-524288-20260705.json`:
+`3019.697` train tokens/sec, heldout loss `0.0862`, source-continuation mean
+prefix `92.0`, grounded prompt suite `4/4` with mean prefix `29.5`, and
+controlled `8192`/`131072`/`524288` sustained decode at `4784.503`,
+`7740.123`, and `8013.881` tokens/sec with all five tracked Triton kernels
+active and zero tracked Triton fallback calls. Its refreshed suite
+`reports/language_benchmark_suite/language-suite-memory-slot-longtrain-triton-min1-newcheckpoint-quality-speed-20260705.json`
+is also `ready_for_review` with `17/17` pass/smoke categories; runtime promotion
+remains false until review/promotion criteria are explicitly satisfied.
 
 The target runtime must preserve these boundaries:
 

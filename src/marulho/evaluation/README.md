@@ -279,6 +279,22 @@ harnesses.
   `language-suite-memory-slot-longtrain-triton-min1-quality-speed-20260705.json`
   is `ready_for_review` with `17/17` pass/smoke categories and still keeps
   `promotes_runtime_claim=false` pending review/promotion.
+- The same training shape rerun after the one-token policy change writes
+  `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-triton-min1-524288-20260705.json`
+  and is the current same-checkpoint quality/speed evidence for this memory-slot
+  LM shape. It reaches `3019.697` train tokens/sec, heldout loss `0.0862`, and
+  source-continuation mean prefix `92.0` chars. The paired grounded prompt suite
+  `reports/language_generation_coherence/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-triton-min1-grounded-prompt-suite-20260705.json`
+  passes `4/4` cases with mean prefix `29.5`, printable fraction `1.0`, and
+  next-character match rate `1.0`. Same-checkpoint controlled sustained reports
+  at `8192`, `131072`, and `524288` tokens reach `4784.503`, `7740.123`, and
+  `8013.881` tokens/sec with all five tracked Triton kernels active, zero
+  tracked Triton fallback calls, and
+  `memory_slot_retrieval_backend=triton_no_grad_bounded_memory_slots`. The
+  refreshed suite
+  `language-suite-memory-slot-longtrain-triton-min1-newcheckpoint-quality-speed-20260705.json`
+  is `ready_for_review` with `17/17` pass/smoke categories and still keeps
+  `promotes_runtime_claim=false` pending review/promotion.
 - The current aligned same-scale controlled evidence uses
   `cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt`. Its anchored
   controlled prompt suite passed `4/4` cases with mean prefix match `16.75`,
