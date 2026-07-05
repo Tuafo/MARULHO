@@ -26,6 +26,7 @@ from marulho.training.language_model import (
     build_language_model_splits,
     evaluate_language_model,
     load_language_model_checkpoint,
+    precompute_sampled_vocab_batches,
     save_language_model_checkpoint,
 )
 from marulho.training.language_structural_plasticity import (
@@ -607,6 +608,16 @@ def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_pat
     result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
     result["loss"].backward()
     memory = result["telemetry"]["memory"]
+    cached_batches, precompute_report = precompute_sampled_vocab_batches(
+        model,
+        (split.train[0],),
+    )
+    precomputed_result = model.next_token_loss(
+        cached_batches[0].input_ids,
+        cached_batches[0].target_ids,
+        memory_candidate_ids=cached_batches[0].memory_candidate_ids,
+    )
+    precomputed_memory = precomputed_result["telemetry"]["memory"]
     checkpoint_path = save_language_model_checkpoint(
         tmp_path / "lm-memory-slots.pt",
         model,
@@ -630,6 +641,19 @@ def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_pat
     assert memory["memory_device"] == "cpu"
     assert memory["memory_slot_initialization"] == "nonzero_slots_zero_gate"
     assert memory["memory_slot_init_std"] == 0.02
+    assert precompute_report["memory_candidate_precompute"]["enabled"] is True
+    assert precompute_report["memory_candidate_precompute"]["candidate_id_source"] == (
+        "precomputed_batch_memory_candidate_ids"
+    )
+    assert cached_batches[0].memory_candidate_ids is not None
+    assert precomputed_memory["candidate_id_source"] == (
+        "precomputed_batch_memory_candidate_ids"
+    )
+    assert precomputed_memory["precomputed_candidate_ids_used"] is True
+    assert precomputed_memory["candidate_slots_scored"] == memory[
+        "candidate_slots_scored"
+    ]
+    torch.testing.assert_close(precomputed_result["loss"], result["loss"])
     torch.testing.assert_close(memory_logits, disabled_logits)
     assert model.memory_slots is not None
     assert torch.count_nonzero(model.memory_slots).item() > 0

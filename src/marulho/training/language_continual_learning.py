@@ -129,6 +129,9 @@ def _memory_slot_learning_summary(
         ),
         "fallback_reason": fallback_reasons[0] if fallback_reasons else None,
         "candidate_id_source": source.get("candidate_id_source"),
+        "precomputed_candidate_ids_used": bool(
+            source.get("precomputed_candidate_ids_used", False)
+        ),
         "memory_gate_readback": bool(source.get("memory_gate_readback", False)),
         "memory_slot_initialization": source.get("memory_slot_initialization"),
         "memory_slot_init_std": float(
@@ -333,6 +336,7 @@ def run_language_continual_learning_window(
                 collect_telemetry=bool(cfg.collect_training_telemetry),
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
+                memory_candidate_ids=batch.memory_candidate_ids,
             )
             loss = update_result["loss"]
             last_loss_evidence = dict(update_result.get("loss_evidence") or {})
@@ -355,6 +359,7 @@ def run_language_continual_learning_window(
                     collect_telemetry=bool(cfg.collect_training_telemetry),
                     sampled_vocab_ids=replay_batch.sampled_vocab_ids,
                     sampled_target_positions=replay_batch.sampled_target_positions,
+                    memory_candidate_ids=replay_batch.memory_candidate_ids,
                 )
                 replay_loss = replay_result["loss"]
                 last_replay_loss_evidence = dict(

@@ -53,6 +53,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_memory_slot_path"] is True
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
+    assert report["experiment_review"]["records_memory_slot_candidate_precompute"] is True
     assert report["experiment_review"]["records_generation_quality_probe"] is True
     assert report["experiment_review"]["records_generation_quality_delta"] is True
     assert report["model_config"]["memory_slot_count"] == 4
@@ -68,9 +69,18 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert memory_slots["update_candidate_slots_scored"] > 0
     assert memory_slots["replay_candidate_slots_scored"] > 0
     assert memory_slots["runs_all_slots"] is False
-    assert memory_slots["candidate_id_source"] == "token_hash_memory_slot_bank"
+    assert memory_slots["candidate_id_source"] == "precomputed_batch_memory_candidate_ids"
+    assert memory_slots["precomputed_candidate_ids_used"] is True
     assert memory_slots["memory_gate_readback"] is False
     assert memory_slots["bounded_memory_slot_path"] is True
+    precompute = report["learning_evidence"]["sampled_vocab_precompute"]
+    assert precompute["new_batches"]["memory_candidate_precompute"]["enabled"] is True
+    assert precompute["new_batches"]["memory_candidate_precompute"][
+        "candidate_id_source"
+    ] == "precomputed_batch_memory_candidate_ids"
+    assert precompute["replay_batches"]["memory_candidate_precompute"]["enabled"] is True
+    assert precompute["old_eval_batches"]["memory_candidate_precompute"]["enabled"] is True
+    assert precompute["new_eval_batches"]["memory_candidate_precompute"]["enabled"] is True
     assert loaded["learning_evidence"]["memory_slots"]["candidate_slots_scored"] == (
         memory_slots["candidate_slots_scored"]
     )

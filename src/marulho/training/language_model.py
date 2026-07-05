@@ -76,6 +76,7 @@ class LanguageBatch:
     target_ids: torch.Tensor
     sampled_vocab_ids: torch.Tensor | None = None
     sampled_target_positions: torch.Tensor | None = None
+    memory_candidate_ids: torch.Tensor | None = None
 
     def to(self, device: torch.device | str) -> "LanguageBatch":
         return LanguageBatch(
@@ -90,6 +91,11 @@ class LanguageBatch:
                 None
                 if self.sampled_target_positions is None
                 else self.sampled_target_positions.to(device)
+            ),
+            memory_candidate_ids=(
+                None
+                if self.memory_candidate_ids is None
+                else self.memory_candidate_ids.to(device)
             ),
         )
 
@@ -110,49 +116,76 @@ def precompute_sampled_vocab_batches(
         configured_sample_count > 0
         and configured_sample_count < int(model.config.vocab_size)
     )
-    if not bool(use_sampled_vocab):
+    use_memory_candidates = (
+        max(0, int(model.config.memory_slot_count)) > 0
+        and model._memory_slot_candidate_count() > 0
+    )
+    if not bool(use_sampled_vocab) and not bool(use_memory_candidates):
         return tuple(batches), {
             "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
             "enabled": False,
             "reason": "sampled_vocab_training_disabled",
             "batch_count": 0,
             "device": str(model.device),
+            "memory_candidate_precompute": {
+                "surface": "marulho_language_memory_candidate_batch_precompute.v1",
+                "enabled": False,
+                "reason": "language_memory_slots_disabled",
+                "batch_count": 0,
+                "device": str(model.device),
+            },
         }
 
     cached: list[LanguageBatch] = []
     sampled_row_counts: list[int] = []
     target_position_counts: list[int] = []
+    memory_candidate_counts: list[int] = []
     for batch in batches:
         input_ids = batch.input_ids.to(model.device)
         target_ids = batch.target_ids.to(model.device)
-        flat_targets = target_ids.reshape(-1).to(device=model.device, dtype=torch.long)
-        sampled_vocab_ids = build_sampled_vocab_ids(
-            flat_targets,
-            vocab_size=int(model.config.vocab_size),
-            sample_count=configured_sample_count,
-            device=model.device,
-            validate_ids=False,
+        sampled_vocab_ids: torch.Tensor | None = None
+        sampled_target_positions: torch.Tensor | None = None
+        if bool(use_sampled_vocab):
+            flat_targets = target_ids.reshape(-1).to(
+                device=model.device,
+                dtype=torch.long,
+            )
+            sampled_vocab_ids = build_sampled_vocab_ids(
+                flat_targets,
+                vocab_size=int(model.config.vocab_size),
+                sample_count=configured_sample_count,
+                device=model.device,
+                validate_ids=False,
+            )
+            sampled_target_positions = build_sampled_target_positions(
+                flat_targets,
+                sampled_vocab_ids,
+                device=model.device,
+                validate_targets=True,
+            )
+            sampled_row_counts.append(int(sampled_vocab_ids.numel()))
+            target_position_counts.append(int(sampled_target_positions.numel()))
+        memory_candidate_ids = (
+            model._language_memory_candidates(input_ids)
+            if bool(use_memory_candidates)
+            else None
         )
-        sampled_target_positions = build_sampled_target_positions(
-            flat_targets,
-            sampled_vocab_ids,
-            device=model.device,
-            validate_targets=True,
-        )
-        sampled_row_counts.append(int(sampled_vocab_ids.numel()))
-        target_position_counts.append(int(sampled_target_positions.numel()))
+        if memory_candidate_ids is not None:
+            memory_candidate_counts.append(int(memory_candidate_ids.shape[-1]))
         cached.append(
             LanguageBatch(
                 input_ids=input_ids,
                 target_ids=target_ids,
                 sampled_vocab_ids=sampled_vocab_ids,
                 sampled_target_positions=sampled_target_positions,
+                memory_candidate_ids=memory_candidate_ids,
             )
         )
     return tuple(cached), {
         "surface": "marulho_language_sampled_vocab_batch_precompute.v1",
-        "enabled": True,
-        "batch_count": len(cached),
+        "enabled": bool(use_sampled_vocab),
+        "reason": None if bool(use_sampled_vocab) else "sampled_vocab_training_disabled",
+        "batch_count": len(cached) if bool(use_sampled_vocab) else 0,
         "device": str(model.device),
         "sampled_vocab_size": int(configured_sample_count),
         "min_sampled_rows": min(sampled_row_counts, default=0),
@@ -160,6 +193,27 @@ def precompute_sampled_vocab_batches(
         "min_target_positions": min(target_position_counts, default=0),
         "max_target_positions": max(target_position_counts, default=0),
         "hot_update_window_precomputed": True,
+        "memory_candidate_precompute": {
+            "surface": "marulho_language_memory_candidate_batch_precompute.v1",
+            "enabled": bool(use_memory_candidates),
+            "reason": (
+                None
+                if bool(use_memory_candidates)
+                else "language_memory_slots_disabled"
+            ),
+            "batch_count": len(cached) if bool(use_memory_candidates) else 0,
+            "device": str(model.device),
+            "memory_slot_count": int(max(0, int(model.config.memory_slot_count))),
+            "memory_slot_candidate_count": int(model._memory_slot_candidate_count()),
+            "min_candidate_count": min(memory_candidate_counts, default=0),
+            "max_candidate_count": max(memory_candidate_counts, default=0),
+            "candidate_id_source": (
+                "precomputed_batch_memory_candidate_ids"
+                if bool(use_memory_candidates)
+                else None
+            ),
+            "hot_update_window_precomputed": bool(use_memory_candidates),
+        },
     }
 
 
@@ -1500,12 +1554,14 @@ class MarulhoLanguageModel(nn.Module):
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
         decode_vocab_only: bool = False,
+        memory_candidate_ids: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         result = self._forward_hidden(
             input_ids,
             state,
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
+            memory_candidate_ids=memory_candidate_ids,
         )
         logits = self._lm_head_logits(
             result["hidden"],
@@ -1527,10 +1583,12 @@ class MarulhoLanguageModel(nn.Module):
         *,
         collect_telemetry: bool = True,
         assume_no_sleeping_experts: bool = False,
+        memory_candidate_ids: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         if input_ids.ndim != 2:
             raise ValueError("Language model expects input_ids shaped [batch, time]")
-        embeddings = self.token_embedding(input_ids.to(self.device))
+        runtime_input_ids = input_ids.to(self.device)
+        embeddings = self.token_embedding(runtime_input_ids)
         hidden, next_state, telemetry = self.state_block(
             embeddings,
             state,
@@ -1538,11 +1596,12 @@ class MarulhoLanguageModel(nn.Module):
         )
         hidden, memory_telemetry = self._apply_memory_slots(
             hidden,
-            input_ids.to(self.device),
+            runtime_input_ids,
             collect_telemetry=collect_telemetry,
+            candidate_ids=memory_candidate_ids,
         )
         route_candidates = self._language_route_candidates(
-            input_ids.to(self.device),
+            runtime_input_ids,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
         )
         hidden, routing_telemetry = self.routed_experts(
@@ -1589,6 +1648,7 @@ class MarulhoLanguageModel(nn.Module):
         input_ids: torch.Tensor,
         *,
         collect_telemetry: bool,
+        candidate_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         slot_count = max(0, int(self.config.memory_slot_count))
         if slot_count <= 0 or self.memory_slots is None:
@@ -1604,7 +1664,21 @@ class MarulhoLanguageModel(nn.Module):
                 "memory_device": str(hidden.device),
                 "active_parameters_per_token": 0,
             }
-        candidate_ids = self._language_memory_candidates(input_ids)
+        precomputed_candidate_ids = candidate_ids is not None
+        if candidate_ids is None:
+            candidate_ids = self._language_memory_candidates(input_ids)
+            candidate_id_source = "token_hash_memory_slot_bank"
+        else:
+            candidate_ids = candidate_ids.to(
+                device=hidden.device,
+                dtype=torch.long,
+            )
+            expected_shape = (*tuple(input_ids.shape), candidate_ids.shape[-1])
+            if tuple(candidate_ids.shape) != expected_shape:
+                raise ValueError(
+                    "memory_candidate_ids must be shaped [batch, time, candidates]"
+                )
+            candidate_id_source = "precomputed_batch_memory_candidate_ids"
         if candidate_ids is None:
             return hidden, {
                 "surface": "marulho_language_memory_slots.v1",
@@ -1617,8 +1691,25 @@ class MarulhoLanguageModel(nn.Module):
                 "fallback_reason": "memory_slot_candidate_plan_empty",
                 "memory_device": str(hidden.device),
                 "active_parameters_per_token": 0,
+                "candidate_id_source": "memory_slot_candidate_plan_empty",
+                "precomputed_candidate_ids_used": False,
             }
         candidate_count = int(candidate_ids.shape[-1])
+        if candidate_count <= 0:
+            return hidden, {
+                "surface": "marulho_language_memory_slots.v1",
+                "enabled": True,
+                "total_slots": int(slot_count),
+                "candidate_slot_count": 0,
+                "active_slots_per_token": 0,
+                "candidate_slots_scored": 0,
+                "runs_all_slots": False,
+                "fallback_reason": "memory_slot_candidate_plan_empty",
+                "memory_device": str(hidden.device),
+                "active_parameters_per_token": 0,
+                "candidate_id_source": "memory_slot_candidate_plan_empty",
+                "precomputed_candidate_ids_used": bool(precomputed_candidate_ids),
+            }
         active_count = min(max(1, int(self.config.active_memory_slot_count)), candidate_count)
         candidate_values = self.memory_slots.index_select(
             0,
@@ -1661,7 +1752,8 @@ class MarulhoLanguageModel(nn.Module):
             else None,
             "memory_device": str(hidden.device),
             "active_parameters_per_token": int(active_count * int(self.config.state_dim)),
-            "candidate_id_source": "token_hash_memory_slot_bank",
+            "candidate_id_source": candidate_id_source,
+            "precomputed_candidate_ids_used": bool(precomputed_candidate_ids),
             "memory_gate_readback": False,
             "memory_slot_initialization": "nonzero_slots_zero_gate",
             "memory_slot_init_std": float(self.config.memory_slot_init_std),
@@ -1719,11 +1811,13 @@ class MarulhoLanguageModel(nn.Module):
         assume_no_sleeping_experts: bool = False,
         sampled_vocab_ids: torch.Tensor | None = None,
         sampled_target_positions: torch.Tensor | None = None,
+        memory_candidate_ids: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         result = self._forward_hidden(
             input_ids,
             collect_telemetry=collect_telemetry,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
+            memory_candidate_ids=memory_candidate_ids,
         )
         hidden = result["hidden"]
         flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
@@ -2186,6 +2280,7 @@ def evaluate_language_model(
                 assume_no_sleeping_experts=assume_no_sleeping,
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
+                memory_candidate_ids=batch.memory_candidate_ids,
             )
             token_count = int(batch.target_ids.numel())
             detached_weighted_loss = result["loss"].detach() * token_count

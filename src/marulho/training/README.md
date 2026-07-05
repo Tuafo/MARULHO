@@ -201,6 +201,20 @@ developmental and consolidation runners, query runners, and long-run evidence.
   throughput; compared with the older retained baseline it is `+12.673%`
   update throughput. This is bounded online memory/replay/forgetting evidence,
   not a runtime or language-quality promotion.
+  The memory-candidate precompute follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-precomputed-candidates-524288.json`
+  reuses the same shape but precomputes GPU-resident memory candidate IDs for
+  online new/replay batches and old/new heldout eval batches. It records
+  `candidate_id_source=precomputed_batch_memory_candidate_ids`,
+  `precomputed_candidate_ids_used=true`,
+  `records_memory_slot_candidate_precompute=true`, `runs_all_slots=false`, and
+  the same `524288` scored memory candidates. The run reaches `3074.256`
+  update tokens/sec and `1147.115` total-window tokens/sec, accepts the update,
+  improves new-domain heldout loss by `5.8398`, improves old-domain loss by
+  `5.2632`, and improves replay loss by `5.2592`. That is `+4.168%` update
+  throughput and `+1.363%` total-window throughput versus the prior memory-slot
+  report, but it still pays `-16.626%` update throughput and `-44.074%`
+  total-window throughput versus the no-memory decode-control report.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -254,7 +268,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sparse token-embedding and LM-head weight gradients for row-sparse optimizers.
   It also accepts precomputed sampled row IDs and target positions for fixed
   training batches so experiment runners can keep sampled-vocab construction
-  out of the measured hot update window.
+  out of the measured hot update window. Memory-slot batches can also carry
+  precomputed bounded memory candidate IDs, keeping token-hash candidate-plan
+  construction out of measured online/eval loss calls without changing the
+  active slot count or permitting all-slot scans.
 - `language_sampled_vocab_training_impact.py` is the complete training-step
   impact report for sampled/adaptive vocabulary loss. The local 2026-07-04
   CUDA report
@@ -376,18 +393,20 @@ developmental and consolidation runners, query runners, and long-run evidence.
   inference promotion.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
-  sampled row ID and target-position construction out of the hot loop instead
-  of limiting the speedup to fixed experiment batches.
+  sampled row ID, target-position, and bounded memory-candidate construction
+  out of the hot loop instead of limiting the speedup to fixed experiment
+  batches.
 - Continual-learning update metrics now follow the fast experiment runner's
   deferred-readback pattern: detached device scalars aggregate update loss,
   replay loss, and max observed grad norm in the measured loop, then read back
   after a single CUDA stop synchronization.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
-  positions from `LanguageBatch`, so continual before/after heldout and replay
-  evaluations can reuse the same sampled-vocab contract as the update loop. It
-  also aggregates heldout loss as a detached device scalar, reads it back once
-  after the evaluation timing stop, records evaluation tokens/sec and sync
-  evidence, and restores the caller's original train/eval mode.
+  positions plus bounded memory candidate IDs from `LanguageBatch`, so
+  continual before/after heldout and replay evaluations can reuse the same
+  sampled-vocab and memory-candidate contracts as the update loop. It also
+  aggregates heldout loss as a detached device scalar, reads it back once after
+  the evaluation timing stop, records evaluation tokens/sec and sync evidence,
+  and restores the caller's original train/eval mode.
 - `evaluation/language_continual_learning_experiment.py` is the repeatable
   sampled/padded continual-learning evidence runner for old/new/replay windows.
   It writes JSON plus README reports, applies the CUDA math policy, caps heldout

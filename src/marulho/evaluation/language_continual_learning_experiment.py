@@ -702,6 +702,18 @@ def run_language_continual_learning_experiment(
                 )
                 > 0
             ),
+            "records_memory_slot_candidate_precompute": bool(
+                report["learning_evidence"]["memory_slots"].get(
+                    "precomputed_candidate_ids_used",
+                    False,
+                )
+                and report["learning_evidence"]["sampled_vocab_precompute"][
+                    "new_batches"
+                ]["memory_candidate_precompute"].get("enabled", False)
+                and report["learning_evidence"]["sampled_vocab_precompute"][
+                    "replay_batches"
+                ]["memory_candidate_precompute"].get("enabled", False)
+            ),
             "records_generation_quality_probe": bool(
                 report["generation_quality_after"]["generation_count"] > 0
             ),
