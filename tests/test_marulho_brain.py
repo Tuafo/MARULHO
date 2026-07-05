@@ -344,6 +344,84 @@ def test_marulho_brain_language_structural_transaction_is_checkpointed(tmp_path:
     ] is True
 
 
+def test_marulho_brain_language_column_split_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural column split needs overload evidence and rollback. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 2,
+            "split_candidate_expert_ids": [1],
+            "expert_loads": [0.1, 0.95, 0.2, 0.3],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_added_experts=2,
+            max_split_experts=1,
+            split_load_threshold=0.8,
+        ),
+        mutation_kind="column_split",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-column-split-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_added_experts=2,
+            max_split_experts=1,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-column-split.pt")
+    restored = MarulhoBrain.load(saved["path"])
+
+    assert proposal["proposal"]["proposal_kind"] == "column_split"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 5
+    assert transaction["report"]["mutation"]["parent_child_expert_pairs"] == [[1, 4]]
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_column_split_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert status["language_model"]["last_structural_transaction"]["mutation"][
+        "proposal_kind"
+    ] == "column_split"
+    restored_status = restored.status()
+    assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
+        "target_expert_count"
+    ] == 5
+
+
 def test_marulho_brain_language_structural_prune_transaction_is_checkpointed(
     tmp_path: Path,
 ) -> None:
@@ -419,6 +497,86 @@ def test_marulho_brain_language_structural_prune_transaction_is_checkpointed(
     assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
         "target_expert_count"
     ] == 2
+
+
+def test_marulho_brain_language_retire_transaction_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        ["structural expert retire needs terminal evidence and rollback. " * 6],
+        tokenizer,
+        sequence_length=10,
+        eval_fraction=0.25,
+    )
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    brain.install_language_model(
+        model,
+        tokenizer,
+        evaluation_report=evaluate_language_model(model, split.eval),
+    )
+    proposal = brain.propose_language_structure(
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "retire_candidate_expert_ids": [3],
+            "dead_spike_expert_ids": [3],
+            "expert_utilities": [0.8, 0.4, 0.3, 0.0],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_retired_experts=1,
+            prune_utility_threshold=0.05,
+        ),
+        mutation_kind="retire",
+    )
+    transaction = brain.apply_language_structure(
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "brain-language-retire-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_retired_experts=1,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-retire.pt")
+    restored = MarulhoBrain.load(saved["path"])
+
+    assert proposal["proposal"]["proposal_kind"] == "expert_retire"
+    assert proposal["mutates_runtime_state"] is False
+    assert transaction["surface"] == "marulho_brain_language_structural_transaction.v1"
+    assert transaction["report"]["applied"] is True
+    assert transaction["report"]["mutation"]["target_expert_count"] == 3
+    assert transaction["report"]["mutation"]["retired_expert_ids"] == [3]
+    assert transaction["report"]["promotion_gate"][
+        "eligible_for_reviewed_retire_promotion"
+    ] is True
+    assert transaction["report"]["checkpoint"]["checkpoint_restore_verified"] is True
+    assert transaction["trace"]["event"] == "language_structure"
+    assert status["language_model"]["last_structural_transaction"]["mutation"][
+        "proposal_kind"
+    ] == "expert_retire"
+    restored_status = restored.status()
+    assert restored_status["language_model"]["last_structural_transaction"]["mutation"][
+        "retired_expert_ids"
+    ] == [3]
 
 
 def test_marulho_brain_language_structural_merge_transaction_is_checkpointed(

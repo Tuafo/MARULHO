@@ -278,7 +278,14 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
         in categories["generation_coherence"]["missing_evidence"]
     )
     assert categories["growth_prune_safety"]["evidence"]["growth_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["column_split_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["column_split_source_expert_count"] == 4
+    assert categories["growth_prune_safety"]["evidence"]["column_split_target_expert_count"] == 5
+    assert categories["growth_prune_safety"]["evidence"]["column_split_parent_child_pairs"] == [[1, 4]]
     assert categories["growth_prune_safety"]["evidence"]["prune_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["retire_transaction_applied"] is True
+    assert categories["growth_prune_safety"]["evidence"]["retire_target_expert_count"] == 3
+    assert categories["growth_prune_safety"]["evidence"]["retired_expert_ids"] == [3]
     assert categories["growth_prune_safety"]["evidence"]["merge_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["deep_sleep_transaction_applied"] is True
     assert categories["growth_prune_safety"]["evidence"]["deep_sleep_runs_all_columns"] is False
@@ -286,7 +293,9 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert categories["growth_prune_safety"]["evidence"]["route_bank_source_candidate_count"] == 2
     assert categories["growth_prune_safety"]["evidence"]["route_bank_target_candidate_count"] == 4
     assert categories["growth_prune_safety"]["evidence"]["route_bank_runs_all_columns"] is False
+    assert "column_split_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "prune_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
+    assert "retire_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "merge_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "deep_sleep_transaction" not in categories["growth_prune_safety"]["missing_evidence"]
     assert "route_bank_transaction" not in categories["growth_prune_safety"]["missing_evidence"]

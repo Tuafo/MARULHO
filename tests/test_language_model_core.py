@@ -31,10 +31,12 @@ from marulho.training.language_model import (
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
+    build_language_structural_column_split_proposal,
     build_language_structural_deep_sleep_proposal,
     build_language_structural_merge_proposal,
     build_language_structural_prune_proposal,
     build_language_structural_plasticity_proposal,
+    build_language_structural_retire_proposal,
     build_language_structural_route_bank_expansion_proposal,
 )
 
@@ -651,6 +653,93 @@ def test_language_structural_plasticity_expands_experts_with_checkpoint(tmp_path
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is True
 
 
+def test_language_structural_plasticity_splits_column_with_checkpoint(tmp_path) -> None:
+    torch.manual_seed(231)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+    parent_parameters = [
+        parameter.detach().clone()
+        for parameter in model.routed_experts.experts[1].parameters()
+    ]
+
+    proposal = build_language_structural_column_split_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 2,
+            "split_candidate_expert_ids": [1],
+            "expert_loads": [0.1, 0.95, 0.2, 0.3],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            max_added_experts=2,
+            max_split_experts=1,
+            split_load_threshold=0.8,
+        ),
+    )
+    split_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-column-split-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            max_added_experts=2,
+            max_split_experts=1,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-column-split.pt",
+        split_model,
+        tokenizer,
+        metadata={"transaction": "column_split"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["proposal"]["proposal_kind"] == "column_split"
+    assert proposal["proposal"]["split_expert_ids"] == [1]
+    assert proposal["proposal"]["child_expert_ids"] == [4]
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "column_split"
+    assert report["mutation"]["source_expert_count"] == 4
+    assert report["mutation"]["target_expert_count"] == 5
+    assert report["mutation"]["split_expert_ids"] == [1]
+    assert report["mutation"]["split_child_expert_ids"] == [4]
+    assert report["mutation"]["parent_child_expert_pairs"] == [[1, 4]]
+    assert report["mutation"]["added_expert_count"] == 1
+    assert split_model.config.expert_count == 5
+    assert split_model.routed_experts.sleeping_expert_ids() == []
+    for expected, actual in zip(
+        parent_parameters,
+        split_model.routed_experts.experts[4].parameters(),
+        strict=True,
+    ):
+        torch.testing.assert_close(actual.detach().cpu(), expected)
+    assert metadata["transaction"] == "column_split"
+    assert restored_model.config.expert_count == 5
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_column_split_promotion"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
 def test_language_structural_plasticity_prunes_experts_with_checkpoint(tmp_path) -> None:
     torch.manual_seed(24)
     tokenizer = ByteLevelLanguageTokenizer()
@@ -714,6 +803,84 @@ def test_language_structural_plasticity_prunes_experts_with_checkpoint(tmp_path)
     assert report["rollback_evidence"]["rollback_verified"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is True
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
+
+
+def test_language_structural_plasticity_retires_experts_with_checkpoint(tmp_path) -> None:
+    torch.manual_seed(241)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=20,
+            expert_count=4,
+            active_expert_count=1,
+            route_candidate_count=2,
+        )
+    )
+
+    proposal = build_language_structural_retire_proposal(
+        model,
+        routing_evidence={
+            "surface": "marulho_routed_language_experts.v1",
+            "total_columns": 4,
+            "active_columns": 1,
+            "active_expert_ids": [0],
+            "retire_candidate_expert_ids": [3],
+            "dead_spike_expert_ids": [3],
+            "expert_utilities": [0.8, 0.4, 0.3, 0.0],
+            "candidate_rows_scored": 40,
+            "runs_all_columns": False,
+        },
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_retired_experts=1,
+            prune_utility_threshold=0.05,
+        ),
+    )
+    retired_model, report = apply_language_structural_plasticity_transaction(
+        model,
+        proposal,
+        eval_batches=split.eval,
+        checkpoint_path=tmp_path / "lm-retire-baseline.pt",
+        operator_approved=True,
+        config=LanguageStructuralPlasticityConfig(
+            min_expert_count=2,
+            max_retired_experts=1,
+            max_eval_loss_delta=100.0,
+        ),
+    )
+    checkpoint_path = save_language_model_checkpoint(
+        tmp_path / "lm-retire.pt",
+        retired_model,
+        tokenizer,
+        metadata={"transaction": "expert_retire"},
+    )
+    restored_model, _restored_tokenizer, metadata = load_language_model_checkpoint(
+        checkpoint_path
+    )
+
+    assert proposal["proposal"]["proposal_kind"] == "expert_retire"
+    assert proposal["proposal"]["retired_expert_ids"] == [3]
+    assert proposal["proposal"]["retained_expert_ids"] == [0, 1, 2]
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["promotion_gate"]["eligible_for_checkpointed_transaction"] is True
+    assert proposal["promotion_gate"]["terminal_retirement_reviewable"] is True
+    assert report["applied"] is True
+    assert report["mutation"]["proposal_kind"] == "expert_retire"
+    assert report["mutation"]["source_expert_count"] == 4
+    assert report["mutation"]["target_expert_count"] == 3
+    assert report["mutation"]["retired_expert_count"] == 1
+    assert report["mutation"]["retired_expert_ids"] == [3]
+    assert report["mutation"]["pruned_expert_count"] == 0
+    assert retired_model.config.expert_count == 3
+    assert metadata["transaction"] == "expert_retire"
+    assert restored_model.config.expert_count == 3
+    assert report["checkpoint"]["checkpoint_restore_verified"] is True
+    assert report["rollback_evidence"]["rollback_verified"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_retire_promotion"] is True
+    assert report["promotion_gate"]["eligible_for_reviewed_prune_promotion"] is False
 
 
 def test_language_structural_plasticity_merges_experts_with_checkpoint(tmp_path) -> None:

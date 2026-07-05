@@ -21,12 +21,15 @@ from marulho.training.language_model import (
 @dataclass(frozen=True)
 class LanguageStructuralPlasticityConfig:
     max_added_experts: int = 2
+    max_split_experts: int = 1
     max_pruned_experts: int = 1
     max_merged_expert_pairs: int = 1
     max_deep_sleep_experts: int = 1
+    max_retired_experts: int = 1
     max_route_candidate_growth: int = 2
     max_route_candidate_count: int = 0
     route_saturation_threshold: float = 0.75
+    split_load_threshold: float = 0.80
     prune_utility_threshold: float = 0.05
     merge_similarity_threshold: float = 0.95
     deep_sleep_utility_threshold: float = 0.10
@@ -355,6 +358,81 @@ def _clone_deep_sleep_model(
     return candidate
 
 
+def _clone_split_model(
+    model: MarulhoLanguageModel,
+    *,
+    split_expert_ids: Sequence[int],
+) -> MarulhoLanguageModel:
+    parent_ids = tuple(int(value) for value in split_expert_ids)
+    if not parent_ids:
+        raise ValueError("split_expert_ids must not be empty")
+    old_expert_count = max(0, int(model.config.expert_count))
+    if any(value < 0 or value >= old_expert_count for value in parent_ids):
+        raise ValueError("split_expert_ids contains an out-of-range expert id")
+    if len(set(parent_ids)) != len(parent_ids):
+        raise ValueError("split_expert_ids must be unique")
+    target_expert_count = old_expert_count + len(parent_ids)
+    new_config = replace(
+        model.config,
+        expert_count=target_expert_count,
+        active_expert_count=max(1, int(model.config.active_expert_count)),
+        route_candidate_count=max(
+            max(1, int(model.config.route_candidate_count)),
+            max(1, int(model.config.active_expert_count)),
+        ),
+    )
+    split_model = MarulhoLanguageModel(new_config).to(model.device)
+    split_state = split_model.state_dict()
+    source_state = model.state_dict()
+    for key, source_value in source_state.items():
+        if key in split_state and split_state[key].shape == source_value.shape:
+            split_state[key] = source_value.detach().clone().to(split_state[key].device)
+    split_model.load_state_dict(split_state)
+    with torch.no_grad():
+        if split_model.routed_experts.enabled and model.routed_experts.enabled:
+            split_model.routed_experts.sleeping_expert_mask[:old_expert_count].copy_(
+                model.routed_experts.sleeping_expert_mask[:old_expert_count].to(
+                    device=split_model.routed_experts.sleeping_expert_mask.device
+                )
+            )
+            for child_offset, parent_id in enumerate(parent_ids):
+                child_id = old_expert_count + child_offset
+                split_model.routed_experts.sleeping_expert_mask[child_id] = False
+                split_model.routed_experts.route_keys[child_id].copy_(
+                    model.routed_experts.route_keys[parent_id].to(
+                        device=split_model.routed_experts.route_keys.device,
+                        dtype=split_model.routed_experts.route_keys.dtype,
+                    )
+                )
+                if int(split_model.routed_experts.route_keys.shape[1]) > 0:
+                    perturb_index = child_offset % int(
+                        split_model.routed_experts.route_keys.shape[1]
+                    )
+                    split_model.routed_experts.route_keys[
+                        child_id,
+                        perturb_index,
+                    ].add_(1e-4)
+                split_model.routed_experts.route_bias[child_id].copy_(
+                    model.routed_experts.route_bias[parent_id].to(
+                        device=split_model.routed_experts.route_bias.device,
+                        dtype=split_model.routed_experts.route_bias.dtype,
+                    )
+                )
+                for target_parameter, source_parameter in zip(
+                    split_model.routed_experts.experts[child_id].parameters(),
+                    model.routed_experts.experts[parent_id].parameters(),
+                    strict=True,
+                ):
+                    target_parameter.copy_(
+                        source_parameter.detach().to(
+                            device=target_parameter.device,
+                            dtype=target_parameter.dtype,
+                        )
+                    )
+    split_model.train(model.training)
+    return split_model
+
+
 def _route_bank_candidate_ceiling(model: MarulhoLanguageModel) -> int:
     if not model.routed_experts.enabled:
         return 0
@@ -520,6 +598,29 @@ def _low_utility_ids_from_evidence(
     return tuple(result)
 
 
+def _high_load_ids_from_evidence(
+    value: Any,
+    *,
+    threshold: float,
+) -> tuple[int, ...]:
+    result: list[int] = []
+    if isinstance(value, Mapping):
+        for raw_id, raw_load in value.items():
+            try:
+                if float(raw_load) >= float(threshold):
+                    result.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+    elif not isinstance(value, (str, bytes)):
+        try:
+            for expert_id, raw_load in enumerate(value):
+                if float(raw_load) >= float(threshold):
+                    result.append(int(expert_id))
+        except TypeError:
+            pass
+    return tuple(result)
+
+
 def build_language_structural_plasticity_proposal(
     model: MarulhoLanguageModel,
     *,
@@ -573,6 +674,107 @@ def build_language_structural_plasticity_proposal(
             "rollback_required": True,
             "route_pressure": bool(route_pressure),
             "loss_pressure": bool(loss_pressure),
+        },
+    }
+
+
+def build_language_structural_column_split_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    sleeping_ids = set(
+        model.routed_experts.sleeping_expert_ids()
+        if model.routed_experts.enabled
+        else []
+    )
+    explicit_split_ids = set(
+        _normalise_expert_ids(
+            route.get("split_candidate_expert_ids")
+            or route.get("column_split_candidate_ids")
+            or route.get("overloaded_expert_ids")
+            or route.get("specialist_overload_expert_ids")
+        )
+    )
+    high_surprise_ids = set(
+        _normalise_expert_ids(
+            route.get("high_surprise_expert_ids")
+            or learning.get("high_surprise_expert_ids")
+            or learning.get("prediction_failure_expert_ids")
+        )
+    )
+    high_load_ids = set(
+        _high_load_ids_from_evidence(
+            route.get("expert_loads")
+            or route.get("load_by_expert")
+            or route.get("expert_activation_fraction"),
+            threshold=float(cfg.split_load_threshold),
+        )
+    )
+    pressure_ids = {
+        value
+        for value in explicit_split_ids | high_surprise_ids | high_load_ids
+        if 0 <= value < expert_count and value not in sleeping_ids
+    }
+    split_budget = max(
+        0,
+        min(int(cfg.max_split_experts), int(cfg.max_added_experts)),
+    )
+    split_ids = tuple(sorted(pressure_ids)[:split_budget])
+    child_ids = tuple(expert_count + offset for offset in range(len(split_ids)))
+    ready = expert_count > 0 and bool(split_ids)
+    status = "ready_for_operator_review" if ready else "collect_more_split_pressure"
+    proposal_body = {
+        "proposal_kind": "column_split",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(expert_count + len(split_ids)),
+        "split_expert_ids": list(split_ids),
+        "child_expert_ids": list(child_ids),
+        "parent_child_expert_pairs": [
+            [int(parent_id), int(child_id)]
+            for parent_id, child_id in zip(split_ids, child_ids, strict=True)
+        ],
+        "added_expert_count": int(len(split_ids)),
+        "split_pressure": bool(split_ids),
+        "explicit_split_expert_ids": sorted(explicit_split_ids),
+        "high_surprise_expert_ids": sorted(high_surprise_ids),
+        "high_load_expert_ids": sorted(high_load_ids),
+        "sleeping_expert_ids_excluded": sorted(sleeping_ids),
+        "split_load_threshold": float(cfg.split_load_threshold),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "split_pressure": bool(split_ids),
+            "bounded_added_expert_count": len(split_ids)
+            <= max(0, min(int(cfg.max_split_experts), int(cfg.max_added_experts))),
+            "parent_experts_checkpointed_before_split": True,
+            "child_experts_initialized_from_parent": bool(split_ids),
         },
     }
 
@@ -648,6 +850,107 @@ def build_language_structural_prune_proposal(
             "min_expert_count_preserved": len(retained_ids) >= int(cfg.min_expert_count),
             "active_expert_count_preserved": len(retained_ids)
             >= int(model.config.active_expert_count),
+        },
+    }
+
+
+def build_language_structural_retire_proposal(
+    model: MarulhoLanguageModel,
+    *,
+    routing_evidence: Mapping[str, Any],
+    learning_evidence: Mapping[str, Any] | None = None,
+    config: LanguageStructuralPlasticityConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or LanguageStructuralPlasticityConfig()
+    route = dict(routing_evidence or {})
+    learning = dict(learning_evidence or {})
+    expert_count = max(0, int(model.config.expert_count))
+    active_requirement = max(1, int(model.config.active_expert_count), int(cfg.min_expert_count))
+    active_ids = set(_normalise_expert_ids(route.get("active_expert_ids")))
+    explicit_retire_ids = set(
+        _normalise_expert_ids(
+            route.get("retire_candidate_expert_ids")
+            or route.get("terminal_retire_expert_ids")
+            or route.get("stale_expert_ids")
+        )
+    )
+    harmful_ids = set(
+        _normalise_expert_ids(
+            route.get("harmful_interference_expert_ids")
+            or learning.get("harmful_interference_expert_ids")
+        )
+    )
+    dead_spike_ids = set(_normalise_expert_ids(route.get("dead_spike_expert_ids")))
+    high_cost_low_contribution_ids = set(
+        _normalise_expert_ids(route.get("high_cost_low_contribution_expert_ids"))
+    )
+    utility_ids = set(
+        _low_utility_ids_from_evidence(
+            route.get("expert_utilities") or route.get("utility_by_expert"),
+            threshold=float(cfg.prune_utility_threshold),
+        )
+    )
+    pressure_ids = {
+        value
+        for value in (
+            explicit_retire_ids
+            | harmful_ids
+            | dead_spike_ids
+            | high_cost_low_contribution_ids
+            | utility_ids
+        )
+        if 0 <= value < expert_count and value not in active_ids
+    }
+    retire_budget = max(0, expert_count - active_requirement)
+    retired_ids = tuple(
+        sorted(pressure_ids)[: min(int(cfg.max_retired_experts), retire_budget)]
+    )
+    retained_ids = tuple(value for value in range(expert_count) if value not in set(retired_ids))
+    ready = expert_count > active_requirement and bool(retired_ids)
+    status = "ready_for_operator_review" if ready else "collect_more_retire_pressure"
+    proposal_body = {
+        "proposal_kind": "expert_retire",
+        "source_expert_count": int(expert_count),
+        "target_expert_count": int(len(retained_ids)),
+        "retired_expert_ids": list(retired_ids),
+        "retained_expert_ids": list(retained_ids),
+        "active_expert_count_floor": int(active_requirement),
+        "retire_pressure": bool(retired_ids),
+        "explicit_retire_expert_ids": sorted(explicit_retire_ids),
+        "harmful_interference_expert_ids": sorted(harmful_ids),
+        "dead_spike_expert_ids": sorted(dead_spike_ids),
+        "high_cost_low_contribution_expert_ids": sorted(
+            high_cost_low_contribution_ids
+        ),
+        "utility_threshold": float(cfg.prune_utility_threshold),
+        "routing_evidence_hash": _json_hash(route),
+        "learning_evidence_hash": _json_hash(learning) if learning else None,
+        "config": asdict(cfg),
+    }
+    proposal_hash = _json_hash(proposal_body)
+    return {
+        "artifact_kind": "marulho_language_structural_plasticity_proposal",
+        "surface": "marulho_language_structural_plasticity_proposal.v1",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "mutates_runtime_state": False,
+        "proposal_hash": proposal_hash,
+        "status": status,
+        "proposal": proposal_body,
+        "routing_evidence": route,
+        "learning_evidence": learning,
+        "promotion_gate": {
+            "status": status,
+            "eligible_for_checkpointed_transaction": bool(ready),
+            "requires_operator_approval": bool(cfg.require_operator_approval),
+            "checkpoint_required": True,
+            "rollback_required": True,
+            "retire_pressure": bool(retired_ids),
+            "min_expert_count_preserved": len(retained_ids) >= int(cfg.min_expert_count),
+            "active_expert_count_preserved": len(retained_ids)
+            >= int(model.config.active_expert_count),
+            "terminal_retirement_reviewable": bool(retired_ids),
         },
     }
 
@@ -995,6 +1298,20 @@ def apply_language_structural_plasticity_transaction(
                 int(value) for value in list(body.get("retained_expert_ids") or [])
             ],
         )
+    elif proposal_kind == "expert_retire":
+        candidate = _clone_pruned_model(
+            model,
+            retained_expert_ids=[
+                int(value) for value in list(body.get("retained_expert_ids") or [])
+            ],
+        )
+    elif proposal_kind == "column_split":
+        candidate = _clone_split_model(
+            model,
+            split_expert_ids=[
+                int(value) for value in list(body.get("split_expert_ids") or [])
+            ],
+        )
     elif proposal_kind == "expert_merge":
         candidate = _clone_merged_model(
             model,
@@ -1073,14 +1390,37 @@ def apply_language_structural_plasticity_transaction(
             ),
             "added_expert_count": int(
                 max(0, candidate.config.expert_count - model.config.expert_count)
-                if proposal_kind == "expert_spawn"
+                if proposal_kind in {"expert_spawn", "column_split"}
                 else 0
             ),
+            "split_expert_count": int(
+                len(list(body.get("split_expert_ids") or []))
+                if proposal_kind == "column_split"
+                else 0
+            ),
+            "split_expert_ids": [
+                int(value) for value in list(body.get("split_expert_ids") or [])
+            ],
+            "split_child_expert_ids": [
+                int(value) for value in list(body.get("child_expert_ids") or [])
+            ],
+            "parent_child_expert_pairs": [
+                [int(value) for value in list(pair)]
+                for pair in list(body.get("parent_child_expert_pairs") or [])
+            ],
             "pruned_expert_count": int(
                 max(0, model.config.expert_count - candidate.config.expert_count)
                 if proposal_kind == "expert_prune"
                 else 0
             ),
+            "retired_expert_count": int(
+                max(0, model.config.expert_count - candidate.config.expert_count)
+                if proposal_kind == "expert_retire"
+                else 0
+            ),
+            "retired_expert_ids": [
+                int(value) for value in list(body.get("retired_expert_ids") or [])
+            ],
             "merged_expert_group_count": int(
                 len(list(body.get("merged_expert_groups") or []))
                 if proposal_kind == "expert_merge"
@@ -1143,8 +1483,14 @@ def apply_language_structural_plasticity_transaction(
             "eligible_for_reviewed_growth_promotion": bool(
                 accepted and proposal_kind == "expert_spawn"
             ),
+            "eligible_for_reviewed_column_split_promotion": bool(
+                accepted and proposal_kind == "column_split"
+            ),
             "eligible_for_reviewed_prune_promotion": bool(
                 accepted and proposal_kind == "expert_prune"
+            ),
+            "eligible_for_reviewed_retire_promotion": bool(
+                accepted and proposal_kind == "expert_retire"
             ),
             "eligible_for_reviewed_merge_promotion": bool(
                 accepted and proposal_kind == "expert_merge"
