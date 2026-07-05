@@ -17,6 +17,148 @@ from marulho.training.language_model import (
 )
 
 
+def _write_memory_slot_runtime_impact_report(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_memory_slot_runtime_impact",
+                "surface": "marulho_language_memory_slot_runtime_impact.v1",
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "model_vocab_size": 524288,
+                "batch": {"tokens_per_forward": 1024},
+                "arms": {
+                    "bounded_memory_slots_enabled": {
+                        "candidate_slot_count": 8,
+                        "active_slots_per_token": 2,
+                        "candidate_slots_scored": 8192,
+                        "runs_all_slots": False,
+                    },
+                    "all_slot_memory_scan_contrast": {
+                        "candidate_slots_scored": 1048576,
+                        "runs_all_slots": True,
+                    },
+                },
+                "comparison": {
+                    "control_tokens_per_second": 12783.3,
+                    "bounded_tokens_per_second": 12171.6,
+                    "bounded_vs_control_tokens_per_second_ratio": 0.952,
+                    "all_slot_tokens_per_second": 10863.4,
+                    "all_slot_vs_bounded_tokens_per_second_ratio": 0.893,
+                    "bounded_memory_slot_nonzero_count": 512,
+                    "bounded_memory_slot_gate_initial_value": 0.0,
+                    "bounded_trainable_neutral_initialization": True,
+                    "memory_gate_readback": False,
+                },
+                "promotion_gate": {
+                    "complete_runtime_impact_available": True,
+                    "bounded_memory_slots_enabled": True,
+                    "bounded_avoids_all_slot_scan": True,
+                    "neutral_initialization_parity": True,
+                    "trainable_neutral_initialization": True,
+                    "promotes_hot_path": False,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_memory_slot_architecture_cost_report(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_continual_learning_window",
+                "surface": "marulho_language_continual_learning_window.v1",
+                "experiment_surface": (
+                    "marulho_language_continual_learning_experiment.v1"
+                ),
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "status": "accepted_online_update",
+                "model_vocab_size": 524288,
+                "sampled_vocab_size": 1024,
+                "learning_evidence": {
+                    "update_token_count": 524288,
+                    "memory_slots": {
+                        "enabled": True,
+                        "bounded_memory_slot_path": True,
+                        "runs_all_slots": False,
+                        "candidate_slots_scored": 4194304,
+                        "candidate_id_source": "precomputed_batch_memory_candidate_ids",
+                        "memory_slot_retrieval_backend": (
+                            "torch_autograd_bounded_memory_slots"
+                        ),
+                    },
+                },
+                "training_memory_slot_backend_summary": {
+                    "training_window_stats_recorded": True,
+                    "memory_slot_retrieval_backend": (
+                        "torch_autograd_bounded_memory_slots"
+                    ),
+                    "triton_autograd_used": False,
+                },
+                "memory_slot_architecture_cost": {
+                    "surface": (
+                        "marulho_language_continual_memory_slot_architecture_cost.v1"
+                    ),
+                    "status": "memory_slot_architecture_cost_measured",
+                    "comparison_is_no_memory_baseline": True,
+                    "comparable_update_throughput": True,
+                    "comparable_total_window_throughput": True,
+                    "current_update_tokens_per_second": 3753.246,
+                    "comparison_update_tokens_per_second": 3765.911,
+                    "delta_vs_no_memory_update_percent": -0.336,
+                    "current_total_window_tokens_per_second": 3436.735,
+                    "comparison_total_window_tokens_per_second": 3451.048,
+                    "delta_vs_no_memory_total_window_percent": -0.415,
+                    "comparison_report": "no-memory-baseline.json",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_structural_plasticity_transaction_report(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_structural_plasticity_transaction",
+                "surface": "marulho_language_structural_plasticity_transaction.v1",
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "status": "applied_structural_mutation",
+                "applied": True,
+                "operator_approved": True,
+                "checkpoint": {"checkpoint_restore_verified": True},
+                "rollback_evidence": {"rollback_verified": True},
+                "mutation": {
+                    "proposal_kind": "memory_slot_expansion",
+                    "source_memory_slot_count": 0,
+                    "target_memory_slot_count": 1024,
+                    "target_memory_slot_candidate_count": 8,
+                    "target_active_memory_slot_count": 2,
+                },
+                "promotion_gate": {
+                    "checkpoint_backed": True,
+                    "heldout_non_regression": True,
+                    "eligible_for_reviewed_structural_promotion": True,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_language_quality_replay_experiment_writes_child_quality_and_speed_evidence(
     tmp_path,
 ) -> None:
@@ -49,6 +191,13 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     save_language_model_checkpoint(parent, model, tokenizer)
 
     output = tmp_path / "quality-replay.json"
+    memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
+    memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
+    structural_plasticity = tmp_path / "structural-plasticity-transaction.json"
+    _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
+    _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
+    _write_structural_plasticity_transaction_report(structural_plasticity)
+
     report = run_language_quality_replay_experiment(
         checkpoint_path=parent,
         output_path=output,
@@ -112,6 +261,15 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
             sustained_quantum_tokens=1,
             sustained_timeout_seconds=30.0,
             benchmark_suite_output_path=str(tmp_path / "quality-replay-suite.json"),
+            benchmark_memory_slot_runtime_impact_evidence_paths=(
+                str(memory_slot_runtime_impact),
+            ),
+            benchmark_memory_slot_architecture_cost_evidence_paths=(
+                str(memory_slot_architecture_cost),
+            ),
+            benchmark_structural_plasticity_evidence_paths=(
+                str(structural_plasticity),
+            ),
             device="cpu",
         ),
     )
@@ -190,6 +348,25 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert suite_quality_replay["best_report"]["selected_child_checkpoint_path"] == (
         str(child)
     )
+    assert suite_categories["memory_slot_runtime_impact"]["status"] == "pass"
+    assert suite_categories["memory_slot_architecture_cost"]["status"] == "pass"
+    assert suite_categories["memory_slot_architecture_cost"]["evidence"][
+        "best_report"
+    ]["candidate_slots_scored"] == 4194304
+    saved_structural = suite_categories["growth_prune_safety"]["evidence"][
+        "saved_structural_plasticity_evidence"
+    ]
+    assert saved_structural["saved_structural_plasticity_evidence_available"] is True
+    assert saved_structural["proposal_kinds"] == ["memory_slot_expansion"]
+    assert report["benchmark_suite_report"]["subreports"][
+        "memory_slot_runtime_impact_evidence"
+    ] == [str(memory_slot_runtime_impact)]
+    assert report["benchmark_suite_report"]["subreports"][
+        "memory_slot_architecture_cost_evidence"
+    ] == [str(memory_slot_architecture_cost)]
+    assert report["benchmark_suite_report"]["subreports"][
+        "structural_plasticity_evidence"
+    ] == [str(structural_plasticity)]
     assert report["experiment_review"]["records_hard_prompt_training_pressure"] is True
     assert report["experiment_review"]["records_candidate_child_selection"] is True
     assert report["experiment_review"]["candidate_count"] == 1

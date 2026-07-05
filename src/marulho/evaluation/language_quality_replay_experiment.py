@@ -75,6 +75,9 @@ class LanguageQualityReplayExperimentConfig:
     sustained_quantum_tokens: int = 16
     sustained_timeout_seconds: float = 600.0
     benchmark_suite_output_path: str = ""
+    benchmark_memory_slot_runtime_impact_evidence_paths: tuple[str, ...] = ()
+    benchmark_memory_slot_architecture_cost_evidence_paths: tuple[str, ...] = ()
+    benchmark_structural_plasticity_evidence_paths: tuple[str, ...] = ()
     benchmark_gpu_kernel_evidence_paths: tuple[str, ...] = ()
     collect_environment: bool = False
     device: str = "auto"
@@ -1153,6 +1156,15 @@ def run_language_quality_replay_experiment(
             ],
             generation_coherence_evidence_paths=(str(after_coherence_path),),
             quality_replay_evidence_paths=(str(output),),
+            memory_slot_runtime_impact_evidence_paths=tuple(
+                cfg.benchmark_memory_slot_runtime_impact_evidence_paths
+            ),
+            memory_slot_architecture_cost_evidence_paths=tuple(
+                cfg.benchmark_memory_slot_architecture_cost_evidence_paths
+            ),
+            structural_plasticity_evidence_paths=tuple(
+                cfg.benchmark_structural_plasticity_evidence_paths
+            ),
             gpu_kernel_evidence_paths=tuple(cfg.benchmark_gpu_kernel_evidence_paths),
         )
         report["benchmark_suite_report"] = benchmark_suite_report
@@ -1216,6 +1228,21 @@ def main() -> int:
     parser.add_argument("--sustained-quantum-tokens", type=int, default=16)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=600.0)
     parser.add_argument("--benchmark-suite-output", type=Path, default=None)
+    parser.add_argument(
+        "--memory-slot-runtime-impact-evidence",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--memory-slot-architecture-cost-evidence",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--structural-plasticity-evidence",
+        action="append",
+        default=[],
+    )
     parser.add_argument("--gpu-kernel-evidence", action="append", default=[])
     parser.add_argument("--collect-environment", action="store_true")
     parser.add_argument("--device", default="auto")
@@ -1279,6 +1306,15 @@ def main() -> int:
             sustained_timeout_seconds=args.sustained_timeout_seconds,
             benchmark_suite_output_path=(
                 "" if args.benchmark_suite_output is None else str(args.benchmark_suite_output)
+            ),
+            benchmark_memory_slot_runtime_impact_evidence_paths=tuple(
+                str(path) for path in args.memory_slot_runtime_impact_evidence
+            ),
+            benchmark_memory_slot_architecture_cost_evidence_paths=tuple(
+                str(path) for path in args.memory_slot_architecture_cost_evidence
+            ),
+            benchmark_structural_plasticity_evidence_paths=tuple(
+                str(path) for path in args.structural_plasticity_evidence
             ),
             benchmark_gpu_kernel_evidence_paths=tuple(
                 str(path) for path in args.gpu_kernel_evidence

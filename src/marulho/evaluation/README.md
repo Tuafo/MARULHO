@@ -171,10 +171,11 @@ harnesses.
   for replay training, one or more sustained runtime targets, and optional
   benchmark-suite aggregation. When `benchmark_suite_output_path` is set, it
   writes its selected-child report first, runs the benchmark suite with that
-  report as quality-replay evidence, then rewrites the final report with the
-  suite result. It is meant to move quality and speed evidence together without
-  turning the benchmark suite into a gate-only workflow or hiding prompt
-  regressions.
+  report as quality-replay evidence, forwards optional memory-slot runtime
+  impact, memory-slot architecture-cost, structural-plasticity, and GPU-kernel
+  evidence paths, then rewrites the final report with the suite result. It is
+  meant to move quality and speed evidence together without turning the
+  benchmark suite into a gate-only workflow or hiding prompt regressions.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and
