@@ -90,6 +90,12 @@ STRUCTURAL_PLASTICITY_TRANSACTION_ARTIFACT_KIND = (
 )
 QUALITY_REPLAY_SURFACE = "marulho_language_quality_replay_experiment.v1"
 QUALITY_REPLAY_ARTIFACT_KIND = "marulho_language_quality_replay_experiment"
+CHECKPOINT_EVOLUTION_EXPERIMENT_SURFACE = (
+    "marulho_language_checkpoint_evolution_experiment.v1"
+)
+CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND = (
+    "marulho_language_checkpoint_evolution_experiment"
+)
 KERNEL_SURFACE = "marulho_language_triton_kernel_report.v1"
 KERNEL_ARTIFACT_KIND = "marulho_language_triton_kernel_report"
 RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
@@ -131,6 +137,19 @@ def _read_quality_replay_report(path: str | Path) -> dict[str, Any]:
         payload = json.load(handle)
     if not isinstance(payload, dict):
         raise ValueError(f"Quality replay report is not an object: {report_path}")
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
+def _read_checkpoint_evolution_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Checkpoint-evolution report is not an object: {report_path}"
+        )
     payload = dict(payload)
     payload.setdefault("path", str(report_path))
     return payload
@@ -878,6 +897,175 @@ def _language_quality_replay_evidence(
         "required_for_runtime_promotion": False,
         "promotes_generation_quality_claim": False,
         "promotes_runtime_claim": False,
+    }
+
+
+def _valid_language_checkpoint_evolution_report(report: Mapping[str, Any]) -> bool:
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    lineage = (
+        report.get("checkpoint_lineage")
+        if isinstance(report.get("checkpoint_lineage"), Mapping)
+        else {}
+    )
+    review = (
+        report.get("evolution_review")
+        if isinstance(report.get("evolution_review"), Mapping)
+        else {}
+    )
+    runtime = (
+        report.get("runtime_evidence")
+        if isinstance(report.get("runtime_evidence"), Mapping)
+        else {}
+    )
+    experiment_review = (
+        report.get("experiment_review")
+        if isinstance(report.get("experiment_review"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND
+        and report.get("surface") == CHECKPOINT_EVOLUTION_EXPERIMENT_SURFACE
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("active_language_path") == "marulho_lm_head"
+        and gate.get("checkpoint_evolution_evidence_available") is True
+        and gate.get("rollback_to_parent_verified") is True
+        and gate.get("parent_runtime_unchanged") is True
+        and gate.get("checkpoint_lineage_complete") is True
+        and gate.get("child_checkpoint_available") is True
+        and gate.get("long_run_evidence_required_for_parent_promotion") is True
+        and gate.get("promotes_parent_promotion") is False
+        and lineage.get("lineage_complete") is True
+        and lineage.get("child_initial_matches_parent_state") is True
+        and lineage.get("child_final_matches_child_runtime") is True
+        and lineage.get("child_final_differs_from_parent_state") is True
+        and review.get("parent_kept_installed") is True
+        and review.get("isolated_child_training") is True
+        and int(review.get("child_update_token_count", 0) or 0) > 0
+        and runtime.get("checkpoint_storage_device") == "cpu"
+        and experiment_review.get("records_checkpoint_lineage") is True
+        and experiment_review.get("records_runtime_evidence") is True
+        and experiment_review.get("records_child_learning_update") is True
+    )
+
+
+def _checkpoint_evolution_report_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    lineage = (
+        report.get("checkpoint_lineage")
+        if isinstance(report.get("checkpoint_lineage"), Mapping)
+        else {}
+    )
+    review = (
+        report.get("evolution_review")
+        if isinstance(report.get("evolution_review"), Mapping)
+        else {}
+    )
+    runtime = (
+        report.get("runtime_evidence")
+        if isinstance(report.get("runtime_evidence"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    split = report.get("split") if isinstance(report.get("split"), Mapping) else {}
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "status": report.get("status"),
+        "lineage_id": lineage.get("lineage_id"),
+        "parent_checkpoint_path": lineage.get("parent_checkpoint_path"),
+        "parent_checkpoint_sha256": lineage.get("parent_checkpoint_sha256"),
+        "child_initial_checkpoint_path": lineage.get("child_initial_checkpoint_path"),
+        "child_final_checkpoint_path": lineage.get("child_final_checkpoint_path"),
+        "child_final_checkpoint_sha256": lineage.get(
+            "child_final_checkpoint_sha256"
+        ),
+        "child_update_token_count": int(
+            review.get("child_update_token_count", 0) or 0
+        ),
+        "child_optimizer_step_count": int(
+            review.get("child_optimizer_step_count", 0) or 0
+        ),
+        "child_training_tokens_per_second": runtime.get(
+            "child_training_tokens_per_second"
+        ),
+        "child_training_total_window_tokens_per_second": runtime.get(
+            "child_training_total_window_tokens_per_second"
+        ),
+        "child_training_device": runtime.get("child_training_device"),
+        "child_training_dense_adamw_backend": runtime.get(
+            "child_training_dense_adamw_backend"
+        ),
+        "checkpoint_storage_device": runtime.get("checkpoint_storage_device"),
+        "structural_growth_attempted": bool(
+            review.get("structural_growth_attempted")
+        ),
+        "structural_transaction_applied": bool(
+            review.get("structural_transaction_applied")
+        ),
+        "used_child_train_tokens": split.get("used_child_train_tokens"),
+        "used_replay_tokens": split.get("used_replay_tokens"),
+        "eligible_for_parent_promotion_review": bool(
+            gate.get("eligible_for_parent_promotion_review")
+        ),
+        "long_run_evidence_required_for_parent_promotion": bool(
+            gate.get("long_run_evidence_required_for_parent_promotion")
+        ),
+        "promotes_runtime_claim": False,
+        "promotes_parent_promotion": False,
+    }
+
+
+def _language_checkpoint_evolution_saved_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_language_checkpoint_evolution_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: float(
+            (
+                (
+                    item.get("runtime_evidence")
+                    if isinstance(item.get("runtime_evidence"), Mapping)
+                    else {}
+                ).get("child_training_tokens_per_second", 0.0)
+            )
+            or 0.0
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "surface": "marulho_language_checkpoint_evolution_saved_evidence.v1",
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "checkpoint_evolution_evidence_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _checkpoint_evolution_report_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_language_checkpoint_evolution_experiment"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_runtime_claim": False,
+        "promotes_parent_promotion": False,
     }
 
 
@@ -1778,6 +1966,7 @@ def run_language_runtime_benchmark_suite(
     gpu_kernel_evidence_paths: Sequence[str | Path] = (),
     generation_coherence_evidence_paths: Sequence[str | Path] = (),
     quality_replay_evidence_paths: Sequence[str | Path] = (),
+    checkpoint_evolution_evidence_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run a compact benchmark-suite smoke pass and write an evidence report."""
 
@@ -1855,6 +2044,15 @@ def run_language_runtime_benchmark_suite(
     ]
     quality_replay_evidence = _language_quality_replay_evidence(
         quality_replay_reports
+    )
+    checkpoint_evolution_reports = [
+        _read_checkpoint_evolution_report(path)
+        for path in checkpoint_evolution_evidence_paths
+    ]
+    saved_checkpoint_evolution_evidence = (
+        _language_checkpoint_evolution_saved_evidence(
+            checkpoint_evolution_reports
+        )
     )
     generation_coherence_missing = tuple(
         generation_coherence_evidence["missing_evidence"]
@@ -2850,18 +3048,29 @@ def run_language_runtime_benchmark_suite(
         if isinstance(evolution_report.get("runtime_evidence"), Mapping)
         else {}
     )
+    saved_checkpoint_evolution_missing = tuple(
+        saved_checkpoint_evolution_evidence["missing_evidence"]
+    )
     categories.append(
         _category(
             "rollback",
             status=(
-                "pass"
-                if evolution_report["promotion_gate"]["rollback_to_parent_verified"]
-                and evolution_report["promotion_gate"]["parent_runtime_unchanged"]
-                and evolution_report["promotion_gate"]["checkpoint_lineage_complete"]
-                and evolution_lineage.get("lineage_complete") is True
-                and evolution_review.get("parent_kept_installed") is True
-                and evolution_review.get("isolated_child_training") is True
-                else "fail"
+                "fail"
+                if saved_checkpoint_evolution_missing
+                else (
+                    "pass"
+                    if evolution_report["promotion_gate"][
+                        "rollback_to_parent_verified"
+                    ]
+                    and evolution_report["promotion_gate"]["parent_runtime_unchanged"]
+                    and evolution_report["promotion_gate"][
+                        "checkpoint_lineage_complete"
+                    ]
+                    and evolution_lineage.get("lineage_complete") is True
+                    and evolution_review.get("parent_kept_installed") is True
+                    and evolution_review.get("isolated_child_training") is True
+                    else "fail"
+                )
             ),
             evidence={
                 "rollback_to_parent_verified": evolution_report["promotion_gate"][
@@ -2909,7 +3118,11 @@ def run_language_runtime_benchmark_suite(
                 "checkpoint_storage_device": evolution_runtime.get(
                     "checkpoint_storage_device"
                 ),
+                "saved_checkpoint_evolution_evidence": (
+                    saved_checkpoint_evolution_evidence
+                ),
             },
+            missing=saved_checkpoint_evolution_missing,
         )
     )
 
@@ -3010,6 +3223,9 @@ def run_language_runtime_benchmark_suite(
             "quality_replay_evidence": [
                 str(Path(path)) for path in quality_replay_evidence_paths
             ],
+            "checkpoint_evolution_evidence": [
+                str(Path(path)) for path in checkpoint_evolution_evidence_paths
+            ],
             "scale_ladder": str(output.parent / "language-suite-scale-ladder.json"),
             "checkpoint": str(checkpoint_path),
             "checkpoint_evolution_dir": str(output.parent / "language-suite-evolution"),
@@ -3032,6 +3248,11 @@ def run_language_runtime_benchmark_suite(
             "quality_replay_evidence_available": quality_replay_evidence[
                 "quality_replay_available"
             ],
+            "checkpoint_evolution_evidence_available": (
+                saved_checkpoint_evolution_evidence[
+                    "checkpoint_evolution_evidence_available"
+                ]
+            ),
             "long_run_evidence_available": not long_run_missing,
             "controlled_decode_house_scale_evidence_available": bool(
                 long_run_evidence.get("controlled_decode_house_scale_gate_reached")
@@ -3118,6 +3339,16 @@ def main() -> int:
         default=[],
         help="Existing marulho_language_quality_replay_experiment JSON report.",
     )
+    parser.add_argument(
+        "--checkpoint-evolution-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_checkpoint_evolution_experiment JSON "
+            "report."
+        ),
+    )
     args = parser.parse_args()
     run_language_runtime_benchmark_suite(
         output_path=args.output,
@@ -3135,6 +3366,9 @@ def main() -> int:
         gpu_kernel_evidence_paths=tuple(args.gpu_kernel_evidence),
         generation_coherence_evidence_paths=tuple(args.generation_coherence_evidence),
         quality_replay_evidence_paths=tuple(args.quality_replay_evidence),
+        checkpoint_evolution_evidence_paths=tuple(
+            args.checkpoint_evolution_evidence
+        ),
     )
     return 0
 

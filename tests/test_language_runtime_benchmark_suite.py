@@ -5,6 +5,8 @@ import json
 from marulho.evaluation.language_runtime_benchmark_suite import (
     ELIGIBILITY_TRACE_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
+    CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND,
+    CHECKPOINT_EVOLUTION_EXPERIMENT_SURFACE,
     GENERATION_COHERENCE_ARTIFACT_KIND,
     GENERATION_COHERENCE_SURFACE,
     KERNEL_ARTIFACT_KIND,
@@ -580,6 +582,85 @@ def _write_structural_plasticity_experiment_report(path) -> None:
     )
 
 
+def _write_checkpoint_evolution_experiment_report(path) -> None:
+    child_checkpoint = "reports/language_training_experiments/evolved-child.pt"
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": CHECKPOINT_EVOLUTION_EXPERIMENT_ARTIFACT_KIND,
+                "surface": CHECKPOINT_EVOLUTION_EXPERIMENT_SURFACE,
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "active_language_path": "marulho_lm_head",
+                "status": "eligible_child_checkpoint_for_review",
+                "checkpoint_lineage": {
+                    "surface": "marulho_language_checkpoint_evolution_lineage.v1",
+                    "lineage_id": "lineage-01",
+                    "parent_checkpoint_path": (
+                        "reports/language_training_experiments/parent.pt"
+                    ),
+                    "parent_checkpoint_sha256": "parent-sha",
+                    "child_initial_checkpoint_path": (
+                        "reports/language_training_experiments/child-initial.pt"
+                    ),
+                    "child_final_checkpoint_path": child_checkpoint,
+                    "child_final_checkpoint_sha256": "child-sha",
+                    "child_initial_matches_parent_state": True,
+                    "child_final_matches_child_runtime": True,
+                    "child_final_differs_from_parent_state": True,
+                    "lineage_complete": True,
+                },
+                "runtime_evidence": {
+                    "surface": (
+                        "marulho_language_checkpoint_evolution_runtime_truth.v1"
+                    ),
+                    "child_training_device": "cuda:0",
+                    "child_training_dense_adamw_backend": "fused",
+                    "child_training_tokens_per_second": 3123.0,
+                    "child_training_total_window_tokens_per_second": 2800.0,
+                    "checkpoint_storage_device": "cpu",
+                },
+                "evolution_review": {
+                    "surface": "marulho_language_checkpoint_evolution_review.v1",
+                    "isolated_child_training": True,
+                    "parent_kept_installed": True,
+                    "child_update_token_count": 65536,
+                    "child_optimizer_step_count": 64,
+                    "structural_growth_attempted": True,
+                    "structural_transaction_applied": True,
+                    "long_run_evidence_required_for_promotion": True,
+                },
+                "experiment_review": {
+                    "surface": (
+                        "marulho_language_checkpoint_evolution_experiment_review.v1"
+                    ),
+                    "records_checkpoint_lineage": True,
+                    "records_runtime_evidence": True,
+                    "records_child_learning_update": True,
+                },
+                "split": {
+                    "used_child_train_tokens": 65536,
+                    "used_replay_tokens": 32768,
+                },
+                "promotion_gate": {
+                    "checkpoint_evolution_evidence_available": True,
+                    "eligible_for_parent_promotion_review": True,
+                    "requires_operator_review": True,
+                    "parent_runtime_unchanged": True,
+                    "rollback_to_parent_verified": True,
+                    "checkpoint_lineage_complete": True,
+                    "child_checkpoint_available": True,
+                    "long_run_evidence_required_for_parent_promotion": True,
+                    "promotes_parent_promotion": False,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     tmp_path,
 ) -> None:
@@ -804,6 +885,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     memory_slot_kernel = tmp_path / "memory-slot-retrieval-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
     quality_replay = tmp_path / "quality-replay.json"
+    checkpoint_evolution = tmp_path / "checkpoint-evolution.json"
     memory_slot_runtime_impact = tmp_path / "memory-slot-runtime-impact.json"
     memory_slot_architecture_cost = tmp_path / "memory-slot-architecture-cost.json"
     structural_plasticity = tmp_path / "structural-plasticity.json"
@@ -846,6 +928,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     )
     _write_generation_coherence_report(generation_coherence)
     _write_quality_replay_report(quality_replay)
+    _write_checkpoint_evolution_experiment_report(checkpoint_evolution)
     _write_memory_slot_runtime_impact_report(memory_slot_runtime_impact)
     _write_memory_slot_architecture_cost_report(memory_slot_architecture_cost)
     _write_structural_plasticity_experiment_report(structural_plasticity)
@@ -872,6 +955,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         ),
         generation_coherence_evidence_paths=(generation_coherence,),
         quality_replay_evidence_paths=(quality_replay,),
+        checkpoint_evolution_evidence_paths=(checkpoint_evolution,),
     )
     categories = {item["name"]: item for item in report["categories"]}
     long_run = categories["long_run_throughput"]
@@ -880,6 +964,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     memory_slot_category = categories["memory_slot_runtime_impact"]
     memory_slot_cost_category = categories["memory_slot_architecture_cost"]
     growth_prune_category = categories["growth_prune_safety"]
+    rollback_category = categories["rollback"]
 
     assert long_run["status"] == "pass"
     assert long_run["missing_evidence"] == []
@@ -960,6 +1045,23 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert saved_structural["transaction_summaries"][0][
         "target_memory_slot_count"
     ] == 1024
+    assert rollback_category["status"] == "pass"
+    saved_evolution = rollback_category["evidence"][
+        "saved_checkpoint_evolution_evidence"
+    ]
+    assert saved_evolution["checkpoint_evolution_evidence_available"] is True
+    assert saved_evolution["valid_report_count"] == 1
+    assert saved_evolution["best_report"]["child_training_device"] == "cuda:0"
+    assert saved_evolution["best_report"][
+        "child_training_dense_adamw_backend"
+    ] == "fused"
+    assert saved_evolution["best_report"]["child_update_token_count"] == 65536
+    assert saved_evolution["best_report"][
+        "child_training_tokens_per_second"
+    ] == 3123.0
+    assert saved_evolution["best_report"][
+        "long_run_evidence_required_for_parent_promotion"
+    ] is True
     assert generation_category["missing_evidence"] == []
     assert generation_category["evidence"]["long_run_alignment"][
         "same_checkpoint_long_run_available"
@@ -1082,6 +1184,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert report["promotion_gate"]["long_run_evidence_available"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
     assert report["promotion_gate"]["quality_replay_evidence_available"] is True
+    assert report["promotion_gate"][
+        "checkpoint_evolution_evidence_available"
+    ] is True
     assert (
         report["promotion_gate"][
             "controlled_decode_house_scale_evidence_available"

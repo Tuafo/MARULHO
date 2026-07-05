@@ -268,6 +268,15 @@ harnesses.
   heldout-protective, rollback-backed, and externally paired with same-child
   long-run evidence. Human review and broad generation-quality/runtime
   promotion remain false unless separately proven.
+- `language_checkpoint_evolution_experiment.py` writes reusable
+  `marulho_language_checkpoint_evolution_experiment.v1` reports around the
+  controlled child-fork evaluator. These reports can start from a fresh model or
+  a parent LM checkpoint, record backend policy, CUDA math policy, child update
+  throughput, parent/child checkpoint hashes, parent-preserving rollback, and
+  structural review evidence, then feed `language_runtime_benchmark_suite.py`
+  through `--checkpoint-evolution-evidence`. They do not promote the child into
+  the parent runtime; parent promotion still requires separate 131072/524288
+  sustained evidence.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled
@@ -929,6 +938,7 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite.json --sustained-target-tokens 8 --sustained-evidence reports/language_runtime_evidence/diagnostic-8192.json --sustained-evidence reports/language_runtime_evidence/long-gate-131072.json
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-memory-slot-architecture-cost.json --sustained-target-tokens 8 --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json
 python -m marulho.evaluation.language_structural_plasticity_experiment --output reports/language_structural_plasticity/structural-memory-route-524288.json --proposal-kind memory_slot_expansion --proposal-kind route_bank_expansion --model-vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --memory-slot-growth 1024 --memory-slot-candidate-count 8 --active-memory-slot-count 2 --route-candidate-growth 4 --sequence-length 64 --stride 64 --batch-size 16 --max-eval-batches 2 --device cuda
+python -m marulho.evaluation.language_checkpoint_evolution_experiment --output reports/language_checkpoint_evolution/default-policy-child-evolution-524288.json --parent-checkpoint reports/language_training_experiments/cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt --model-vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --recurrent-gradient-horizon 8 --sequence-length 64 --stride 32 --batch-size 16 --max-parent-eval-batches 22 --max-child-eval-batches 27 --max-child-train-batches 8 --max-replay-batches 8 --max-steps 4 --learning-rate 0.002 --max-grad-norm 1.0 --gradient-clip-interval 8 --device cuda
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-structural-plasticity-524288.json --sustained-target-tokens 8 --structural-plasticity-evidence reports/language_structural_plasticity/structural-memory-route-524288.json --memory-slot-architecture-cost-evidence reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json
 python -m marulho.evaluation.language_triton_kernel_report --output reports/language_kernel_evidence/rmsnorm-triton-20260703.json --shape 1024x64 --shape 2048x128 --shape 1024x256 --dtype float32 --dtype float16 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-rmsnorm-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-batched-quality-rmsnorm-policy-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
