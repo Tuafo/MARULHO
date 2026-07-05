@@ -188,6 +188,13 @@ class RMSNorm(nn.Module):
         return language_rmsnorm(value, self.weight, eps=self.eps)
 
 
+def _state_block_preallocate_no_grad_enabled() -> bool:
+    raw = os.environ.get("MARULHO_LANGUAGE_STATE_BLOCK_PREALLOCATE_NO_GRAD")
+    if raw is None:
+        return False
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 class MarulhoSelectiveSpikingStateBlock(nn.Module):
     """Causal selective recurrent spike block for the MARULHO LM foundation."""
 
@@ -459,7 +466,17 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         raw_leak = self.raw_leak.to(device=inputs.device, dtype=inputs.dtype)
         base_threshold = self.threshold.to(device=inputs.device, dtype=inputs.dtype)
         current_gain = self.current_gain.to(device=inputs.device, dtype=inputs.dtype)
+        preallocate_no_grad_sequence = bool(
+            not torch.is_grad_enabled()
+            and _state_block_preallocate_no_grad_enabled()
+            and int(time_steps) > 0
+        )
         mixed_states: list[torch.Tensor] = []
+        mixed_state_sequence_buffer: torch.Tensor | None = (
+            inputs.new_empty((batch_size, time_steps, self.state_dim))
+            if preallocate_no_grad_sequence
+            else None
+        )
         spike_sum = inputs.new_tensor(0.0)
         active_neuron_counts = (
             inputs.new_zeros(self.state_dim) if bool(collect_telemetry) else None
@@ -546,7 +563,10 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                         state_output=state_output_all[:, step, :],
                         spike_slope=self.spike_slope,
                     )
-            mixed_states.append(mixed_state)
+            if mixed_state_sequence_buffer is not None:
+                mixed_state_sequence_buffer[:, step, :].copy_(mixed_state)
+            else:
+                mixed_states.append(mixed_state)
             if bool(collect_telemetry):
                 spike_sum = spike_sum + spikes.sum()
                 assert active_neuron_counts is not None
@@ -562,7 +582,16 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 eligibility_trace = eligibility_trace.detach()
                 truncated_bptt_boundary_count += 1
 
-        mixed_state_sequence = torch.stack(mixed_states, dim=1)
+        mixed_state_sequence = (
+            mixed_state_sequence_buffer
+            if mixed_state_sequence_buffer is not None
+            else torch.stack(mixed_states, dim=1)
+        )
+        mixed_state_sequence_buffer_mode = (
+            "preallocated_no_grad_mixed_state_sequence"
+            if mixed_state_sequence_buffer is not None
+            else "stacked_mixed_state_list"
+        )
         hidden = self.output_norm(
             residual_all + self.state_output_proj(mixed_state_sequence)
         )
@@ -605,6 +634,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "state_block_projection_mode": (
                     "batched_token_and_state_output_projection_recurrent_loop"
                 ),
+                "mixed_state_sequence_buffer_mode": mixed_state_sequence_buffer_mode,
                 "recurrent_gradient_horizon": int(gradient_horizon),
                 "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
                 "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
@@ -640,6 +670,7 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "state_block_projection_mode": (
                     "batched_token_and_state_output_projection_recurrent_loop"
                 ),
+                "mixed_state_sequence_buffer_mode": mixed_state_sequence_buffer_mode,
                 "recurrent_gradient_horizon": int(gradient_horizon),
                 "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
                 "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),

@@ -87,6 +87,10 @@ harnesses.
   loss, sparse vocab-row optimization, and tokenizer-row generation decode
   limits. It is meant to accelerate model experiments, not create a new
   promotion gate.
+- `language_state_block_runtime_impact.py` measures complete no-grad LM forward
+  impact for state-block sequence-buffer experiments. The current
+  `524288` model-vocab batch-16/seq-64 report rejects no-grad mixed-state
+  preallocation as a default because the existing stacked path is faster.
 - `language_sampled_vocab_training_impact.py` measures complete sampled/
   adaptive vocabulary training-step impact for padded large-vocab LM configs.
   It compares dense full-vocab loss/optimizer work against sampled loss with
@@ -297,6 +301,17 @@ harnesses.
   forward, PLIF surrogate-backward, and selective-scan parity while keeping
   promotion blocked on generation coherence plus expert-dispatch and
   sampled-vocab cross-entropy evidence.
+- Current 2026-07-04 state-block mixed-state preallocation impact evidence in
+  `reports/language_training_experiments/state-block-prealloc-runtime-impact-524288-b16-s64.json`
+  uses `language_state_block_runtime_impact.py` to compare full no-grad LM
+  forward passes while holding route-top-k and expert-dispatch policy constant.
+  At the `524288` model-vocab, decode-limited, batch-16/seq-64, `16` expert,
+  `8` route-candidate, `4` active-expert shape, the existing stacked
+  mixed-state path reached `12321.430` tokens/sec and the preallocated
+  no-grad mixed-state sequence reached `12068.368` tokens/sec, a `0.979x`
+  ratio. Logits matched exactly within tolerance, PLIF/route/dispatch Triton
+  kernels were active in the measured path, and the report keeps the
+  preallocation unpromoted.
 - Current 2026-07-04 route/vote top-k Triton evidence in
   `reports/language_kernel_evidence/route-topk-triton-20260704.json` passed
   three CUDA `float32` shape sweeps for `language_route_vote_topk`
@@ -695,6 +710,7 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-vectorized-state.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-vectorized-state-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel selective-scan --output reports/language_kernel_evidence/selective-scan-triton-20260704.json --shape 16x128 --shape 32x128 --shape 16x256 --dtype float32 --dtype float16 --scan-time-steps 64 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-selective-scan-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json
+python -m marulho.evaluation.language_state_block_runtime_impact --output reports/language_training_experiments/state-block-prealloc-runtime-impact-524288-b16-s64.json --vocab-size 524288 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 5 --repeats 50 --route-topk-min-rows 1 --expert-dispatch-min-tokens 1 --device cuda
 python -m marulho.evaluation.language_triton_kernel_report --kernel route-topk --output reports/language_kernel_evidence/route-topk-triton-20260704.json --shape 1024x128 --shape 2048x128 --shape 4096x128 --dtype float32 --expert-count 64 --route-candidate-count 8 --active-experts 4 --warmup 10 --repeats 50
 python -m marulho.evaluation.language_route_topk_runtime_impact --output reports/language_training_experiments/route-topk-runtime-impact-524288-b16-s64.json --vocab-size 524288 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 5 --repeats 50 --device cuda
 python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispatch --output reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --shape 256x64 --shape 512x64 --shape 256x128 --dtype float32 --dtype float16 --expert-count 64 --active-experts 4 --expert-hidden-dim 128 --warmup 20 --repeats 100

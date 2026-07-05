@@ -69,8 +69,13 @@ developmental and consolidation runners, query runners, and long-run evidence.
   records this as `state_block_projection_mode=batched_token_and_state_output_projection_recurrent_loop`,
   trains `63744` tokens at `2954.763` train tokens/sec on the `524288`
   model-vocab sampled/padded shape, and sustains `524288/524288` generated
-  tokens at `7217.290` tokens/sec. `step` remains the streaming path for
-  one-token CUDA graph generation.
+  tokens at `7217.290` tokens/sec. The no-grad mixed-state preallocation probe
+  in
+  `reports/language_training_experiments/state-block-prealloc-runtime-impact-524288-b16-s64.json`
+  is rejected as a default: the stacked sequence path reached `12321.430`
+  tokens/sec while preallocation reached `12068.368` tokens/sec (`0.979x`) on
+  the same full-forward `524288` batch-16/seq-64 shape. `step` remains the
+  streaming path for one-token CUDA graph generation.
 - The state block can use `language_plif_triton.py` for no-grad PLIF forward
   updates when CUDA row-count policy allows it. Gradient-enabled `float32`
   training can use the same module's Triton surrogate backward path, which

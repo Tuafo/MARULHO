@@ -124,6 +124,9 @@ def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     assert result["telemetry"]["external_llm_used"] is False
     assert result["telemetry"]["normalization"] == "rmsnorm"
     assert result["telemetry"]["plif_state"] == "membrane_spikes_selective_state"
+    assert result["telemetry"]["mixed_state_sequence_buffer_mode"] == (
+        "stacked_mixed_state_list"
+    )
     assert result["telemetry"]["adaptive_timestep_budget"] == 2
     assert result["telemetry"]["adaptive_step_count"] == split.train[0].input_ids.shape[1] * 2
     assert result["telemetry"]["input_dependent_leak"] is True
@@ -429,6 +432,9 @@ def test_selective_state_block_vectorized_forward_matches_step_loop() -> None:
         torch.testing.assert_close(value, state[key], rtol=1e-6, atol=1e-6)
     assert full_telemetry["state_block_projection_mode"] == (
         "batched_token_and_state_output_projection_recurrent_loop"
+    )
+    assert full_telemetry["mixed_state_sequence_buffer_mode"] == (
+        "stacked_mixed_state_list"
     )
 
 
