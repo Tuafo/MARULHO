@@ -61,6 +61,10 @@ class LanguageContinualLearningExperimentConfig:
     route_candidate_count: int = 4
     expert_hidden_dim: int = 96
     recurrent_gradient_horizon: int = 0
+    memory_slot_count: int = 0
+    memory_slot_candidate_count: int = 0
+    active_memory_slot_count: int = 1
+    memory_slot_init_std: float = 0.02
     sequence_length: int = 32
     stride: int = 16
     batch_size: int = 8
@@ -135,6 +139,10 @@ def _model_config(
             else 0
         ),
         recurrent_gradient_horizon=max(0, int(config.recurrent_gradient_horizon)),
+        memory_slot_count=max(0, int(config.memory_slot_count)),
+        memory_slot_candidate_count=max(0, int(config.memory_slot_candidate_count)),
+        active_memory_slot_count=max(1, int(config.active_memory_slot_count)),
+        memory_slot_init_std=max(0.0, float(config.memory_slot_init_std)),
     )
 
 
@@ -295,15 +303,18 @@ def _same_shape_comparison(
         ),
         "same_model_vocab_size": True,
         "same_sampled_vocab_size": True,
+        "same_memory_slot_count": True,
+        "same_memory_slot_candidate_count": True,
+        "same_active_memory_slot_count": True,
         "same_update_token_count": True,
         "same_old_eval_batch_count": True,
         "same_new_eval_batch_count": True,
         "notes": (
             "Same sampled/padded continual-learning shape when model vocab, "
             "sampled vocab, update batch count, replay batch count, max steps, "
-            "and heldout eval batch counts match. Corpus text may differ across "
-            "retained artifacts, so this is throughput and sync-boundary evidence, "
-            "not a quality comparison."
+            "memory-slot shape, and heldout eval batch counts match. Corpus text "
+            "may differ across retained artifacts, so this is throughput and "
+            "sync-boundary evidence, not a quality comparison."
         ),
     }
     if comparison is not None:
@@ -360,6 +371,45 @@ def _same_shape_comparison(
                 == int(comparison.get("model_vocab_size", 0) or 0),
                 "same_sampled_vocab_size": int(report.get("sampled_vocab_size", 0) or 0)
                 == int(comparison.get("sampled_vocab_size", 0) or 0),
+                "same_memory_slot_count": int(
+                    (report.get("model_config") or {}).get("memory_slot_count", 0)
+                    or 0
+                )
+                == int(
+                    (comparison.get("model_config") or {}).get(
+                        "memory_slot_count",
+                        0,
+                    )
+                    or 0
+                ),
+                "same_memory_slot_candidate_count": int(
+                    (report.get("model_config") or {}).get(
+                        "memory_slot_candidate_count",
+                        0,
+                    )
+                    or 0
+                )
+                == int(
+                    (comparison.get("model_config") or {}).get(
+                        "memory_slot_candidate_count",
+                        0,
+                    )
+                    or 0
+                ),
+                "same_active_memory_slot_count": int(
+                    (report.get("model_config") or {}).get(
+                        "active_memory_slot_count",
+                        1,
+                    )
+                    or 1
+                )
+                == int(
+                    (comparison.get("model_config") or {}).get(
+                        "active_memory_slot_count",
+                        1,
+                    )
+                    or 1
+                ),
                 "same_update_token_count": int(
                     evidence.get("update_token_count", 0) or 0
                 )
@@ -632,6 +682,26 @@ def run_language_continual_learning_experiment(
             "records_window_phase_timings": bool(
                 report["learning_evidence"].get("window_phase_timings")
             ),
+            "records_memory_slot_path": bool(
+                report["learning_evidence"]["memory_slots"].get("enabled", False)
+            ),
+            "records_bounded_memory_slot_path": bool(
+                report["learning_evidence"]["memory_slots"].get(
+                    "bounded_memory_slot_path",
+                    False,
+                )
+            ),
+            "records_memory_slot_online_update_path": bool(
+                report["learning_evidence"]["memory_slots"].get(
+                    "online_update_path",
+                    False,
+                )
+                and report["learning_evidence"]["memory_slots"].get(
+                    "candidate_slots_scored",
+                    0,
+                )
+                > 0
+            ),
             "records_generation_quality_probe": bool(
                 report["generation_quality_after"]["generation_count"] > 0
             ),
@@ -673,6 +743,10 @@ def main() -> int:
     parser.add_argument("--route-candidate-count", type=int, default=4)
     parser.add_argument("--expert-hidden-dim", type=int, default=96)
     parser.add_argument("--recurrent-gradient-horizon", type=int, default=0)
+    parser.add_argument("--memory-slot-count", type=int, default=0)
+    parser.add_argument("--memory-slot-candidate-count", type=int, default=0)
+    parser.add_argument("--active-memory-slot-count", type=int, default=1)
+    parser.add_argument("--memory-slot-init-std", type=float, default=0.02)
     parser.add_argument("--sequence-length", type=int, default=32)
     parser.add_argument("--stride", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -714,6 +788,10 @@ def main() -> int:
         route_candidate_count=args.route_candidate_count,
         expert_hidden_dim=args.expert_hidden_dim,
         recurrent_gradient_horizon=max(0, int(args.recurrent_gradient_horizon)),
+        memory_slot_count=max(0, int(args.memory_slot_count)),
+        memory_slot_candidate_count=max(0, int(args.memory_slot_candidate_count)),
+        active_memory_slot_count=max(1, int(args.active_memory_slot_count)),
+        memory_slot_init_std=max(0.0, float(args.memory_slot_init_std)),
         sequence_length=args.sequence_length,
         stride=args.stride,
         batch_size=args.batch_size,

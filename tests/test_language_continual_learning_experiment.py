@@ -25,6 +25,9 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
             route_candidate_count=2,
             expert_hidden_dim=24,
             recurrent_gradient_horizon=2,
+            memory_slot_count=4,
+            memory_slot_candidate_count=2,
+            active_memory_slot_count=1,
             sequence_length=12,
             stride=6,
             batch_size=2,
@@ -47,8 +50,30 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     )
     assert report["experiment_review"]["records_eval_metric_readback"] is True
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
+    assert report["experiment_review"]["records_memory_slot_path"] is True
+    assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
+    assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
     assert report["experiment_review"]["records_generation_quality_probe"] is True
     assert report["experiment_review"]["records_generation_quality_delta"] is True
+    assert report["model_config"]["memory_slot_count"] == 4
+    assert report["model_config"]["memory_slot_candidate_count"] == 2
+    assert report["model_config"]["active_memory_slot_count"] == 1
+    memory_slots = report["learning_evidence"]["memory_slots"]
+    assert memory_slots["surface"] == "marulho_language_continual_memory_slots.v1"
+    assert memory_slots["enabled"] is True
+    assert memory_slots["total_slots"] == 4
+    assert memory_slots["candidate_slot_count"] == 2
+    assert memory_slots["active_slots_per_token"] == 1
+    assert memory_slots["candidate_slots_scored"] > 0
+    assert memory_slots["update_candidate_slots_scored"] > 0
+    assert memory_slots["replay_candidate_slots_scored"] > 0
+    assert memory_slots["runs_all_slots"] is False
+    assert memory_slots["candidate_id_source"] == "token_hash_memory_slot_bank"
+    assert memory_slots["memory_gate_readback"] is False
+    assert memory_slots["bounded_memory_slot_path"] is True
+    assert loaded["learning_evidence"]["memory_slots"]["candidate_slots_scored"] == (
+        memory_slots["candidate_slots_scored"]
+    )
     assert report["old_domain_before"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )

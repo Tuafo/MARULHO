@@ -81,6 +81,76 @@ def _spike_rate(report: Mapping[str, Any]) -> float:
     return float(telemetry.get("spike_rate", 0.0) or 0.0)
 
 
+def _memory_slot_learning_summary(
+    model: MarulhoLanguageModel,
+    *,
+    update_memory: Mapping[str, Any],
+    replay_memory: Mapping[str, Any],
+    update_candidate_slots_scored: int,
+    replay_candidate_slots_scored: int,
+    update_observation_count: int,
+    replay_observation_count: int,
+) -> dict[str, Any]:
+    source = update_memory if update_memory else replay_memory
+    configured_slots = max(0, int(model.config.memory_slot_count))
+    total_slots = int(source.get("total_slots", configured_slots) or 0)
+    candidate_slot_count = int(
+        source.get("candidate_slot_count", model.config.memory_slot_candidate_count)
+        or 0
+    )
+    active_slots = int(
+        source.get("active_slots_per_token", model.config.active_memory_slot_count)
+        or 0
+    )
+    fallback_reasons = tuple(
+        str(reason)
+        for reason in (
+            update_memory.get("fallback_reason"),
+            replay_memory.get("fallback_reason"),
+        )
+        if reason
+    )
+    return {
+        "surface": "marulho_language_continual_memory_slots.v1",
+        "enabled": bool(source.get("enabled", configured_slots > 0)),
+        "total_slots": total_slots,
+        "candidate_slot_count": candidate_slot_count,
+        "active_slots_per_token": active_slots,
+        "candidate_slots_scored": int(
+            update_candidate_slots_scored + replay_candidate_slots_scored
+        ),
+        "update_candidate_slots_scored": int(update_candidate_slots_scored),
+        "replay_candidate_slots_scored": int(replay_candidate_slots_scored),
+        "update_observation_count": int(update_observation_count),
+        "replay_observation_count": int(replay_observation_count),
+        "runs_all_slots": bool(
+            update_memory.get("runs_all_slots", False)
+            or replay_memory.get("runs_all_slots", False)
+        ),
+        "fallback_reason": fallback_reasons[0] if fallback_reasons else None,
+        "candidate_id_source": source.get("candidate_id_source"),
+        "memory_gate_readback": bool(source.get("memory_gate_readback", False)),
+        "memory_slot_initialization": source.get("memory_slot_initialization"),
+        "memory_slot_init_std": float(
+            source.get("memory_slot_init_std", model.config.memory_slot_init_std)
+        ),
+        "memory_device": source.get("memory_device", str(model.device)),
+        "active_parameters_per_token": int(
+            source.get(
+                "active_parameters_per_token",
+                active_slots * int(model.config.state_dim),
+            )
+            or 0
+        ),
+        "online_update_path": True,
+        "bounded_memory_slot_path": bool(
+            source.get("enabled", configured_slots > 0)
+            and candidate_slot_count > 0
+            and candidate_slot_count < max(1, total_slots)
+        ),
+    }
+
+
 def _continual_optimizer_policy(
     model: MarulhoLanguageModel,
     config: LanguageContinualLearningConfig,
@@ -239,6 +309,12 @@ def run_language_continual_learning_window(
     max_gradient_norm_tensor: torch.Tensor | None = None
     last_loss_evidence: dict[str, Any] = {}
     last_replay_loss_evidence: dict[str, Any] = {}
+    last_update_memory_evidence: dict[str, Any] = {}
+    last_replay_memory_evidence: dict[str, Any] = {}
+    update_memory_candidate_slots_scored = 0
+    replay_memory_candidate_slots_scored = 0
+    update_memory_observation_count = 0
+    replay_memory_observation_count = 0
     update_token_count = 0
     optimizer_step_count = 0
     gradient_clip_applied_step_count = 0
@@ -260,6 +336,14 @@ def run_language_continual_learning_window(
             )
             loss = update_result["loss"]
             last_loss_evidence = dict(update_result.get("loss_evidence") or {})
+            last_update_memory_evidence = dict(
+                (update_result.get("telemetry") or {}).get("memory") or {}
+            )
+            if last_update_memory_evidence:
+                update_memory_candidate_slots_scored += int(
+                    last_update_memory_evidence.get("candidate_slots_scored", 0) or 0
+                )
+                update_memory_observation_count += 1
             update_token_count += int(batch.target_ids.numel())
             if replay_update_batches:
                 replay_batch = replay_update_batches[
@@ -276,6 +360,18 @@ def run_language_continual_learning_window(
                 last_replay_loss_evidence = dict(
                     replay_result.get("loss_evidence") or {}
                 )
+                last_replay_memory_evidence = dict(
+                    (replay_result.get("telemetry") or {}).get("memory") or {}
+                )
+                if last_replay_memory_evidence:
+                    replay_memory_candidate_slots_scored += int(
+                        last_replay_memory_evidence.get(
+                            "candidate_slots_scored",
+                            0,
+                        )
+                        or 0
+                    )
+                    replay_memory_observation_count += 1
                 detached_replay_loss = replay_loss.detach()
                 replay_loss_sum = (
                     detached_replay_loss
@@ -388,6 +484,15 @@ def run_language_continual_learning_window(
         else "needs_more_learning_evidence"
     )
     total_elapsed_seconds = max(0.0, time.perf_counter() - total_started)
+    memory_slot_evidence = _memory_slot_learning_summary(
+        model,
+        update_memory=last_update_memory_evidence,
+        replay_memory=last_replay_memory_evidence,
+        update_candidate_slots_scored=update_memory_candidate_slots_scored,
+        replay_candidate_slots_scored=replay_memory_candidate_slots_scored,
+        update_observation_count=update_memory_observation_count,
+        replay_observation_count=replay_memory_observation_count,
+    )
     return {
         "artifact_kind": "marulho_language_continual_learning_window",
         "surface": "marulho_language_continual_learning_window.v1",
@@ -403,6 +508,7 @@ def run_language_continual_learning_window(
         "runtime_training": True,
         "status": status,
         "config": asdict(cfg),
+        "memory_slots": memory_slot_evidence,
         "old_domain_before": old_before,
         "old_domain_after": old_after,
         "new_domain_before": new_before,
@@ -424,6 +530,7 @@ def run_language_continual_learning_window(
             ),
             "general_replay_retention_delta": float(replay_retention_delta),
             "spike_rate_delta": float(_spike_rate(new_after) - _spike_rate(new_before)),
+            "memory_slots": memory_slot_evidence,
             "update_batch_count": int(len(new_batches) * step_count),
             "replay_batch_count": int(len(replay_batches)),
             "sampled_vocab_precompute": {

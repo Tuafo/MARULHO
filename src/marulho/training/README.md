@@ -184,6 +184,23 @@ developmental and consolidation runners, query runners, and long-run evidence.
   after-learning distinct-bigram fraction improves from `0.191` to `1.000`;
   source-prefix match remains only `1.0` character, so this is
   repetition-control evidence rather than a language-quality promotion.
+  The memory-slot online-learning follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-524288.json`
+  keeps the same continual-learning shape with `1024` memory slots, `8`
+  bounded candidates, and `2` active slots per token. It updates `65536`
+  new+replay tokens at `2951.259` update tokens/sec and `1131.696`
+  total-window tokens/sec, accepts the checkpoint update, improves new-domain
+  heldout loss by `5.8397`, improves old-domain loss by `5.2612` rather than
+  forgetting, and improves replay loss by `5.2574`. The report records
+  `marulho_language_continual_memory_slots.v1`, `524288` memory candidates
+  scored across the online update, `runs_all_slots=false`,
+  `bounded_memory_slot_path=true`, `memory_gate_readback=false`, and
+  `records_memory_slot_online_update_path=true`. Compared with the no-memory
+  decode-control report, it is deliberately marked as a different memory-slot
+  shape and pays `-19.962%` update throughput and `-44.825%` total-window
+  throughput; compared with the older retained baseline it is `+12.673%`
+  update throughput. This is bounded online memory/replay/forgetting evidence,
+  not a runtime or language-quality promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
