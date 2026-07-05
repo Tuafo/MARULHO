@@ -112,8 +112,13 @@ harnesses.
   report measures `524288` optimizer tokens per arm, records `512` Triton
   autograd forwards plus `512` custom backward calls, and improves bounded
   memory-slot training from `3076.582` to `3110.440` train tokens/sec versus
-  forced-off torch autograd. It is training-backend evidence; the full
-  continual-learning update window still needs a matching rerun.
+  forced-off torch autograd. It is training-backend evidence, but the matching
+  `524288` full continual-learning update window rejected Triton training as
+  the maintained default: torch autograd reached `3134.337` update tokens/sec
+  and `2849.240` total-window tokens/sec, while opt-in Triton training reached
+  `3074.512` and `2823.885` on the same shape with `512` Triton autograd
+  forwards, `512` custom backward calls, and zero fallback. Keep training Triton
+  opt-in until a complete continual-window report wins.
 - `language_eligibility_trace_runtime_impact.py` measures complete no-grad LM
   forward impact for deferred eligibility-trace updates. The current `524288`
   model-vocab batch-16/seq-64 report rejects deferred final-scan eligibility as
@@ -422,11 +427,14 @@ harnesses.
   `bounded_memory_slot_retrieval_parity` in GPU kernel correctness.
 - Current 2026-07-05 memory-slot training-backend evidence in
   `reports/language_training_experiments/memory-slot-training-impact-triton-autograd-compare-524288-b16-s64-t524288-long.json`
-  promotes supported CUDA `float32` memory-slot training forward to
-  Triton-forward/custom-autograd by default. The forced-off torch arm reached
-  `3076.582` train tokens/sec, the Triton training arm reached `3110.440`, and
-  both arms measured `524288` optimizer tokens with precomputed memory
-  candidate IDs and nonzero gate/slot gradients.
+  proves supported CUDA `float32` memory-slot training forward can use
+  Triton-forward/custom-autograd when forced on. The forced-off torch arm
+  reached `3076.582` train tokens/sec, the Triton training arm reached
+  `3110.440`, and both arms measured `524288` optimizer tokens with precomputed
+  memory candidate IDs and nonzero gate/slot gradients. Current full-window
+  continual evidence keeps the default on torch autograd because the same
+  `524288` update-token online shape reached `3134.337` update tokens/sec on
+  torch versus `3074.512` with opt-in Triton.
 - Current 2026-07-04 sampled-vocab training-impact evidence in
   `reports/language_training_experiments/sampled-vocab-training-impact-default-policy-524288-b16-r8-sampled-only.json`
   measures full MARULHO LM training steps, not a kernel microbenchmark. It uses

@@ -1710,6 +1710,12 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
         "deferred_gpu_scalar_aggregation"
     )
     assert report["learning_evidence"]["per_step_metric_cpu_sync"] is False
+    assert report["learning_evidence"][
+        "training_window_memory_slot_triton_stats_delta"
+    ]["surface"] == "marulho_language_memory_slots_triton_stats_delta.v1"
+    assert report["learning_evidence"][
+        "training_window_memory_slot_triton_autograd_used"
+    ] is False
     assert report["learning_evidence"]["window_phase_timings"]["surface"] == (
         "marulho_language_continual_window_phase_timings.v1"
     )
@@ -1816,6 +1822,10 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["gradient_clip_skipped_step_count"] == 2
     assert evidence["metric_readback_mode"] == "deferred_gpu_scalar_aggregation"
     assert evidence["per_step_metric_cpu_sync"] is False
+    assert evidence["training_window_memory_slot_triton_stats_delta"]["surface"] == (
+        "marulho_language_memory_slots_triton_stats_delta.v1"
+    )
+    assert evidence["training_window_memory_slot_triton_autograd_used"] is False
     assert evidence["sampled_vocab_training"] is True
     assert evidence["full_vocab_logits_materialized"] is False
     assert evidence["sampled_vocab_precompute"]["surface"] == (

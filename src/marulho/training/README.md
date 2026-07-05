@@ -537,9 +537,16 @@ developmental and consolidation runners, query runners, and long-run evidence.
   reached `3110.440` (`0.981x` control, `1.011x` versus bounded torch). The
   Triton training arm records `512` Triton autograd forwards, `512` custom
   backward calls, zero fallback memory-slot calls, precomputed memory
-  candidates, and nonzero gate/slot gradients, so supported CUDA `float32`
-  training now defaults to that backend with forced-off torch available through
-  `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=0`.
+  candidates, and nonzero gate/slot gradients. The later full-window
+  continual-learning comparison rejects that isolated win as the maintained
+  default: forced-off/default torch autograd reached `3134.337` update
+  tokens/sec and `2849.240` total-window tokens/sec for `524288` update tokens,
+  while opt-in Triton training reached `3074.512` and `2823.885` on the same
+  shape (`-1.909%` update throughput, `-0.890%` total-window throughput) with
+  `512` Triton autograd forwards, `512` custom backward calls, zero fallback,
+  and the same bounded precomputed candidates. Keep training Triton opt-in
+  through `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=1` until complete
+  continual-window evidence wins.
 - `MarulhoLanguageModel.forward_step` applies the same bounded memory-slot
   retrieval used by batched training before routed experts, so checkpointed
   streaming generation can execute memory slots rather than bypassing them. The

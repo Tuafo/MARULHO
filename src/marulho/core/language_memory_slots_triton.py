@@ -71,8 +71,8 @@ def _min_rows() -> int:
 def _triton_training_autograd_enabled() -> bool:
     raw = os.environ.get("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING")
     if raw is None:
-        return True
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def language_memory_slots_triton_stats() -> dict[str, Any]:

@@ -353,6 +353,60 @@ def _eval_memory_slot_backend_summary(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _training_memory_slot_backend_summary(report: dict[str, Any]) -> dict[str, Any]:
+    evidence = report.get("learning_evidence")
+    evidence_dict = evidence if isinstance(evidence, dict) else {}
+    memory = evidence_dict.get("memory_slots")
+    memory_dict = memory if isinstance(memory, dict) else {}
+    triton_delta = memory_dict.get(
+        "training_window_memory_slot_triton_stats_delta"
+    )
+    if not isinstance(triton_delta, dict):
+        triton_delta = evidence_dict.get(
+            "training_window_memory_slot_triton_stats_delta"
+        )
+    triton_delta_dict = triton_delta if isinstance(triton_delta, dict) else {}
+    return {
+        "surface": "marulho_language_continual_training_memory_slot_backend.v1",
+        "training_window_stats_recorded": bool(triton_delta_dict),
+        "memory_slot_retrieval_backend": memory_dict.get(
+            "memory_slot_retrieval_backend"
+        ),
+        "triton_training_autograd_enabled": bool(
+            memory_dict.get(
+                "training_window_memory_slot_triton_training_autograd_enabled",
+                evidence_dict.get(
+                    "training_window_memory_slot_triton_training_autograd_enabled",
+                    False,
+                ),
+            )
+        ),
+        "triton_autograd_used": bool(
+            triton_delta_dict.get("triton_autograd_used", False)
+        ),
+        "triton_autograd_forward_calls": int(
+            triton_delta_dict.get("triton_autograd_forward_calls", 0) or 0
+        ),
+        "torch_autograd_backward_calls": int(
+            triton_delta_dict.get("torch_autograd_backward_calls", 0) or 0
+        ),
+        "triton_forward_calls": int(
+            triton_delta_dict.get("triton_forward_calls", 0) or 0
+        ),
+        "torch_fallback_calls": int(
+            triton_delta_dict.get("torch_fallback_calls", 0) or 0
+        ),
+        "triton_failure_count": int(
+            triton_delta_dict.get("triton_failure_count", 0) or 0
+        ),
+        "candidate_slots_scored": int(
+            memory_dict.get("candidate_slots_scored", 0) or 0
+        ),
+        "candidate_id_source": memory_dict.get("candidate_id_source"),
+        "runs_all_slots": bool(memory_dict.get("runs_all_slots", False)),
+    }
+
+
 def _same_shape_comparison(
     report: dict[str, Any],
     *,
@@ -783,6 +837,9 @@ def run_language_continual_learning_experiment(
         report["eval_memory_slot_backend_summary"] = _eval_memory_slot_backend_summary(
             report
         )
+        report["training_memory_slot_backend_summary"] = (
+            _training_memory_slot_backend_summary(report)
+        )
         report["experiment_review"] = {
             "fast_mutable_experiment": True,
             "records_actual_continual_learning": bool(
@@ -864,6 +921,24 @@ def run_language_continual_learning_experiment(
                     "memory_slot_triton_stats_delta"
                 ),
                 dict,
+            ),
+            "records_memory_slot_training_window_triton_stats": bool(
+                report["training_memory_slot_backend_summary"].get(
+                    "training_window_stats_recorded",
+                    False,
+                )
+            ),
+            "records_training_memory_slot_backend_summary": bool(
+                report["training_memory_slot_backend_summary"].get(
+                    "surface",
+                )
+                == "marulho_language_continual_training_memory_slot_backend.v1"
+            ),
+            "records_training_memory_slot_triton_autograd": bool(
+                report["training_memory_slot_backend_summary"].get(
+                    "triton_autograd_used",
+                    False,
+                )
             ),
             "records_eval_memory_slot_triton_backend": bool(
                 report["eval_memory_slot_backend_summary"].get(

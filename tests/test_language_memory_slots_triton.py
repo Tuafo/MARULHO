@@ -117,7 +117,7 @@ def test_language_memory_slots_triton_autograd_matches_reference_when_available(
     assert delta["torch_autograd_backward_calls"] == 1
 
 
-def test_language_memory_slots_triton_autograd_is_default_when_available(
+def test_language_memory_slots_triton_autograd_is_opt_in_when_available(
     monkeypatch,
 ) -> None:
     if not torch.cuda.is_available() or not language_memory_slots_triton_stats()[
@@ -127,6 +127,31 @@ def test_language_memory_slots_triton_autograd_is_default_when_available(
     monkeypatch.delenv("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING", raising=False)
     monkeypatch.setenv("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_MIN_ROWS", "1")
     inputs = _inputs("cuda")
+    hidden = inputs["hidden"].detach().clone().requires_grad_()
+    memory_slots = inputs["memory_slots"].detach().clone().requires_grad_()
+    gate = inputs["memory_slot_gate"].detach().clone().requires_grad_()
+
+    before = language_memory_slots_triton_stats()
+    output = language_memory_slots(
+        hidden,
+        inputs["candidate_ids"],
+        memory_slots,
+        gate,
+        active_count=2,
+    )
+    output.square().mean().backward()
+    delta = language_memory_slots_triton_stats_delta(
+        before,
+        language_memory_slots_triton_stats(),
+    )
+
+    assert delta["triton_autograd_used"] is False
+    assert delta["torch_fallback_calls"] == 1
+    assert hidden.grad is not None
+    assert memory_slots.grad is not None
+    assert gate.grad is not None
+
+    monkeypatch.setenv("MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING", "1")
     hidden = inputs["hidden"].detach().clone().requires_grad_()
     memory_slots = inputs["memory_slots"].detach().clone().requires_grad_()
     gate = inputs["memory_slot_gate"].detach().clone().requires_grad_()

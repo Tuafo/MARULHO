@@ -8,6 +8,10 @@ from typing import Any, Mapping, Sequence
 
 import torch
 
+from marulho.core.language_memory_slots_triton import (
+    language_memory_slots_triton_stats,
+    language_memory_slots_triton_stats_delta,
+)
 from marulho.training.language_model import (
     LanguageBatch,
     MarulhoLanguageModel,
@@ -86,6 +90,8 @@ def _memory_slot_learning_summary(
     *,
     update_memory: Mapping[str, Any],
     replay_memory: Mapping[str, Any],
+    training_window_memory_slot_triton_stats_delta: Mapping[str, Any] | None,
+    training_window_memory_slot_triton_training_autograd_enabled: bool,
     update_candidate_slots_scored: int,
     replay_candidate_slots_scored: int,
     update_observation_count: int,
@@ -109,6 +115,9 @@ def _memory_slot_learning_summary(
             replay_memory.get("fallback_reason"),
         )
         if reason
+    )
+    training_triton_delta = dict(
+        training_window_memory_slot_triton_stats_delta or {}
     )
     return {
         "surface": "marulho_language_continual_memory_slots.v1",
@@ -135,6 +144,25 @@ def _memory_slot_learning_summary(
         "memory_slot_retrieval_backend": source.get("memory_slot_retrieval_backend"),
         "memory_slot_triton_stats_delta": source.get(
             "memory_slot_triton_stats_delta"
+        ),
+        "training_window_memory_slot_triton_stats_delta": training_triton_delta,
+        "training_window_memory_slot_triton_training_autograd_enabled": bool(
+            training_window_memory_slot_triton_training_autograd_enabled
+        ),
+        "training_window_memory_slot_triton_autograd_used": bool(
+            training_triton_delta.get("triton_autograd_used", False)
+        ),
+        "training_window_memory_slot_triton_forward_calls": int(
+            training_triton_delta.get("triton_forward_calls", 0) or 0
+        ),
+        "training_window_memory_slot_triton_autograd_forward_calls": int(
+            training_triton_delta.get("triton_autograd_forward_calls", 0) or 0
+        ),
+        "training_window_memory_slot_torch_autograd_backward_calls": int(
+            training_triton_delta.get("torch_autograd_backward_calls", 0) or 0
+        ),
+        "training_window_memory_slot_torch_fallback_calls": int(
+            training_triton_delta.get("torch_fallback_calls", 0) or 0
         ),
         "memory_gate_readback": bool(source.get("memory_gate_readback", False)),
         "memory_slot_initialization": source.get("memory_slot_initialization"),
@@ -304,6 +332,7 @@ def run_language_continual_learning_window(
         0.0,
         time.perf_counter() - optimizer_setup_started,
     )
+    training_memory_slots_triton_before = language_memory_slots_triton_stats()
     cuda_synchronized_before_timing_start = False
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
@@ -424,6 +453,19 @@ def run_language_continual_learning_window(
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
         cuda_synchronized_before_timing_stop = True
+    training_memory_slots_triton_after = language_memory_slots_triton_stats()
+    training_window_memory_slot_triton_stats_delta = (
+        language_memory_slots_triton_stats_delta(
+            training_memory_slots_triton_before,
+            training_memory_slots_triton_after,
+        )
+    )
+    training_window_memory_slot_triton_training_autograd_enabled = bool(
+        training_memory_slots_triton_after.get(
+            "triton_training_autograd_enabled",
+            False,
+        )
+    )
     elapsed_seconds = max(0.0, time.perf_counter() - started)
     mean_update_loss = (
         float((update_loss_sum / max(1, update_loss_count)).detach().cpu().item())
@@ -497,6 +539,12 @@ def run_language_continual_learning_window(
         model,
         update_memory=last_update_memory_evidence,
         replay_memory=last_replay_memory_evidence,
+        training_window_memory_slot_triton_stats_delta=(
+            training_window_memory_slot_triton_stats_delta
+        ),
+        training_window_memory_slot_triton_training_autograd_enabled=(
+            training_window_memory_slot_triton_training_autograd_enabled
+        ),
         update_candidate_slots_scored=update_memory_candidate_slots_scored,
         replay_candidate_slots_scored=replay_memory_candidate_slots_scored,
         update_observation_count=update_memory_observation_count,
@@ -540,6 +588,18 @@ def run_language_continual_learning_window(
             "general_replay_retention_delta": float(replay_retention_delta),
             "spike_rate_delta": float(_spike_rate(new_after) - _spike_rate(new_before)),
             "memory_slots": memory_slot_evidence,
+            "training_window_memory_slot_triton_stats_delta": (
+                training_window_memory_slot_triton_stats_delta
+            ),
+            "training_window_memory_slot_triton_training_autograd_enabled": bool(
+                training_window_memory_slot_triton_training_autograd_enabled
+            ),
+            "training_window_memory_slot_triton_autograd_used": bool(
+                training_window_memory_slot_triton_stats_delta.get(
+                    "triton_autograd_used",
+                    False,
+                )
+            ),
             "update_batch_count": int(len(new_batches) * step_count),
             "replay_batch_count": int(len(replay_batches)),
             "sampled_vocab_precompute": {

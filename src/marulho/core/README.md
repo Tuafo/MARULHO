@@ -92,18 +92,20 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   the batch-16/seq-64 routed-expert shape while keeping broad hot-path
   promotion false.
 - Language memory-slot retrieval uses Triton for no-grad CUDA bounded memory
-  rows and for supported `float32` gradient-training forward where the row
-  policy allows it. Training backward remains a MARULHO custom autograd path
-  that returns gradients for hidden rows, selected slot vectors, and the memory
-  gate, with PyTorch fallback available through
-  `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=0`. The complete no-grad
-  `524288` batch-16/seq-64 forward report improves bounded retrieval from
-  `0.839x` to `0.969x` of disabled-memory control, and the `524288`
-  optimizer-token training report improves bounded training from `3076.582`
-  to `3110.440` train tokens/sec versus forced-off torch autograd. The
-  dedicated kernel report passes three CUDA `float32` shape sweeps with
-  `4.950x` geometric microbenchmark speedup; `float16` remains fallback until
-  separate parity evidence exists.
+  rows where the row policy allows it. Supported `float32` gradient-training
+  forward can opt into the Triton-forward/custom-autograd path with
+  `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=1`, but the maintained default
+  stays on torch autograd because the full continual-learning window beat the
+  Triton training path. The complete no-grad `524288` batch-16/seq-64 forward
+  report improves bounded retrieval from `0.839x` to `0.969x` of disabled-memory
+  control, and the isolated `524288` optimizer-token training report improved
+  bounded training from `3076.582` to `3110.440` train tokens/sec with opt-in
+  Triton. The stronger `524288` continual-window comparison rejected that as the
+  default: torch autograd reached `3134.337` update tokens/sec and opt-in Triton
+  reached `3074.512`, while both kept precomputed bounded candidates and
+  nonzero memory gradients. The dedicated kernel report passes three CUDA
+  `float32` shape sweeps with `4.950x` geometric microbenchmark speedup;
+  `float16` remains fallback until separate parity evidence exists.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
   rows and selected vocabulary IDs that include all targets. Gradient training
   can force the Triton-forward/custom-autograd path with

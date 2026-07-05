@@ -84,6 +84,18 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
     assert report["experiment_review"]["records_memory_slot_candidate_precompute"] is True
+    assert (
+        report["experiment_review"]["records_memory_slot_training_window_triton_stats"]
+        is True
+    )
+    assert (
+        report["experiment_review"]["records_training_memory_slot_backend_summary"]
+        is True
+    )
+    assert (
+        report["experiment_review"]["records_training_memory_slot_triton_autograd"]
+        is False
+    )
     assert report["experiment_review"]["records_generation_quality_probe"] is True
     assert report["experiment_review"]["records_generation_quality_delta"] is True
     assert report["model_config"]["memory_slot_count"] == 4
@@ -103,6 +115,24 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert memory_slots["precomputed_candidate_ids_used"] is True
     assert memory_slots["memory_gate_readback"] is False
     assert memory_slots["bounded_memory_slot_path"] is True
+    training_delta = memory_slots["training_window_memory_slot_triton_stats_delta"]
+    assert training_delta["surface"] == (
+        "marulho_language_memory_slots_triton_stats_delta.v1"
+    )
+    assert training_delta["triton_autograd_used"] is False
+    assert memory_slots["training_window_memory_slot_triton_autograd_used"] is False
+    assert (
+        memory_slots["training_window_memory_slot_triton_autograd_forward_calls"] == 0
+    )
+    training_backend = report["training_memory_slot_backend_summary"]
+    assert training_backend["surface"] == (
+        "marulho_language_continual_training_memory_slot_backend.v1"
+    )
+    assert training_backend["training_window_stats_recorded"] is True
+    assert training_backend["triton_autograd_used"] is False
+    assert training_backend["candidate_id_source"] == (
+        "precomputed_batch_memory_candidate_ids"
+    )
     precompute = report["learning_evidence"]["sampled_vocab_precompute"]
     assert precompute["new_batches"]["memory_candidate_precompute"]["enabled"] is True
     assert precompute["new_batches"]["memory_candidate_precompute"][
