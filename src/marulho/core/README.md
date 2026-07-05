@@ -75,6 +75,9 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
 - Language expert dispatch uses Triton for no-grad CUDA selected-expert rows
   where the token-count policy allows it. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.
+  The current complete no-grad LM forward impact report shows a `1.057x` win at
+  the batch-16/seq-64 routed-expert shape while keeping broad hot-path
+  promotion false.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
   rows and selected vocabulary IDs that include all targets. Gradient training
   can force the Triton-forward/custom-autograd path with

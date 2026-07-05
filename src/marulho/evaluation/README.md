@@ -327,6 +327,18 @@ harnesses.
   records RMSNorm, PLIF forward, PLIF surrogate-backward, selective-scan, and
   expert-dispatch parity while keeping promotion blocked on generation
   coherence plus sampled-vocab cross-entropy evidence.
+- Current 2026-07-04 expert-dispatch complete-runtime impact evidence in
+  `reports/language_training_experiments/expert-dispatch-runtime-impact-524288-b16-s64.json`
+  uses `language_expert_dispatch_runtime_impact.py` to compare full no-grad LM
+  forward passes while holding route-top-k policy constant. At the `524288`
+  model-vocab, decode-limited, batch-16/seq-64, `16` expert, `8`
+  route-candidate, `4` active-expert shape, the PyTorch expert-dispatch
+  fallback arm reached `11699.767` tokens/sec with 50 fallback dispatch calls
+  and the Triton arm reached `12371.776` tokens/sec with 50 Triton dispatch
+  calls, giving a `1.057x` throughput ratio. The measured Triton arm also
+  recorded 50 route-top-k Triton calls, `8192` candidate rows scored,
+  `197888` active expert parameters per token, logit parity within absolute
+  tolerance, and `promotes_runtime_claim=false`.
 - Current 2026-07-04 sampled-vocab CE Triton evidence in
   `reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json`
   passed three CUDA `float32` shape sweeps for
@@ -686,6 +698,7 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_triton_kernel_report --kernel route-topk --output reports/language_kernel_evidence/route-topk-triton-20260704.json --shape 1024x128 --shape 2048x128 --shape 4096x128 --dtype float32 --expert-count 64 --route-candidate-count 8 --active-experts 4 --warmup 10 --repeats 50
 python -m marulho.evaluation.language_route_topk_runtime_impact --output reports/language_training_experiments/route-topk-runtime-impact-524288-b16-s64.json --vocab-size 524288 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 5 --repeats 50 --device cuda
 python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispatch --output reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --shape 256x64 --shape 512x64 --shape 256x128 --dtype float32 --dtype float16 --expert-count 64 --active-experts 4 --expert-hidden-dim 128 --warmup 20 --repeats 100
+python -m marulho.evaluation.language_expert_dispatch_runtime_impact --output reports/language_training_experiments/expert-dispatch-runtime-impact-524288-b16-s64.json --vocab-size 524288 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 5 --repeats 50 --route-topk-min-rows 1 --device cuda
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_sampled_vocab_training_impact --output reports/language_training_experiments/sampled-vocab-training-impact-default-policy-524288-b16-r8-sampled-only.json --vocab-size 524288 --sampled-vocab-size 1024 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 2 --repeats 8 --skip-dense-baseline --device cuda

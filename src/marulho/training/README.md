@@ -189,7 +189,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `1.045x` throughput ratio, exact route-kernel use/fallback counters, and
   output parity within absolute tolerance. `language_expert_dispatch_triton.py`
   covers no-grad CUDA selected-expert dispatch/combine for large enough token
-  batches with `float32` parity; gradient training uses
+  batches with `float32` parity, and
+  `reports/language_training_experiments/expert-dispatch-runtime-impact-524288-b16-s64.json`
+  records a full no-grad LM forward comparison at the same `524288`
+  model-vocab batch-16/seq-64 shape with route-top-k held constant:
+  `12371.776` tokens/sec with Triton dispatch versus `11699.767` tokens/sec
+  with PyTorch dispatch fallback, `1.057x` throughput ratio, exact
+  dispatch-kernel use/fallback counters, and output parity within absolute
+  tolerance; gradient training uses
   `torch_selected_expert_batched_matmul_dispatch` for selected expert MLPs and
   keeps route scoring/top-k on PyTorch so route keys retain gradients, while
   half precision keeps the PyTorch fallback until separate parity and
