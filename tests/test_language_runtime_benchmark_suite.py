@@ -995,6 +995,15 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     ]
     assert quality_replay_alignment["same_child_long_run_available"] is True
     assert quality_replay_alignment["same_child_house_scale_available"] is True
+    assert (
+        quality_replay_alignment[
+            "same_child_controlled_decode_house_scale_available"
+        ]
+        is True
+    )
+    assert (
+        quality_replay_alignment["controlled_decode_house_scale_required"] is True
+    )
     assert quality_replay_alignment["matching_report_count"] == 3
     assert gpu_kernel_category["evidence"]["lm_triton_kernel_used"] is True
     assert gpu_kernel_category["evidence"]["rmsnorm_triton_parity"] is True
@@ -1155,6 +1164,104 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
     assert generation_category["evidence"]["long_run_alignment"][
         "generation_checkpoint_path"
     ] == "reports/language_training_experiments/quality-checkpoint.pt"
+    assert report["promotion_gate"]["missing_required_category_names"] == [
+        "generation_coherence"
+    ]
+    assert report["promotion_gate"]["status"] == "blocked_missing_required_evidence"
+
+
+def test_language_runtime_benchmark_suite_blocks_mixed_controlled_decode_checkpoint(
+    tmp_path,
+) -> None:
+    output = tmp_path / "language-suite.json"
+    diagnostic = tmp_path / "diagnostic-8192.json"
+    long_gate = tmp_path / "long-gate-131072.json"
+    controlled_house = tmp_path / "controlled-house-524288.json"
+    generation_coherence = tmp_path / "generation-coherence.json"
+    quality_replay = tmp_path / "quality-replay.json"
+    kernel_reports = (
+        (tmp_path / "rmsnorm-triton.json", RMSNORM_KERNEL_NAME),
+        (tmp_path / "plif-forward-triton.json", PLIF_FORWARD_KERNEL_NAME),
+        (tmp_path / "plif-surrogate-triton.json", PLIF_SURROGATE_KERNEL_NAME),
+        (tmp_path / "selective-scan-triton.json", SELECTIVE_SCAN_KERNEL_NAME),
+        (tmp_path / "eligibility-trace-triton.json", ELIGIBILITY_TRACE_KERNEL_NAME),
+        (tmp_path / "route-topk-triton.json", ROUTE_TOPK_KERNEL_NAME),
+        (tmp_path / "expert-dispatch-triton.json", EXPERT_DISPATCH_KERNEL_NAME),
+        (tmp_path / "sampled-vocab-ce-triton.json", SAMPLED_VOCAB_CE_KERNEL_NAME),
+        (
+            tmp_path / "memory-slot-retrieval-triton.json",
+            MEMORY_SLOT_RETRIEVAL_KERNEL_NAME,
+        ),
+    )
+
+    child_checkpoint = "reports/language_training_experiments/quality-child.pt"
+    fast_checkpoint = "reports/language_training_experiments/fast-controlled.pt"
+    _write_sustained_report(
+        diagnostic,
+        token_delta=8192,
+        checkpoint_path=child_checkpoint,
+    )
+    _write_sustained_report(
+        long_gate,
+        token_delta=131072,
+        checkpoint_path=child_checkpoint,
+    )
+    _write_sustained_report(
+        controlled_house,
+        token_delta=524288,
+        controlled_decode=True,
+        checkpoint_path=fast_checkpoint,
+    )
+    _write_generation_coherence_report(
+        generation_coherence,
+        checkpoint_path=child_checkpoint,
+    )
+    _write_quality_replay_report(
+        quality_replay,
+        child_checkpoint_path=child_checkpoint,
+    )
+    for kernel_path, kernel_name in kernel_reports:
+        _write_gpu_kernel_report(kernel_path, kernel_name=kernel_name)
+
+    report = run_language_runtime_benchmark_suite(
+        output_path=output,
+        sustained_target_tokens=2,
+        sustained_evidence_paths=(diagnostic, long_gate, controlled_house),
+        gpu_kernel_evidence_paths=tuple(
+            kernel_path for kernel_path, _kernel_name in kernel_reports
+        ),
+        generation_coherence_evidence_paths=(generation_coherence,),
+        quality_replay_evidence_paths=(quality_replay,),
+    )
+    categories = {item["name"]: item for item in report["categories"]}
+    generation_category = categories["generation_coherence"]
+    quality_replay_alignment = generation_category["evidence"][
+        "quality_replay_long_run_alignment"
+    ]
+
+    assert categories["long_run_throughput"]["status"] == "pass"
+    assert generation_category["status"] == "smoke_only"
+    assert (
+        "same_checkpoint_generation_coherence_controlled_decode_house_scale"
+        in generation_category["missing_evidence"]
+    )
+    assert (
+        "same_child_quality_replay_controlled_decode_house_scale"
+        in generation_category["missing_evidence"]
+    )
+    assert generation_category["evidence"]["long_run_alignment"][
+        "same_checkpoint_long_run_available"
+    ] is True
+    assert generation_category["evidence"]["long_run_alignment"][
+        "same_checkpoint_controlled_decode_house_scale_available"
+    ] is False
+    assert (
+        quality_replay_alignment[
+            "same_child_controlled_decode_house_scale_available"
+        ]
+        is False
+    )
+    assert quality_replay_alignment["controlled_decode_house_scale_required"] is True
     assert report["promotion_gate"]["missing_required_category_names"] == [
         "generation_coherence"
     ]

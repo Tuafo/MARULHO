@@ -580,7 +580,22 @@ def _generation_long_run_alignment_evidence(
             and bool(report["generation_decode"].get("decode_controls_requested"))
         )
     ]
+    matching_controlled_house_reports = [
+        report
+        for report in matching_controlled_reports
+        if _token_delta(report) >= 524288
+    ]
     evidence_available = bool(generation_checkpoint_key and matching_long_reports)
+    controlled_house_required = bool(
+        long_run_evidence.get("controlled_decode_house_scale_gate_reached")
+    )
+    missing: list[str] = []
+    if not evidence_available:
+        missing.append("same_checkpoint_generation_coherence_long_run")
+    if controlled_house_required and not matching_controlled_house_reports:
+        missing.append(
+            "same_checkpoint_generation_coherence_controlled_decode_house_scale"
+        )
     return {
         "surface": "marulho_language_generation_long_run_alignment.v1",
         "generation_checkpoint_path": generation_checkpoint,
@@ -591,15 +606,12 @@ def _generation_long_run_alignment_evidence(
         "same_checkpoint_long_run_available": evidence_available,
         "same_checkpoint_house_scale_available": bool(matching_house_reports),
         "same_checkpoint_controlled_decode_available": bool(matching_controlled_reports),
-        "same_checkpoint_controlled_decode_house_scale_available": any(
-            _token_delta(report) >= 524288 for report in matching_controlled_reports
+        "same_checkpoint_controlled_decode_house_scale_available": bool(
+            matching_controlled_house_reports
         ),
+        "controlled_decode_house_scale_required": controlled_house_required,
         "matching_reports": matching_reports,
-        "missing_evidence": (
-            []
-            if evidence_available
-            else ["same_checkpoint_generation_coherence_long_run"]
-        ),
+        "missing_evidence": missing,
     }
 
 
@@ -894,7 +906,28 @@ def _quality_replay_long_run_alignment_evidence(
     matching_house_reports = [
         report for report in matching_reports if _token_delta(report) >= 524288
     ]
+    matching_controlled_reports = [
+        report
+        for report in matching_reports
+        if (
+            isinstance(report.get("generation_decode"), Mapping)
+            and bool(report["generation_decode"].get("decode_controls_requested"))
+        )
+    ]
+    matching_controlled_house_reports = [
+        report
+        for report in matching_controlled_reports
+        if _token_delta(report) >= 524288
+    ]
     evidence_available = bool(child_checkpoint_key and matching_long_reports)
+    controlled_house_required = bool(
+        long_run_evidence.get("controlled_decode_house_scale_gate_reached")
+    )
+    missing: list[str] = []
+    if not evidence_available:
+        missing.append("same_child_quality_replay_long_run")
+    if controlled_house_required and not matching_controlled_house_reports:
+        missing.append("same_child_quality_replay_controlled_decode_house_scale")
     return {
         "surface": "marulho_language_quality_replay_long_run_alignment.v1",
         "selected_child_checkpoint_path": child_checkpoint,
@@ -904,10 +937,13 @@ def _quality_replay_long_run_alignment_evidence(
         "matching_report_count": len(matching_reports),
         "same_child_long_run_available": evidence_available,
         "same_child_house_scale_available": bool(matching_house_reports),
-        "matching_reports": matching_reports,
-        "missing_evidence": (
-            [] if evidence_available else ["same_child_quality_replay_long_run"]
+        "same_child_controlled_decode_available": bool(matching_controlled_reports),
+        "same_child_controlled_decode_house_scale_available": bool(
+            matching_controlled_house_reports
         ),
+        "controlled_decode_house_scale_required": controlled_house_required,
+        "matching_reports": matching_reports,
+        "missing_evidence": missing,
     }
 
 
@@ -2639,6 +2675,11 @@ def run_language_runtime_benchmark_suite(
             "surface": "marulho_language_quality_replay_long_run_alignment.v1",
             "same_child_long_run_available": False,
             "same_child_house_scale_available": False,
+            "same_child_controlled_decode_available": False,
+            "same_child_controlled_decode_house_scale_available": False,
+            "controlled_decode_house_scale_required": bool(
+                long_run_evidence.get("controlled_decode_house_scale_gate_reached")
+            ),
             "matching_report_count": 0,
             "missing_evidence": [],
         }

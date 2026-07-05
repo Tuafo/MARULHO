@@ -847,7 +847,11 @@ LM-head kernel reports. It records `generation_coherence=pass`,
 `long_run_throughput=pass`, `gpu_kernel_correctness=pass`,
 `memory_slot_architecture_cost=pass`, `missing_category_count=0`, and suite
 status `ready_for_review`, while keeping `promotes_runtime_claim=false` because
-human review and sustained one-token Triton promotion are still open.
+human review and sustained one-token Triton promotion are still open. The suite
+now treats controlled-decode house-scale reports as checkpoint-bound evidence:
+if controlled `524288` decode evidence is present, generation coherence and
+quality-replay child selection must align to that same checkpoint instead of
+borrowing speed from a different child.
 
 Current 2026-07-03 LM component reports from
 `reports/language_training_experiments/cuda-exp-8192-checkpoint.pt` reached the

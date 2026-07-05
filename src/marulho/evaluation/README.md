@@ -370,7 +370,11 @@ harnesses.
   correctness `pass`, memory-slot cost `pass`, structural plasticity `pass`,
   all `17/17` categories pass/smoke, and `promotes_runtime_claim=false`. This
   is checkpoint-selected quality/speed tradeoff evidence, not a broad
-  generation-quality or runtime promotion.
+  generation-quality or runtime promotion. Suite alignment now also blocks
+  mixed-checkpoint controlled decode: when controlled-decode house-scale
+  evidence exists, the generation-coherence checkpoint and the selected
+  quality-replay child must be the same checkpoint that produced that
+  controlled `524288` report.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick
