@@ -5,6 +5,7 @@ import json
 from marulho.evaluation.language_continual_learning_experiment import (
     LanguageContinualLearningExperimentConfig,
     _comparison_eval_batch_limits,
+    _memory_slot_architecture_cost_comparison,
     run_language_continual_learning_experiment,
 )
 
@@ -36,6 +37,91 @@ def test_comparison_eval_batch_limits_read_comparison_report(tmp_path) -> None:
     assert matched["status"] == "matched_comparison_eval_batch_counts"
     assert matched["old_eval_batch_limit"] == 3
     assert matched["new_eval_batch_limit"] == 5
+
+
+def test_memory_slot_architecture_cost_compares_no_memory_baseline(tmp_path) -> None:
+    comparison = tmp_path / "no-memory.json"
+    comparison.write_text(
+        json.dumps(
+            {
+                "model_vocab_size": 1024,
+                "sampled_vocab_size": 128,
+                "model_config": {
+                    "memory_slot_count": 0,
+                    "memory_slot_candidate_count": 0,
+                    "active_memory_slot_count": 1,
+                },
+                "old_domain_before": {"eval_batch_count": 3},
+                "new_domain_before": {"eval_batch_count": 5},
+                "generation_quality_after": {
+                    "mean_source_prefix_match_chars": 4.0,
+                    "mean_distinct_bigram_fraction": 0.5,
+                },
+                "learning_evidence": {
+                    "update_token_count": 4096,
+                    "tokens_per_second": 4000.0,
+                    "total_window_tokens_per_second": 2500.0,
+                    "new_domain_loss_delta": 2.0,
+                    "old_domain_forgetting": -1.0,
+                    "general_replay_retention_delta": -1.5,
+                    "memory_slots": {
+                        "candidate_slots_scored": 0,
+                        "runs_all_slots": False,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = {
+        "model_vocab_size": 1024,
+        "sampled_vocab_size": 128,
+        "model_config": {
+            "memory_slot_count": 16,
+            "memory_slot_candidate_count": 4,
+            "active_memory_slot_count": 2,
+        },
+        "old_domain_before": {"eval_batch_count": 3},
+        "new_domain_before": {"eval_batch_count": 5},
+        "generation_quality_after": {
+            "mean_source_prefix_match_chars": 6.0,
+            "mean_distinct_bigram_fraction": 0.75,
+        },
+        "learning_evidence": {
+            "update_token_count": 4096,
+            "tokens_per_second": 3200.0,
+            "total_window_tokens_per_second": 2400.0,
+            "new_domain_loss_delta": 2.5,
+            "old_domain_forgetting": -1.25,
+            "general_replay_retention_delta": -1.75,
+            "memory_slots": {
+                "candidate_slots_scored": 32768,
+                "runs_all_slots": False,
+                "bounded_memory_slot_path": True,
+            },
+        },
+    }
+
+    cost = _memory_slot_architecture_cost_comparison(
+        report,
+        comparison_report_path=comparison,
+    )
+
+    assert cost["surface"] == (
+        "marulho_language_continual_memory_slot_architecture_cost.v1"
+    )
+    assert cost["status"] == "memory_slot_architecture_cost_measured"
+    assert cost["comparison_is_no_memory_baseline"] is True
+    assert cost["comparable_update_throughput"] is True
+    assert cost["comparable_total_window_throughput"] is True
+    assert cost["delta_vs_no_memory_update_tokens_per_second"] == -800.0
+    assert cost["delta_vs_no_memory_update_percent"] == -20.0
+    assert cost["delta_vs_no_memory_total_window_tokens_per_second"] == -100.0
+    assert cost["delta_vs_no_memory_new_domain_loss_delta"] == 0.5
+    assert cost["delta_vs_no_memory_old_domain_forgetting"] == -0.25
+    assert cost["delta_vs_no_memory_general_replay_retention_delta"] == -0.25
+    assert cost["delta_vs_no_memory_after_mean_source_prefix_match_chars"] == 2.0
+    assert cost["delta_vs_no_memory_after_mean_distinct_bigram_fraction"] == 0.25
 
 
 def test_language_continual_learning_experiment_writes_deferred_eval_report(
@@ -84,6 +170,10 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
     assert report["experiment_review"]["records_memory_slot_candidate_precompute"] is True
+    assert report["experiment_review"]["records_memory_slot_architecture_cost"] is False
+    assert report["memory_slot_architecture_cost"]["status"] == (
+        "comparison_report_missing"
+    )
     assert (
         report["experiment_review"]["records_memory_slot_training_window_triton_stats"]
         is True

@@ -705,6 +705,241 @@ def _same_shape_comparison(
     return payload
 
 
+def _model_memory_slot_config(report: dict[str, Any]) -> dict[str, int]:
+    config = report.get("model_config")
+    config_dict = config if isinstance(config, dict) else {}
+    return {
+        "memory_slot_count": int(config_dict.get("memory_slot_count", 0) or 0),
+        "memory_slot_candidate_count": int(
+            config_dict.get("memory_slot_candidate_count", 0) or 0
+        ),
+        "active_memory_slot_count": int(
+            config_dict.get("active_memory_slot_count", 1) or 1
+        ),
+    }
+
+
+def _memory_slot_architecture_cost_comparison(
+    report: dict[str, Any],
+    *,
+    comparison_report_path: str | Path | None,
+) -> dict[str, Any]:
+    evidence = report.get("learning_evidence") or {}
+    memory = evidence.get("memory_slots")
+    memory_dict = memory if isinstance(memory, dict) else {}
+    comparison = _load_report(comparison_report_path)
+    current_update_tps = float(evidence.get("tokens_per_second", 0.0) or 0.0)
+    current_total_tps = float(
+        evidence.get("total_window_tokens_per_second", 0.0) or 0.0
+    )
+    current_slots = _model_memory_slot_config(report)
+    payload: dict[str, Any] = {
+        "surface": "marulho_language_continual_memory_slot_architecture_cost.v1",
+        "comparison_report": (
+            str(comparison_report_path) if comparison_report_path is not None else None
+        ),
+        "status": "comparison_report_missing",
+        "current_memory_slot_count": current_slots["memory_slot_count"],
+        "current_memory_slot_candidate_count": current_slots[
+            "memory_slot_candidate_count"
+        ],
+        "current_active_memory_slot_count": current_slots[
+            "active_memory_slot_count"
+        ],
+        "current_update_tokens_per_second": current_update_tps,
+        "current_total_window_tokens_per_second": current_total_tps,
+        "current_candidate_slots_scored": int(
+            memory_dict.get("candidate_slots_scored", 0) or 0
+        ),
+        "current_runs_all_slots": bool(memory_dict.get("runs_all_slots", False)),
+        "current_bounded_memory_slot_path": bool(
+            memory_dict.get("bounded_memory_slot_path", False)
+        ),
+        "comparable_update_throughput": False,
+        "comparable_total_window_throughput": False,
+        "notes": (
+            "Architecture-cost comparison permits memory-slot shape to differ "
+            "only when the comparison report is a no-memory baseline. It still "
+            "requires the same model vocab, sampled vocab, and update-token count "
+            "for update throughput, plus matched heldout eval counts for "
+            "total-window throughput."
+        ),
+    }
+    if comparison is None:
+        return payload
+
+    comparison_evidence = comparison.get("learning_evidence") or {}
+    comparison_memory = comparison_evidence.get("memory_slots")
+    comparison_memory_dict = (
+        comparison_memory if isinstance(comparison_memory, dict) else {}
+    )
+    comparison_slots = _model_memory_slot_config(comparison)
+    comparison_update_tps = float(
+        comparison_evidence.get("tokens_per_second", 0.0) or 0.0
+    )
+    comparison_total_tps = float(
+        comparison_evidence.get("total_window_tokens_per_second", 0.0) or 0.0
+    )
+    current_old_eval_count = int(
+        (report.get("old_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    current_new_eval_count = int(
+        (report.get("new_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    comparison_old_eval_count = int(
+        (comparison.get("old_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    comparison_new_eval_count = int(
+        (comparison.get("new_domain_before") or {}).get("eval_batch_count", 0) or 0
+    )
+    same_model_vocab_size = int(report.get("model_vocab_size", 0) or 0) == int(
+        comparison.get("model_vocab_size", 0) or 0
+    )
+    same_sampled_vocab_size = int(report.get("sampled_vocab_size", 0) or 0) == int(
+        comparison.get("sampled_vocab_size", 0) or 0
+    )
+    same_update_token_count = int(evidence.get("update_token_count", 0) or 0) == int(
+        comparison_evidence.get("update_token_count", 0) or 0
+    )
+    same_old_eval_batch_count = current_old_eval_count == comparison_old_eval_count
+    same_new_eval_batch_count = current_new_eval_count == comparison_new_eval_count
+    comparison_is_no_memory_baseline = bool(
+        comparison_slots["memory_slot_count"] <= 0
+        and current_slots["memory_slot_count"] > 0
+    )
+    comparable_update = bool(
+        comparison_is_no_memory_baseline
+        and same_model_vocab_size
+        and same_sampled_vocab_size
+        and same_update_token_count
+    )
+    comparable_total = bool(
+        comparable_update
+        and same_old_eval_batch_count
+        and same_new_eval_batch_count
+    )
+    payload.update(
+        {
+            "status": (
+                "memory_slot_architecture_cost_measured"
+                if comparable_update
+                else "not_comparable"
+            ),
+            "comparison_memory_slot_count": comparison_slots["memory_slot_count"],
+            "comparison_memory_slot_candidate_count": comparison_slots[
+                "memory_slot_candidate_count"
+            ],
+            "comparison_active_memory_slot_count": comparison_slots[
+                "active_memory_slot_count"
+            ],
+            "comparison_is_no_memory_baseline": comparison_is_no_memory_baseline,
+            "same_model_vocab_size": same_model_vocab_size,
+            "same_sampled_vocab_size": same_sampled_vocab_size,
+            "same_update_token_count": same_update_token_count,
+            "same_old_eval_batch_count": same_old_eval_batch_count,
+            "same_new_eval_batch_count": same_new_eval_batch_count,
+            "comparable_update_throughput": comparable_update,
+            "comparable_total_window_throughput": comparable_total,
+            "comparison_update_tokens_per_second": comparison_update_tps,
+            "comparison_total_window_tokens_per_second": comparison_total_tps,
+            "delta_vs_no_memory_update_tokens_per_second": (
+                current_update_tps - comparison_update_tps
+            ),
+            "delta_vs_no_memory_update_percent": _percent_delta(
+                current_update_tps,
+                comparison_update_tps,
+            ),
+            "delta_vs_no_memory_total_window_tokens_per_second": (
+                current_total_tps - comparison_total_tps
+            ),
+            "delta_vs_no_memory_total_window_percent": _percent_delta(
+                current_total_tps,
+                comparison_total_tps,
+            ),
+            "current_update_token_count": int(
+                evidence.get("update_token_count", 0) or 0
+            ),
+            "comparison_update_token_count": int(
+                comparison_evidence.get("update_token_count", 0) or 0
+            ),
+            "current_old_eval_batch_count": current_old_eval_count,
+            "comparison_old_eval_batch_count": comparison_old_eval_count,
+            "current_new_eval_batch_count": current_new_eval_count,
+            "comparison_new_eval_batch_count": comparison_new_eval_count,
+            "current_new_domain_loss_delta": float(
+                evidence.get("new_domain_loss_delta", 0.0) or 0.0
+            ),
+            "comparison_new_domain_loss_delta": float(
+                comparison_evidence.get("new_domain_loss_delta", 0.0) or 0.0
+            ),
+            "delta_vs_no_memory_new_domain_loss_delta": (
+                float(evidence.get("new_domain_loss_delta", 0.0) or 0.0)
+                - float(comparison_evidence.get("new_domain_loss_delta", 0.0) or 0.0)
+            ),
+            "current_old_domain_forgetting": float(
+                evidence.get("old_domain_forgetting", 0.0) or 0.0
+            ),
+            "comparison_old_domain_forgetting": float(
+                comparison_evidence.get("old_domain_forgetting", 0.0) or 0.0
+            ),
+            "delta_vs_no_memory_old_domain_forgetting": (
+                float(evidence.get("old_domain_forgetting", 0.0) or 0.0)
+                - float(comparison_evidence.get("old_domain_forgetting", 0.0) or 0.0)
+            ),
+            "current_general_replay_retention_delta": float(
+                evidence.get("general_replay_retention_delta", 0.0) or 0.0
+            ),
+            "comparison_general_replay_retention_delta": float(
+                comparison_evidence.get("general_replay_retention_delta", 0.0)
+                or 0.0
+            ),
+            "delta_vs_no_memory_general_replay_retention_delta": (
+                float(evidence.get("general_replay_retention_delta", 0.0) or 0.0)
+                - float(
+                    comparison_evidence.get("general_replay_retention_delta", 0.0)
+                    or 0.0
+                )
+            ),
+            "comparison_candidate_slots_scored": int(
+                comparison_memory_dict.get("candidate_slots_scored", 0) or 0
+            ),
+            "comparison_runs_all_slots": bool(
+                comparison_memory_dict.get("runs_all_slots", False)
+            ),
+        }
+    )
+    comparison_quality = comparison.get("generation_quality_after")
+    if isinstance(comparison_quality, dict):
+        current_prefix = _quality_metric(report, "mean_source_prefix_match_chars")
+        comparison_prefix = _quality_metric(
+            comparison,
+            "mean_source_prefix_match_chars",
+        )
+        current_distinct = _quality_metric(report, "mean_distinct_bigram_fraction")
+        comparison_distinct = _quality_metric(
+            comparison,
+            "mean_distinct_bigram_fraction",
+        )
+        payload.update(
+            {
+                "generation_quality_available": True,
+                "current_after_mean_source_prefix_match_chars": current_prefix,
+                "comparison_after_mean_source_prefix_match_chars": comparison_prefix,
+                "delta_vs_no_memory_after_mean_source_prefix_match_chars": (
+                    current_prefix - comparison_prefix
+                ),
+                "current_after_mean_distinct_bigram_fraction": current_distinct,
+                "comparison_after_mean_distinct_bigram_fraction": (
+                    comparison_distinct
+                ),
+                "delta_vs_no_memory_after_mean_distinct_bigram_fraction": (
+                    current_distinct - comparison_distinct
+                ),
+            }
+        )
+    return payload
+
+
 def run_language_continual_learning_experiment(
     *,
     output_path: str | Path,
@@ -834,6 +1069,12 @@ def run_language_continual_learning_experiment(
             precompute_report_path=precompute_report_path,
             deferred_metric_report_path=deferred_metric_report_path,
         )
+        report["memory_slot_architecture_cost"] = (
+            _memory_slot_architecture_cost_comparison(
+                report,
+                comparison_report_path=comparison_report_path,
+            )
+        )
         report["eval_memory_slot_backend_summary"] = _eval_memory_slot_backend_summary(
             report
         )
@@ -875,6 +1116,12 @@ def run_language_continual_learning_experiment(
                 == "matched_comparison_eval_batch_counts"
                 and report["baseline_comparison"].get("same_old_eval_batch_count")
                 and report["baseline_comparison"].get("same_new_eval_batch_count")
+            ),
+            "records_memory_slot_architecture_cost": bool(
+                report["memory_slot_architecture_cost"].get(
+                    "status",
+                )
+                == "memory_slot_architecture_cost_measured"
             ),
             "records_window_phase_timings": bool(
                 report["learning_evidence"].get("window_phase_timings")

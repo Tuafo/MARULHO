@@ -241,17 +241,27 @@ developmental and consolidation runners, query runners, and long-run evidence.
   all six old/new/replay before/after eval sections. Against the no-memory
   decode-control report, the matched total-window tax improves to `-14.350%`
   while the update-loop tax remains `-20.105%`; treat this as heldout-eval
-  backend acceleration. The next full-window check is rerunning this continual
-  shape on the newer default training backend.
+  backend acceleration.
   The matching kernel report
   `reports/language_kernel_evidence/memory-slots-triton-20260705.json` passes
   three CUDA `float32` shape sweeps for `language_memory_slot_retrieval` with
   geometric microbenchmark speedup `4.950x`; `float16` remains explicitly
   unsupported.
-  The newer training-impact follow-up below promotes supported CUDA gradient
-  training to `triton_forward_torch_backward_bounded_memory_slots`; the full
-  continual-learning window still needs a rerun on that default before the
-  update-loop tax can be closed.
+  The newer `524288` update-token architecture-cost pair
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-evalmatched-update524288-rerun.json`
+  and
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json`
+  reruns the full continual window with matched eval counts. The no-memory arm
+  reaches `3765.911` update tokens/sec and `3451.048` total-window tokens/sec;
+  the default bounded memory-slot arm reaches `3753.246` and `3436.735` while
+  scoring `4194304` precomputed memory candidates, avoiding all-slot scans,
+  staying on `torch_autograd_bounded_memory_slots`, and accepting the update.
+  The explicit
+  `marulho_language_continual_memory_slot_architecture_cost.v1` section records
+  a small current cost (`-0.336%` update, `-0.415%` total-window), a nearly
+  unchanged new-domain delta, slightly better old-domain/replay retention, and
+  the same generation-probe prefix score. This is the current full-window cost
+  baseline for memory slots, not a broad language-quality promotion.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
