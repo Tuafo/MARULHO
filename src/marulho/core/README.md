@@ -68,7 +68,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
 - Language route/vote top-k uses Triton for no-grad CUDA routed-expert rows
   where the row-count policy allows it. Gradient training stays on the PyTorch
   route-score/top-k path so route keys can receive gradients, and one-token
-  streaming falls back unless the policy proves a real launch-cost win.
+  streaming falls back unless the policy proves a real launch-cost win. The
+  current complete no-grad LM forward impact report shows a `1.045x` win at
+  the batch-16/seq-64 routed-expert shape while keeping broad hot-path
+  promotion false.
 - Language expert dispatch uses Triton for no-grad CUDA selected-expert rows
   where the token-count policy allows it. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.

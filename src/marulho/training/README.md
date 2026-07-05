@@ -173,16 +173,26 @@ developmental and consolidation runners, query runners, and long-run evidence.
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
   active parameters per token, route device, route latency, candidate-ID source,
-  all-awake candidate fastpath use, and explicit all-column fallback truth. The
+  route-selection backend, all-awake candidate fastpath use, and explicit
+  all-column fallback truth. The
   all-awake candidate path maps token-hash candidate positions directly by
   modulo instead of materializing an awake-expert `arange`, while sleeping-mask
   runs keep the explicit awake-index select path. Its no-telemetry inference
   path avoids host sleeping-expert materialization so CUDA graph capture can
-  replay fixed-shape LM bursts. `language_expert_dispatch_triton.py` now covers
-  no-grad CUDA selected-expert dispatch/combine for large enough token batches
-  with `float32` parity; gradient training uses
-  `torch_selected_expert_batched_matmul_dispatch` for selected expert MLPs,
-  while half precision keeps the PyTorch fallback until separate parity and
+  replay fixed-shape LM bursts. `language_route_topk_triton.py` now covers
+  no-grad CUDA route/vote top-k selection for large enough token batches with
+  `float32` parity, and
+  `reports/language_training_experiments/route-topk-runtime-impact-524288-b16-s64.json`
+  records a full no-grad LM forward comparison at the current `524288`
+  model-vocab batch-16/seq-64 shape: `12972.201` tokens/sec with Triton
+  route-top-k versus `12418.282` tokens/sec with PyTorch route-top-k fallback,
+  `1.045x` throughput ratio, exact route-kernel use/fallback counters, and
+  output parity within absolute tolerance. `language_expert_dispatch_triton.py`
+  covers no-grad CUDA selected-expert dispatch/combine for large enough token
+  batches with `float32` parity; gradient training uses
+  `torch_selected_expert_batched_matmul_dispatch` for selected expert MLPs and
+  keeps route scoring/top-k on PyTorch so route keys retain gradients, while
+  half precision keeps the PyTorch fallback until separate parity and
   complete-runtime impact evidence exists. The local 2026-07-04 CUDA report
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-expert-matmul-524288-63744.json`
   is the historical fast run for this `524288` model-vocab sampled/padded shape

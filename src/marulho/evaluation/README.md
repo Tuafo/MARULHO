@@ -305,6 +305,16 @@ harnesses.
   over the PyTorch route-selection reference. The no-grad runtime path can use
   this primitive when the row-count policy allows it; gradient training remains
   on PyTorch route scoring/top-k so route keys keep gradients.
+- Current 2026-07-04 route/vote top-k complete-runtime impact evidence in
+  `reports/language_training_experiments/route-topk-runtime-impact-524288-b16-s64.json`
+  uses `language_route_topk_runtime_impact.py` to compare full no-grad LM
+  forward passes, not a kernel microbenchmark. At the `524288` model-vocab,
+  decode-limited, batch-16/seq-64, `16` expert, `8` route-candidate, `4`
+  active-expert shape, the PyTorch route-top-k fallback arm reached
+  `12418.282` tokens/sec with 50 fallback route-top-k calls and the Triton arm
+  reached `12972.201` tokens/sec with 50 Triton route-top-k calls, giving a
+  `1.045x` throughput ratio. Logits matched within absolute tolerance and the
+  report keeps `promotes_runtime_claim=false`.
 - Current 2026-07-04 expert-dispatch Triton evidence in
   `reports/language_kernel_evidence/expert-dispatch-triton-20260704.json`
   passed three CUDA `float32` shape sweeps for
@@ -674,6 +684,7 @@ python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/l
 python -m marulho.evaluation.language_triton_kernel_report --kernel selective-scan --output reports/language_kernel_evidence/selective-scan-triton-20260704.json --shape 16x128 --shape 32x128 --shape 16x256 --dtype float32 --dtype float16 --scan-time-steps 64 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-selective-scan-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel route-topk --output reports/language_kernel_evidence/route-topk-triton-20260704.json --shape 1024x128 --shape 2048x128 --shape 4096x128 --dtype float32 --expert-count 64 --route-candidate-count 8 --active-experts 4 --warmup 10 --repeats 50
+python -m marulho.evaluation.language_route_topk_runtime_impact --output reports/language_training_experiments/route-topk-runtime-impact-524288-b16-s64.json --vocab-size 524288 --embedding-dim 64 --state-dim 128 --expert-count 16 --active-expert-count 4 --route-candidate-count 8 --expert-hidden-dim 192 --sequence-length 64 --batch-size 16 --warmup-steps 5 --repeats 50 --device cuda
 python -m marulho.evaluation.language_triton_kernel_report --kernel expert-dispatch --output reports/language_kernel_evidence/expert-dispatch-triton-20260704.json --shape 256x64 --shape 512x64 --shape 256x128 --dtype float32 --dtype float16 --expert-count 64 --active-experts 4 --expert-hidden-dim 128 --warmup 20 --repeats 100
 python -m marulho.evaluation.language_runtime_benchmark_suite --output reports/language_benchmark_suite/language-suite-expert-dispatch-kernel.json --sustained-target-tokens 8 --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-8192-sustained.json --sustained-evidence reports/language_training_experiments/cuda-plif-surrogate-524288-sustained.json --gpu-kernel-evidence reports/language_kernel_evidence/rmsnorm-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-forward-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/plif-surrogate-triton-20260703.json --gpu-kernel-evidence reports/language_kernel_evidence/selective-scan-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/route-topk-triton-20260704.json --gpu-kernel-evidence reports/language_kernel_evidence/expert-dispatch-triton-20260704.json
 python -m marulho.evaluation.language_triton_kernel_report --kernel sampled-vocab-ce --output reports/language_kernel_evidence/sampled-vocab-ce-triton-20260704.json --shape 512x128 --shape 1024x128 --shape 512x256 --dtype float32 --dtype float16 --vocab-size 8192 --sampled-vocab-size 1024 --warmup 20 --repeats 100
