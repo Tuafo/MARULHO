@@ -657,6 +657,86 @@ class MarulhoBrain:
         )
         return generation
 
+    def generate_sustained_language(
+        self,
+        *,
+        output_path: str | Path,
+        target_tokens: int,
+        prompt: str = "MARULHO",
+        tick_tokens: int = DEFAULT_BRAIN_TICK_TOKENS,
+        quantum_tokens: int = DEFAULT_BRAIN_QUANTUM_TOKENS,
+        timeout_seconds: float = 600.0,
+        generation_repetition_penalty: float = 1.15,
+        generation_no_repeat_ngram_size: int = 3,
+        collect_environment: bool = False,
+    ) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        generation = self._language_runtime.generate_sustained(
+            output_path=output_path,
+            target_tokens=int(target_tokens),
+            checkpoint_path=self.checkpoint_path,
+            checkpoint_metadata={
+                "source": "marulho_brain_generate_sustained_language",
+                "runtime_owner": "MarulhoBrain",
+                "brain_checkpoint_path": self._checkpoint_path_string(),
+            },
+            prompt=prompt,
+            tick_tokens=int(tick_tokens),
+            quantum_tokens=int(quantum_tokens),
+            timeout_seconds=float(timeout_seconds),
+            generation_repetition_penalty=float(generation_repetition_penalty),
+            generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
+            collect_environment=bool(collect_environment),
+        )
+        generation.update(
+            {
+                "surface": "marulho_brain_sustained_language_generation.v1",
+                "runtime_owner": "MarulhoBrain",
+                "prompt": prompt,
+                "checkpoint_path": self._checkpoint_path_string(),
+                "token_count": int(self.trainer.token_count),
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "promotes_runtime_claim": False,
+            }
+        )
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_generate_sustained",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                tick_tokens=int(generation.get("target_tokens", 0) or 0),
+                trained_tokens=0,
+                elapsed_ms=1000.0 * float(generation.get("elapsed_seconds", 0.0) or 0.0),
+                throughput_tokens_per_sec=float(
+                    generation.get("tokens_per_second", 0.0) or 0.0
+                ),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                generation_after=str(generation.get("generated_tail_text", "")),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=str(generation.get("report_status") or generation.get("failure_reason") or ""),
+            )
+        )
+        generation["trace"] = trace
+        self._last_generation = {
+            "surface": generation["surface"],
+            "text": str(generation.get("generated_tail_text", "")),
+            "available": bool(generation.get("success", False)),
+            "active_language_path": self._active_language_path(),
+            "external_llm_used": False,
+            "thought_loop_used": False,
+            "cortex_used": False,
+            "report_path": generation.get("report_path"),
+        }
+        return generation
+
     def replay(self, *, window: str = "recent_surprise", cycles: int = 1) -> dict[str, Any]:
         before = self._sample_text(max_tokens=32)
         updates = int(

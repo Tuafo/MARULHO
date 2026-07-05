@@ -380,6 +380,56 @@ def test_marulho_brain_blocks_reviewed_language_checkpoint_hash_mismatch(
     assert brain.status()["active_language_path"] == "local_transition_readout"
 
 
+def test_marulho_brain_sustained_language_generation_uses_brain_owned_surface(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    review_path, _checkpoint_path, _checkpoint_hash = (
+        _write_ready_language_checkpoint_promotion_review(
+            tmp_path,
+            padded_vocab_rows=8,
+        )
+    )
+    brain.install_language_checkpoint_from_promotion_review(
+        review_path,
+        operator_approved=True,
+        operator_id="pytest-operator",
+        artifact_base_dir=tmp_path,
+    )
+
+    generation = brain.generate_sustained_language(
+        output_path=tmp_path / "brain-sustained-language.json",
+        target_tokens=8,
+        prompt="MARULHO",
+        tick_tokens=4,
+        quantum_tokens=2,
+        timeout_seconds=60.0,
+        generation_repetition_penalty=1.15,
+        generation_no_repeat_ngram_size=2,
+    )
+    status = brain.status()
+
+    assert generation["surface"] == "marulho_brain_sustained_language_generation.v1"
+    assert generation["runtime_owner"] == "MarulhoBrain"
+    assert generation["success"] is True
+    assert generation["target_tokens"] == 8
+    assert generation["token_delta"] == 8
+    assert generation["tokens_per_second"] > 0.0
+    assert generation["active_language_path"] == "marulho_lm_head"
+    assert generation["external_llm_used"] is False
+    assert generation["service_owned_cognition"] is False
+    assert generation["status_read_mutation"] is False
+    assert generation["promotes_runtime_claim"] is False
+    assert generation["trace"]["event"] == "language_generate_sustained"
+    assert generation["execution_evidence"]["decode_controls_backend"] == (
+        "torch_device_tensor"
+    )
+    assert status["last_trace"]["event"] == "language_generate_sustained"
+    assert status["last_generation"]["surface"] == (
+        "marulho_brain_sustained_language_generation.v1"
+    )
+
+
 def test_brain_service_uses_restored_lm_head_without_service_owner(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     model, tokenizer, report = _language_model_fixture()

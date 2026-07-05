@@ -583,11 +583,14 @@ service/status reads and does not promote a broad runtime claim by itself.
 `language_brain_checkpoint_runtime_evidence.py` then verifies the installed
 parent from a saved/restored `MarulhoBrain` checkpoint. The first real CUDA
 report proves restore and MARULHO-owned generation, but separates the slow
-high-level brain API loop (`109.981` tokens/sec at 8192) from the restored
-training-owned CUDA graph path (`7917.913` tokens/sec at 524288). The next
-runtime-performance step is to expose the fast training-owned sustained path
-through a brain-owned generation surface without moving the algorithm into
-service/status code.
+high-level brain API loop from the restored training-owned CUDA graph path.
+`MarulhoBrain.generate_sustained_language()` is now that brain-owned fast
+surface: the public-surface CUDA report records a `language_generate_sustained`
+trace and reaches `524288/524288` tokens at `8064.765` tokens/sec through
+`torch_cuda_graph_burst_decode_controls`, without moving the algorithm into
+service/status code. The remaining runtime work is to pair this installed
+parent speed with online learning, forgetting, replay, and generation-quality
+gates before any broad runtime promotion.
 
 ## Triton Kernel Map
 

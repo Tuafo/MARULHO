@@ -14,9 +14,6 @@ import torch
 
 from marulho.brain import MarulhoBrain
 from marulho.config.model_config import MarulhoConfig
-from marulho.evaluation.language_sustained_runtime_evidence import (
-    run_language_sustained_runtime_evidence,
-)
 from marulho.reporting.readme_reports import write_json_report_with_readme
 
 
@@ -287,15 +284,14 @@ def build_language_brain_checkpoint_runtime_evidence(
             "reason": "training_owned_sustained_not_requested",
         }
         if bool(run_training_owned_sustained):
-            runtime = getattr(restored, "_language_runtime", None)
-            if runtime is None:
+            if restored.status().get("active_language_path") != "marulho_lm_head":
                 training_owned_sustained = {
                     "surface": (
                         "marulho_brain_restored_training_owned_sustained_summary.v1"
                     ),
                     "enabled": True,
                     "success": False,
-                    "failure_reason": "restored_language_runtime_missing",
+                    "failure_reason": "restored_language_runtime_not_installed",
                 }
             else:
                 sustained_output = Path(
@@ -304,18 +300,9 @@ def build_language_brain_checkpoint_runtime_evidence(
                         f"{output.stem}-training-owned-sustained.json"
                     )
                 )
-                sustained_report = run_language_sustained_runtime_evidence(
-                    runtime.model,
-                    runtime.tokenizer,
+                sustained_generation = restored.generate_sustained_language(
                     output_path=sustained_output,
                     target_tokens=int(training_owned_target_tokens or target_tokens),
-                    checkpoint_path=saved_path,
-                    checkpoint_metadata={
-                        "source": "restored_marulho_brain_language_runtime",
-                        "runtime_owner": "MarulhoBrain",
-                        "brain_checkpoint_path": str(saved_path),
-                        "brain_checkpoint_sha256": brain_checkpoint_hash,
-                    },
                     prompt=prompt,
                     tick_tokens=int(chunk_tokens),
                     quantum_tokens=16,
@@ -324,13 +311,16 @@ def build_language_brain_checkpoint_runtime_evidence(
                         if training_owned_timeout_seconds is not None
                         else timeout_seconds
                     ),
-                    stop_on_eos=False,
                     generation_repetition_penalty=float(generation_repetition_penalty),
                     generation_no_repeat_ngram_size=int(
                         generation_no_repeat_ngram_size
                     ),
                     collect_environment=False,
                 )
+                sustained_report = {
+                    **sustained_generation,
+                    "surface": sustained_generation.get("language_model_surface"),
+                }
                 training_owned_sustained = _compact_sustained_report(
                     sustained_report,
                     output_path=sustained_output,

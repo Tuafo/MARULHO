@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -175,6 +176,77 @@ class BrainLanguageModelRuntime:
             "device": str(self.device),
             "heldout_loss": self.evaluation_report.get("heldout_loss"),
             "heldout_perplexity": self.evaluation_report.get("heldout_perplexity"),
+        }
+
+    def generate_sustained(
+        self,
+        *,
+        output_path: str | Path,
+        target_tokens: int,
+        checkpoint_path: str | Path | None = None,
+        checkpoint_metadata: Mapping[str, Any] | None = None,
+        prompt: str = "MARULHO",
+        tick_tokens: int = 128,
+        quantum_tokens: int = 16,
+        timeout_seconds: float = 600.0,
+        generation_repetition_penalty: float = 1.15,
+        generation_no_repeat_ngram_size: int = 3,
+        collect_environment: bool = False,
+    ) -> dict[str, Any]:
+        from marulho.evaluation.language_sustained_runtime_evidence import (
+            run_language_sustained_runtime_evidence,
+        )
+
+        report = run_language_sustained_runtime_evidence(
+            self.model,
+            self.tokenizer,
+            output_path=output_path,
+            target_tokens=int(target_tokens),
+            checkpoint_path=checkpoint_path,
+            checkpoint_metadata=checkpoint_metadata,
+            prompt=prompt,
+            tick_tokens=int(tick_tokens),
+            quantum_tokens=int(quantum_tokens),
+            timeout_seconds=float(timeout_seconds),
+            stop_on_eos=False,
+            generation_repetition_penalty=float(generation_repetition_penalty),
+            generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
+            collect_environment=bool(collect_environment),
+        )
+        tail_ids = [int(token_id) for token_id in list(report.get("generated_tail_ids") or [])]
+        execution = (
+            report.get("execution_evidence")
+            if isinstance(report.get("execution_evidence"), Mapping)
+            else {}
+        )
+        return {
+            "surface": "marulho_brain_language_model_sustained_generation.v1",
+            "language_model_surface": report.get("surface"),
+            "report_path": str(output_path),
+            "report_status": report.get("report_status"),
+            "success": bool(report.get("success", False)),
+            "target_tokens": int(report.get("target_tokens", 0) or 0),
+            "token_delta": int(report.get("token_delta", 0) or 0),
+            "elapsed_seconds": float(report.get("elapsed_seconds", 0.0) or 0.0),
+            "tokens_per_second": float(report.get("tokens_per_second", 0.0) or 0.0),
+            "failure_reason": report.get("failure_reason"),
+            "active_language_path": self.active_language_path,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "external_llm_used": False,
+            "thought_loop_used": False,
+            "cortex_used": False,
+            "loads_external_checkpoint": False,
+            "checkpointed_language_components": True,
+            "tokenizer_hash": self.tokenizer.vocabulary_hash(),
+            "vocab_size": self.tokenizer.vocab_size,
+            "model_vocab_size": int(self.model.config.vocab_size),
+            "generation_vocab_size": int(self.model.generation_vocab_size),
+            "vocab_policy": dict(self.vocab_policy),
+            "device": str(self.device),
+            "generated_tail_ids": tail_ids,
+            "generated_tail_text": self.tokenizer.decode(tail_ids) if tail_ids else "",
+            "execution_evidence": dict(execution),
         }
 
     def summary(self) -> dict[str, Any]:
