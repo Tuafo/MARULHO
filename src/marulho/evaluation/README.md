@@ -85,11 +85,12 @@ harnesses.
   stopping the measured training timer, and reads aggregate scalars back after
   the hot update window. It supports padded model vocabularies, sampled vocab
   loss, sparse vocab-row optimization, tokenizer-row generation decode limits,
-  sampled-vocab batch precompute, and bounded memory-candidate precompute. The
-  measured update loop receives `precomputed_batch_memory_candidate_ids` for
-  memory-slot batches so candidate-plan construction does not run inside the
-  hot loss call. It is meant to accelerate model experiments, not create a new
-  promotion gate.
+  sampled-vocab batch precompute, bounded memory-candidate precompute, and
+  bounded route-candidate precompute. The measured update loop receives
+  `precomputed_batch_memory_candidate_ids` and
+  `precomputed_batch_route_candidate_ids` for fixed batches so candidate-plan
+  construction does not run inside the hot loss call. It is meant to accelerate
+  model experiments, not create a new promotion gate.
 - `language_state_block_runtime_impact.py` measures complete no-grad LM forward
   impact for state-block sequence-buffer experiments. The current
   `524288` model-vocab batch-16/seq-64 report rejects no-grad mixed-state

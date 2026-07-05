@@ -156,6 +156,10 @@ def _build_eval_batches(
     cached_eval, precompute_report = precompute_sampled_vocab_batches(
         model,
         eval_batches,
+        assume_no_sleeping_experts=(
+            model.routed_experts.enabled
+            and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
+        ),
     )
     return tuple(cached_eval), split.report, precompute_report
 

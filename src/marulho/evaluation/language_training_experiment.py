@@ -612,12 +612,16 @@ def _train_language_model(
         raise ValueError("At least one train batch is required")
     optimizers, optimizer_policy = _optimizer_policy(model, config=config)
     trainable_parameters = _all_trainable_parameters(model)
-    batches, sampled_vocab_precompute = precompute_sampled_vocab_batches(model, batches)
-    model.train()
     assume_no_sleeping = (
         model.routed_experts.enabled
         and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
     )
+    batches, sampled_vocab_precompute = precompute_sampled_vocab_batches(
+        model,
+        batches,
+        assume_no_sleeping_experts=assume_no_sleeping,
+    )
+    model.train()
     token_count = 0
     optimizer_step_count = 0
     gradient_clip_applied_step_count = 0
@@ -657,6 +661,7 @@ def _train_language_model(
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
                 memory_candidate_ids=batch.memory_candidate_ids,
+                route_candidate_ids=batch.route_candidate_ids,
             )
             stage_profiler.record_elapsed(
                 "forward_loss",
@@ -866,6 +871,20 @@ def _train_language_model(
                 "batch_count": 0,
                 "device": str(model.device),
             },
+        ),
+        "route_candidate_precompute": sampled_vocab_precompute.get(
+            "route_candidate_precompute",
+            {
+                "surface": "marulho_language_route_candidate_batch_precompute.v1",
+                "enabled": False,
+                "reason": "precompute_report_missing",
+                "batch_count": 0,
+                "device": str(model.device),
+            },
+        ),
+        "route_candidate_id_source": routing_telemetry.get("candidate_id_source"),
+        "route_precomputed_candidate_ids_used": bool(
+            routing_telemetry.get("precomputed_candidate_ids_used", False)
         ),
         "sampled_vocab_training": bool(
             last_loss_evidence.get("sampled_vocab_training", False)

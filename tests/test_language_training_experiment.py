@@ -187,6 +187,20 @@ def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) ->
     assert report["training"]["sampled_vocab_precompute"][
         "hot_update_window_precomputed"
     ] is True
+    route_precompute = report["training"]["route_candidate_precompute"]
+    assert route_precompute["surface"] == (
+        "marulho_language_route_candidate_batch_precompute.v1"
+    )
+    assert route_precompute["enabled"] is True
+    assert route_precompute["hot_update_window_precomputed"] is True
+    assert route_precompute["candidate_id_source"] == (
+        "precomputed_batch_route_candidate_ids"
+    )
+    assert route_precompute["assume_no_sleeping_experts"] is True
+    assert report["training"]["route_precomputed_candidate_ids_used"] is True
+    assert report["training"]["route_candidate_id_source"] == (
+        "all_awake_direct_expert_ids"
+    )
     assert report["training"]["loss_evidence"]["sampled_vocab_id_source"] == (
         "precomputed_batch_sampled_vocab_ids"
     )

@@ -565,6 +565,26 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert all_awake_routing["candidate_rows_scored"] == (
         split.train[0].input_ids.numel() * 3
     )
+    cached_batches, precompute_report = precompute_sampled_vocab_batches(
+        model,
+        (split.train[0],),
+        assume_no_sleeping_experts=True,
+    )
+    precomputed = model.next_token_loss(
+        cached_batches[0].input_ids,
+        cached_batches[0].target_ids,
+        assume_no_sleeping_experts=True,
+        route_candidate_ids=cached_batches[0].route_candidate_ids,
+    )
+    precomputed_routing = precomputed["telemetry"]["routing"]
+    torch.testing.assert_close(precomputed["loss"], all_awake["loss"])
+    assert precompute_report["route_candidate_precompute"]["enabled"] is True
+    assert precompute_report["route_candidate_precompute"]["candidate_id_source"] == (
+        "precomputed_batch_route_candidate_ids"
+    )
+    assert precomputed_routing["precomputed_candidate_ids_used"] is True
+    assert precomputed_routing["candidate_id_source"] == "all_awake_direct_expert_ids"
+    assert precomputed_routing["all_awake_candidate_fastpath"] is True
 
 
 def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_path) -> None:

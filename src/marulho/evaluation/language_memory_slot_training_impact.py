@@ -355,6 +355,7 @@ def _run_training_steps(
             sampled_vocab_ids=batch.sampled_vocab_ids,
             sampled_target_positions=batch.sampled_target_positions,
             memory_candidate_ids=batch.memory_candidate_ids,
+            route_candidate_ids=batch.route_candidate_ids,
         )
         loss = result["loss"]
         loss.backward()
@@ -454,6 +455,7 @@ def _run_arm(
         cached_batches, sampled_vocab_precompute = precompute_sampled_vocab_batches(
             model,
             (batch,),
+            assume_no_sleeping_experts=bool(model.routed_experts.enabled),
         )
         cached_batch = cached_batches[0]
         optimizers, optimizer_policy = _optimizer_policy(model, config=config)
@@ -467,6 +469,7 @@ def _run_arm(
                 sampled_vocab_ids=cached_batch.sampled_vocab_ids,
                 sampled_target_positions=cached_batch.sampled_target_positions,
                 memory_candidate_ids=cached_batch.memory_candidate_ids,
+                route_candidate_ids=cached_batch.route_candidate_ids,
             )
         initial_memory = _memory_summary(telemetry_probe.get("telemetry", {}))
         memory_slot_nonzero_count = (

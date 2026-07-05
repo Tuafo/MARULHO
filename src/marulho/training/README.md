@@ -313,12 +313,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   training without materializing full logits when `sampled_vocab_size` is
   configured, uses selected-row PyTorch autograd by default, and can opt into
   sparse token-embedding and LM-head weight gradients for row-sparse optimizers.
-  It also accepts precomputed sampled row IDs and target positions for fixed
-  training batches so experiment runners can keep sampled-vocab construction
-  out of the measured hot update window. Memory-slot batches can also carry
-  precomputed bounded memory candidate IDs, keeping token-hash candidate-plan
-  construction out of measured online/eval loss calls without changing the
-  active slot count or permitting all-slot scans.
+  It also accepts precomputed sampled row IDs, target positions, bounded memory
+  candidate IDs, and bounded route candidate IDs for fixed training batches so
+  experiment runners can keep candidate-plan construction out of the measured
+  hot update window. The precomputed memory and route IDs preserve active slot
+  and active expert counts without permitting all-slot or all-column scans.
 - `language_sampled_vocab_training_impact.py` is the complete training-step
   impact report for sampled/adaptive vocabulary loss. The local 2026-07-04
   CUDA report
@@ -426,10 +425,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-current-control-rerun-524288-63744.json`.
   The paired win is `+3.959%` training and `+2.942%` sustained generation, with
   batch total down from `0.346854` to `0.333647 ms/token`.
-- The sampled-vocab and memory-candidate batch-precompute training path keeps
-  the same all-awake routed shape but precomputes sampled row IDs, target
-  positions, and bounded memory candidate IDs outside the measured update
-  window. The local 2026-07-04 report
+- The sampled-vocab, memory-candidate, and route-candidate batch-precompute
+  training path keeps the same all-awake routed shape but precomputes sampled
+  row IDs, target positions, bounded memory candidate IDs, and bounded route
+  candidate IDs outside the measured update window. The local 2026-07-04 report
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-precomputed-sampled-vocab-524288-63744.json`
   trains `63744` tokens at `3041.246` train tokens/sec, records
   `sampled_vocab_precompute.enabled=true`, improves forward/loss from
@@ -438,23 +437,25 @@ developmental and consolidation runners, query runners, and long-run evidence.
   sustained run reached `7203.369` tokens/sec, and a same-checkpoint current-code
   sustained rerun of the retained all-awake checkpoint reached `7206.201`
   tokens/sec, so this is a training hot-window speed slice rather than an
-  inference promotion. Memory-slot fast experiments now report
-  `memory_candidate_precompute` and feed `precomputed_batch_memory_candidate_ids`
-  into the measured loss call instead of rebuilding token-hash candidate plans
-  inside the hot update loop.
+  inference promotion. Memory-slot and routed-expert fast experiments now
+  report `memory_candidate_precompute` and `route_candidate_precompute`, then
+  feed `precomputed_batch_memory_candidate_ids` and
+  `precomputed_batch_route_candidate_ids` into the measured loss call instead
+  of rebuilding token-hash candidate plans inside the hot update loop.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
-  sampled row ID, target-position, and bounded memory-candidate construction
-  out of the hot loop instead of limiting the speedup to fixed experiment
-  batches.
+  sampled row ID, target-position, bounded memory-candidate, and bounded
+  route-candidate construction out of the hot loop instead of limiting the
+  speedup to fixed experiment batches.
 - Continual-learning update metrics now follow the fast experiment runner's
   deferred-readback pattern: detached device scalars aggregate update loss,
   replay loss, and max observed grad norm in the measured loop, then read back
   after a single CUDA stop synchronization.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
-  positions plus bounded memory candidate IDs from `LanguageBatch`, so
-  continual before/after heldout and replay evaluations can reuse the same
-  sampled-vocab and memory-candidate contracts as the update loop. It also
+  positions plus bounded memory and route candidate IDs from `LanguageBatch`,
+  so continual before/after heldout and replay evaluations can reuse the same
+  sampled-vocab, memory-candidate, and route-candidate contracts as the update
+  loop. It also
   aggregates heldout loss as a detached device scalar, reads it back once after
   the evaluation timing stop, records evaluation tokens/sec and sync evidence,
   and restores the caller's original train/eval mode.

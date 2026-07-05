@@ -279,20 +279,37 @@ def run_language_continual_learning_window(
     snapshot_started = time.perf_counter()
     snapshot = _clone_state_dict(model)
     snapshot_hash = _state_dict_hash(snapshot)
+    assume_no_sleeping = (
+        model.routed_experts.enabled
+        and not bool(model.routed_experts.sleeping_expert_mask.detach().any().cpu().item())
+    )
     snapshot_elapsed_seconds = max(0.0, time.perf_counter() - snapshot_started)
     precompute_started = time.perf_counter()
     old_eval_runtime_batches, old_eval_sampled_vocab_precompute = (
-        precompute_sampled_vocab_batches(model, old_eval_batches)
+        precompute_sampled_vocab_batches(
+            model,
+            old_eval_batches,
+            assume_no_sleeping_experts=assume_no_sleeping,
+        )
     )
     new_eval_runtime_batches, new_eval_sampled_vocab_precompute = (
-        precompute_sampled_vocab_batches(model, new_eval_batches)
+        precompute_sampled_vocab_batches(
+            model,
+            new_eval_batches,
+            assume_no_sleeping_experts=assume_no_sleeping,
+        )
     )
     new_update_batches, new_sampled_vocab_precompute = precompute_sampled_vocab_batches(
         model,
         new_batches,
+        assume_no_sleeping_experts=assume_no_sleeping,
     )
     replay_update_batches, replay_sampled_vocab_precompute = (
-        precompute_sampled_vocab_batches(model, replay_batches)
+        precompute_sampled_vocab_batches(
+            model,
+            replay_batches,
+            assume_no_sleeping_experts=assume_no_sleeping,
+        )
         if replay_batches
         else (
             tuple(),
@@ -302,6 +319,13 @@ def run_language_continual_learning_window(
                 "reason": "no_replay_batches",
                 "batch_count": 0,
                 "device": str(model.device),
+                "route_candidate_precompute": {
+                    "surface": "marulho_language_route_candidate_batch_precompute.v1",
+                    "enabled": False,
+                    "reason": "no_replay_batches",
+                    "batch_count": 0,
+                    "device": str(model.device),
+                },
             },
         )
     )
@@ -367,9 +391,11 @@ def run_language_continual_learning_window(
                 batch.input_ids.to(model.device),
                 batch.target_ids.to(model.device),
                 collect_telemetry=bool(cfg.collect_training_telemetry),
+                assume_no_sleeping_experts=assume_no_sleeping,
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
                 memory_candidate_ids=batch.memory_candidate_ids,
+                route_candidate_ids=batch.route_candidate_ids,
             )
             loss = update_result["loss"]
             last_loss_evidence = dict(update_result.get("loss_evidence") or {})
@@ -390,9 +416,11 @@ def run_language_continual_learning_window(
                     replay_batch.input_ids.to(model.device),
                     replay_batch.target_ids.to(model.device),
                     collect_telemetry=bool(cfg.collect_training_telemetry),
+                    assume_no_sleeping_experts=assume_no_sleeping,
                     sampled_vocab_ids=replay_batch.sampled_vocab_ids,
                     sampled_target_positions=replay_batch.sampled_target_positions,
                     memory_candidate_ids=replay_batch.memory_candidate_ids,
+                    route_candidate_ids=replay_batch.route_candidate_ids,
                 )
                 replay_loss = replay_result["loss"]
                 last_replay_loss_evidence = dict(
