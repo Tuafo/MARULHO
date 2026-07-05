@@ -155,6 +155,25 @@ active and zero tracked Triton fallback calls. Its refreshed suite
 `reports/language_benchmark_suite/language-suite-memory-slot-longtrain-triton-min1-newcheckpoint-quality-speed-20260705.json`
 is also `ready_for_review` with `17/17` pass/smoke categories; runtime promotion
 remains false until review/promotion criteria are explicitly satisfied.
+For online continual learning at the preferred `524288` update-token scale, the
+current min1-policy training-accounting matched pair
+`reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-triton-min1-training-accounting-evalmatched-update524288-20260705.json`
+versus
+`reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-min1-training-accounting-evalmatched-update524288-20260705.json`
+accepts both arms with rollback verification, no forgetting regression, and
+replay retention improvement. No-memory reaches `3171.732` update tokens/sec
+and `2910.873` total-window tokens/sec; bounded memory reaches `3144.572` and
+`2880.835`, giving memory slots a small `-0.856%` update and `-1.032%`
+total-window cost in the same session while scoring `4194304` bounded memory
+candidates without all-slot scans. This shows memory slots are not the primary
+training bottleneck, but the older retained pair had higher absolute update
+throughput, so broader training speed remains an active goal item. The reports
+expose
+`marulho_language_continual_training_window_triton_accounting.v1` for RMSNorm,
+PLIF, route top-k, expert dispatch, memory slots, and sampled-vocab CE inside
+the measured update window; current training accounting shows RMSNorm and PLIF
+as Triton-active, sampled-vocab CE on the maintained torch-autograd selected-row
+path, and memory-slot training on bounded torch autograd.
 
 The target runtime must preserve these boundaries:
 

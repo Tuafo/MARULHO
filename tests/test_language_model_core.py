@@ -1751,6 +1751,29 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"][
         "training_window_memory_slot_triton_autograd_used"
     ] is False
+    triton_accounting = report["learning_evidence"][
+        "training_window_triton_accounting"
+    ]
+    assert triton_accounting["surface"] == (
+        "marulho_language_continual_training_window_triton_accounting.v1"
+    )
+    assert triton_accounting["scope"] == "measured_update_window_only"
+    assert triton_accounting["tracked_kernel_names"] == [
+        "language_rmsnorm_triton",
+        "language_plif_triton",
+        "language_route_topk_triton",
+        "language_expert_dispatch_triton",
+        "language_memory_slots_triton",
+        "language_sampled_vocab_ce_triton",
+    ]
+    assert set(triton_accounting["tracked_kernel_used_names"]).issubset(
+        set(triton_accounting["tracked_kernel_names"])
+    )
+    assert isinstance(triton_accounting["tracked_torch_fallback_calls"], int)
+    assert isinstance(triton_accounting["tracked_triton_failure_count"], int)
+    assert triton_accounting["language_memory_slots_triton"]["surface"] == (
+        "marulho_language_memory_slots_triton_stats_delta.v1"
+    )
     assert report["learning_evidence"]["window_phase_timings"]["surface"] == (
         "marulho_language_continual_window_phase_timings.v1"
     )
@@ -1861,6 +1884,17 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
         "marulho_language_memory_slots_triton_stats_delta.v1"
     )
     assert evidence["training_window_memory_slot_triton_autograd_used"] is False
+    triton_accounting = evidence["training_window_triton_accounting"]
+    assert "language_sampled_vocab_ce_triton" in triton_accounting[
+        "tracked_kernel_names"
+    ]
+    assert triton_accounting["language_sampled_vocab_ce_triton"]["surface"] == (
+        "marulho_language_sampled_vocab_ce_triton_stats_delta.v1"
+    )
+    assert isinstance(
+        triton_accounting["tracked_triton_autograd_forward_calls"],
+        int,
+    )
     assert evidence["sampled_vocab_training"] is True
     assert evidence["full_vocab_logits_materialized"] is False
     assert evidence["sampled_vocab_precompute"]["surface"] == (

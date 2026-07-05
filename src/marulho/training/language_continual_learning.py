@@ -8,9 +8,29 @@ from typing import Any, Mapping, Sequence
 
 import torch
 
+from marulho.core.language_expert_dispatch_triton import (
+    language_expert_dispatch_triton_stats,
+    language_expert_dispatch_triton_stats_delta,
+)
 from marulho.core.language_memory_slots_triton import (
     language_memory_slots_triton_stats,
     language_memory_slots_triton_stats_delta,
+)
+from marulho.core.language_plif_triton import (
+    language_plif_triton_stats,
+    language_plif_triton_stats_delta,
+)
+from marulho.core.language_rmsnorm_triton import (
+    language_rmsnorm_triton_stats,
+    language_rmsnorm_triton_stats_delta,
+)
+from marulho.core.language_route_topk_triton import (
+    language_route_topk_triton_stats,
+    language_route_topk_triton_stats_delta,
+)
+from marulho.core.language_sampled_vocab_ce_triton import (
+    language_sampled_vocab_ce_triton_stats,
+    language_sampled_vocab_ce_triton_stats_delta,
 )
 from marulho.training.language_model import (
     LanguageBatch,
@@ -18,6 +38,124 @@ from marulho.training.language_model import (
     evaluate_language_model,
     precompute_sampled_vocab_batches,
 )
+
+
+_TRAINING_WINDOW_TRITON_TRACKERS = (
+    (
+        "language_rmsnorm_triton",
+        language_rmsnorm_triton_stats,
+        language_rmsnorm_triton_stats_delta,
+    ),
+    (
+        "language_plif_triton",
+        language_plif_triton_stats,
+        language_plif_triton_stats_delta,
+    ),
+    (
+        "language_route_topk_triton",
+        language_route_topk_triton_stats,
+        language_route_topk_triton_stats_delta,
+    ),
+    (
+        "language_expert_dispatch_triton",
+        language_expert_dispatch_triton_stats,
+        language_expert_dispatch_triton_stats_delta,
+    ),
+    (
+        "language_memory_slots_triton",
+        language_memory_slots_triton_stats,
+        language_memory_slots_triton_stats_delta,
+    ),
+    (
+        "language_sampled_vocab_ce_triton",
+        language_sampled_vocab_ce_triton_stats,
+        language_sampled_vocab_ce_triton_stats_delta,
+    ),
+)
+
+
+def _language_training_triton_stats_snapshot() -> dict[str, Mapping[str, Any]]:
+    return {
+        name: stats_fn()
+        for name, stats_fn, _delta_fn in _TRAINING_WINDOW_TRITON_TRACKERS
+    }
+
+
+def _language_training_triton_stats_delta(
+    before: Mapping[str, Mapping[str, Any]],
+    after: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        name: delta_fn(before.get(name, {}), after.get(name, {}))
+        for name, _stats_fn, delta_fn in _TRAINING_WINDOW_TRITON_TRACKERS
+    }
+
+
+def _sum_triton_delta_field(
+    deltas: Mapping[str, Mapping[str, Any]],
+    *fields: str,
+) -> int:
+    return int(
+        sum(
+            int(delta.get(field, 0) or 0)
+            for delta in deltas.values()
+            for field in fields
+        )
+    )
+
+
+def _training_window_triton_accounting(
+    deltas: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    names = tuple(
+        name for name, _stats_fn, _delta_fn in _TRAINING_WINDOW_TRITON_TRACKERS
+    )
+    used_names = tuple(
+        name
+        for name in names
+        if bool(deltas.get(name, {}).get("triton_kernel_used", False))
+        or bool(deltas.get(name, {}).get("triton_autograd_used", False))
+    )
+    used_name_set = set(used_names)
+    return {
+        "surface": "marulho_language_continual_training_window_triton_accounting.v1",
+        "scope": "measured_update_window_only",
+        "tracked_kernel_names": list(names),
+        "tracked_kernel_used_names": list(used_names),
+        "tracked_kernel_unused_names": [
+            name for name in names if name not in used_name_set
+        ],
+        "tracked_triton_forward_calls": _sum_triton_delta_field(
+            deltas,
+            "triton_forward_calls",
+            "triton_forward_no_eligibility_calls",
+        ),
+        "tracked_triton_backward_calls": _sum_triton_delta_field(
+            deltas,
+            "triton_backward_calls",
+        ),
+        "tracked_triton_autograd_forward_calls": _sum_triton_delta_field(
+            deltas,
+            "triton_autograd_forward_calls",
+        ),
+        "tracked_torch_autograd_backward_calls": _sum_triton_delta_field(
+            deltas,
+            "torch_autograd_backward_calls",
+        ),
+        "tracked_torch_fallback_calls": _sum_triton_delta_field(
+            deltas,
+            "torch_fallback_calls",
+        ),
+        "tracked_torch_fallback_elements": _sum_triton_delta_field(
+            deltas,
+            "torch_fallback_elements",
+        ),
+        "tracked_triton_failure_count": _sum_triton_delta_field(
+            deltas,
+            "triton_failure_count",
+        ),
+        **{name: dict(deltas.get(name, {})) for name in names},
+    }
 
 
 @dataclass(frozen=True)
@@ -362,7 +500,7 @@ def run_language_continual_learning_window(
         0.0,
         time.perf_counter() - optimizer_setup_started,
     )
-    training_memory_slots_triton_before = language_memory_slots_triton_stats()
+    training_triton_stats_before = _language_training_triton_stats_snapshot()
     cuda_synchronized_before_timing_start = False
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
@@ -482,12 +620,19 @@ def run_language_continual_learning_window(
         torch.cuda.synchronize(model.device)
         cuda_synchronized_before_timing_stop = True
     elapsed_seconds = max(0.0, time.perf_counter() - started)
-    training_memory_slots_triton_after = language_memory_slots_triton_stats()
+    training_triton_stats_after = _language_training_triton_stats_snapshot()
+    training_triton_stats_delta = _language_training_triton_stats_delta(
+        training_triton_stats_before,
+        training_triton_stats_after,
+    )
+    training_window_triton_accounting = _training_window_triton_accounting(
+        training_triton_stats_delta
+    )
+    training_memory_slots_triton_after = training_triton_stats_after[
+        "language_memory_slots_triton"
+    ]
     training_window_memory_slot_triton_stats_delta = (
-        language_memory_slots_triton_stats_delta(
-            training_memory_slots_triton_before,
-            training_memory_slots_triton_after,
-        )
+        training_triton_stats_delta["language_memory_slots_triton"]
     )
     training_window_memory_slot_triton_training_autograd_enabled = bool(
         training_memory_slots_triton_after.get(
@@ -668,6 +813,7 @@ def run_language_continual_learning_window(
             "training_window_memory_slot_triton_stats_delta": (
                 training_window_memory_slot_triton_stats_delta
             ),
+            "training_window_triton_accounting": training_window_triton_accounting,
             "training_window_memory_slot_triton_training_autograd_enabled": bool(
                 training_window_memory_slot_triton_training_autograd_enabled
             ),

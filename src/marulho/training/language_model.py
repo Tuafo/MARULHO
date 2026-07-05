@@ -1970,7 +1970,7 @@ class MarulhoLanguageModel(nn.Module):
             )
             sampled_vocab_stats_before = (
                 language_sampled_vocab_ce_triton_stats()
-                if bool(collect_telemetry) and bool(return_evidence)
+                if bool(return_evidence)
                 else None
             )
             loss = language_sampled_vocab_cross_entropy(
@@ -1979,7 +1979,7 @@ class MarulhoLanguageModel(nn.Module):
                 sampled_vocab_ids,
                 self.lm_head.weight,
                 self.lm_head.bias,
-                prefer_triton=bool(collect_telemetry),
+                prefer_triton=True,
                 validate_targets=validate_sampled_targets,
                 sparse_weight_gradient=bool(
                     self.config.sampled_vocab_sparse_lm_head_gradient

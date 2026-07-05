@@ -130,7 +130,7 @@ harnesses.
   `marulho_language_continual_memory_slot_architecture_cost.v1` when a
   memory-slot run compares against a no-memory baseline with the same model
   vocab, sampled vocab, update-token count, and matched heldout eval counts. The
-  current clean `524288` update-token pair is
+  retained `524288` update-token pair is
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-evalmatched-update524288-rerun.json`
   versus
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json`:
@@ -140,8 +140,28 @@ harnesses.
   default torch-autograd training backend, and accepted the update. The measured
   memory-slot architecture cost is `-0.336%` update throughput and `-0.415%`
   total-window throughput, while old-domain and replay losses improve slightly
-  more than the no-memory baseline. Treat this as current full-window cost
-  evidence, not a same-architecture speed promotion or a broad quality claim.
+  more than the no-memory baseline. The current min1-policy
+  training-accounting matched pair,
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-triton-min1-training-accounting-evalmatched-update524288-20260705.json`
+  versus
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-min1-training-accounting-evalmatched-update524288-20260705.json`,
+  accepts both arms with rollback verification at `524288` update tokens:
+  no-memory reaches `3171.732` update tokens/sec and `2910.873` total-window
+  tokens/sec, while bounded memory reaches `3144.572` and `2880.835`, records
+  `-0.856%` update and `-1.032%` total-window throughput versus no-memory, and
+  keeps old-domain/replay retention slightly better. Treat the newer pair as
+  current same-session memory-cost evidence, not a broad speed promotion over
+  the older absolute-throughput pair or a broad quality claim.
+- `language_continual_learning.py` reports
+  `marulho_language_continual_training_window_triton_accounting.v1` inside
+  `learning_evidence.training_window_triton_accounting`. The block is scoped to
+  the measured update window and tracks RMSNorm, PLIF, route top-k, expert
+  dispatch, memory slots, and sampled-vocab CE Triton/fallback/failure counts,
+  so update-throughput regressions can be attributed without relying on a
+  single aggregate tokens/sec number. The current accounting pair shows RMSNorm
+  and PLIF as Triton-active in training, sampled-vocab CE as the maintained
+  torch-autograd selected-row path, and memory-slot training as bounded
+  torch-autograd rather than Triton autograd.
 - `language_eligibility_trace_runtime_impact.py` measures complete no-grad LM
   forward impact for deferred eligibility-trace updates. The current `524288`
   model-vocab batch-16/seq-64 report rejects deferred final-scan eligibility as

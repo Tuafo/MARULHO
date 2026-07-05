@@ -247,21 +247,34 @@ developmental and consolidation runners, query runners, and long-run evidence.
   three CUDA `float32` shape sweeps for `language_memory_slot_retrieval` with
   geometric microbenchmark speedup `4.950x`; `float16` remains explicitly
   unsupported.
-  The newer `524288` update-token architecture-cost pair
+  The retained `524288` update-token architecture-cost pair
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-evalmatched-update524288-rerun.json`
   and
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-default-evalmatched-update524288-rerun.json`
-  reruns the full continual window with matched eval counts. The no-memory arm
+  reran the full continual window with matched eval counts. The no-memory arm
   reaches `3765.911` update tokens/sec and `3451.048` total-window tokens/sec;
   the default bounded memory-slot arm reaches `3753.246` and `3436.735` while
   scoring `4194304` precomputed memory candidates, avoiding all-slot scans,
   staying on `torch_autograd_bounded_memory_slots`, and accepting the update.
   The explicit
   `marulho_language_continual_memory_slot_architecture_cost.v1` section records
-  a small current cost (`-0.336%` update, `-0.415%` total-window), a nearly
+  a small retained cost (`-0.336%` update, `-0.415%` total-window), a nearly
   unchanged new-domain delta, slightly better old-domain/replay retention, and
-  the same generation-probe prefix score. This is the current full-window cost
-  baseline for memory slots, not a broad language-quality promotion.
+  the same generation-probe prefix score. The current min1-policy
+  training-accounting same-session pair
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-no-memory-triton-min1-training-accounting-evalmatched-update524288-20260705.json`
+  and
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-triton-min1-training-accounting-evalmatched-update524288-20260705.json`
+  accepts both arms at the same scale: no-memory reaches `3171.732` update
+  tokens/sec and `2910.873` total-window tokens/sec; bounded memory reaches
+  `3144.572` and `2880.835`, scores `4194304` precomputed memory candidates,
+  uses `triton_no_grad_bounded_memory_slots` for heldout evaluation, and stays
+  on `torch_autograd_bounded_memory_slots` for slot gradients. Its architecture
+  section records `-0.856%` update throughput and `-1.032%` total-window
+  throughput for memory slots with slightly better old-domain/replay retention.
+  This keeps memory slots as a small bounded cost, not an all-slot scan or the
+  primary training bottleneck; it does not promote broad language quality or
+  erase the older pair's higher absolute update throughput.
 - `RoutedLanguageExpertLayer` is the first Iteration 4 foundation for the LM
   head. It narrows token-hidden states through a bounded candidate plan, wakes
   only top-k experts, reports total/active columns, candidate rows scored,
@@ -494,6 +507,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   also use the lean loss path in the measured loop, count precomputed memory
   candidates from batch tensors, and run post-window telemetry probes to fill
   final evidence without per-step report assembly.
+- Continual-learning reports now include
+  `training_window_triton_accounting` with scope
+  `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,
+  expert dispatch, memory slots, and sampled-vocab CE before/after the hot
+  update window, then reports per-kernel Triton use, torch fallback calls, and
+  Triton failures without adding per-step evidence work. The current `524288`
+  training-accounting pair records RMSNorm (`1024` forward calls) and PLIF
+  (`32768` forward and `32768` backward calls) as Triton-active with zero
+  failures, while sampled-vocab CE remains on the maintained torch-autograd
+  selected-row path (`512` fallback calls per arm), and memory-slot training
+  adds `512` bounded torch-autograd fallback calls only in the memory arm.
 - `evaluate_language_model` accepts precomputed sampled row IDs and target
   positions plus bounded memory and route candidate IDs from `LanguageBatch`,
   so continual before/after heldout and replay evaluations can reuse the same
