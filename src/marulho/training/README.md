@@ -74,8 +74,13 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `reports/language_training_experiments/state-block-prealloc-runtime-impact-524288-b16-s64.json`
   is rejected as a default: the stacked sequence path reached `12321.430`
   tokens/sec while preallocation reached `12068.368` tokens/sec (`0.979x`) on
-  the same full-forward `524288` batch-16/seq-64 shape. `step` remains the
-  streaming path for one-token CUDA graph generation.
+  the same full-forward `524288` batch-16/seq-64 shape. The no-grad deferred
+  eligibility-trace probe in
+  `reports/language_training_experiments/eligibility-trace-runtime-impact-524288-b16-s64.json`
+  is also rejected as a default: inline PLIF eligibility reached `12760.575`
+  tokens/sec while deferred sequence-scan eligibility reached `12148.414`
+  tokens/sec (`0.952x`) with logit parity and real Triton final-scan use.
+  `step` remains the streaming path for one-token CUDA graph generation.
 - The state block can use `language_plif_triton.py` for no-grad PLIF forward
   updates when CUDA row-count policy allows it. Gradient-enabled `float32`
   training can use the same module's Triton surrogate backward path, which
@@ -88,6 +93,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   kernel evidence, but the training-owned state block still needs a separate
   full-loop integration and complete-runtime impact report before scan fusion
   can be promoted.
+- `language_eligibility_trace_triton.py` covers the standalone local
+  eligibility-trace final update primitive. State-block telemetry reports
+  `eligibility_trace_update_mode`, `eligibility_trace_sequence_buffer_mode`,
+  and `eligibility_trace_scan_backend`; the deferred no-grad path remains an
+  evidence-only option until a complete-runtime report beats inline PLIF.
 - `RMSNorm` now routes CUDA tensors through the language RMSNorm Triton
   primitive only for batched row counts where the kernel is measured useful.
   Streaming one-token LM generation keeps the faster CUDA graph/PyTorch

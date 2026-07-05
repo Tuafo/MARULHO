@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from marulho.evaluation.language_runtime_benchmark_suite import (
+    ELIGIBILITY_TRACE_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     GENERATION_COHERENCE_ARTIFACT_KIND,
     GENERATION_COHERENCE_SURFACE,
@@ -236,6 +237,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     )
     assert (
         categories["gpu_kernel_correctness"]["evidence"][
+            "local_eligibility_trace_update_parity"
+        ]
+        is False
+    )
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
             "route_vote_topk_parity"
         ]
         is False
@@ -259,6 +266,10 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     )
     assert (
         "route_vote_topk_parity"
+        in categories["gpu_kernel_correctness"]["missing_evidence"]
+    )
+    assert (
+        "local_eligibility_trace_update_parity"
         in categories["gpu_kernel_correctness"]["missing_evidence"]
     )
     assert categories["generation_coherence"]["status"] == "smoke_only"
@@ -313,6 +324,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
+    eligibility_trace_kernel = tmp_path / "eligibility-trace-triton.json"
     route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
@@ -333,6 +345,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     _write_gpu_kernel_report(
         selective_scan_kernel,
         kernel_name=SELECTIVE_SCAN_KERNEL_NAME,
+    )
+    _write_gpu_kernel_report(
+        eligibility_trace_kernel,
+        kernel_name=ELIGIBILITY_TRACE_KERNEL_NAME,
     )
     _write_gpu_kernel_report(
         route_topk_kernel,
@@ -357,6 +373,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             plif_kernel,
             plif_surrogate_kernel,
             selective_scan_kernel,
+            eligibility_trace_kernel,
             route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,
@@ -422,6 +439,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         is True
     )
     assert gpu_kernel_category["evidence"]["selective_scan_triton_parity"] is True
+    assert (
+        gpu_kernel_category["evidence"]["local_eligibility_trace_update_parity"]
+        is True
+    )
     assert gpu_kernel_category["evidence"]["route_vote_topk_parity"] is True
     assert (
         gpu_kernel_category["evidence"]["block_sparse_expert_dispatch_parity"]
@@ -433,6 +454,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     )
     assert gpu_kernel_category["evidence"]["covered_kernel_names"] == [
         EXPERT_DISPATCH_KERNEL_NAME,
+        ELIGIBILITY_TRACE_KERNEL_NAME,
         PLIF_FORWARD_KERNEL_NAME,
         PLIF_SURROGATE_KERNEL_NAME,
         RMSNORM_KERNEL_NAME,
@@ -447,6 +469,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         not in gpu_kernel_category["missing_evidence"]
     )
     assert "selective_scan_triton_parity" not in gpu_kernel_category["missing_evidence"]
+    assert (
+        "local_eligibility_trace_update_parity"
+        not in gpu_kernel_category["missing_evidence"]
+    )
     assert "route_vote_topk_parity" not in gpu_kernel_category["missing_evidence"]
     assert (
         "block_sparse_expert_dispatch_parity"
@@ -472,6 +498,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
+    eligibility_trace_kernel = tmp_path / "eligibility-trace-triton.json"
     route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
@@ -501,6 +528,10 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
         kernel_name=SELECTIVE_SCAN_KERNEL_NAME,
     )
     _write_gpu_kernel_report(
+        eligibility_trace_kernel,
+        kernel_name=ELIGIBILITY_TRACE_KERNEL_NAME,
+    )
+    _write_gpu_kernel_report(
         route_topk_kernel,
         kernel_name=ROUTE_TOPK_KERNEL_NAME,
     )
@@ -522,6 +553,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
             plif_kernel,
             plif_surrogate_kernel,
             selective_scan_kernel,
+            eligibility_trace_kernel,
             route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,

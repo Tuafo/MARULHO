@@ -64,6 +64,7 @@ RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
+ELIGIBILITY_TRACE_KERNEL_NAME = "language_local_eligibility_trace_update"
 ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
@@ -72,6 +73,7 @@ SUPPORTED_GPU_KERNEL_NAMES = {
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
+    ELIGIBILITY_TRACE_KERNEL_NAME,
     ROUTE_TOPK_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
@@ -715,6 +717,14 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    eligibility_trace_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == ELIGIBILITY_TRACE_KERNEL_NAME
+        ),
+        None,
+    )
     route_topk_report = next(
         (
             report
@@ -748,6 +758,8 @@ def _language_gpu_kernel_evidence(
         missing.append("plif_triton_backward_surrogate_parity")
     if selective_scan_report is None:
         missing.append("selective_scan_triton_parity")
+    if eligibility_trace_report is None:
+        missing.append("local_eligibility_trace_update_parity")
     if route_topk_report is None:
         missing.append("route_vote_topk_parity")
     if expert_dispatch_report is None:
@@ -785,6 +797,12 @@ def _language_gpu_kernel_evidence(
             None
             if selective_scan_report is None
             else _gpu_kernel_report_summary(selective_scan_report)
+        ),
+        "local_eligibility_trace_update_parity": eligibility_trace_report is not None,
+        "local_eligibility_trace_report": (
+            None
+            if eligibility_trace_report is None
+            else _gpu_kernel_report_summary(eligibility_trace_report)
         ),
         "route_vote_topk_parity": route_topk_report is not None,
         "route_topk_report": (

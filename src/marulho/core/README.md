@@ -27,6 +27,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   `language_selective_scan_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for standalone
   `[batch,time,state_dim]` recurrent state scans.
+- The LM-head local eligibility-trace update Triton primitive in
+  `language_eligibility_trace_triton.py`, including forced parity/benchmark
+  execution, PyTorch fallback, and runtime-use counters for final trace updates
+  over `[batch,time,state_dim]` spike sequences.
 - The LM-head route/vote top-k Triton primitive in
   `language_route_topk_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for bounded
@@ -65,6 +69,11 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   scan-size policy allows it. Standalone scan parity is not full state-block
   fusion; training-loop integration still needs separate complete-runtime
   evidence before promotion.
+- Language eligibility-trace final update uses Triton for no-grad CUDA spike
+  sequences where scan-size policy allows it. The matching no-grad PLIF
+  variant skips inline eligibility load/store, but the current complete
+  batch-16/seq-64 `524288` forward impact report is slower than inline PLIF, so
+  the deferred state-block path remains off by default.
 - Language route/vote top-k uses Triton for no-grad CUDA routed-expert rows
   where the row-count policy allows it. Gradient training stays on the PyTorch
   route-score/top-k path so route keys can receive gradients, and one-token

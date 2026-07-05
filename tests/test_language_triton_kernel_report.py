@@ -7,6 +7,9 @@ import torch
 from marulho.core.language_expert_dispatch_triton import (
     language_expert_dispatch_triton_stats,
 )
+from marulho.core.language_eligibility_trace_triton import (
+    language_eligibility_trace_triton_stats,
+)
 from marulho.core.language_plif_triton import language_plif_triton_stats
 from marulho.core.language_rmsnorm_triton import language_rmsnorm_triton_stats
 from marulho.core.language_route_topk_triton import language_route_topk_triton_stats
@@ -19,6 +22,7 @@ from marulho.core.language_selective_scan_triton import (
 from marulho.evaluation.language_triton_kernel_report import (
     ARTIFACT_KIND,
     EXPERT_DISPATCH_KERNEL_NAME,
+    ELIGIBILITY_TRACE_KERNEL_NAME,
     KERNEL_NAME,
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
@@ -277,6 +281,43 @@ def test_language_triton_kernel_report_writes_sampled_vocab_ce_evidence(tmp_path
         assert report["valid_shape_result_count"] >= 1
         assert report["promotion_gate"]["kernel_parity_available"] is True
         assert report["shape_results"][0]["sampled_vocab_size"] == 128
+        assert report["shape_results"][0]["stats_delta"]["triton_kernel_used"] is True
+    else:
+        assert report["promotion_gate"]["status"] == "unavailable"
+        assert report["valid_shape_result_count"] == 0
+
+
+def test_language_triton_kernel_report_writes_eligibility_trace_evidence(tmp_path) -> None:
+    output = tmp_path / "eligibility-trace-triton.json"
+
+    report = run_language_triton_kernel_report(
+        output_path=output,
+        kernel="eligibility-trace",
+        shapes=((8, 32),),
+        dtypes=("float32",),
+        scan_time_steps=8,
+        warmup=1,
+        repeats=2,
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+
+    assert report["artifact_kind"] == ARTIFACT_KIND
+    assert written["surface"] == SURFACE
+    assert report["kernel_name"] == ELIGIBILITY_TRACE_KERNEL_NAME
+    assert report["external_llm_used"] is False
+    assert report["promotion_gate"]["promotes_hot_path"] is False
+    assert (
+        "local_eligibility_trace_update_parity"
+        not in report["promotion_gate"]["remaining_kernel_backlog"]
+    )
+
+    if torch.cuda.is_available() and bool(
+        language_eligibility_trace_triton_stats()["triton_available"]
+    ):
+        assert report["parity_passed"] is True
+        assert report["valid_shape_result_count"] >= 1
+        assert report["promotion_gate"]["kernel_parity_available"] is True
+        assert report["shape_results"][0]["time_steps"] == 8
         assert report["shape_results"][0]["stats_delta"]["triton_kernel_used"] is True
     else:
         assert report["promotion_gate"]["status"] == "unavailable"

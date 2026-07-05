@@ -17,6 +17,13 @@ from marulho.core.language_expert_dispatch_triton import (
     language_expert_dispatch_triton_stats,
     language_expert_dispatch_triton_stats_delta,
 )
+from marulho.core.language_eligibility_trace_triton import (
+    can_use_language_eligibility_trace_triton,
+    language_eligibility_trace_final,
+    language_eligibility_trace_torch_reference,
+    language_eligibility_trace_triton_stats,
+    language_eligibility_trace_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     can_use_language_plif_triton,
     can_use_language_plif_surrogate_triton,
@@ -65,6 +72,7 @@ RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
+ELIGIBILITY_TRACE_KERNEL_NAME = "language_local_eligibility_trace_update"
 ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
@@ -652,6 +660,121 @@ def _selective_scan_shape_kernel_result(
         }
 
 
+def _eligibility_trace_inputs(
+    *,
+    rows: int,
+    cols: int,
+    time_steps: int,
+    dtype: torch.dtype,
+) -> dict[str, torch.Tensor]:
+    initial_trace = torch.randn(rows, cols, device="cuda", dtype=dtype).abs()
+    spikes = (torch.rand(rows, time_steps, cols, device="cuda") > 0.82).to(dtype)
+    return {
+        "initial_trace": initial_trace,
+        "spikes": spikes,
+    }
+
+
+def _eligibility_trace_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    time_steps: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ELIGIBILITY_TRACE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "time_steps": int(time_steps),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_on_device",
+            "parity_passed": False,
+        }
+
+    inputs = _eligibility_trace_inputs(
+        rows=rows,
+        cols=cols,
+        time_steps=time_steps,
+        dtype=dtype,
+    )
+    supported = can_use_language_eligibility_trace_triton(**inputs)
+    before_stats = language_eligibility_trace_triton_stats()
+    try:
+        reference = language_eligibility_trace_torch_reference(**inputs)
+        triton_output = language_eligibility_trace_final(
+            **inputs,
+            prefer_triton=True,
+            force_triton=True,
+        )
+        torch.cuda.synchronize()
+        diff = (triton_output.float() - reference.float()).abs()
+        max_abs_error = float(diff.max().detach().cpu().item())
+        denominator = reference.float().abs().clamp_min(1e-8)
+        max_rel_error = float((diff / denominator).max().detach().cpu().item())
+        tolerance = 2e-2 if dtype in {torch.float16, torch.bfloat16} else 1e-5
+        parity_passed = bool(max_abs_error <= tolerance or max_rel_error <= tolerance)
+        torch_ms = _benchmark_cuda(
+            lambda: language_eligibility_trace_torch_reference(**inputs),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            lambda: language_eligibility_trace_final(
+                **inputs,
+                prefer_triton=True,
+                force_triton=True,
+            ),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_eligibility_trace_triton_stats()
+        stats_delta = language_eligibility_trace_triton_stats_delta(
+            before_stats,
+            after_stats,
+        )
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ELIGIBILITY_TRACE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "time_steps": int(time_steps),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed and supported else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed and supported),
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_eligibility_trace_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ELIGIBILITY_TRACE_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "time_steps": int(time_steps),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": bool(supported),
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_eligibility_trace_triton_stats_delta(
+                before_stats,
+                after_stats,
+            ),
+        }
+
+
 def _expert_dispatch_inputs(
     *,
     rows: int,
@@ -1217,6 +1340,17 @@ def run_language_triton_kernel_report(
             language_selective_scan_triton_stats()["triton_available"]
         )
     elif normalized_kernel in {
+        "eligibility-trace",
+        "local-eligibility-trace",
+        "eligibility-trace-update",
+        "language-local-eligibility-trace-update",
+    }:
+        kernel_name = ELIGIBILITY_TRACE_KERNEL_NAME
+        kernel_backlog_item = "local_eligibility_trace_update"
+        selected_triton_available = bool(
+            language_eligibility_trace_triton_stats()["triton_available"]
+        )
+    elif normalized_kernel in {
         "route-topk",
         "route-vote-topk",
         "language-route-vote-topk",
@@ -1289,6 +1423,17 @@ def run_language_triton_kernel_report(
                 elif kernel_name == SELECTIVE_SCAN_KERNEL_NAME:
                     shape_results.append(
                         _selective_scan_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            time_steps=int(scan_time_steps),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
+                elif kernel_name == ELIGIBILITY_TRACE_KERNEL_NAME:
+                    shape_results.append(
+                        _eligibility_trace_shape_kernel_result(
                             rows=rows,
                             cols=cols,
                             time_steps=int(scan_time_steps),
@@ -1389,6 +1534,7 @@ def run_language_triton_kernel_report(
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == PLIF_FORWARD_KERNEL_NAME:
         remaining_kernel_backlog = [
@@ -1397,6 +1543,7 @@ def run_language_triton_kernel_report(
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == PLIF_SURROGATE_KERNEL_NAME:
         remaining_kernel_backlog = [
@@ -1404,8 +1551,16 @@ def run_language_triton_kernel_report(
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == SELECTIVE_SCAN_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "route_vote_topk_parity",
+            "block_sparse_expert_dispatch_parity",
+            "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
+        ]
+    elif kernel_name == ELIGIBILITY_TRACE_KERNEL_NAME:
         remaining_kernel_backlog = [
             "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
@@ -1415,13 +1570,15 @@ def run_language_triton_kernel_report(
         remaining_kernel_backlog = [
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
         remaining_kernel_backlog = [
             "sampled_vocab_cross_entropy_parity",
+            "local_eligibility_trace_update_parity",
         ]
     elif kernel_name == SAMPLED_VOCAB_CE_KERNEL_NAME:
-        remaining_kernel_backlog = []
+        remaining_kernel_backlog = ["local_eligibility_trace_update_parity"]
     else:
         remaining_kernel_backlog = []
     if not parity_passed and kernel_name == PLIF_FORWARD_KERNEL_NAME:
@@ -1449,6 +1606,15 @@ def run_language_triton_kernel_report(
                 item
                 for item in remaining_kernel_backlog
                 if item != "selective_scan_triton_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == ELIGIBILITY_TRACE_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "local_eligibility_trace_update_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "local_eligibility_trace_update_parity"
             ],
         ]
     if not parity_passed and kernel_name == ROUTE_TOPK_KERNEL_NAME:
@@ -1509,7 +1675,9 @@ def run_language_triton_kernel_report(
             "warmup": int(warmup),
             "repeats": int(repeats),
             "scan_time_steps": (
-                int(scan_time_steps) if kernel_name == SELECTIVE_SCAN_KERNEL_NAME else None
+                int(scan_time_steps)
+                if kernel_name in {SELECTIVE_SCAN_KERNEL_NAME, ELIGIBILITY_TRACE_KERNEL_NAME}
+                else None
             ),
             "expert_count": (
                 int(expert_count)
@@ -1572,6 +1740,7 @@ def main() -> int:
             "plif-forward",
             "plif-surrogate",
             "selective-scan",
+            "eligibility-trace",
             "route-topk",
             "expert-dispatch",
             "sampled-vocab-ce",
@@ -1597,7 +1766,7 @@ def main() -> int:
         "--scan-time-steps",
         type=int,
         default=64,
-        help="Time steps for selective-scan kernel evidence.",
+        help="Time steps for selective-scan or eligibility-trace kernel evidence.",
     )
     parser.add_argument(
         "--expert-count",

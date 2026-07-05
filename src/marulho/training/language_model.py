@@ -19,8 +19,14 @@ from marulho.core.language_expert_dispatch_triton import (
     language_expert_dispatch_triton_stats,
     language_expert_dispatch_triton_stats_delta,
 )
+from marulho.core.language_eligibility_trace_triton import (
+    language_eligibility_trace_final,
+    language_eligibility_trace_triton_stats,
+    language_eligibility_trace_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     language_plif_forward,
+    language_plif_forward_no_eligibility,
     language_plif_surrogate_update,
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
@@ -190,6 +196,13 @@ class RMSNorm(nn.Module):
 
 def _state_block_preallocate_no_grad_enabled() -> bool:
     raw = os.environ.get("MARULHO_LANGUAGE_STATE_BLOCK_PREALLOCATE_NO_GRAD")
+    if raw is None:
+        return False
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _state_block_defer_eligibility_no_grad_enabled() -> bool:
+    raw = os.environ.get("MARULHO_LANGUAGE_STATE_BLOCK_DEFER_ELIGIBILITY_NO_GRAD")
     if raw is None:
         return False
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -388,6 +401,8 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "truncated_bptt_applied": False,
                 "truncated_bptt_boundary_count": 0,
                 "gradient_horizon_policy": "single_step_streaming_state",
+                "eligibility_trace_update_mode": "inline_plif_update",
+                "eligibility_trace_scan_backend": "not_applicable_single_step",
                 "plif_forward_backend": (
                     (
                         "triton_surrogate_forward_backward"
@@ -416,6 +431,8 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 "truncated_bptt_applied": False,
                 "truncated_bptt_boundary_count": 0,
                 "gradient_horizon_policy": "single_step_streaming_state",
+                "eligibility_trace_update_mode": "inline_plif_update",
+                "eligibility_trace_scan_backend": "not_applicable_single_step",
                 "device": str(token_input.device),
             }
         return (
@@ -471,10 +488,22 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             and _state_block_preallocate_no_grad_enabled()
             and int(time_steps) > 0
         )
+        defer_eligibility_no_grad_sequence = bool(
+            not torch.is_grad_enabled()
+            and _state_block_defer_eligibility_no_grad_enabled()
+            and self.adaptive_timestep_budget == 1
+            and int(time_steps) > 1
+        )
+        initial_eligibility_trace = eligibility_trace
         mixed_states: list[torch.Tensor] = []
         mixed_state_sequence_buffer: torch.Tensor | None = (
             inputs.new_empty((batch_size, time_steps, self.state_dim))
             if preallocate_no_grad_sequence
+            else None
+        )
+        spike_sequence_buffer: torch.Tensor | None = (
+            inputs.new_empty((batch_size, time_steps, self.state_dim))
+            if defer_eligibility_no_grad_sequence
             else None
         )
         spike_sum = inputs.new_tensor(0.0)
@@ -497,6 +526,11 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         residual_all = self.residual_proj(normalized_inputs)
         plif_stats_before = (
             language_plif_triton_stats()
+            if bool(collect_telemetry)
+            else None
+        )
+        eligibility_stats_before = (
+            language_eligibility_trace_triton_stats()
             if bool(collect_telemetry)
             else None
         )
@@ -524,7 +558,24 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
             )
             mixed_state: torch.Tensor
             for _substep in range(self.adaptive_timestep_budget):
-                if not torch.is_grad_enabled():
+                if defer_eligibility_no_grad_sequence:
+                    (
+                        membrane,
+                        spikes,
+                        selective_state,
+                        mixed_state,
+                    ) = language_plif_forward_no_eligibility(
+                        membrane=membrane,
+                        spikes=spikes,
+                        selective_state=selective_state,
+                        leak=leak,
+                        threshold=threshold,
+                        drive=drive,
+                        state_decay=state_decay_all[:, step, :],
+                        state_input=state_input_all[:, step, :],
+                        state_output=state_output_all[:, step, :],
+                    )
+                elif not torch.is_grad_enabled():
                     (
                         membrane,
                         spikes,
@@ -563,6 +614,8 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                         state_output=state_output_all[:, step, :],
                         spike_slope=self.spike_slope,
                     )
+            if spike_sequence_buffer is not None:
+                spike_sequence_buffer[:, step, :].copy_(spikes)
             if mixed_state_sequence_buffer is not None:
                 mixed_state_sequence_buffer[:, step, :].copy_(mixed_state)
             else:
@@ -581,6 +634,12 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                 selective_state = selective_state.detach()
                 eligibility_trace = eligibility_trace.detach()
                 truncated_bptt_boundary_count += 1
+
+        if spike_sequence_buffer is not None:
+            eligibility_trace = language_eligibility_trace_final(
+                initial_eligibility_trace,
+                spike_sequence_buffer,
+            )
 
         mixed_state_sequence = (
             mixed_state_sequence_buffer
@@ -602,6 +661,14 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                     language_plif_triton_stats(),
                 )
                 if plif_stats_before is not None
+                else None
+            )
+            eligibility_delta = (
+                language_eligibility_trace_triton_stats_delta(
+                    eligibility_stats_before,
+                    language_eligibility_trace_triton_stats(),
+                )
+                if eligibility_stats_before is not None
                 else None
             )
             denominator = max(1, batch_size * time_steps * self.state_dim)
@@ -643,11 +710,37 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                     if truncated_bptt_boundary_count > 0
                     else "full_sequence_bptt"
                 ),
+                "eligibility_trace_update_mode": (
+                    "deferred_sequence_scan_no_grad"
+                    if spike_sequence_buffer is not None
+                    else "inline_plif_update"
+                ),
+                "eligibility_trace_sequence_buffer_mode": (
+                    "spike_sequence_buffer"
+                    if spike_sequence_buffer is not None
+                    else "none"
+                ),
+                "eligibility_trace_scan_backend": (
+                    "triton_final_scan"
+                    if eligibility_delta is not None
+                    and bool(eligibility_delta.get("triton_kernel_used", False))
+                    else (
+                        "torch_final_scan_fallback"
+                        if spike_sequence_buffer is not None
+                        else "not_applicable_inline_plif"
+                    )
+                ),
                 "plif_forward_backend": (
                     (
-                        "triton_surrogate_forward_backward"
-                        if torch.is_grad_enabled()
-                        else "triton_forward_no_grad"
+                        (
+                            "triton_surrogate_forward_backward"
+                            if torch.is_grad_enabled()
+                            else (
+                                "triton_forward_no_grad_no_eligibility"
+                                if spike_sequence_buffer is not None
+                                else "triton_forward_no_grad"
+                            )
+                        )
                     )
                     if plif_delta is not None
                     and bool(plif_delta.get("triton_kernel_used", False))
@@ -678,6 +771,21 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
                     "bounded_recurrent_state_detach"
                     if truncated_bptt_boundary_count > 0
                     else "full_sequence_bptt"
+                ),
+                "eligibility_trace_update_mode": (
+                    "deferred_sequence_scan_no_grad"
+                    if spike_sequence_buffer is not None
+                    else "inline_plif_update"
+                ),
+                "eligibility_trace_sequence_buffer_mode": (
+                    "spike_sequence_buffer"
+                    if spike_sequence_buffer is not None
+                    else "none"
+                ),
+                "eligibility_trace_scan_backend": (
+                    "unknown_deferred_no_telemetry"
+                    if spike_sequence_buffer is not None
+                    else "not_applicable_inline_plif"
                 ),
                 "device": str(inputs.device),
             }

@@ -5,6 +5,8 @@ import torch
 
 from marulho.core.language_plif_triton import (
     language_plif_forward,
+    language_plif_forward_no_eligibility,
+    language_plif_no_eligibility_torch_reference,
     language_plif_surrogate_torch_reference,
     language_plif_surrogate_update,
     language_plif_torch_reference,
@@ -49,6 +51,28 @@ def test_language_plif_cpu_matches_reference() -> None:
     reference = language_plif_torch_reference(**inputs)
 
     for item, expected in zip(output, reference, strict=True):
+        torch.testing.assert_close(item, expected)
+
+
+def test_language_plif_no_eligibility_cpu_matches_reference() -> None:
+    inputs = _inputs()
+    no_eligibility_inputs = {
+        key: value
+        for key, value in inputs.items()
+        if key != "eligibility_trace"
+    }
+
+    output = language_plif_forward_no_eligibility(**no_eligibility_inputs)
+    reference = language_plif_no_eligibility_torch_reference(**no_eligibility_inputs)
+    full_reference = language_plif_torch_reference(**inputs)
+
+    for item, expected in zip(output, reference, strict=True):
+        torch.testing.assert_close(item, expected)
+    for item, expected in zip(
+        output,
+        (full_reference[0], full_reference[1], full_reference[2], full_reference[4]),
+        strict=True,
+    ):
         torch.testing.assert_close(item, expected)
 
 
@@ -97,6 +121,37 @@ def test_language_plif_triton_matches_reference() -> None:
         torch.testing.assert_close(item, expected, rtol=1e-5, atol=1e-5)
     assert delta["triton_kernel_used"] is True
     assert delta["triton_forward_calls"] >= 1
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not bool(language_plif_triton_stats()["triton_available"]),
+    reason="CUDA and Triton are required for PLIF no-eligibility kernel parity",
+)
+def test_language_plif_no_eligibility_triton_matches_reference() -> None:
+    inputs = _inputs(device="cuda", rows=16, cols=32)
+    no_eligibility_inputs = {
+        key: value
+        for key, value in inputs.items()
+        if key != "eligibility_trace"
+    }
+
+    before = language_plif_triton_stats()
+    output = language_plif_forward_no_eligibility(
+        **no_eligibility_inputs,
+        force_triton=True,
+    )
+    reference = language_plif_no_eligibility_torch_reference(**no_eligibility_inputs)
+    torch.cuda.synchronize()
+    delta = language_plif_triton_stats_delta(
+        before,
+        language_plif_triton_stats(),
+    )
+
+    for item, expected in zip(output, reference, strict=True):
+        torch.testing.assert_close(item, expected, rtol=1e-5, atol=1e-5)
+    assert delta["triton_kernel_used"] is True
+    assert delta["triton_forward_no_eligibility_calls"] >= 1
 
 
 @pytest.mark.skipif(

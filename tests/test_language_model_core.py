@@ -438,6 +438,36 @@ def test_selective_state_block_vectorized_forward_matches_step_loop() -> None:
     )
 
 
+def test_selective_state_block_deferred_eligibility_matches_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch.manual_seed(20260705)
+    block = MarulhoSelectiveSpikingStateBlock(
+        input_dim=12,
+        state_dim=20,
+        adaptive_timestep_budget=1,
+    )
+    inputs = torch.randn(3, 7, 12)
+
+    monkeypatch.setenv("MARULHO_LANGUAGE_STATE_BLOCK_DEFER_ELIGIBILITY_NO_GRAD", "0")
+    with torch.no_grad():
+        inline_hidden, inline_state, inline_telemetry = block(inputs)
+    monkeypatch.setenv("MARULHO_LANGUAGE_STATE_BLOCK_DEFER_ELIGIBILITY_NO_GRAD", "1")
+    with torch.no_grad():
+        deferred_hidden, deferred_state, deferred_telemetry = block(inputs)
+
+    torch.testing.assert_close(deferred_hidden, inline_hidden, rtol=1e-6, atol=1e-6)
+    for key, value in inline_state.items():
+        torch.testing.assert_close(deferred_state[key], value, rtol=1e-6, atol=1e-6)
+    assert inline_telemetry["eligibility_trace_update_mode"] == "inline_plif_update"
+    assert deferred_telemetry["eligibility_trace_update_mode"] == (
+        "deferred_sequence_scan_no_grad"
+    )
+    assert deferred_telemetry["eligibility_trace_sequence_buffer_mode"] == (
+        "spike_sequence_buffer"
+    )
+
+
 def test_language_model_forward_step_matches_single_token_forward() -> None:
     torch.manual_seed(10)
     tokenizer = ByteLevelLanguageTokenizer()
