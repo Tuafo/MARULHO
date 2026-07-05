@@ -549,6 +549,10 @@ def _clone_memory_slot_expanded_model(
                     dtype=expanded.memory_slots.dtype,
                 )
             )
+            if model.memory_slot_gate is not None and bool(
+                model.memory_slot_gate.detach().abs().max().item() > 0.0
+            ):
+                expanded.memory_slots[source_slot_count:].zero_()
         if source_slot_count <= 0 and expanded.memory_slot_gate is not None:
             expanded.memory_slot_gate.zero_()
     expanded.train(model.training)

@@ -227,6 +227,16 @@ def _run_arm(
         )
         memory = telemetry.get("memory") if isinstance(telemetry.get("memory"), Mapping) else {}
         routing = telemetry.get("routing") if isinstance(telemetry.get("routing"), Mapping) else {}
+        memory_slot_nonzero_count = (
+            0
+            if model.memory_slots is None
+            else int(torch.count_nonzero(model.memory_slots.detach()).item())
+        )
+        memory_slot_gate_initial_value = (
+            None
+            if model.memory_slot_gate is None
+            else float(model.memory_slot_gate.detach().item())
+        )
         return {
             "surface": "marulho_language_memory_slot_runtime_arm.v1",
             "name": name,
@@ -257,6 +267,12 @@ def _run_arm(
             "memory_device": memory.get("memory_device"),
             "memory_active_parameters_per_token": int(
                 memory.get("active_parameters_per_token", 0) or 0
+            ),
+            "memory_slot_nonzero_count": int(memory_slot_nonzero_count),
+            "memory_slot_gate_initial_value": memory_slot_gate_initial_value,
+            "memory_slot_trainable_neutral_initialization": bool(
+                memory_slot_nonzero_count > 0
+                and memory_slot_gate_initial_value == 0.0
             ),
             "route_selection_backend": str(
                 routing.get("route_selection_backend", "unknown")
@@ -307,6 +323,9 @@ def _run_arm(
             "memory_gate_readback": False,
             "memory_device": str(device),
             "memory_active_parameters_per_token": 0,
+            "memory_slot_nonzero_count": 0,
+            "memory_slot_gate_initial_value": None,
+            "memory_slot_trainable_neutral_initialization": False,
             "route_selection_backend": "failed",
             "expert_dispatch_backend": "failed",
             "route_candidate_count": 0,
@@ -380,6 +399,9 @@ def _comparison(
         and all_slot.get("memory_enabled")
         and bool(all_slot.get("runs_all_slots", False))
     )
+    trainable_neutral_initialization = bool(
+        bounded.get("memory_slot_trainable_neutral_initialization", False)
+    )
     if control_success and bounded_success and bounded_avoids_all_slot_scan:
         evidence_status = "measured_bounded_memory_slot_forward_impact"
     elif control_success and bounded_success:
@@ -405,6 +427,13 @@ def _comparison(
         "bounded_memory_enabled": bool(bounded.get("memory_enabled", False)),
         "bounded_avoids_all_slot_scan": bounded_avoids_all_slot_scan,
         "all_slot_scan_contrast_available": all_slot_contrast_available,
+        "bounded_memory_slot_nonzero_count": int(
+            bounded.get("memory_slot_nonzero_count", 0) or 0
+        ),
+        "bounded_memory_slot_gate_initial_value": bounded.get(
+            "memory_slot_gate_initial_value"
+        ),
+        "bounded_trainable_neutral_initialization": trainable_neutral_initialization,
         "bounded_candidate_slots_scored_per_forward": int(
             bounded.get("candidate_slots_scored", 0) or 0
         ),
@@ -514,6 +543,9 @@ def run_language_memory_slot_runtime_impact(
             "neutral_memory_gate_keeps_initial_logits_unchanged": bool(
                 comparison["bounded_neutral_initialization_parity"]["passed"]
             ),
+            "memory_slots_nonzero_with_zero_gate": bool(
+                comparison["bounded_trainable_neutral_initialization"]
+            ),
             "gradient_training_unchanged": True,
             "one_token_streaming_policy_unchanged": True,
             "promotes_hot_path": False,
@@ -538,6 +570,9 @@ def run_language_memory_slot_runtime_impact(
             ),
             "neutral_initialization_parity": bool(
                 comparison["bounded_neutral_initialization_parity"]["passed"]
+            ),
+            "trainable_neutral_initialization": bool(
+                comparison["bounded_trainable_neutral_initialization"]
             ),
             "complete_runtime_impact_available": bool(
                 comparison["control_success"] and comparison["bounded_success"]

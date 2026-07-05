@@ -211,6 +211,9 @@ def _write_memory_slot_runtime_impact_report(path) -> None:
                     "bounded_vs_control_tokens_per_second_ratio": 0.952,
                     "all_slot_tokens_per_second": 10863.4,
                     "all_slot_vs_bounded_tokens_per_second_ratio": 0.893,
+                    "bounded_memory_slot_nonzero_count": 512,
+                    "bounded_memory_slot_gate_initial_value": 0.0,
+                    "bounded_trainable_neutral_initialization": True,
                     "memory_gate_readback": False,
                 },
                 "promotion_gate": {
@@ -218,6 +221,7 @@ def _write_memory_slot_runtime_impact_report(path) -> None:
                     "bounded_memory_slots_enabled": True,
                     "bounded_avoids_all_slot_scan": True,
                     "neutral_initialization_parity": True,
+                    "trainable_neutral_initialization": True,
                     "promotes_hot_path": False,
                     "promotes_runtime_claim": False,
                 },
@@ -514,6 +518,12 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert memory_slot_category["evidence"]["best_report"][
         "bounded_vs_control_tokens_per_second_ratio"
     ] == 0.952
+    assert memory_slot_category["evidence"]["best_report"][
+        "trainable_neutral_initialization"
+    ] is True
+    assert memory_slot_category["evidence"]["best_report"][
+        "bounded_memory_slot_nonzero_count"
+    ] == 512
     assert memory_slot_category["evidence"]["best_report"][
         "all_slot_runs_all_slots"
     ] is True

@@ -48,6 +48,7 @@ def test_language_memory_slot_runtime_impact_reports_forward_workload(tmp_path) 
     assert report["promotion_gate"]["bounded_avoids_all_slot_scan"] is True
     assert report["promotion_gate"]["all_slot_scan_contrast_available"] is True
     assert report["promotion_gate"]["neutral_initialization_parity"] is True
+    assert report["promotion_gate"]["trainable_neutral_initialization"] is True
 
     control = report["arms"]["memory_slots_disabled_control"]
     bounded = report["arms"]["bounded_memory_slots_enabled"]
@@ -66,6 +67,9 @@ def test_language_memory_slot_runtime_impact_reports_forward_workload(tmp_path) 
     assert bounded["candidate_slots_scored"] == 32
     assert bounded["runs_all_slots"] is False
     assert bounded["memory_gate_readback"] is False
+    assert bounded["memory_slot_nonzero_count"] > 0
+    assert bounded["memory_slot_gate_initial_value"] == 0.0
+    assert bounded["memory_slot_trainable_neutral_initialization"] is True
     assert all_slot["memory_enabled"] is True
     assert all_slot["candidate_slot_count"] == 4
     assert all_slot["candidate_slots_scored"] == 64
@@ -79,5 +83,8 @@ def test_language_memory_slot_runtime_impact_reports_forward_workload(tmp_path) 
     assert comparison["all_slot_scan_contrast_available"] is True
     assert comparison["bounded_neutral_initialization_parity"]["passed"] is True
     assert comparison["all_slot_neutral_initialization_parity"]["passed"] is True
+    assert comparison["bounded_memory_slot_nonzero_count"] > 0
+    assert comparison["bounded_memory_slot_gate_initial_value"] == 0.0
+    assert comparison["bounded_trainable_neutral_initialization"] is True
     assert comparison["memory_gate_readback"] is False
     assert comparison["evidence_status"] == "measured_bounded_memory_slot_forward_impact"

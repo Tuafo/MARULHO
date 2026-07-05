@@ -226,6 +226,7 @@ def _valid_language_memory_slot_runtime_impact_report(
         and promotion_gate.get("bounded_memory_slots_enabled") is True
         and promotion_gate.get("bounded_avoids_all_slot_scan") is True
         and promotion_gate.get("neutral_initialization_parity") is True
+        and promotion_gate.get("trainable_neutral_initialization") is True
     )
 
 
@@ -739,11 +740,20 @@ def _memory_slot_runtime_impact_summary(report: Mapping[str, Any]) -> dict[str, 
         ),
         "all_slot_runs_all_slots": bool(all_slot.get("runs_all_slots", False)),
         "memory_gate_readback": bool(comparison.get("memory_gate_readback", False)),
+        "bounded_memory_slot_nonzero_count": int(
+            comparison.get("bounded_memory_slot_nonzero_count", 0) or 0
+        ),
+        "bounded_trainable_neutral_initialization": bool(
+            comparison.get("bounded_trainable_neutral_initialization", False)
+        ),
         "bounded_avoids_all_slot_scan": bool(
             promotion_gate.get("bounded_avoids_all_slot_scan")
         ),
         "neutral_initialization_parity": bool(
             promotion_gate.get("neutral_initialization_parity")
+        ),
+        "trainable_neutral_initialization": bool(
+            promotion_gate.get("trainable_neutral_initialization")
         ),
         "promotes_hot_path": bool(promotion_gate.get("promotes_hot_path")),
         "promotes_runtime_claim": bool(promotion_gate.get("promotes_runtime_claim")),

@@ -66,6 +66,7 @@ class LanguageModelConfig:
     memory_slot_count: int = 0
     memory_slot_candidate_count: int = 0
     active_memory_slot_count: int = 1
+    memory_slot_init_std: float = 0.02
     active_language_path: str = "marulho_lm_head"
 
 
@@ -1391,6 +1392,10 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("memory_slot_candidate_count must be non-negative")
         if int(config.active_memory_slot_count) < 1:
             raise ValueError("active_memory_slot_count must be at least one")
+        if not math.isfinite(float(config.memory_slot_init_std)):
+            raise ValueError("memory_slot_init_std must be finite")
+        if float(config.memory_slot_init_std) < 0.0:
+            raise ValueError("memory_slot_init_std must be non-negative")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
@@ -1411,14 +1416,21 @@ class MarulhoLanguageModel(nn.Module):
             route_candidate_count=config.route_candidate_count,
             expert_hidden_dim=config.expert_hidden_dim,
         )
+        self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
         memory_slot_count = max(0, int(config.memory_slot_count))
         if memory_slot_count > 0:
-            self.memory_slots = nn.Parameter(torch.zeros(memory_slot_count, config.state_dim))
+            self.memory_slots = nn.Parameter(
+                torch.empty(memory_slot_count, config.state_dim)
+            )
+            init_std = float(config.memory_slot_init_std)
+            if init_std > 0.0:
+                nn.init.normal_(self.memory_slots, mean=0.0, std=init_std)
+            else:
+                nn.init.zeros_(self.memory_slots)
             self.memory_slot_gate = nn.Parameter(torch.zeros(()))
         else:
             self.register_parameter("memory_slots", None)
             self.register_parameter("memory_slot_gate", None)
-        self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
 
     @property
     def device(self) -> torch.device:
@@ -1651,6 +1663,8 @@ class MarulhoLanguageModel(nn.Module):
             "active_parameters_per_token": int(active_count * int(self.config.state_dim)),
             "candidate_id_source": "token_hash_memory_slot_bank",
             "memory_gate_readback": False,
+            "memory_slot_initialization": "nonzero_slots_zero_gate",
+            "memory_slot_init_std": float(self.config.memory_slot_init_std),
             "collect_telemetry": bool(collect_telemetry),
         }
 

@@ -570,19 +570,39 @@ def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_pat
     torch.manual_seed(14)
     tokenizer = ByteLevelLanguageTokenizer()
     split = build_language_model_splits(_texts(), tokenizer, sequence_length=10)
-    model = MarulhoLanguageModel(
-        LanguageModelConfig(
-            vocab_size=tokenizer.vocab_size,
-            embedding_dim=12,
-            state_dim=20,
-            expert_count=2,
-            active_expert_count=1,
-            route_candidate_count=2,
-            memory_slot_count=4,
-            memory_slot_candidate_count=2,
-            active_memory_slot_count=1,
-        )
+    base_config = LanguageModelConfig(
+        vocab_size=tokenizer.vocab_size,
+        embedding_dim=12,
+        state_dim=20,
+        expert_count=2,
+        active_expert_count=1,
+        route_candidate_count=2,
     )
+    memory_config = LanguageModelConfig(
+        vocab_size=tokenizer.vocab_size,
+        embedding_dim=12,
+        state_dim=20,
+        expert_count=2,
+        active_expert_count=1,
+        route_candidate_count=2,
+        memory_slot_count=4,
+        memory_slot_candidate_count=2,
+        active_memory_slot_count=1,
+    )
+    torch.manual_seed(14)
+    disabled_model = MarulhoLanguageModel(base_config)
+    torch.manual_seed(14)
+    model = MarulhoLanguageModel(memory_config)
+    disabled_logits = disabled_model.forward(
+        split.train[0].input_ids,
+        collect_telemetry=False,
+        decode_vocab_only=True,
+    )["logits"]
+    memory_logits = model.forward(
+        split.train[0].input_ids,
+        collect_telemetry=False,
+        decode_vocab_only=True,
+    )["logits"]
 
     result = model.next_token_loss(split.train[0].input_ids, split.train[0].target_ids)
     result["loss"].backward()
@@ -608,7 +628,15 @@ def test_language_model_reads_bounded_memory_slots_without_all_slot_scan(tmp_pat
     assert memory["candidate_id_source"] == "token_hash_memory_slot_bank"
     assert memory["memory_gate_readback"] is False
     assert memory["memory_device"] == "cpu"
+    assert memory["memory_slot_initialization"] == "nonzero_slots_zero_gate"
+    assert memory["memory_slot_init_std"] == 0.02
+    torch.testing.assert_close(memory_logits, disabled_logits)
     assert model.memory_slots is not None
+    assert torch.count_nonzero(model.memory_slots).item() > 0
+    assert model.memory_slot_gate is not None
+    assert model.memory_slot_gate.detach().item() == 0.0
+    assert model.memory_slot_gate.grad is not None
+    assert model.memory_slot_gate.grad.detach().abs().item() > 0.0
     assert model.memory_slots.grad is not None
     assert metadata["transaction"] == "memory_slots_enabled"
     assert restored_model.config.memory_slot_count == 4
@@ -1311,6 +1339,11 @@ def test_language_structural_plasticity_expands_memory_slots_with_checkpoint(
             active_memory_slot_count=1,
         )
     )
+    baseline_logits = model.forward(
+        split.eval[0].input_ids,
+        collect_telemetry=False,
+        decode_vocab_only=True,
+    )["logits"]
 
     proposal = build_language_structural_memory_slot_expansion_proposal(
         model,
@@ -1338,6 +1371,16 @@ def test_language_structural_plasticity_expands_memory_slots_with_checkpoint(
             max_eval_loss_delta=100.0,
         ),
     )
+    expanded_logits = memory_model.forward(
+        split.eval[0].input_ids,
+        collect_telemetry=False,
+        decode_vocab_only=True,
+    )["logits"]
+    memory_train_result = memory_model.next_token_loss(
+        split.train[0].input_ids,
+        split.train[0].target_ids,
+    )
+    memory_train_result["loss"].backward()
     memory_eval = evaluate_language_model(memory_model, split.eval)
     memory = memory_eval["spike_telemetry"]["memory"]
     checkpoint_path = save_language_model_checkpoint(
@@ -1370,6 +1413,13 @@ def test_language_structural_plasticity_expands_memory_slots_with_checkpoint(
     assert memory_model.config.memory_slot_count == 4
     assert memory_model.config.memory_slot_candidate_count == 2
     assert memory_model.config.active_memory_slot_count == 1
+    torch.testing.assert_close(expanded_logits, baseline_logits)
+    assert memory_model.memory_slots is not None
+    assert torch.count_nonzero(memory_model.memory_slots).item() > 0
+    assert memory_model.memory_slot_gate is not None
+    assert memory_model.memory_slot_gate.detach().item() == 0.0
+    assert memory_model.memory_slot_gate.grad is not None
+    assert memory_model.memory_slot_gate.grad.detach().abs().item() > 0.0
     assert memory["enabled"] is True
     assert memory["total_slots"] == 4
     assert memory["candidate_slot_count"] == 2
