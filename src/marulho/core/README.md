@@ -27,6 +27,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   `language_selective_scan_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for standalone
   `[batch,time,state_dim]` recurrent state scans.
+- The LM-head route/vote top-k Triton primitive in
+  `language_route_topk_triton.py`, including forced parity/benchmark
+  execution, PyTorch fallback, and runtime-use counters for bounded
+  routed-expert candidate scoring and selected expert IDs.
 - The LM-head selected expert dispatch/combine Triton primitive in
   `language_expert_dispatch_triton.py`, including forced parity/benchmark
   execution, PyTorch fallback, and runtime-use counters for block-sparse
@@ -61,6 +65,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   scan-size policy allows it. Standalone scan parity is not full state-block
   fusion; training-loop integration still needs separate complete-runtime
   evidence before promotion.
+- Language route/vote top-k uses Triton for no-grad CUDA routed-expert rows
+  where the row-count policy allows it. Gradient training stays on the PyTorch
+  route-score/top-k path so route keys can receive gradients, and one-token
+  streaming falls back unless the policy proves a real launch-cost win.
 - Language expert dispatch uses Triton for no-grad CUDA selected-expert rows
   where the token-count policy allows it. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.

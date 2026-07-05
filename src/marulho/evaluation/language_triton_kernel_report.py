@@ -49,6 +49,13 @@ from marulho.core.language_rmsnorm_triton import (
     language_rmsnorm_triton_stats,
     language_rmsnorm_triton_stats_delta,
 )
+from marulho.core.language_route_topk_triton import (
+    can_use_language_route_topk_triton,
+    language_route_topk,
+    language_route_topk_torch_reference,
+    language_route_topk_triton_stats,
+    language_route_topk_triton_stats_delta,
+)
 from marulho.reporting.readme_reports import write_json_report_with_readme
 
 
@@ -58,6 +65,7 @@ RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
+ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
 KERNEL_NAME = RMSNORM_KERNEL_NAME
@@ -695,6 +703,169 @@ def _expert_dispatch_inputs(
     }
 
 
+def _route_topk_inputs(
+    *,
+    rows: int,
+    cols: int,
+    expert_count: int,
+    route_candidate_count: int,
+    dtype: torch.dtype,
+) -> dict[str, torch.Tensor]:
+    hidden = torch.randn(rows, cols, device="cuda", dtype=dtype)
+    candidate_offsets = torch.arange(
+        route_candidate_count,
+        device="cuda",
+        dtype=torch.long,
+    ).view(1, route_candidate_count)
+    row_offsets = (
+        torch.arange(rows, device="cuda", dtype=torch.long).view(rows, 1)
+        * route_candidate_count
+    )
+    candidate_ids = (row_offsets + candidate_offsets).remainder(expert_count)
+    return {
+        "hidden": hidden,
+        "candidate_ids": candidate_ids,
+        "route_keys": torch.randn(expert_count, cols, device="cuda", dtype=dtype),
+        "route_bias": torch.randn(expert_count, device="cuda", dtype=dtype),
+    }
+
+
+def _route_topk_shape_kernel_result(
+    *,
+    rows: int,
+    cols: int,
+    expert_count: int,
+    route_candidate_count: int,
+    active_experts: int,
+    dtype: torch.dtype,
+    warmup: int,
+    repeats: int,
+) -> dict[str, Any]:
+    if dtype is not torch.float32:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ROUTE_TOPK_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "route_candidate_count": int(route_candidate_count),
+            "active_experts": int(active_experts),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_dtype_for_route_vote_topk",
+            "parity_passed": False,
+        }
+    if route_candidate_count > expert_count:
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ROUTE_TOPK_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "route_candidate_count": int(route_candidate_count),
+            "active_experts": int(active_experts),
+            "dtype": _dtype_name(dtype),
+            "status": "unsupported_route_candidate_count_gt_expert_count",
+            "parity_passed": False,
+        }
+
+    inputs = _route_topk_inputs(
+        rows=rows,
+        cols=cols,
+        expert_count=expert_count,
+        route_candidate_count=route_candidate_count,
+        dtype=dtype,
+    )
+    active_count = min(int(active_experts), int(route_candidate_count))
+    supported = can_use_language_route_topk_triton(**inputs, active_count=active_count)
+    before_stats = language_route_topk_triton_stats()
+    try:
+        reference = language_route_topk_torch_reference(
+            **inputs,
+            active_count=active_count,
+        )
+        triton_output = language_route_topk(
+            **inputs,
+            active_count=active_count,
+            prefer_triton=True,
+            force_triton=True,
+        )
+        torch.cuda.synchronize()
+        selected_ids_equal = bool(torch.equal(triton_output[0], reference[0]))
+        max_abs_error, max_rel_error = _max_tuple_error(
+            (triton_output[1], triton_output[2]),
+            (reference[1], reference[2]),
+        )
+        tolerance = 1e-4
+        parity_passed = bool(
+            selected_ids_equal
+            and (max_abs_error <= tolerance or max_rel_error <= tolerance)
+        )
+        torch_ms = _benchmark_cuda(
+            lambda: language_route_topk_torch_reference(
+                **inputs,
+                active_count=active_count,
+            ),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        triton_ms = _benchmark_cuda(
+            lambda: language_route_topk(
+                **inputs,
+                active_count=active_count,
+                prefer_triton=True,
+                force_triton=True,
+            ),
+            warmup=warmup,
+            repeats=repeats,
+        )
+        after_stats = language_route_topk_triton_stats()
+        stats_delta = language_route_topk_triton_stats_delta(
+            before_stats,
+            after_stats,
+        )
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ROUTE_TOPK_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "route_candidate_count": int(route_candidate_count),
+            "active_experts": int(active_count),
+            "dtype": _dtype_name(dtype),
+            "status": "pass" if parity_passed and supported else "fail",
+            "triton_supported": bool(supported),
+            "parity_passed": bool(parity_passed and supported),
+            "selected_ids_equal": selected_ids_equal,
+            "max_abs_error": max_abs_error,
+            "max_rel_error": max_rel_error,
+            "tolerance": float(tolerance),
+            "torch_reference_ms": torch_ms,
+            "triton_ms": triton_ms,
+            "speedup_vs_torch": float(torch_ms / triton_ms) if triton_ms > 0.0 else 0.0,
+            "stats_delta": stats_delta,
+        }
+    except Exception as exc:  # pragma: no cover - hardware/runtime dependent
+        after_stats = language_route_topk_triton_stats()
+        return {
+            "surface": "marulho_language_triton_kernel_shape_result.v1",
+            "kernel_name": ROUTE_TOPK_KERNEL_NAME,
+            "rows": int(rows),
+            "cols": int(cols),
+            "expert_count": int(expert_count),
+            "route_candidate_count": int(route_candidate_count),
+            "active_experts": int(active_count),
+            "dtype": _dtype_name(dtype),
+            "status": "exception",
+            "triton_supported": bool(supported),
+            "parity_passed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "stats_delta": language_route_topk_triton_stats_delta(
+                before_stats,
+                after_stats,
+            ),
+        }
+
+
 def _expert_dispatch_shape_kernel_result(
     *,
     rows: int,
@@ -992,6 +1163,7 @@ def run_language_triton_kernel_report(
     eps: float = 1e-6,
     scan_time_steps: int = 64,
     expert_count: int = 64,
+    route_candidate_count: int = 8,
     active_experts: int = 4,
     expert_hidden_dim: int = 0,
     vocab_size: int = 8192,
@@ -1043,6 +1215,16 @@ def run_language_triton_kernel_report(
         kernel_backlog_item = "selective_recurrent_state_scan"
         selected_triton_available = bool(
             language_selective_scan_triton_stats()["triton_available"]
+        )
+    elif normalized_kernel in {
+        "route-topk",
+        "route-vote-topk",
+        "language-route-vote-topk",
+    }:
+        kernel_name = ROUTE_TOPK_KERNEL_NAME
+        kernel_backlog_item = "route_vote_topk_candidate_selection"
+        selected_triton_available = bool(
+            language_route_topk_triton_stats()["triton_available"]
         )
     elif normalized_kernel in {
         "expert-dispatch",
@@ -1115,6 +1297,19 @@ def run_language_triton_kernel_report(
                             repeats=int(repeats),
                         )
                     )
+                elif kernel_name == ROUTE_TOPK_KERNEL_NAME:
+                    shape_results.append(
+                        _route_topk_shape_kernel_result(
+                            rows=rows,
+                            cols=cols,
+                            expert_count=int(expert_count),
+                            route_candidate_count=int(route_candidate_count),
+                            active_experts=int(active_experts),
+                            dtype=dtype,
+                            warmup=int(warmup),
+                            repeats=int(repeats),
+                        )
+                    )
                 elif kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
                     shape_results.append(
                         _expert_dispatch_shape_kernel_result(
@@ -1155,6 +1350,8 @@ def run_language_triton_kernel_report(
             "pass",
             "unsupported_dtype_on_device",
             "unsupported_dtype_for_surrogate_backward",
+            "unsupported_dtype_for_route_vote_topk",
+            "unsupported_route_candidate_count_gt_expert_count",
             "unsupported_dtype_for_expert_dispatch",
             "unsupported_dtype_for_sampled_vocab_cross_entropy",
         }
@@ -1189,6 +1386,7 @@ def run_language_triton_kernel_report(
             "plif_triton_forward_parity",
             "plif_triton_backward_surrogate_parity",
             "selective_scan_triton_parity",
+            "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
@@ -1196,16 +1394,24 @@ def run_language_triton_kernel_report(
         remaining_kernel_backlog = [
             "plif_triton_backward_surrogate_parity",
             "selective_scan_triton_parity",
+            "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
     elif kernel_name == PLIF_SURROGATE_KERNEL_NAME:
         remaining_kernel_backlog = [
             "selective_scan_triton_parity",
+            "route_vote_topk_parity",
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
         ]
     elif kernel_name == SELECTIVE_SCAN_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "route_vote_topk_parity",
+            "block_sparse_expert_dispatch_parity",
+            "sampled_vocab_cross_entropy_parity",
+        ]
+    elif kernel_name == ROUTE_TOPK_KERNEL_NAME:
         remaining_kernel_backlog = [
             "block_sparse_expert_dispatch_parity",
             "sampled_vocab_cross_entropy_parity",
@@ -1243,6 +1449,15 @@ def run_language_triton_kernel_report(
                 item
                 for item in remaining_kernel_backlog
                 if item != "selective_scan_triton_parity"
+            ],
+        ]
+    if not parity_passed and kernel_name == ROUTE_TOPK_KERNEL_NAME:
+        remaining_kernel_backlog = [
+            "route_vote_topk_parity",
+            *[
+                item
+                for item in remaining_kernel_backlog
+                if item != "route_vote_topk_parity"
             ],
         ]
     if not parity_passed and kernel_name == EXPERT_DISPATCH_KERNEL_NAME:
@@ -1297,11 +1512,18 @@ def run_language_triton_kernel_report(
                 int(scan_time_steps) if kernel_name == SELECTIVE_SCAN_KERNEL_NAME else None
             ),
             "expert_count": (
-                int(expert_count) if kernel_name == EXPERT_DISPATCH_KERNEL_NAME else None
+                int(expert_count)
+                if kernel_name in {ROUTE_TOPK_KERNEL_NAME, EXPERT_DISPATCH_KERNEL_NAME}
+                else None
+            ),
+            "route_candidate_count": (
+                int(route_candidate_count)
+                if kernel_name == ROUTE_TOPK_KERNEL_NAME
+                else None
             ),
             "active_experts": (
                 int(active_experts)
-                if kernel_name == EXPERT_DISPATCH_KERNEL_NAME
+                if kernel_name in {ROUTE_TOPK_KERNEL_NAME, EXPERT_DISPATCH_KERNEL_NAME}
                 else None
             ),
             "expert_hidden_dim": (
@@ -1350,6 +1572,7 @@ def main() -> int:
             "plif-forward",
             "plif-surrogate",
             "selective-scan",
+            "route-topk",
             "expert-dispatch",
             "sampled-vocab-ce",
         ),
@@ -1380,13 +1603,19 @@ def main() -> int:
         "--expert-count",
         type=int,
         default=64,
-        help="Total experts for expert-dispatch kernel evidence.",
+        help="Total experts for route-topk or expert-dispatch kernel evidence.",
+    )
+    parser.add_argument(
+        "--route-candidate-count",
+        type=int,
+        default=8,
+        help="Candidate experts scored per token for route-topk evidence.",
     )
     parser.add_argument(
         "--active-experts",
         type=int,
         default=4,
-        help="Active experts per token for expert-dispatch kernel evidence.",
+        help="Active experts per token for route-topk or expert-dispatch evidence.",
     )
     parser.add_argument(
         "--expert-hidden-dim",
@@ -1417,6 +1646,7 @@ def main() -> int:
         eps=args.eps,
         scan_time_steps=args.scan_time_steps,
         expert_count=args.expert_count,
+        route_candidate_count=args.route_candidate_count,
         active_experts=args.active_experts,
         expert_hidden_dim=args.expert_hidden_dim,
         vocab_size=args.vocab_size,

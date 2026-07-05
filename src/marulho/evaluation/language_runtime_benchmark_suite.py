@@ -64,6 +64,7 @@ RMSNORM_KERNEL_NAME = "language_rmsnorm_forward"
 PLIF_FORWARD_KERNEL_NAME = "language_plif_forward"
 PLIF_SURROGATE_KERNEL_NAME = "language_plif_surrogate_backward"
 SELECTIVE_SCAN_KERNEL_NAME = "language_selective_state_scan"
+ROUTE_TOPK_KERNEL_NAME = "language_route_vote_topk"
 EXPERT_DISPATCH_KERNEL_NAME = "language_block_sparse_expert_dispatch"
 SAMPLED_VOCAB_CE_KERNEL_NAME = "language_sampled_vocab_cross_entropy"
 SUPPORTED_GPU_KERNEL_NAMES = {
@@ -71,6 +72,7 @@ SUPPORTED_GPU_KERNEL_NAMES = {
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
+    ROUTE_TOPK_KERNEL_NAME,
     EXPERT_DISPATCH_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
 }
@@ -713,6 +715,14 @@ def _language_gpu_kernel_evidence(
         ),
         None,
     )
+    route_topk_report = next(
+        (
+            report
+            for report in valid_reports
+            if report.get("kernel_name") == ROUTE_TOPK_KERNEL_NAME
+        ),
+        None,
+    )
     expert_dispatch_report = next(
         (
             report
@@ -738,6 +748,8 @@ def _language_gpu_kernel_evidence(
         missing.append("plif_triton_backward_surrogate_parity")
     if selective_scan_report is None:
         missing.append("selective_scan_triton_parity")
+    if route_topk_report is None:
+        missing.append("route_vote_topk_parity")
     if expert_dispatch_report is None:
         missing.append("block_sparse_expert_dispatch_parity")
     if sampled_vocab_report is None:
@@ -773,6 +785,12 @@ def _language_gpu_kernel_evidence(
             None
             if selective_scan_report is None
             else _gpu_kernel_report_summary(selective_scan_report)
+        ),
+        "route_vote_topk_parity": route_topk_report is not None,
+        "route_topk_report": (
+            None
+            if route_topk_report is None
+            else _gpu_kernel_report_summary(route_topk_report)
         ),
         "block_sparse_expert_dispatch_parity": expert_dispatch_report is not None,
         "expert_dispatch_report": (

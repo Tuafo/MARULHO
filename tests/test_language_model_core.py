@@ -499,6 +499,7 @@ def test_language_model_routes_bounded_sparse_experts_without_all_column_scan() 
     assert routing["output_candidate_count"] == 2
     assert routing["runs_all_columns"] is False
     assert routing["fallback_reason"] is None
+    assert routing["route_selection_backend"] == "torch_grad_route_topk"
     assert routing["expert_dispatch_backend"] == (
         "torch_selected_expert_batched_matmul_dispatch"
     )

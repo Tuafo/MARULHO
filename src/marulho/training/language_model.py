@@ -26,6 +26,11 @@ from marulho.core.language_plif_triton import (
     language_plif_triton_stats_delta,
 )
 from marulho.core.language_rmsnorm_triton import language_rmsnorm
+from marulho.core.language_route_topk_triton import (
+    language_route_topk,
+    language_route_topk_triton_stats,
+    language_route_topk_triton_stats_delta,
+)
 from marulho.core.language_sampled_vocab_ce_triton import (
     build_sampled_target_positions,
     build_sampled_vocab_ids,
@@ -962,12 +967,40 @@ class RoutedLanguageExpertLayer(nn.Module):
             candidate_id_source = f"{candidate_id_source}_sleep_filtered"
         candidate_count = int(candidate_ids.shape[-1])
         active_count = min(self.active_expert_count, candidate_count)
-        route_keys = self.route_keys[candidate_ids]
-        route_bias = self.route_bias[candidate_ids]
-        route_logits = (hidden.unsqueeze(-2) * route_keys).sum(dim=-1) + route_bias
-        top_scores, top_positions = torch.topk(route_logits, k=active_count, dim=-1)
-        top_weights = torch.softmax(top_scores, dim=-1)
-        selected_expert_ids = candidate_ids.gather(dim=-1, index=top_positions)
+        route_topk_stats_before = (
+            language_route_topk_triton_stats()
+            if bool(collect_telemetry)
+            else None
+        )
+        if not torch.is_grad_enabled():
+            selected_flat_ids, _top_scores_flat, top_weights_flat = language_route_topk(
+                hidden.reshape(-1, self.state_dim),
+                candidate_ids.reshape(-1, candidate_count),
+                self.route_keys,
+                self.route_bias,
+                active_count,
+            )
+            selected_expert_ids = selected_flat_ids.reshape(
+                batch_size,
+                time_steps,
+                active_count,
+            )
+            top_weights = top_weights_flat.reshape(batch_size, time_steps, active_count)
+        else:
+            route_keys = self.route_keys[candidate_ids]
+            route_bias = self.route_bias[candidate_ids]
+            route_logits = (hidden.unsqueeze(-2) * route_keys).sum(dim=-1) + route_bias
+            top_scores, top_positions = torch.topk(route_logits, k=active_count, dim=-1)
+            top_weights = torch.softmax(top_scores, dim=-1)
+            selected_expert_ids = candidate_ids.gather(dim=-1, index=top_positions)
+        route_topk_delta = (
+            language_route_topk_triton_stats_delta(
+                route_topk_stats_before,
+                language_route_topk_triton_stats(),
+            )
+            if route_topk_stats_before is not None
+            else None
+        )
 
         flat_hidden = hidden.reshape(-1, self.state_dim)
         flat_ids = selected_expert_ids.reshape(-1, active_count)
@@ -1056,6 +1089,14 @@ class RoutedLanguageExpertLayer(nn.Module):
         expert_parameters = self._expert_parameter_count()
         active_parameters_per_token = int(active_count * expert_parameters)
         if torch.is_grad_enabled():
+            route_selection_backend = "torch_grad_route_topk"
+        elif route_topk_delta is not None and bool(
+            route_topk_delta.get("triton_kernel_used", False)
+        ):
+            route_selection_backend = "triton_route_vote_topk"
+        else:
+            route_selection_backend = "torch_route_topk"
+        if torch.is_grad_enabled():
             expert_dispatch_backend = "torch_selected_expert_batched_matmul_dispatch"
         elif dispatch_delta is not None and bool(
             dispatch_delta.get("triton_kernel_used", False)
@@ -1090,6 +1131,8 @@ class RoutedLanguageExpertLayer(nn.Module):
             "all_awake_candidate_fastpath": bool(
                 candidate_id_source == "all_awake_direct_expert_ids"
             ),
+            "route_selection_backend": route_selection_backend,
+            "route_topk_triton_stats_delta": route_topk_delta,
             "expert_dispatch_backend": expert_dispatch_backend,
             "expert_dispatch_triton_stats_delta": dispatch_delta,
         }

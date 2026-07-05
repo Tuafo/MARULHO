@@ -11,6 +11,7 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     PLIF_FORWARD_KERNEL_NAME,
     PLIF_SURROGATE_KERNEL_NAME,
     RMSNORM_KERNEL_NAME,
+    ROUTE_TOPK_KERNEL_NAME,
     SAMPLED_VOCAB_CE_KERNEL_NAME,
     SELECTIVE_SCAN_KERNEL_NAME,
     SURFACE,
@@ -235,6 +236,12 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     )
     assert (
         categories["gpu_kernel_correctness"]["evidence"][
+            "route_vote_topk_parity"
+        ]
+        is False
+    )
+    assert (
+        categories["gpu_kernel_correctness"]["evidence"][
             "block_sparse_expert_dispatch_parity"
         ]
         is False
@@ -248,6 +255,10 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert "rmsnorm_triton_parity" in categories["gpu_kernel_correctness"]["missing_evidence"]
     assert (
         "plif_triton_forward_parity"
+        in categories["gpu_kernel_correctness"]["missing_evidence"]
+    )
+    assert (
+        "route_vote_topk_parity"
         in categories["gpu_kernel_correctness"]["missing_evidence"]
     )
     assert categories["generation_coherence"]["status"] == "smoke_only"
@@ -302,6 +313,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
+    route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
     generation_coherence = tmp_path / "generation-coherence.json"
@@ -323,6 +335,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         kernel_name=SELECTIVE_SCAN_KERNEL_NAME,
     )
     _write_gpu_kernel_report(
+        route_topk_kernel,
+        kernel_name=ROUTE_TOPK_KERNEL_NAME,
+    )
+    _write_gpu_kernel_report(
         expert_dispatch_kernel,
         kernel_name=EXPERT_DISPATCH_KERNEL_NAME,
     )
@@ -341,6 +357,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             plif_kernel,
             plif_surrogate_kernel,
             selective_scan_kernel,
+            route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,
         ),
@@ -405,6 +422,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         is True
     )
     assert gpu_kernel_category["evidence"]["selective_scan_triton_parity"] is True
+    assert gpu_kernel_category["evidence"]["route_vote_topk_parity"] is True
     assert (
         gpu_kernel_category["evidence"]["block_sparse_expert_dispatch_parity"]
         is True
@@ -418,6 +436,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         PLIF_FORWARD_KERNEL_NAME,
         PLIF_SURROGATE_KERNEL_NAME,
         RMSNORM_KERNEL_NAME,
+        ROUTE_TOPK_KERNEL_NAME,
         SAMPLED_VOCAB_CE_KERNEL_NAME,
         SELECTIVE_SCAN_KERNEL_NAME,
     ]
@@ -428,6 +447,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         not in gpu_kernel_category["missing_evidence"]
     )
     assert "selective_scan_triton_parity" not in gpu_kernel_category["missing_evidence"]
+    assert "route_vote_topk_parity" not in gpu_kernel_category["missing_evidence"]
     assert (
         "block_sparse_expert_dispatch_parity"
         not in gpu_kernel_category["missing_evidence"]
@@ -452,6 +472,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
     plif_kernel = tmp_path / "plif-forward-triton.json"
     plif_surrogate_kernel = tmp_path / "plif-surrogate-triton.json"
     selective_scan_kernel = tmp_path / "selective-scan-triton.json"
+    route_topk_kernel = tmp_path / "route-topk-triton.json"
     expert_dispatch_kernel = tmp_path / "expert-dispatch-triton.json"
     sampled_vocab_kernel = tmp_path / "sampled-vocab-ce-triton.json"
 
@@ -480,6 +501,10 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
         kernel_name=SELECTIVE_SCAN_KERNEL_NAME,
     )
     _write_gpu_kernel_report(
+        route_topk_kernel,
+        kernel_name=ROUTE_TOPK_KERNEL_NAME,
+    )
+    _write_gpu_kernel_report(
         expert_dispatch_kernel,
         kernel_name=EXPERT_DISPATCH_KERNEL_NAME,
     )
@@ -497,6 +522,7 @@ def test_language_runtime_benchmark_suite_blocks_mixed_checkpoint_quality_and_sp
             plif_kernel,
             plif_surrogate_kernel,
             selective_scan_kernel,
+            route_topk_kernel,
             expert_dispatch_kernel,
             sampled_vocab_kernel,
         ),
