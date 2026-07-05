@@ -66,6 +66,37 @@ def test_language_sustained_evidence_writes_final_json_report(tmp_path) -> None:
     assert report["cortex_used"] is False
     assert report["device_backend"]["promoted_hot_path"] is False
     assert report["failure_fallback_counters"]["triton_kernel_fallback_count"] == 5
+    execution = report["execution_evidence"]
+    assert execution["triton_kernel_accounting_scope"] == (
+        "full_sustained_runner_including_prompt_prefill_graph_capture_and_decode"
+    )
+    assert execution["triton_kernel_streaming_scope"] == (
+        "one_token_decode_streaming_core_only"
+    )
+    assert execution["tracked_triton_kernel_names"] == [
+        "language_rmsnorm_triton",
+        "language_plif_triton",
+        "language_route_topk_triton",
+        "language_expert_dispatch_triton",
+        "language_memory_slots_triton",
+    ]
+    assert execution["streaming_core_triton_kernel_names"] == [
+        "language_rmsnorm_triton",
+        "language_plif_triton",
+    ]
+    assert execution["tracked_triton_kernel_used_anywhere"] is False
+    assert execution["tracked_triton_kernel_used_names"] == []
+    assert execution["streaming_core_triton_kernel_used_names"] == []
+    assert execution["language_route_topk_triton"]["triton_kernel_used"] is False
+    assert execution["language_expert_dispatch_triton"]["triton_kernel_used"] is False
+    assert execution["language_memory_slots_triton"]["triton_kernel_used"] is False
+    assert report["device_backend"]["tracked_triton_kernel_used_anywhere"] is False
+    assert report["device_backend"]["tracked_triton_kernel_used_names"] == []
+    assert (
+        report["failure_fallback_counters"]["tracked_triton_kernel_failure_count"]
+        == execution["tracked_triton_kernel_failure_count"]
+    )
+    assert report["failure_fallback_counters"]["tracked_triton_torch_fallback_calls"] >= 0
     assert report["last_trace"]["event"] == "language_lm_head_stream"
     assert report["promotion_gate"]["short_run_is_smoke_only"] is True
     assert report["promotion_gate"]["promotes_runtime_claim"] is False

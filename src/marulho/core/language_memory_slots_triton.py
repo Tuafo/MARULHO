@@ -21,7 +21,7 @@ _SUPPORTED_DTYPES = {torch.float32}
 _MAX_STATE_DIM = 512
 _MAX_CANDIDATES = 64
 _MAX_ACTIVE_SLOTS = 8
-_DEFAULT_MIN_ROWS = 128
+_DEFAULT_MIN_ROWS = 1
 
 
 @dataclass
@@ -524,9 +524,12 @@ def language_memory_slots(
     force_triton: bool = False,
 ) -> torch.Tensor:
     requires_grad = bool(
-        hidden.requires_grad
-        or memory_slots.requires_grad
-        or memory_slot_gate.requires_grad
+        torch.is_grad_enabled()
+        and (
+            hidden.requires_grad
+            or memory_slots.requires_grad
+            or memory_slot_gate.requires_grad
+        )
     )
     if bool(prefer_triton) and hidden.device.type == "cuda":
         if requires_grad:

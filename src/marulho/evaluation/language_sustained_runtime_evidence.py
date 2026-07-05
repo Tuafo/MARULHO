@@ -11,6 +11,14 @@ from typing import Any, Mapping
 
 import torch
 
+from marulho.core.language_expert_dispatch_triton import (
+    language_expert_dispatch_triton_stats,
+    language_expert_dispatch_triton_stats_delta,
+)
+from marulho.core.language_memory_slots_triton import (
+    language_memory_slots_triton_stats,
+    language_memory_slots_triton_stats_delta,
+)
 from marulho.core.language_plif_triton import (
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
@@ -18,6 +26,10 @@ from marulho.core.language_plif_triton import (
 from marulho.core.language_rmsnorm_triton import (
     language_rmsnorm_triton_stats,
     language_rmsnorm_triton_stats_delta,
+)
+from marulho.core.language_route_topk_triton import (
+    language_route_topk_triton_stats,
+    language_route_topk_triton_stats_delta,
 )
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.continuous_runtime_stress_benchmark import (
@@ -33,6 +45,16 @@ from marulho.training.language_model import (
 
 SURFACE = "marulho_language_sustained_runtime_evidence.v1"
 ARTIFACT_KIND = "marulho_language_sustained_runtime_evidence"
+_STREAMING_CORE_TRITON_KERNELS = (
+    "language_rmsnorm_triton",
+    "language_plif_triton",
+)
+_TRACKED_TRITON_KERNELS = (
+    *_STREAMING_CORE_TRITON_KERNELS,
+    "language_route_topk_triton",
+    "language_expert_dispatch_triton",
+    "language_memory_slots_triton",
+)
 
 
 def _environment_snapshot(*, collect: bool) -> dict[str, Any]:
@@ -126,6 +148,44 @@ def _last_language_trace(
     }
 
 
+def _empty_triton_delta(
+    *,
+    surface: str,
+    extra_zero_fields: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "surface": surface,
+        "triton_available": False,
+        "triton_forward_calls": 0,
+        "triton_forward_elements": 0,
+        "torch_fallback_calls": 0,
+        "torch_fallback_elements": 0,
+        "triton_failure_count": 0,
+        "last_failure": None,
+        "last_device": None,
+        "last_dtype": None,
+        "triton_kernel_used": False,
+    }
+    payload.update(dict(extra_zero_fields or {}))
+    return payload
+
+
+def _triton_failure_count(delta: Mapping[str, Any]) -> int:
+    return int(delta.get("triton_failure_count", 0) or 0)
+
+
+def _triton_fallback_calls(delta: Mapping[str, Any]) -> int:
+    return int(delta.get("torch_fallback_calls", 0) or 0)
+
+
+def _triton_fallback_elements(delta: Mapping[str, Any]) -> int:
+    return int(delta.get("torch_fallback_elements", 0) or 0)
+
+
+def _triton_kernel_used(delta: Mapping[str, Any]) -> bool:
+    return bool(delta.get("triton_kernel_used", False))
+
+
 def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
     backend = "torch_eager_cuda" if model.device.type == "cuda" else "torch_eager_cpu"
     return {
@@ -147,6 +207,18 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "pytorch_eager_language_token_count": 0,
         "pytorch_eager_tail_token_count": 0,
         "triton_kernel_used": False,
+        "triton_kernel_accounting_scope": (
+            "full_sustained_runner_including_prompt_prefill_graph_capture_and_decode"
+        ),
+        "triton_kernel_streaming_scope": "one_token_decode_streaming_core_only",
+        "tracked_triton_kernel_names": list(_TRACKED_TRITON_KERNELS),
+        "streaming_core_triton_kernel_names": list(_STREAMING_CORE_TRITON_KERNELS),
+        "tracked_triton_kernel_used_anywhere": False,
+        "tracked_triton_kernel_used_names": [],
+        "streaming_core_triton_kernel_used_names": [],
+        "tracked_triton_kernel_failure_count": 0,
+        "tracked_triton_torch_fallback_calls": 0,
+        "tracked_triton_torch_fallback_elements": 0,
         "triton_kernel_failure_count": 0,
         "triton_kernel_fallback_count": 0,
         "decode_controls_requested": False,
@@ -165,34 +237,30 @@ def _new_execution_evidence(model: MarulhoLanguageModel) -> dict[str, Any]:
         "no_repeat_ngram_state_capacity_tokens": 0,
         "no_repeat_ngram_banned_token_count": 0,
         "decode_control_fallback_count": 0,
-        "language_rmsnorm_triton": {
-            "surface": "marulho_language_rmsnorm_triton_stats_delta.v1",
-            "triton_available": False,
-            "triton_forward_calls": 0,
-            "triton_forward_elements": 0,
-            "triton_backward_calls": 0,
-            "triton_backward_elements": 0,
-            "torch_fallback_calls": 0,
-            "torch_fallback_elements": 0,
-            "triton_failure_count": 0,
-            "last_failure": None,
-            "last_device": None,
-            "last_dtype": None,
-            "triton_kernel_used": False,
-        },
-        "language_plif_triton": {
-            "surface": "marulho_language_plif_triton_stats_delta.v1",
-            "triton_available": False,
-            "triton_forward_calls": 0,
-            "triton_forward_elements": 0,
-            "torch_fallback_calls": 0,
-            "torch_fallback_elements": 0,
-            "triton_failure_count": 0,
-            "last_failure": None,
-            "last_device": None,
-            "last_dtype": None,
-            "triton_kernel_used": False,
-        },
+        "language_rmsnorm_triton": _empty_triton_delta(
+            surface="marulho_language_rmsnorm_triton_stats_delta.v1",
+            extra_zero_fields={
+                "triton_backward_calls": 0,
+                "triton_backward_elements": 0,
+            },
+        ),
+        "language_plif_triton": _empty_triton_delta(
+            surface="marulho_language_plif_triton_stats_delta.v1",
+        ),
+        "language_route_topk_triton": _empty_triton_delta(
+            surface="marulho_language_route_topk_triton_stats_delta.v1",
+        ),
+        "language_expert_dispatch_triton": _empty_triton_delta(
+            surface="marulho_language_expert_dispatch_triton_stats_delta.v1",
+        ),
+        "language_memory_slots_triton": _empty_triton_delta(
+            surface="marulho_language_memory_slots_triton_stats_delta.v1",
+            extra_zero_fields={
+                "triton_autograd_forward_calls": 0,
+                "torch_autograd_backward_calls": 0,
+                "triton_autograd_used": False,
+            },
+        ),
     }
 
 
@@ -629,6 +697,22 @@ def _report_payload(
         repetition_penalty=float(execution.get("repetition_penalty", 1.0) or 1.0),
         no_repeat_ngram_size=int(execution.get("no_repeat_ngram_size", 0) or 0),
     )
+    tracked_triton_used_names = [
+        name
+        for name in _TRACKED_TRITON_KERNELS
+        if _triton_kernel_used(
+            execution.get(name) if isinstance(execution.get(name), Mapping) else {}
+        )
+    ]
+    streaming_triton_used_names = [
+        name
+        for name in tracked_triton_used_names
+        if name in _STREAMING_CORE_TRITON_KERNELS
+    ]
+    tracked_triton_used_anywhere = bool(
+        execution.get("tracked_triton_kernel_used_anywhere", False)
+        or tracked_triton_used_names
+    )
     backend = str(
         execution.get("backend")
         or ("torch_eager_cuda" if model_device.type == "cuda" else "torch_eager_cpu")
@@ -700,6 +784,17 @@ def _report_payload(
                 execution.get("cuda_graph_setup_seconds", 0.0) or 0.0
             ),
             "triton_kernel_used": bool(execution.get("triton_kernel_used", False)),
+            "tracked_triton_kernel_used_anywhere": bool(tracked_triton_used_anywhere),
+            "tracked_triton_kernel_used_names": list(tracked_triton_used_names),
+            "streaming_core_triton_kernel_used_names": list(
+                streaming_triton_used_names
+            ),
+            "triton_kernel_accounting_scope": execution.get(
+                "triton_kernel_accounting_scope"
+            ),
+            "triton_kernel_streaming_scope": execution.get(
+                "triton_kernel_streaming_scope"
+            ),
             "language_rmsnorm_triton_used": bool(
                 (
                     execution.get("language_rmsnorm_triton")
@@ -711,6 +806,31 @@ def _report_payload(
                 (
                     execution.get("language_plif_triton")
                     if isinstance(execution.get("language_plif_triton"), Mapping)
+                    else {}
+                ).get("triton_kernel_used", False)
+            ),
+            "language_route_topk_triton_used": bool(
+                (
+                    execution.get("language_route_topk_triton")
+                    if isinstance(execution.get("language_route_topk_triton"), Mapping)
+                    else {}
+                ).get("triton_kernel_used", False)
+            ),
+            "language_expert_dispatch_triton_used": bool(
+                (
+                    execution.get("language_expert_dispatch_triton")
+                    if isinstance(
+                        execution.get("language_expert_dispatch_triton"), Mapping
+                    )
+                    else {}
+                ).get("triton_kernel_used", False)
+            ),
+            "language_memory_slots_triton_used": bool(
+                (
+                    execution.get("language_memory_slots_triton")
+                    if isinstance(
+                        execution.get("language_memory_slots_triton"), Mapping
+                    )
                     else {}
                 ).get("triton_kernel_used", False)
             ),
@@ -726,6 +846,15 @@ def _report_payload(
             "torch_sequence_graph_failure_count": 0,
             "triton_kernel_failure_count": int(
                 execution.get("triton_kernel_failure_count", 0) or 0
+            ),
+            "tracked_triton_kernel_failure_count": int(
+                execution.get("tracked_triton_kernel_failure_count", 0) or 0
+            ),
+            "tracked_triton_torch_fallback_calls": int(
+                execution.get("tracked_triton_torch_fallback_calls", 0) or 0
+            ),
+            "tracked_triton_torch_fallback_elements": int(
+                execution.get("tracked_triton_torch_fallback_elements", 0) or 0
             ),
             "triton_kernel_fallback_count": int(
                 execution.get("triton_kernel_fallback_count", int(token_delta)) or 0
@@ -926,6 +1055,9 @@ def run_language_sustained_runtime_evidence(
     graph_tail_tensor: torch.Tensor | None = None
     rmsnorm_stats_before = language_rmsnorm_triton_stats()
     plif_stats_before = language_plif_triton_stats()
+    route_topk_stats_before = language_route_topk_triton_stats()
+    expert_dispatch_stats_before = language_expert_dispatch_triton_stats()
+    memory_slots_stats_before = language_memory_slots_triton_stats()
 
     try:
         model.eval()
@@ -1138,22 +1270,84 @@ def run_language_sustained_runtime_evidence(
         plif_stats_before,
         plif_stats_after,
     )
+    route_topk_stats_after = language_route_topk_triton_stats()
+    route_topk_delta = language_route_topk_triton_stats_delta(
+        route_topk_stats_before,
+        route_topk_stats_after,
+    )
+    expert_dispatch_stats_after = language_expert_dispatch_triton_stats()
+    expert_dispatch_delta = language_expert_dispatch_triton_stats_delta(
+        expert_dispatch_stats_before,
+        expert_dispatch_stats_after,
+    )
+    memory_slots_stats_after = language_memory_slots_triton_stats()
+    memory_slots_delta = language_memory_slots_triton_stats_delta(
+        memory_slots_stats_before,
+        memory_slots_stats_after,
+    )
+    triton_deltas: dict[str, Mapping[str, Any]] = {
+        "language_rmsnorm_triton": rmsnorm_delta,
+        "language_plif_triton": plif_delta,
+        "language_route_topk_triton": route_topk_delta,
+        "language_expert_dispatch_triton": expert_dispatch_delta,
+        "language_memory_slots_triton": memory_slots_delta,
+    }
+    tracked_triton_kernel_used_names = [
+        name
+        for name in _TRACKED_TRITON_KERNELS
+        if _triton_kernel_used(triton_deltas[name])
+    ]
+    streaming_core_triton_kernel_used_names = [
+        name
+        for name in _STREAMING_CORE_TRITON_KERNELS
+        if _triton_kernel_used(triton_deltas[name])
+    ]
+    tracked_triton_failure_count = sum(
+        _triton_failure_count(triton_deltas[name]) for name in _TRACKED_TRITON_KERNELS
+    )
     execution_evidence["language_rmsnorm_triton"] = rmsnorm_delta
     execution_evidence["language_plif_triton"] = plif_delta
-    execution_evidence["triton_kernel_used"] = bool(
-        rmsnorm_delta.get("triton_kernel_used", False)
-        or plif_delta.get("triton_kernel_used", False)
+    execution_evidence["language_route_topk_triton"] = route_topk_delta
+    execution_evidence["language_expert_dispatch_triton"] = expert_dispatch_delta
+    execution_evidence["language_memory_slots_triton"] = memory_slots_delta
+    execution_evidence["tracked_triton_kernel_names"] = list(_TRACKED_TRITON_KERNELS)
+    execution_evidence["streaming_core_triton_kernel_names"] = list(
+        _STREAMING_CORE_TRITON_KERNELS
     )
-    triton_failure_count = int(rmsnorm_delta.get("triton_failure_count", 0) or 0) + int(
-        plif_delta.get("triton_failure_count", 0) or 0
+    execution_evidence["tracked_triton_kernel_used_names"] = list(
+        tracked_triton_kernel_used_names
+    )
+    execution_evidence["streaming_core_triton_kernel_used_names"] = list(
+        streaming_core_triton_kernel_used_names
+    )
+    execution_evidence["tracked_triton_kernel_used_anywhere"] = bool(
+        tracked_triton_kernel_used_names
+    )
+    execution_evidence["tracked_triton_kernel_failure_count"] = int(
+        tracked_triton_failure_count
+    )
+    execution_evidence["tracked_triton_torch_fallback_calls"] = int(
+        sum(
+            _triton_fallback_calls(triton_deltas[name])
+            for name in _TRACKED_TRITON_KERNELS
+        )
+    )
+    execution_evidence["tracked_triton_torch_fallback_elements"] = int(
+        sum(
+            _triton_fallback_elements(triton_deltas[name])
+            for name in _TRACKED_TRITON_KERNELS
+        )
+    )
+    execution_evidence["triton_kernel_used"] = bool(
+        streaming_core_triton_kernel_used_names
     )
     execution_evidence["triton_kernel_failure_count"] = int(
-        triton_failure_count
+        tracked_triton_failure_count
     )
     execution_evidence["triton_kernel_fallback_count"] = (
         0
         if bool(execution_evidence["triton_kernel_used"])
-        and int(triton_failure_count) == 0
+        and int(tracked_triton_failure_count) == 0
         else int(token_delta)
     )
 

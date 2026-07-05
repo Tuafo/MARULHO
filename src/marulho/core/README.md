@@ -61,10 +61,11 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   device.
 - Disabled routing work should not launch CUDA kernels merely to multiply by
   zero.
-- Language RMSNorm uses Triton only where the row count is large enough to beat
-  the PyTorch CUDA expression. One-token streaming remains on the faster CUDA
-  graph/PyTorch path and reports that fallback instead of silently regressing
-  sustained throughput.
+- Language RMSNorm uses Triton on supported CUDA `float32` rows by default,
+  including one-token streaming. The 2026-07-05 memory-slot longtrain
+  sustained rerun changed the default minimum row policy to `1` after the
+  same-checkpoint `8192` evidence improved from `3409.028` to `4460.070`
+  tokens/sec with zero tracked Triton fallback calls.
 - Language PLIF forward uses Triton for no-grad/eval rows where the row count
   policy allows it. Gradient training may use the `float32` Triton surrogate
   backward path where the same policy allows it; half-precision backward stays
@@ -78,22 +79,25 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   variant skips inline eligibility load/store, but the current complete
   batch-16/seq-64 `524288` forward impact report is slower than inline PLIF, so
   the deferred state-block path remains off by default.
-- Language route/vote top-k uses Triton for no-grad CUDA routed-expert rows
-  where the row-count policy allows it. Gradient training stays on the PyTorch
-  route-score/top-k path so route keys can receive gradients, and one-token
-  streaming falls back unless the policy proves a real launch-cost win. The
+- Language route/vote top-k uses Triton for no-grad CUDA routed-expert rows by
+  default, including one-token streaming. Gradient training stays on the
+  PyTorch route-score/top-k path so route keys can receive gradients. The
   current complete no-grad LM forward impact report shows a `1.045x` win at
-  the batch-16/seq-64 routed-expert shape while keeping broad hot-path
-  promotion false.
-- Language expert dispatch uses Triton for no-grad CUDA selected-expert rows
-  where the token-count policy allows it. Current parity is `float32` only;
+  the batch-16/seq-64 routed-expert shape, and the 2026-07-05 sustained
+  memory-slot rerun shows the one-token route kernel active with zero tracked
+  fallback calls.
+- Language expert dispatch uses Triton for no-grad CUDA selected-expert rows by
+  default, including one-token streaming. Current parity is `float32` only;
   half-precision dispatch falls back until separate numerical evidence exists.
   The current complete no-grad LM forward impact report shows a `1.057x` win at
-  the batch-16/seq-64 routed-expert shape while keeping broad hot-path
-  promotion false.
+  the batch-16/seq-64 routed-expert shape, and the 2026-07-05 sustained
+  memory-slot rerun shows the one-token dispatch kernel active with zero
+  tracked fallback calls.
 - Language memory-slot retrieval uses Triton for no-grad CUDA bounded memory
-  rows where the row policy allows it. Supported `float32` gradient-training
-  forward can opt into the Triton-forward/custom-autograd path with
+  rows by default, including one-token streaming. The dispatch helper now
+  treats `torch.no_grad()` as the no-grad retrieval path even when trainable
+  memory parameters have `requires_grad=true`; gradient-training forward can
+  still opt into the Triton-forward/custom-autograd path with
   `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=1`, but the maintained default
   stays on torch autograd because the full continual-learning window beat the
   Triton training path. The complete no-grad `524288` batch-16/seq-64 forward
@@ -104,7 +108,10 @@ topography, plasticity, surprise, sparsity, and CUDA/Triton tensor semantics.
   default: torch autograd reached `3134.337` update tokens/sec and opt-in Triton
   reached `3074.512`, while both kept precomputed bounded candidates and
   nonzero memory gradients. The dedicated kernel report passes three CUDA
-  `float32` shape sweeps with `4.950x` geometric microbenchmark speedup;
+  `float32` shape sweeps with `4.950x` geometric microbenchmark speedup; the
+  2026-07-05 longtrain sustained rerun records
+  `memory_slot_retrieval_backend=triton_no_grad_bounded_memory_slots` at
+  `524288` tokens and `8044.912` tokens/sec with zero tracked Triton fallback.
   `float16` remains fallback until separate parity evidence exists.
 - Language sampled-vocab cross entropy uses Triton for `float32` CUDA hidden
   rows and selected vocabulary IDs that include all targets. Gradient training

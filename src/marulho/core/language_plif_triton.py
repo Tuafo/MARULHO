@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - optional CUDA dependency
 
 _SUPPORTED_DTYPES = {torch.float16, torch.bfloat16, torch.float32}
 _MAX_BLOCK_COLUMNS = 8192
-_DEFAULT_MIN_TRITON_ROWS = 16
+_DEFAULT_MIN_TRITON_ROWS = 1
 
 
 @dataclass

@@ -459,8 +459,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   chars. The same checkpoint passes the grounded prompt suite at `4/4` cases
   and sustains controlled decode at `8192`, `131072`, and `524288` tokens on
   CUDA graph burst. This is current same-checkpoint quality/speed evidence for
-  the bounded memory-slot LM shape, not a runtime-promotion claim; streaming
-  decode still reports Triton fallback for one-token kernels.
+  the bounded memory-slot LM shape, not a runtime-promotion claim. The
+  follow-up one-token Triton policy rerun keeps the same checkpoint and decode
+  controls, moves default inference thresholds to one row/token for RMSNorm,
+  PLIF, route-topk, expert dispatch, and memory slots, fixes no-grad
+  memory-slot dispatch for trainable parameters, and sustains `8192`,
+  `131072`, and `524288` tokens at `4460.070`, `7778.335`, and `8044.912`
+  tokens/sec with all five tracked Triton kernels active and zero tracked
+  Triton fallback calls.
 - The same precompute helper is training-owned and reused by
   `language_continual_learning.py` so online new/replay update windows can keep
   sampled row ID, target-position, bounded memory-candidate, and bounded

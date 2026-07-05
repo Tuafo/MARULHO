@@ -261,6 +261,24 @@ harnesses.
   category, while keeping `promotes_runtime_claim=false` and
   `promotes_hot_path=false` because one-token sustained decode still reports
   Triton kernel fallback.
+- The 2026-07-05 one-token Triton policy follow-up fixes that sustained
+  fallback. `language_sustained_runtime_evidence.py` now records RMSNorm, PLIF,
+  route-topk, expert-dispatch, and memory-slot Triton deltas separately, with
+  explicit full-run versus streaming-core scope. The core defaults now use
+  minimum row/token policy `1` for these inference kernels, and memory-slot
+  retrieval treats `torch.no_grad()` as no-grad even when memory parameters are
+  trainable. Same-checkpoint maintained reports
+  `cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-default-triton-min1-8192-20260705.json`,
+  `cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-default-triton-min1-131072-20260705.json`,
+  and
+  `cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-default-triton-min1-524288-20260705.json`
+  reach `4460.070`, `7778.335`, and `8044.912` tokens/sec. All three use
+  `torch_cuda_graph_burst_decode_controls`, all five tracked Triton kernels,
+  `memory_slot_retrieval_backend=triton_no_grad_bounded_memory_slots`, and zero
+  tracked Triton fallback calls. The refreshed suite
+  `language-suite-memory-slot-longtrain-triton-min1-quality-speed-20260705.json`
+  is `ready_for_review` with `17/17` pass/smoke categories and still keeps
+  `promotes_runtime_claim=false` pending review/promotion.
 - The current aligned same-scale controlled evidence uses
   `cuda-sampled-padded-default-policy-524288-63744-checkpoint.pt`. Its anchored
   controlled prompt suite passed `4/4` cases with mean prefix match `16.75`,

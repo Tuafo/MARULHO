@@ -135,6 +135,16 @@ sustained reports reach `8192`, `131072`, and `524288` tokens at `3496.802`,
 memory-slot checkpoint that failed `0/4` coherence even after a shallow
 quality-replay sweep. It remains review evidence only: broad generation quality,
 runtime promotion, and one-token Triton hot-path promotion remain false.
+The follow-up one-token Triton policy rerun keeps the same checkpoint and
+decode controls, lowers default inference kernel row/token thresholds to `1`,
+fixes no-grad memory-slot dispatch for trainable parameters, and reaches
+`4460.070`, `7778.335`, and `8044.912` tokens/sec at `8192`, `131072`, and
+`524288` tokens with RMSNorm, PLIF, route-topk, expert-dispatch, and
+memory-slot Triton kernels active and zero tracked Triton fallback calls. The
+refreshed suite
+`reports/language_benchmark_suite/language-suite-memory-slot-longtrain-triton-min1-quality-speed-20260705.json`
+is `ready_for_review` with `17/17` pass/smoke categories, while still keeping
+runtime-promotion false pending review.
 
 The target runtime must preserve these boundaries:
 
