@@ -221,6 +221,18 @@ harnesses.
   records brain-owned generation with no external/service-owned cognition, but
   passes `0/4` grounded cases. Treat it as path ownership and quality
   instrumentation, not generation-quality promotion.
+- `language_brain_generation_repair_evidence.py` is the installed-brain
+  generation repair runner. It restores a `MarulhoBrain` checkpoint, builds
+  hard-prompt replay windows, learns through
+  `MarulhoBrain.learn_language_window()`, saves/restores a repaired brain
+  checkpoint, then re-scores public `MarulhoBrain.generate()` and can attach a
+  post-repair sustained run. The current CUDA report
+  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sustained524288-20260706.json`
+  repairs grounded prompt cases from `0/4` to `3/4`, records `98304` update
+  tokens at `3042.237` update tokens/sec, improves mean prefix match by `18.5`
+  chars with no prompt regressions, and reaches `524288/524288` post-repair
+  sustained tokens at `8120.458` tokens/sec with zero tracked Triton failures.
+  It is still evidence, not a broad generation-quality claim.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -264,7 +276,9 @@ harnesses.
   prompt-suite coherence. It also ingests accepted
   `marulho_language_brain_installed_generation_evidence.v1` reports for
   installed-brain generation path evidence without requiring them to promote
-  quality. It also ingests accepted
+  quality, and accepted
+  `marulho_language_brain_installed_generation_repair_evidence.v1` reports for
+  installed-brain hard-prompt repair evidence. It also ingests accepted
   `marulho_language_continual_learning_experiment.v1` reports with
   `marulho_language_continual_memory_slot_architecture_cost.v1` sections, so
   bounded memory slots can be judged against no-memory baselines on update
@@ -423,6 +437,14 @@ harnesses.
   checkpoint-level generation coherence, quality replay, Triton parity, and
   installed-brain generation evidence available. The installed-brain generation
   lane records `0/4` prompt cases passed and keeps
+  `promotes_generation_quality_claim=false`.
+- The current installed repair aggregate
+  `reports/language_benchmark_suite/language-suite-evo-child-installed-generation-repair-20260706.json`
+  accepts `--brain-installed-generation-repair-evidence` and reaches
+  `ready_for_review` with no failed or missing categories. Its repair lane
+  records the `3/4` post-repair prompt pass rate, `98304` update tokens,
+  `3042.237` update tokens/sec, and `524288` post-repair sustained tokens at
+  `8120.458` tokens/sec, while keeping
   `promotes_generation_quality_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include

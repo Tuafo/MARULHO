@@ -6,6 +6,8 @@ from marulho.evaluation.language_runtime_benchmark_suite import (
     BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND,
     BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE,
     BRAIN_INSTALLED_GENERATION_ARTIFACT_KIND,
+    BRAIN_INSTALLED_GENERATION_REPAIR_ARTIFACT_KIND,
+    BRAIN_INSTALLED_GENERATION_REPAIR_SURFACE,
     BRAIN_INSTALLED_GENERATION_SURFACE,
     BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND,
     BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE,
@@ -801,6 +803,121 @@ def _write_brain_installed_generation_report(path) -> None:
     )
 
 
+def _write_brain_installed_generation_repair_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": BRAIN_INSTALLED_GENERATION_REPAIR_ARTIFACT_KIND,
+                "surface": BRAIN_INSTALLED_GENERATION_REPAIR_SURFACE,
+                "status": "final",
+                "report_status": "final",
+                "runtime_owner": "MarulhoBrain",
+                "active_language_path": "marulho_lm_head",
+                "brain_checkpoint_path": (
+                    "reports/language_brain_structural/post-structure-brain.pt"
+                ),
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "learning_summary": {
+                    "surface": (
+                        "marulho_brain_installed_generation_repair_learning_summary.v1"
+                    ),
+                    "brain_surface": "marulho_brain_language_learning_window.v1",
+                    "training_surface": "marulho_language_continual_learning_window.v1",
+                    "status": "accepted_online_update",
+                    "trace_event": "language_learn",
+                    "mutates_language_model_weights": True,
+                    "update_token_count": 262144,
+                    "tokens_per_second": 2988.5,
+                    "total_window_tokens_per_second": 2501.25,
+                    "final_parameter_delta_l2": 4.5,
+                },
+                "repaired_brain_checkpoint": {
+                    "surface": "marulho_brain_generation_repair_checkpoint.v1",
+                    "path": "reports/language_brain_generation/repaired.pt",
+                    "restore_verified": True,
+                    "active_language_path": "marulho_lm_head",
+                },
+                "pre_generation_coherence": {
+                    "artifact_kind": GENERATION_COHERENCE_ARTIFACT_KIND,
+                    "surface": GENERATION_COHERENCE_SURFACE,
+                    "active_language_path": "marulho_lm_head",
+                    "owned_by_marulho": True,
+                    "external_llm_used": False,
+                    "loads_external_checkpoint": False,
+                    "summary": {
+                        "case_count": 4,
+                        "passed_case_count": 0,
+                        "case_pass_rate": 0.0,
+                    },
+                },
+                "post_generation_coherence": {
+                    "artifact_kind": GENERATION_COHERENCE_ARTIFACT_KIND,
+                    "surface": GENERATION_COHERENCE_SURFACE,
+                    "active_language_path": "marulho_lm_head",
+                    "owned_by_marulho": True,
+                    "external_llm_used": False,
+                    "loads_external_checkpoint": False,
+                    "summary": {
+                        "case_count": 4,
+                        "passed_case_count": 2,
+                        "case_pass_rate": 0.5,
+                    },
+                },
+                "generation_quality_delta": {
+                    "surface": "marulho_language_quality_replay_coherence_delta.v1",
+                    "passed_case_count_delta": 2,
+                    "case_pass_rate_delta": 0.5,
+                    "mean_prefix_match_chars_delta": 11.0,
+                    "promotes_generation_quality_claim": False,
+                },
+                "post_repair_sustained_window": {
+                    "surface": (
+                        "marulho_brain_post_generation_repair_sustained_summary.v1"
+                    ),
+                    "enabled": True,
+                    "success": True,
+                    "token_delta": 524288,
+                    "tokens_per_second": 8010.25,
+                },
+                "promotion_gate": {
+                    "surface": (
+                        "marulho_language_brain_installed_generation_repair_gate.v1"
+                    ),
+                    "loaded_installed_brain_checkpoint": True,
+                    "brain_checkpoint_restore_verified": True,
+                    "batch_tokenizer_matches_installed_runtime": True,
+                    "status_read_mutation_absent": True,
+                    "pre_generation_runs_through_marulho_brain": True,
+                    "learning_runs_through_marulho_brain": True,
+                    "language_learn_trace_recorded": True,
+                    "records_actual_continual_learning": True,
+                    "repaired_brain_checkpoint_restore_verified": True,
+                    "post_generation_runs_through_marulho_brain": True,
+                    "case_count": 4,
+                    "pre_passed_case_count": 0,
+                    "post_passed_case_count": 2,
+                    "passed_case_count_delta": 2,
+                    "pre_case_pass_rate": 0.0,
+                    "post_case_pass_rate": 0.5,
+                    "mean_prefix_match_chars_delta": 11.0,
+                    "quality_repair_observed": True,
+                    "post_repair_sustained_enabled": True,
+                    "post_repair_sustained_target_reached": True,
+                    "external_llm_absent": True,
+                    "service_owned_cognition_absent": True,
+                    "promotes_runtime_claim": False,
+                    "promotes_generation_quality_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_structural_plasticity_experiment_report(path) -> None:
     path.write_text(
         json.dumps(
@@ -1182,6 +1299,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         tmp_path / "brain-installed-structural-plasticity.json"
     )
     brain_installed_generation = tmp_path / "brain-installed-generation.json"
+    brain_installed_generation_repair = (
+        tmp_path / "brain-installed-generation-repair.json"
+    )
     structural_plasticity = tmp_path / "structural-plasticity.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
@@ -1232,6 +1352,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         brain_installed_structural_plasticity
     )
     _write_brain_installed_generation_report(brain_installed_generation)
+    _write_brain_installed_generation_repair_report(
+        brain_installed_generation_repair
+    )
     _write_structural_plasticity_experiment_report(structural_plasticity)
 
     report = run_language_runtime_benchmark_suite(
@@ -1245,6 +1368,9 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
             brain_installed_structural_plasticity,
         ),
         brain_installed_generation_evidence_paths=(brain_installed_generation,),
+        brain_installed_generation_repair_evidence_paths=(
+            brain_installed_generation_repair,
+        ),
         memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
         memory_slot_architecture_cost_evidence_paths=(
             memory_slot_architecture_cost,
@@ -1324,8 +1450,27 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         is True
     )
     assert brain_generation["promotes_generation_quality_claim"] is False
+    brain_repair = generation_category["evidence"][
+        "brain_installed_generation_repair_evidence"
+    ]
+    assert brain_repair["brain_installed_generation_repair_available"] is True
+    assert brain_repair["valid_report_count"] == 1
+    assert brain_repair["best_report"]["runtime_owner"] == "MarulhoBrain"
+    assert brain_repair["best_report"]["update_token_count"] == 262144
+    assert brain_repair["best_report"]["pre_passed_case_count"] == 0
+    assert brain_repair["best_report"]["post_passed_case_count"] == 2
+    assert brain_repair["best_report"]["passed_case_count_delta"] == 2
+    assert brain_repair["best_report"]["quality_repair_observed"] is True
+    assert (
+        brain_repair["best_report"]["post_repair_sustained_token_delta"]
+        == 524288
+    )
+    assert brain_repair["promotes_generation_quality_claim"] is False
     assert report["promotion_gate"][
         "brain_installed_generation_evidence_available"
+    ] is True
+    assert report["promotion_gate"][
+        "brain_installed_generation_repair_evidence_available"
     ] is True
     assert memory_slot_category["status"] == "pass"
     assert memory_slot_category["missing_evidence"] == []
