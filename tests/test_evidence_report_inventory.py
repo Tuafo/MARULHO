@@ -69,11 +69,13 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     reports = tmp_path / "reports"
     suite_dir = reports / "language_benchmark_suite"
     learning_dir = reports / "language_brain_continual_learning"
+    speed_sweep_dir = reports / "language_continual_learning"
     structural_dir = reports / "language_brain_structural_plasticity"
     training_dir = reports / "language_training_experiments"
     repair_dir = reports / "language_brain_generation_repair"
     suite_dir.mkdir(parents=True)
     learning_dir.mkdir(parents=True)
+    speed_sweep_dir.mkdir(parents=True)
     structural_dir.mkdir(parents=True)
     training_dir.mkdir(parents=True)
     repair_dir.mkdir(parents=True)
@@ -493,6 +495,89 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         ),
         encoding="utf-8",
     )
+    speed_sweep_path = speed_sweep_dir / "continual-speed-sweep.json"
+    speed_sweep_path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_continual_speed_sweep",
+                "surface": "marulho_language_continual_speed_sweep.v1",
+                "status": "final",
+                "candidate_count": 3,
+                "completed_candidate_count": 3,
+                "accepted_candidate_count": 3,
+                "requested_recurrent_gradient_horizons": [4, 2, 1],
+                "base_config": {
+                    "model_vocab_size": 524288,
+                    "sampled_vocab_size": 1024,
+                    "memory_slot_count": 1024,
+                    "device": "cuda",
+                },
+                "best_candidate": {
+                    "candidate_id": "horizon_2",
+                    "candidate_index": 2,
+                    "output_path": (
+                        "reports/language_continual_learning/"
+                        "continual-speed-sweep-candidate02-horizon2.json"
+                    ),
+                    "selection_policy": (
+                        "highest_update_tokens_per_second_among_accepted_candidates"
+                    ),
+                    "recurrent_gradient_horizon": 2,
+                    "accepted_online_update": True,
+                    "update_tokens_per_second": 4946.93,
+                    "total_window_tokens_per_second": 4383.37,
+                },
+                "candidates": [
+                    {
+                        "candidate_id": "horizon_4",
+                        "candidate_index": 1,
+                        "status": "accepted_online_update",
+                        "accepted_online_update": True,
+                        "recurrent_gradient_horizon": 4,
+                        "update_token_count": 524288,
+                        "update_tokens_per_second": 4697.27,
+                        "total_window_tokens_per_second": 4094.65,
+                        "tracked_torch_fallback_calls": 768,
+                        "tracked_triton_failures": 0,
+                    },
+                    {
+                        "candidate_id": "horizon_2",
+                        "candidate_index": 2,
+                        "status": "accepted_online_update",
+                        "accepted_online_update": True,
+                        "recurrent_gradient_horizon": 2,
+                        "update_token_count": 524288,
+                        "update_tokens_per_second": 4946.93,
+                        "total_window_tokens_per_second": 4383.37,
+                        "new_domain_loss_delta": 7.01,
+                        "old_domain_forgetting": -7.04,
+                        "general_replay_retention_delta": -7.05,
+                        "tracked_torch_fallback_calls": 768,
+                        "tracked_triton_failures": 0,
+                    },
+                    {
+                        "candidate_id": "horizon_1",
+                        "candidate_index": 3,
+                        "status": "accepted_online_update",
+                        "accepted_online_update": True,
+                        "recurrent_gradient_horizon": 1,
+                        "update_token_count": 524288,
+                        "update_tokens_per_second": 4910.54,
+                        "total_window_tokens_per_second": 4322.02,
+                        "tracked_torch_fallback_calls": 768,
+                        "tracked_triton_failures": 0,
+                    },
+                ],
+                "review": {
+                    "writes_partial_after_each_candidate": True,
+                    "candidate_reports_are_complete_continual_learning_reports": True,
+                    "promotes_runtime_claim": False,
+                    "promotes_generation_quality_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (structural_dir / "structural-plasticity.json").write_text(
         json.dumps(
             {
@@ -679,6 +764,20 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["training_throughput_evidence"]["batch_device_staging"][
         "all_update_batches_on_device_before_timing"
     ] is True
+    speed_sweep = projection["continual_speed_sweep_evidence"]
+    assert speed_sweep["available"] is True
+    assert speed_sweep["status"] == "final"
+    assert speed_sweep["accepted_candidate_count"] == 3
+    assert speed_sweep["selected_candidate_id"] == "horizon_2"
+    assert speed_sweep["selected_recurrent_gradient_horizon"] == 2
+    assert speed_sweep["selected_update_token_count"] == 524288
+    assert speed_sweep["selected_update_tokens_per_second"] == 4946.93
+    assert speed_sweep["selected_total_window_tokens_per_second"] == 4383.37
+    assert speed_sweep["selected_tracked_torch_fallback_calls"] == 768
+    assert speed_sweep["selected_tracked_triton_failures"] == 0
+    assert speed_sweep["model_vocab_size"] == 524288
+    assert speed_sweep["writes_partial_after_each_candidate"] is True
+    assert speed_sweep["promotes_runtime_claim"] is False
     training_accounting = projection["training_throughput_evidence"][
         "training_window_triton_accounting"
     ]
@@ -715,6 +814,8 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["house_scale_throughput_evidence"]["house_scale_gate_reached"] is True
     assert projection["house_scale_throughput_evidence"]["tokens_per_second"] == 8123.13
     assert projection["gpu_kernel_evidence"]["generation_tracked_failure_count"] == 0
+    source_roles = {item["role"] for item in projection["source_reports"]}
+    assert "continual_speed_sweep" in source_roles
     decisions = {
         item["name"]: item for item in projection["backend_bottleneck_evidence"]["decisions"]
     }

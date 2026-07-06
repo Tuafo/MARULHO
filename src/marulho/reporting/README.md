@@ -12,10 +12,10 @@ summaries, and report helpers.
 - Summaries of existing reports and benchmark outputs.
 - Read-only inventories over saved JSON reports for service/UI display.
 - Current language-evidence projections that condense saved benchmark,
-  generation, repair, continual-learning throughput, forgetting/replay,
-  structural-plasticity, checkpoint-lineage, sustained-throughput,
-  active-compute, GPU-kernel, backend-decision, and checkpoint evidence without
-  running the machinery.
+  generation, repair, continual-learning throughput, continual speed-sweep,
+  forgetting/replay, structural-plasticity, checkpoint-lineage,
+  sustained-throughput, active-compute, GPU-kernel, backend-decision, and
+  checkpoint evidence without running the machinery.
 
 ## Must Not Own
 
@@ -43,6 +43,11 @@ tracked PyTorch fallback calls, per-kernel fallback names, and whether
 continual-learning batches were staged on the model device before the measured
 update window. This makes remaining sampled-vocab, memory-slot, or other
 fallback work visible without running a benchmark from the service path.
+Standalone continual speed-sweep reports are projected separately from
+installed-brain learning evidence. The projection can show the selected
+recurrent horizon, same-session update/total-window throughput, accepted
+candidate count, and fallback/failure counts, but it remains saved-report
+visibility and does not replace checkpoint-backed installed learning gates.
 Memory-slot training impact reports can write partial JSON while long arms are
 still running. The projection exposes the newest partial status, completed arm
 names, and missing arm names, but backend-default decisions use the newest final

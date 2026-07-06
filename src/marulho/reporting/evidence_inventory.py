@@ -33,6 +33,7 @@ LANGUAGE_ELIGIBILITY_TRACE_RUNTIME_IMPACT_ARTIFACT = (
 LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT = (
     "marulho_language_memory_slot_training_impact"
 )
+LANGUAGE_CONTINUAL_SPEED_SWEEP_ARTIFACT = "marulho_language_continual_speed_sweep"
 
 
 def build_evidence_report_inventory(
@@ -118,6 +119,10 @@ def build_current_language_evidence_projection(
         reports,
         LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT,
     )
+    continual_speed_sweep_entry = _latest_report(
+        reports,
+        LANGUAGE_CONTINUAL_SPEED_SWEEP_ARTIFACT,
+    )
 
     suite = suite_entry[1] if suite_entry is not None else {}
     gate = _mapping(suite.get("promotion_gate"))
@@ -147,6 +152,9 @@ def build_current_language_evidence_projection(
     training_evidence = _training_throughput_evidence(
         continual_learning_category,
         continual_learning_entry[1] if continual_learning_entry is not None else {},
+    )
+    continual_speed_sweep_evidence = _continual_speed_sweep_evidence(
+        continual_speed_sweep_entry[1] if continual_speed_sweep_entry is not None else {}
     )
     forgetting_replay_evidence = _forgetting_replay_evidence(
         forgetting_category,
@@ -201,6 +209,7 @@ def build_current_language_evidence_projection(
             memory_slot_training_impact_entry,
         ),
         ("memory_slot_training_impact_latest", latest_memory_slot_training_impact_entry),
+        ("continual_speed_sweep", continual_speed_sweep_entry),
     ]
     source_reports = [
         _source_report_ref(role, entry, root_resolved)
@@ -276,6 +285,7 @@ def build_current_language_evidence_projection(
         "generation_evidence": generation_evidence,
         "repair_evidence": repair_evidence,
         "training_throughput_evidence": training_evidence,
+        "continual_speed_sweep_evidence": continual_speed_sweep_evidence,
         "forgetting_replay_evidence": forgetting_replay_evidence,
         "structural_plasticity_evidence": structural_evidence,
         "checkpoint_lineage_evidence": checkpoint_lineage_evidence,
@@ -881,6 +891,141 @@ def _training_throughput_evidence(
             best.get("promotes_runtime_claim"),
             continual_learning_report.get("promotes_runtime_claim"),
             gate.get("promotes_runtime_claim"),
+            False,
+        ),
+    }
+
+
+def _continual_speed_sweep_evidence(
+    speed_sweep_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidates = [
+        _mapping(candidate)
+        for candidate in speed_sweep_report.get("candidates", []) or []
+        if isinstance(candidate, Mapping)
+    ]
+    best = _mapping(speed_sweep_report.get("best_candidate"))
+    best_candidate = None
+    best_id = _string_or_none(best.get("candidate_id"))
+    best_index = _first_int(best.get("candidate_index"))
+    best_output = _string_or_none(best.get("output_path"))
+    for candidate in candidates:
+        if (
+            (best_id is not None and candidate.get("candidate_id") == best_id)
+            or (
+                best_index is not None
+                and _first_int(candidate.get("candidate_index")) == best_index
+            )
+            or (
+                best_output is not None
+                and _string_or_none(candidate.get("output_path")) == best_output
+            )
+        ):
+            best_candidate = candidate
+            break
+    best_metrics = best_candidate or best
+    requested_horizons: list[int] = []
+    for horizon in (
+        speed_sweep_report.get("requested_recurrent_gradient_horizons", []) or []
+    ):
+        parsed_horizon = _first_int(horizon)
+        if parsed_horizon is not None:
+            requested_horizons.append(parsed_horizon)
+    candidate_summaries = [
+        {
+            "candidate_id": _string_or_none(candidate.get("candidate_id")),
+            "recurrent_gradient_horizon": _first_int(
+                candidate.get("recurrent_gradient_horizon")
+            ),
+            "status": _string_or_none(candidate.get("status")),
+            "accepted_online_update": _bool_or_none(
+                candidate.get("accepted_online_update")
+            ),
+            "update_tokens_per_second": _first_float(
+                candidate.get("update_tokens_per_second")
+            ),
+            "total_window_tokens_per_second": _first_float(
+                candidate.get("total_window_tokens_per_second")
+            ),
+            "tracked_torch_fallback_calls": _first_int(
+                candidate.get("tracked_torch_fallback_calls")
+            ),
+            "tracked_triton_failures": _first_int(
+                candidate.get("tracked_triton_failures")
+            ),
+        }
+        for candidate in candidates
+    ]
+    base_config = _mapping(speed_sweep_report.get("base_config"))
+    return {
+        "surface": "marulho_current_language_continual_speed_sweep_evidence.v1",
+        "available": bool(speed_sweep_report),
+        "status": _string_or_none(speed_sweep_report.get("status")),
+        "candidate_count": _first_int(speed_sweep_report.get("candidate_count")),
+        "completed_candidate_count": _first_int(
+            speed_sweep_report.get("completed_candidate_count")
+        ),
+        "accepted_candidate_count": _first_int(
+            speed_sweep_report.get("accepted_candidate_count")
+        ),
+        "requested_recurrent_gradient_horizons": requested_horizons,
+        "selection_policy": _string_or_none(best.get("selection_policy")),
+        "selected_candidate_id": _string_or_none(best_metrics.get("candidate_id")),
+        "selected_recurrent_gradient_horizon": _first_int(
+            best_metrics.get("recurrent_gradient_horizon")
+        ),
+        "selected_candidate_report_path": _first_string(
+            best_metrics.get("output_path"),
+            best.get("output_path"),
+        ),
+        "selected_accepted_online_update": _bool_or_none(
+            best_metrics.get("accepted_online_update")
+        ),
+        "selected_update_token_count": _first_int(
+            best_metrics.get("update_token_count")
+        ),
+        "selected_update_tokens_per_second": _first_float(
+            best_metrics.get("update_tokens_per_second"),
+            best.get("update_tokens_per_second"),
+        ),
+        "selected_total_window_tokens_per_second": _first_float(
+            best_metrics.get("total_window_tokens_per_second"),
+            best.get("total_window_tokens_per_second"),
+        ),
+        "selected_new_domain_loss_delta": _first_float(
+            best_metrics.get("new_domain_loss_delta")
+        ),
+        "selected_old_domain_forgetting": _first_float(
+            best_metrics.get("old_domain_forgetting")
+        ),
+        "selected_general_replay_retention_delta": _first_float(
+            best_metrics.get("general_replay_retention_delta")
+        ),
+        "selected_tracked_torch_fallback_calls": _first_int(
+            best_metrics.get("tracked_torch_fallback_calls")
+        ),
+        "selected_tracked_triton_failures": _first_int(
+            best_metrics.get("tracked_triton_failures")
+        ),
+        "model_vocab_size": _first_int(base_config.get("model_vocab_size")),
+        "sampled_vocab_size": _first_int(base_config.get("sampled_vocab_size")),
+        "memory_slot_count": _first_int(base_config.get("memory_slot_count")),
+        "device": _first_string(base_config.get("device")),
+        "candidate_summaries": candidate_summaries,
+        "writes_partial_after_each_candidate": _first_bool(
+            _mapping(speed_sweep_report.get("review")).get(
+                "writes_partial_after_each_candidate"
+            )
+        ),
+        "reports_not_run_by_service": True,
+        "promotes_runtime_claim": _first_bool(
+            _mapping(speed_sweep_report.get("review")).get("promotes_runtime_claim"),
+            False,
+        ),
+        "promotes_generation_quality_claim": _first_bool(
+            _mapping(speed_sweep_report.get("review")).get(
+                "promotes_generation_quality_claim"
+            ),
             False,
         ),
     }
