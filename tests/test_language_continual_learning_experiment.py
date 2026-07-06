@@ -183,6 +183,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
             max_steps=1,
             gradient_clip_interval=1,
             paired_sampled_vocab_loss=True,
+            profile_update_stages=True,
             device="cpu",
         ),
     )
@@ -198,6 +199,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_training_backend_policy"] is True
     assert report["experiment_review"]["records_dense_adamw_backend"] is True
     assert report["experiment_review"]["records_active_compute"] is True
+    assert report["experiment_review"]["records_update_stage_profile"] is True
     assert report["experiment_review"]["records_memory_slot_path"] is True
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
@@ -331,6 +333,23 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["learning_evidence"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )
+    stage_profile = report["learning_evidence"]["update_stage_profile"]
+    assert stage_profile["surface"] == (
+        "marulho_language_continual_update_stage_profile.v1"
+    )
+    assert stage_profile["enabled"] is True
+    assert stage_profile["measurement"] == "host_perf_counter"
+    assert stage_profile["profile_scope"] == "measured_continual_update_window_only"
+    assert stage_profile["per_stage"]["paired_forward_loss"]["count"] == (
+        report["learning_evidence"]["optimizer_step_count"]
+    )
+    assert stage_profile["per_stage"]["backward"]["mean_ms_per_token"] >= 0.0
+    assert stage_profile["per_stage"]["gradient_clip"]["mean_ms_per_token"] >= 0.0
+    assert stage_profile["per_stage"]["optimizer_step"]["mean_ms_per_token"] >= 0.0
+    assert stage_profile["per_stage"]["optimizer_step_total"]["count"] == (
+        report["learning_evidence"]["optimizer_step_count"]
+    )
+    assert stage_profile["top_stage_mean_ms_per_token"]
     fusion = report["learning_evidence"]["paired_update_replay_fusion"]
     assert fusion["enabled"] is True
     assert fusion["weighted_replay_loss_preserved"] is True

@@ -206,6 +206,18 @@ harnesses.
   and `4054.424` total-window tokens/sec, `-6.117%` and `-5.761%` versus the
   retained paired default, while preserving `768` tracked torch fallback calls
   and zero tracked Triton failures.
+- `language_continual_learning_experiment.py` exposes
+  `--profile-update-stages` and records
+  `experiment_review.records_update_stage_profile=true` when
+  `learning_evidence.update_stage_profile.surface` is
+  `marulho_language_continual_update_stage_profile.v1`. The profiler uses CUDA
+  events for CUDA runs without per-stage synchronizations. The current profiled
+  `524288` horizon-8 report identifies backward (`0.133416` ms/token) and
+  paired forward/loss (`0.068868` ms/token) as the bottlenecks. The unprofiled
+  horizon-4 candidate accepts the same gate shape at `4954.315` update
+  tokens/sec and `4330.585` total-window tokens/sec, `+0.330%` and `+0.658%`
+  versus the retained horizon-8 paired default, with `768` tracked torch
+  fallback calls and zero Triton failures.
 - Heldout and replay evaluation keeps the deferred scalar readback boundary but
   no longer builds loss/memory evidence for every eval batch. Evaluation
   reports now record `evidence_collection_mode=last_batch_only`,

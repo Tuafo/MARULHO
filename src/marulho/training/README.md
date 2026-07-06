@@ -596,6 +596,22 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `4635.942` update tokens/sec and `4054.424` total-window tokens/sec, which is
   `-6.117%` and `-5.761%` versus the retained paired default, so this is
   visibility evidence rather than a speed promotion.
+- Continual-learning can opt into `profile_update_stages` for
+  `marulho_language_continual_update_stage_profile.v1` inside the measured
+  update window. CUDA uses events and one final profiler synchronization, not a
+  sync after each stage. The current profiled `524288` horizon-8 report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-update-stage-profile-evalmatched-update524288-20260706.json`
+  accepts the update at `4816.607` update tokens/sec and shows backward as the
+  dominant stage (`0.133416` ms/token), followed by paired forward/loss
+  (`0.068868` ms/token); optimizer, clip, and zero-grad are small. The
+  horizon-4 follow-up
+  `reports/language_continual_learning/cuda-sampled-padded-horizon4-tf32-clip8-memory-slots-evalmatched-update524288-20260706.json`
+  keeps the same `524288` sampled/padded memory-slot shape without profiling,
+  accepts the learning gates, and reaches `4954.315` update tokens/sec plus
+  `4330.585` total-window tokens/sec. That is `+0.330%` and `+0.658%` versus
+  the retained horizon-8 paired default with `768` tracked torch fallback calls
+  and zero Triton failures, so horizon-4 is the current speed candidate, not a
+  language-quality promotion.
 - Continual-learning reports now include
   `training_window_triton_accounting` with scope
   `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,

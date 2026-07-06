@@ -176,6 +176,124 @@ class LanguageContinualLearningConfig:
     replay_retention_tolerance: float = 0.10
     min_new_loss_improvement: float = 0.0
     rollback_on_forgetting: bool = True
+    profile_update_stages: bool = False
+
+
+class _ContinualUpdateStageProfiler:
+    def __init__(self, device: torch.device, *, enabled: bool) -> None:
+        self.device = device
+        self.enabled = bool(enabled)
+        self.cuda_events = bool(self.enabled and device.type == "cuda")
+        self._records: list[dict[str, Any]] = []
+
+    def start(self) -> torch.cuda.Event | float | None:
+        if not self.enabled:
+            return None
+        if self.cuda_events:
+            event = torch.cuda.Event(enable_timing=True)
+            event.record()
+            return event
+        return time.perf_counter()
+
+    def record_elapsed(
+        self,
+        name: str,
+        token_count: int,
+        marker: torch.cuda.Event | float | None,
+    ) -> None:
+        if not self.enabled or marker is None:
+            return
+        if self.cuda_events:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            self._records.append(
+                {
+                    "stage": str(name),
+                    "token_count": int(token_count),
+                    "start_event": marker,
+                    "end_event": end_event,
+                }
+            )
+            return
+        elapsed_ms = (time.perf_counter() - float(marker)) * 1000.0
+        self._records.append(
+            {
+                "stage": str(name),
+                "token_count": int(token_count),
+                "elapsed_ms": float(elapsed_ms),
+            }
+        )
+
+    def report(self) -> dict[str, Any]:
+        if not self.enabled:
+            return {
+                "surface": "marulho_language_continual_update_stage_profile.v1",
+                "enabled": False,
+            }
+        if self.cuda_events:
+            torch.cuda.synchronize(self.device)
+        per_stage: dict[str, dict[str, float]] = {}
+        total_ms = 0.0
+        for record in self._records:
+            stage = str(record["stage"])
+            if self.cuda_events:
+                elapsed_ms = float(
+                    record["start_event"].elapsed_time(record["end_event"])
+                )
+            else:
+                elapsed_ms = float(record["elapsed_ms"])
+            token_count = int(record.get("token_count", 0) or 0)
+            summary = per_stage.setdefault(
+                stage,
+                {
+                    "count": 0.0,
+                    "total_ms": 0.0,
+                    "token_count": 0.0,
+                },
+            )
+            summary["count"] += 1.0
+            summary["total_ms"] += elapsed_ms
+            summary["token_count"] += float(token_count)
+            total_ms += elapsed_ms
+        formatted: dict[str, dict[str, float]] = {}
+        for stage, summary in sorted(per_stage.items()):
+            count = max(1.0, float(summary["count"]))
+            token_count = max(1.0, float(summary["token_count"]))
+            total_stage_ms = float(summary["total_ms"])
+            formatted[stage] = {
+                "count": int(summary["count"]),
+                "total_ms": total_stage_ms,
+                "mean_ms": total_stage_ms / count,
+                "mean_ms_per_token": total_stage_ms / token_count,
+            }
+        top_stage_mean_ms_per_token = sorted(
+            (
+                {
+                    "stage": stage,
+                    "mean_ms_per_token": values["mean_ms_per_token"],
+                    "total_ms": values["total_ms"],
+                }
+                for stage, values in formatted.items()
+                if stage != "optimizer_step_total"
+            ),
+            key=lambda item: float(item["mean_ms_per_token"]),
+            reverse=True,
+        )
+        return {
+            "surface": "marulho_language_continual_update_stage_profile.v1",
+            "enabled": True,
+            "device": str(self.device),
+            "measurement": (
+                "cuda_event_no_per_stage_sync"
+                if self.cuda_events
+                else "host_perf_counter"
+            ),
+            "record_count": len(self._records),
+            "total_recorded_ms": total_ms,
+            "per_stage": formatted,
+            "top_stage_mean_ms_per_token": top_stage_mean_ms_per_token,
+            "profile_scope": "measured_continual_update_window_only",
+        }
 
 
 def _clone_state_dict(model: MarulhoLanguageModel) -> dict[str, torch.Tensor]:
@@ -997,6 +1115,10 @@ def run_language_continual_learning_window(
     trainable_parameters = [
         parameter for parameter in model.parameters() if parameter.requires_grad
     ]
+    stage_profiler = _ContinualUpdateStageProfiler(
+        model.device,
+        enabled=bool(cfg.profile_update_stages),
+    )
     optimizer_setup_elapsed_seconds = max(
         0.0,
         time.perf_counter() - optimizer_setup_started,
@@ -1037,8 +1159,6 @@ def run_language_continual_learning_window(
         for index, batch in enumerate(new_update_batches):
             optimizer_step_count += 1
             last_update_batch_for_probe = batch
-            for optimizer in optimizers:
-                optimizer.zero_grad(set_to_none=True)
             replay_index = (
                 (step * len(new_update_batches) + index) % replay_count
                 if replay_update_batches
@@ -1046,6 +1166,20 @@ def run_language_continual_learning_window(
             )
             replay_batch = (
                 replay_update_batches[replay_index] if replay_update_batches else None
+            )
+            optimizer_step_token_count = int(batch.target_ids.numel()) + (
+                int(replay_batch.target_ids.numel())
+                if replay_batch is not None
+                else 0
+            )
+            optimizer_step_marker = stage_profiler.start()
+            stage_marker = stage_profiler.start()
+            for optimizer in optimizers:
+                optimizer.zero_grad(set_to_none=True)
+            stage_profiler.record_elapsed(
+                "zero_grad",
+                optimizer_step_token_count,
+                stage_marker,
             )
             if (
                 replay_batch is not None
@@ -1055,6 +1189,7 @@ def run_language_continual_learning_window(
                 paired_sampled_vocab = paired_sampled_vocab_inputs.get(
                     (index, replay_index)
                 )
+                stage_marker = stage_profiler.start()
                 paired_result = model.next_token_loss_pair(
                     batch,
                     replay_batch,
@@ -1071,6 +1206,11 @@ def run_language_continual_learning_window(
                         None if paired_sampled_vocab is None else paired_sampled_vocab[2]
                     ),
                 )
+                stage_profiler.record_elapsed(
+                    "paired_forward_loss",
+                    optimizer_step_token_count,
+                    stage_marker,
+                )
                 measured_update_loop_model_loss_calls += 1
                 fused_update_replay_step_count += 1
                 separate_replay_forward_loss_calls_avoided += 1
@@ -1079,6 +1219,7 @@ def run_language_continual_learning_window(
                 loss = paired_result["loss"]
                 replay_loss = paired_result["replay_loss"]
             else:
+                stage_marker = stage_profiler.start()
                 update_result = model.next_token_loss(
                     batch.input_ids,
                     batch.target_ids,
@@ -1089,6 +1230,11 @@ def run_language_continual_learning_window(
                     memory_candidate_ids=batch.memory_candidate_ids,
                     route_candidate_ids=batch.route_candidate_ids,
                     return_evidence=False,
+                )
+                stage_profiler.record_elapsed(
+                    "update_forward_loss",
+                    int(batch.target_ids.numel()),
+                    stage_marker,
                 )
                 measured_update_loop_model_loss_calls += 1
                 loss = update_result["loss"]
@@ -1103,6 +1249,7 @@ def run_language_continual_learning_window(
             if replay_batch is not None:
                 last_replay_batch_for_probe = replay_batch
                 if replay_loss is None:
+                    stage_marker = stage_profiler.start()
                     replay_result = model.next_token_loss(
                         replay_batch.input_ids,
                         replay_batch.target_ids,
@@ -1113,6 +1260,11 @@ def run_language_continual_learning_window(
                         memory_candidate_ids=replay_batch.memory_candidate_ids,
                         route_candidate_ids=replay_batch.route_candidate_ids,
                         return_evidence=False,
+                    )
+                    stage_profiler.record_elapsed(
+                        "replay_forward_loss",
+                        int(replay_batch.target_ids.numel()),
+                        stage_marker,
                     )
                     measured_update_loop_model_loss_calls += 1
                     replay_loss = replay_result["loss"]
@@ -1132,7 +1284,14 @@ def run_language_continual_learning_window(
                 if not bool(paired_update_replay_fusion_enabled):
                     loss = loss + float(cfg.replay_loss_weight) * replay_loss
                 update_token_count += int(replay_batch.target_ids.numel())
+            stage_marker = stage_profiler.start()
             loss.backward()
+            stage_profiler.record_elapsed(
+                "backward",
+                optimizer_step_token_count,
+                stage_marker,
+            )
+            stage_marker = stage_profiler.start()
             should_clip_gradients = bool(
                 float(cfg.max_grad_norm) > 0.0
                 and gradient_clip_interval > 0
@@ -1153,8 +1312,24 @@ def run_language_continual_learning_window(
                 gradient_clip_applied_step_count += 1
             else:
                 gradient_clip_skipped_step_count += 1
+            stage_profiler.record_elapsed(
+                "gradient_clip",
+                optimizer_step_token_count,
+                stage_marker,
+            )
+            stage_marker = stage_profiler.start()
             for optimizer in optimizers:
                 optimizer.step()
+            stage_profiler.record_elapsed(
+                "optimizer_step",
+                optimizer_step_token_count,
+                stage_marker,
+            )
+            stage_profiler.record_elapsed(
+                "optimizer_step_total",
+                optimizer_step_token_count,
+                optimizer_step_marker,
+            )
             detached_update_loss = loss.detach()
             update_loss_sum = (
                 detached_update_loss
@@ -1467,6 +1642,7 @@ def run_language_continual_learning_window(
                 if elapsed_seconds > 0.0
                 else 0.0
             ),
+            "update_stage_profile": stage_profiler.report(),
             "total_window_tokens_per_second": (
                 float(update_token_count) / total_elapsed_seconds
                 if total_elapsed_seconds > 0.0

@@ -93,6 +93,7 @@ class LanguageContinualLearningExperimentConfig:
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
     collect_training_telemetry: bool = False
+    profile_update_stages: bool = False
     sampled_vocab_ce_triton_training: bool = False
     memory_slots_triton_training: bool = False
     cuda_allow_tf32: bool = True
@@ -1106,6 +1107,7 @@ def run_language_continual_learning_experiment(
             max_grad_norm=float(cfg.max_grad_norm),
             gradient_clip_interval=max(0, int(cfg.gradient_clip_interval)),
             collect_training_telemetry=bool(cfg.collect_training_telemetry),
+            profile_update_stages=bool(cfg.profile_update_stages),
         )
         used_new_batches = _trim(new_split.train, int(cfg.max_new_batches))
         used_replay_batches = _trim(old_split.train, int(cfg.max_replay_batches))
@@ -1233,6 +1235,11 @@ def run_language_continual_learning_experiment(
             "records_deferred_metric_readback": (
                 report["learning_evidence"].get("metric_readback_mode")
                 == "deferred_gpu_scalar_aggregation"
+            ),
+            "records_update_stage_profile": bool(
+                report["learning_evidence"]
+                .get("update_stage_profile", {})
+                .get("enabled", False)
             ),
             "records_paired_update_replay_fusion": bool(
                 report["learning_evidence"]
@@ -1431,6 +1438,7 @@ def main() -> int:
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
     parser.add_argument("--collect-training-telemetry", action="store_true")
+    parser.add_argument("--profile-update-stages", action="store_true")
     parser.add_argument("--sampled-vocab-ce-triton-training", action="store_true")
     parser.add_argument("--memory-slots-triton-training", action="store_true")
     parser.add_argument("--paired-sampled-vocab-loss", action="store_true")
@@ -1489,6 +1497,7 @@ def main() -> int:
         replay_retention_tolerance=args.replay_retention_tolerance,
         rollback_on_forgetting=bool(args.rollback_on_forgetting),
         collect_training_telemetry=bool(args.collect_training_telemetry),
+        profile_update_stages=bool(args.profile_update_stages),
         sampled_vocab_ce_triton_training=bool(
             args.sampled_vocab_ce_triton_training
         ),
