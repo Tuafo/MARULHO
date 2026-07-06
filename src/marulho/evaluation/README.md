@@ -280,13 +280,13 @@ harnesses.
 - `language_brain_generation_evidence.py` is the installed-brain generation
   evidence runner. It restores a `MarulhoBrain` checkpoint, verifies the
   installed LM tokenizer and non-mutating status reads, then runs the grounded
-  prompt suite through public `MarulhoBrain.generate()`. The current CUDA
-  report
-  `reports/language_brain_generation/post-structure-brain-hard-prompt-repair-sweep-selected-generation-20260706.json`
-  restores the selected repair-sweep brain checkpoint, records brain-owned
-  generation with no external/service-owned cognition, and passes `4/4`
-  grounded cases with mean prefix match `34.0` chars. Treat it as automated
-  grounded prompt-suite evidence, not broad generation-quality promotion.
+  prompt suite through public `MarulhoBrain.generate()`. The current
+  direct-reviewed CUDA report
+  `reports/language_brain_generation/direct-reviewed-horizon2-fresh-post-structure-generation-20260706.json`
+  restores the fresh post-structure brain checkpoint, records brain-owned
+  generation with no external/service-owned cognition, and passes `0/4`
+  grounded cases. Treat it as path-ownership evidence and as the baseline that
+  requires the installed repair lane, not as generation-quality evidence.
 - `language_brain_generation_repair_evidence.py` is the installed-brain
   generation repair runner. It restores a `MarulhoBrain` checkpoint, builds
   hard-prompt replay windows, learns through
@@ -295,14 +295,14 @@ harnesses.
   post-repair sustained run. It supports multiple installed-brain repair
   passes and candidate sweeps with per-candidate generation deltas, aggregate
   update throughput, and sustained generation only for the selected child. The
-  current CUDA report
-  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sweep-sustained524288-20260706.json`
-  selects `candidate-02`, repairs the installed brain from `3/4` to `4/4`,
-  records `491520` update tokens at `2510.339` update tokens/sec, improves
-  mean prefix match by `10.5` chars with no prompt regressions, and reaches
-  `524288/524288` selected post-repair sustained tokens at `8123.130`
-  tokens/sec with zero tracked Triton failures. It is still evidence, not a
-  broad generation-quality claim.
+  current fresh CUDA report
+  `reports/language_brain_generation_repair/direct-reviewed-horizon2-fresh-repair2-sweep-sustained524288-20260706.json`
+  selects `candidate-01`, reaches `4/4` grounded prompt cases with zero prompt
+  regressions, records `393216` update tokens at `5943.300` update tokens/sec
+  and `5365.354` total-window tokens/sec, improves mean prefix match by `4.5`
+  chars, and reaches `524288/524288` selected post-repair controlled sustained
+  tokens at `8070.687` tokens/sec with zero tracked Triton failures. It is
+  still evidence, not a broad generation-quality claim.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -528,12 +528,13 @@ harnesses.
   lane records `0/4` prompt cases passed and keeps
   `promotes_generation_quality_claim=false`.
 - The current installed repair aggregate
-  `reports/language_benchmark_suite/language-suite-evo-child-installed-generation-repair-20260706.json`
+  `reports/language_benchmark_suite/language-suite-direct-reviewed-horizon2-fresh-repair2-20260706.json`
   accepts `--brain-installed-generation-repair-evidence` and reaches
-  `ready_for_review` with no failed or missing categories. Its repair lane
-  records the `3/4` post-repair prompt pass rate, `98304` update tokens,
-  `3042.237` update tokens/sec, and `524288` post-repair sustained tokens at
-  `8120.458` tokens/sec, while keeping
+  `ready_for_review` with no failed or missing categories. Its generation gate
+  accepts the repair lane only because the repaired child reaches `4/4`
+  grounded prompt cases with zero regressions and aligns that same repaired
+  checkpoint with `524288/524288` controlled sustained generation at
+  `8070.687` tokens/sec, while keeping
   `promotes_generation_quality_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
@@ -541,8 +542,11 @@ harnesses.
   8192/131072/524288 gates remain additive evidence; they do not replace
   generation-coherence or Triton/parity requirements.
 - Generation coherence and long-run throughput must now pair on the same
-  checkpoint before the generation category can pass. The controlled padded-vocab
-  suite is blocked until that fast checkpoint has same-checkpoint prompt-suite
+  checkpoint before the generation category can pass. Installed generation-repair
+  evidence can satisfy this category only when post-repair coherence is complete,
+  prompt regressions are zero, and same-repaired-checkpoint controlled
+  house-scale throughput is present. The controlled padded-vocab suite is blocked
+  until that fast checkpoint has same-checkpoint prompt-suite
   evidence; the local same-checkpoint controlled report failed `0/4` cases with
   mean prefix match `0.0` and mean printable fraction `0.842`, so its
   `5537.062` token/sec controlled house-scale run remains speed evidence plus a

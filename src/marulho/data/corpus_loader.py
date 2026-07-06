@@ -64,6 +64,22 @@ _MEDIAWIKI_HEADING_RE = re.compile(r"^\s*=+\s*(.*?)\s*=+\s*$", flags=re.MULTILIN
 _MEDIAWIKI_MAGIC_WORD_RE = re.compile(r"__[^_]+__")
 _MEDIAWIKI_LIST_PREFIX_RE = re.compile(r"^\s*[:*#;]+\s*", flags=re.MULTILINE)
 _MEDIAWIKI_TABLE_LINE_RE = re.compile(r"^\s*(?:\{\||\|\}|[|!].*)$", flags=re.MULTILINE)
+_TEXT_FIELD_SEPARATOR_RE = re.compile(r"[,|+]")
+_STRUCTURED_TEXT_PRIORITY_KEYS = (
+    "role",
+    "content",
+    "text",
+    "problem",
+    "question",
+    "generated_solution",
+    "solution",
+    "expected_answer",
+    "response",
+    "response1",
+    "response2",
+    "context",
+    "reasoning",
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -96,6 +112,59 @@ def project_dataset_columns(dataset: Any, columns: Sequence[str] | None) -> Any:
         except Exception:
             return dataset
     return dataset
+
+
+def _text_field_names(text_field: str) -> list[str]:
+    fields = [
+        item.strip()
+        for item in _TEXT_FIELD_SEPARATOR_RE.split(str(text_field or "text"))
+        if item.strip()
+    ]
+    return fields or ["text"]
+
+
+def _structured_text_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        role = _normalize_text(value.get("role"))
+        content = _structured_text_value(value.get("content"))
+        if content and role:
+            return f"{role}: {content}"
+        if content:
+            return content
+        parts: list[str] = []
+        seen: set[str] = set()
+        for key in _STRUCTURED_TEXT_PRIORITY_KEYS:
+            if key in value and key not in {"role", "content"}:
+                text = _structured_text_value(value.get(key))
+                if text:
+                    parts.append(text)
+                    seen.add(key)
+        for key, item in value.items():
+            if key in seen or key in {"role", "content"}:
+                continue
+            text = _structured_text_value(item)
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return "\n".join(
+            text for item in value if (text := _structured_text_value(item))
+        )
+    return str(value)
+
+
+def extract_dataset_row_text(row: Mapping[str, Any], text_field: str = "text") -> str:
+    fields = _text_field_names(text_field)
+    parts = [
+        text
+        for field in fields
+        if (text := _structured_text_value(row.get(field)))
+    ]
+    return "\n".join(parts)
 
 
 def load_hf_first_rows(
@@ -646,9 +715,9 @@ class StreamingCorpusLoader:
                 ds = load_dataset(self.source, self.hf_config, **legacy_kwargs)
             else:
                 ds = load_dataset(self.source, **legacy_kwargs)
-        ds = project_dataset_columns(ds, [self.text_field])
+        ds = project_dataset_columns(ds, _text_field_names(self.text_field))
         for row in ds:
-            text = str(row.get(self.text_field, ""))
+            text = extract_dataset_row_text(row, self.text_field)
             for ch in text:
                 if ch.isprintable() or ch.isspace():
                     yield ch

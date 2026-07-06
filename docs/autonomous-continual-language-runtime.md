@@ -1,6 +1,6 @@
 # MARULHO Autonomous Continual Language Runtime
 
-Last reviewed: 2026-07-04
+Last reviewed: 2026-07-06
 
 This document is the maintained architecture lock for building MARULHO from the
 current bounded readout runtime toward a MARULHO-owned continual language model.
@@ -279,6 +279,36 @@ Required tokenizer state:
 Small CI fixtures may use tiny vocabularies, but the same adapter contract must
 support production vocabularies in the 32k to 256k range without changing the
 runtime ownership model.
+
+## Dataset Curriculum Sources
+
+Research snapshot: 2026-07-06, using Hugging Face Hub metadata and Dataset
+Viewer previews.
+
+The next language-quality step should move beyond hand-written local repair
+prompts into a mixed curriculum with explicit source provenance, license tags,
+split/config, and row-field extraction. The current open-first source plan is:
+
+| Role | Dataset | Access | Loader fields | Why it matters |
+| --- | --- | --- | --- | --- |
+| General SFT/reasoning/tool use | `nvidia/Nemotron-Post-Training-Dataset-v1` | open, CC-BY-4.0 | `messages` across `chat`, `code`, `math`, `stem`, `tool_calling` splits | Broad supervised repair data for instruction following, code, math, STEM, and tool-call formatting. |
+| Math reasoning | `nvidia/OpenMathInstruct-2` | open, CC-BY-4.0 | `problem,generated_solution,expected_answer` | Large math problem/solution curriculum for heldout reasoning and source-continuation repair. |
+| Preference/reward review | `nvidia/HelpSteer3` | open, CC-BY-4.0 | `context,response1,response2,individual_preference` | Preference and feedback rows for later reward/ranking gates; not direct SFT without conversion. |
+| Code reasoning | `nvidia/Nemotron-Competitive-Programming-v1` | open, CC-BY-4.0 | `messages` | Python/C++ competitive-programming trajectories for code and systems reasoning. |
+| Persona diversity | `nvidia/Nemotron-Personas-USA` | open, CC-BY-4.0 | selected persona columns | Diversity and style conditioning only; keep separate from factual/grounded evaluation. |
+
+The large pretraining corpora `nvidia/Nemotron-CC-v2`,
+`nvidia/Nemotron-CC-v2.1`, and `nvidia/Nemotron-CC-Math-v1` are relevant for a
+future pretraining-scale run, but are gated and/or non-CC in the current Hub
+metadata. They should be treated as optional until access, terms, storage, and
+sampling budget are explicit. Do not block the next MARULHO experiment on those
+gates.
+
+Implementation boundary: `StreamingCorpusLoader` now flattens structured
+Hugging Face rows such as role/content `messages`, and accepts comma-separated
+field lists for math and preference rows. Dataset mixing still needs an
+evidence report that records source ratios, row counts, heldout split hashes,
+old/new/replay retention, and generation prompt suites before any quality claim.
 
 ## Source Windows To Spike State
 

@@ -83,6 +83,9 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         "reports/language_brain_generation_repair/"
         "selected-candidate-02-repaired-brain.pt"
     )
+    parent_checkpoint_path = (
+        "reports/language_brain_structural_plasticity/post-structure-brain.pt"
+    )
     selected_checkpoint = repair_dir / "selected-candidate-02-repaired-brain.pt"
     selected_checkpoint.write_bytes(b"checkpoint-payload")
     suite_path = suite_dir / "language-suite.json"
@@ -126,6 +129,27 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                                 }
                             },
                             "brain_installed_generation_long_run_alignment": {
+                                "generation_checkpoint_path": parent_checkpoint_path,
+                                "same_checkpoint_controlled_decode_house_scale_available": True,
+                                "matching_reports": [
+                                    {
+                                        "checkpoint_path": parent_checkpoint_path,
+                                        "runtime_owner": "MarulhoLanguageModel",
+                                        "backend": "torch_cuda_graph_burst_decode_controls",
+                                        "device": "cuda:0",
+                                        "success": True,
+                                        "report_status": "final",
+                                        "target_tokens": 524288,
+                                        "token_delta": 524288,
+                                        "tokens_per_second": 8060.86,
+                                        "triton_kernel_used": True,
+                                        "promotes_runtime_claim": False,
+                                    }
+                                ],
+                            },
+                            "brain_installed_generation_repair_long_run_alignment": {
+                                "generation_checkpoint_path": checkpoint_path,
+                                "same_checkpoint_house_scale_available": True,
                                 "same_checkpoint_controlled_decode_house_scale_available": True,
                                 "matching_reports": [
                                     {
@@ -370,7 +394,6 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                 "post_repair_sustained_window": {
                     "runtime_owner": "MarulhoLanguageModel",
                     "active_language_path": "marulho_lm_head",
-                    "checkpoint_path": checkpoint_path,
                     "backend": "torch_cuda_graph_burst_decode_controls",
                     "device": "cuda:0",
                     "success": True,
@@ -849,6 +872,18 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["house_scale_throughput_evidence"]["target_tokens"] == 524288
     assert projection["house_scale_throughput_evidence"]["house_scale_gate_reached"] is True
     assert projection["house_scale_throughput_evidence"]["tokens_per_second"] == 8123.13
+    assert projection["house_scale_throughput_evidence"]["source"] == (
+        "benchmark_suite.brain_installed_generation_repair_long_run_alignment"
+    )
+    assert projection["house_scale_throughput_evidence"]["checkpoint_path"] == (
+        checkpoint_path
+    )
+    assert (
+        projection["house_scale_throughput_evidence"][
+            "controlled_decode_house_scale_aligned"
+        ]
+        is True
+    )
     assert projection["gpu_kernel_evidence"]["generation_tracked_failure_count"] == 0
     source_roles = {item["role"] for item in projection["source_reports"]}
     assert "continual_speed_sweep" in source_roles

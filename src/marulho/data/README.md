@@ -40,3 +40,9 @@ audio, event-camera style input, and multimodal streams.
   foundation. It owns UTF-8 byte ids, BOS/EOS/PAD/UNK/checkpoint/replay marker
   ids, encode/decode determinism, tokenizer hash, and checkpoint state. It does
   not load an external language model or generation stack.
+- Hugging Face text sources may expose structured rows instead of a single
+  `text` column. `StreamingCorpusLoader` flattens role/content `messages` rows
+  and accepts comma-separated `text_field` values such as
+  `problem,generated_solution,expected_answer`, so NVIDIA/Nemotron-style SFT,
+  math, and preference rows can feed the MARULHO-owned tokenizer without a
+  dataset-specific hidden generation path.

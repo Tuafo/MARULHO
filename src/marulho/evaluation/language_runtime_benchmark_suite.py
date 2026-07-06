@@ -1062,6 +1062,10 @@ def _brain_installed_generation_repair_summary(
         "passed_case_count_delta": int(
             gate.get("passed_case_count_delta", 0) or 0
         ),
+        "regressed_prompt_count": int(
+            delta.get("regressed_prompt_count", 0) or 0
+        ),
+        "regressed_prompts": list(delta.get("regressed_prompts") or []),
         "pre_case_pass_rate": float(gate.get("pre_case_pass_rate", 0.0) or 0.0),
         "post_case_pass_rate": float(gate.get("post_case_pass_rate", 0.0) or 0.0),
         "mean_prefix_match_chars_delta": float(
@@ -1298,6 +1302,82 @@ def _brain_installed_generation_long_run_alignment_evidence(
         "same_checkpoint_long_run_available": evidence_available,
         "same_checkpoint_house_scale_available": bool(matching_house_reports),
         "same_checkpoint_controlled_decode_available": bool(matching_controlled_reports),
+        "same_checkpoint_controlled_decode_house_scale_available": bool(
+            matching_controlled_house_reports
+        ),
+        "controlled_decode_house_scale_required": controlled_house_required,
+        "matching_reports": matching_reports,
+        "missing_evidence": missing,
+    }
+
+
+def _brain_installed_generation_repair_long_run_alignment_evidence(
+    brain_installed_generation_repair_evidence: Mapping[str, Any],
+    long_run_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    best_report = (
+        brain_installed_generation_repair_evidence.get("best_report")
+        if isinstance(
+            brain_installed_generation_repair_evidence.get("best_report"),
+            Mapping,
+        )
+        else {}
+    )
+    repaired_checkpoint = best_report.get("repaired_brain_checkpoint_path")
+    repaired_checkpoint_key = _normalized_evidence_path(repaired_checkpoint)
+    long_reports = _long_run_report_summaries(long_run_evidence)
+    matching_reports = [
+        report
+        for report in long_reports
+        if repaired_checkpoint_key
+        and _normalized_evidence_path(report.get("checkpoint_path"))
+        == repaired_checkpoint_key
+    ]
+    matching_long_reports = [
+        report for report in matching_reports if _token_delta(report) >= 131072
+    ]
+    matching_house_reports = [
+        report for report in matching_reports if _token_delta(report) >= 524288
+    ]
+    matching_controlled_reports = [
+        report
+        for report in matching_reports
+        if (
+            isinstance(report.get("generation_decode"), Mapping)
+            and bool(report["generation_decode"].get("decode_controls_requested"))
+        )
+    ]
+    matching_controlled_house_reports = [
+        report
+        for report in matching_controlled_reports
+        if _token_delta(report) >= 524288
+    ]
+    evidence_available = bool(repaired_checkpoint_key and matching_long_reports)
+    controlled_house_required = bool(
+        long_run_evidence.get("controlled_decode_house_scale_gate_reached")
+    )
+    missing: list[str] = []
+    if not evidence_available:
+        missing.append("same_checkpoint_brain_generation_repair_long_run")
+    if controlled_house_required and not matching_controlled_house_reports:
+        missing.append(
+            "same_checkpoint_brain_generation_repair_controlled_decode_house_scale"
+        )
+    return {
+        "surface": (
+            "marulho_language_brain_installed_generation_repair_"
+            "long_run_alignment.v1"
+        ),
+        "repaired_brain_checkpoint_path": repaired_checkpoint,
+        "long_run_checkpoint_paths": [
+            report.get("checkpoint_path") for report in long_reports
+        ],
+        "matching_report_count": len(matching_reports),
+        "same_checkpoint_long_run_available": evidence_available,
+        "same_checkpoint_house_scale_available": bool(matching_house_reports),
+        "same_checkpoint_controlled_decode_available": bool(
+            matching_controlled_reports
+        ),
         "same_checkpoint_controlled_decode_house_scale_available": bool(
             matching_controlled_house_reports
         ),
@@ -3044,15 +3124,45 @@ def run_language_runtime_benchmark_suite(
         if isinstance(brain_installed_generation_evidence.get("best_report"), Mapping)
         else {}
     )
+    best_brain_installed_generation_repair = (
+        brain_installed_generation_repair_evidence.get("best_report")
+        if isinstance(
+            brain_installed_generation_repair_evidence.get("best_report"),
+            Mapping,
+        )
+        else {}
+    )
     brain_installed_generation_coherence_available = bool(
         best_brain_installed_generation.get("generation_coherence_available", False)
         and int(best_brain_installed_generation.get("case_count", 0) or 0) > 0
         and int(best_brain_installed_generation.get("passed_case_count", 0) or 0)
         == int(best_brain_installed_generation.get("case_count", 0) or 0)
     )
+    brain_installed_generation_repair_coherence_available = bool(
+        int(best_brain_installed_generation_repair.get("case_count", 0) or 0) > 0
+        and int(
+            best_brain_installed_generation_repair.get(
+                "post_passed_case_count",
+                0,
+            )
+            or 0
+        )
+        == int(best_brain_installed_generation_repair.get("case_count", 0) or 0)
+        and int(
+            best_brain_installed_generation_repair.get(
+                "regressed_prompt_count",
+                0,
+            )
+            or 0
+        )
+        == 0
+    )
     generation_report_missing = (
         []
-        if brain_installed_generation_coherence_available
+        if (
+            brain_installed_generation_coherence_available
+            or brain_installed_generation_repair_coherence_available
+        )
         else generation_coherence_evidence["missing_evidence"]
     )
     generation_coherence_missing = tuple(
@@ -3076,6 +3186,9 @@ def run_language_runtime_benchmark_suite(
             ),
             "brain_installed_generation_repair_evidence": (
                 brain_installed_generation_repair_evidence
+            ),
+            "brain_installed_generation_repair_satisfies_grounded_coherence": (
+                brain_installed_generation_repair_coherence_available
             ),
             "quality_replay_evidence": quality_replay_evidence,
         },
@@ -3996,6 +4109,24 @@ def run_language_runtime_benchmark_suite(
         generation_category["missing_evidence"].extend(
             brain_installed_generation_long_run_alignment["missing_evidence"]
         )
+    brain_installed_generation_repair_long_run_alignment = (
+        _brain_installed_generation_repair_long_run_alignment_evidence(
+            brain_installed_generation_repair_evidence,
+            long_run_evidence,
+        )
+    )
+    generation_category["evidence"][
+        "brain_installed_generation_repair_long_run_alignment"
+    ] = brain_installed_generation_repair_long_run_alignment
+    if (
+        brain_installed_generation_repair_coherence_available
+        and not long_run_missing
+        and brain_installed_generation_repair_long_run_alignment["missing_evidence"]
+    ):
+        generation_category["status"] = "smoke_only"
+        generation_category["missing_evidence"].extend(
+            brain_installed_generation_repair_long_run_alignment["missing_evidence"]
+        )
     if quality_replay_evidence["quality_replay_available"]:
         quality_replay_long_run_alignment = (
             _quality_replay_long_run_alignment_evidence(
@@ -4466,6 +4597,14 @@ def run_language_runtime_benchmark_suite(
                     "same_checkpoint_controlled_decode_house_scale_available"
                 )
                 or brain_installed_generation_long_run_alignment.get(
+                    "same_checkpoint_controlled_decode_house_scale_available"
+                )
+                or brain_installed_generation_repair_long_run_alignment.get(
+                    "same_checkpoint_controlled_decode_house_scale_available"
+                )
+            ),
+            "brain_installed_generation_repair_controlled_decode_house_scale_aligned": bool(
+                brain_installed_generation_repair_long_run_alignment.get(
                     "same_checkpoint_controlled_decode_house_scale_available"
                 )
             ),

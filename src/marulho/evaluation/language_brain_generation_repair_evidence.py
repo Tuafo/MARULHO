@@ -632,6 +632,8 @@ def _compact_sustained_generation(
         "surface": "marulho_brain_post_generation_repair_sustained_summary.v1",
         "enabled": True,
         "output_path": str(output_path),
+        "runtime_owner": report.get("runtime_owner"),
+        "checkpoint_path": report.get("checkpoint_path"),
         "report_status": report.get("report_status"),
         "success": bool(report.get("success", False)),
         "target_tokens": int(report.get("target_tokens", 0) or 0),

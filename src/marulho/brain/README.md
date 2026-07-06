@@ -145,27 +145,27 @@ promotion.
 after structural mutation. It restores the post-structure `MarulhoBrain`
 checkpoint, checks that status reads do not mutate runtime state, verifies the
 installed tokenizer, and scores grounded prompt continuations through public
-`MarulhoBrain.generate()`. The current CUDA report
-`reports/language_brain_generation/post-structure-brain-hard-prompt-repair-sweep-selected-generation-20260706.json`
+`MarulhoBrain.generate()`. The current direct-reviewed CUDA report
+`reports/language_brain_generation/direct-reviewed-horizon2-fresh-post-structure-generation-20260706.json`
 records `generation_runs_through_marulho_brain=true`,
 `status_read_mutation_absent=true`, no external/service-owned cognition, and
-`4/4` grounded prompt cases passed with mean prefix match `34.0` chars. This
-proves the selected installed generation path is owned by the brain surface and
-passes the automated grounded prompt suite, but it is not a broad
-language-quality promotion.
+`0/4` grounded prompt cases passed. This proves the fresh post-structure path is
+owned by the brain surface, but it also proves quality is not available without
+the installed repair lane.
 `language_brain_generation_repair_evidence.py` verifies the next brain-owned
 quality repair step. It restores an installed brain checkpoint, builds
 hard-prompt replay batches, calls `MarulhoBrain.learn_language_window()`,
 saves/restores a repaired brain checkpoint, and re-scores public
 `MarulhoBrain.generate()`. It can run multiple installed-brain repair passes
 and candidate sweeps while recording per-candidate generation deltas. The
-current CUDA report
-`reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sweep-sustained524288-20260706.json`
-selects `candidate-02`, repairs the installed brain from `3/4` to `4/4`,
-records `491520` update tokens at `2510.339` update tokens/sec, improves mean
-prefix match by `10.5` chars with no prompt regressions, restores the repaired
-checkpoint, and sustains `524288/524288` selected post-repair tokens at
-`8123.130` tokens/sec with zero tracked Triton failures. This is
+current fresh CUDA report
+`reports/language_brain_generation_repair/direct-reviewed-horizon2-fresh-repair2-sweep-sustained524288-20260706.json`
+selects `candidate-01`, reaches `4/4` grounded prompt cases with zero prompt
+regressions, records `393216` update tokens at `5943.300` update tokens/sec and
+`5365.354` total-window tokens/sec, improves mean prefix match by `4.5` chars,
+restores the repaired checkpoint, and sustains `524288/524288` selected
+post-repair controlled tokens at `8070.687` tokens/sec with zero tracked Triton
+failures. This is
 installed-brain learning and repair evidence, not a broad generation-quality or
 runtime promotion.
 

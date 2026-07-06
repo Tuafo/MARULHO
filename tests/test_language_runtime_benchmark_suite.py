@@ -811,7 +811,16 @@ def _write_brain_installed_generation_report(
     )
 
 
-def _write_brain_installed_generation_repair_report(path) -> None:
+def _write_brain_installed_generation_repair_report(
+    path,
+    *,
+    checkpoint_path: str = "reports/language_brain_generation/repaired.pt",
+    pre_passed_case_count: int = 0,
+    post_passed_case_count: int = 2,
+    regressed_prompt_count: int = 0,
+) -> None:
+    case_count = 4
+    passed_case_count_delta = int(post_passed_case_count) - int(pre_passed_case_count)
     path.write_text(
         json.dumps(
             {
@@ -862,7 +871,7 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                 },
                 "repaired_brain_checkpoint": {
                     "surface": "marulho_brain_generation_repair_checkpoint.v1",
-                    "path": "reports/language_brain_generation/repaired.pt",
+                    "path": checkpoint_path,
                     "restore_verified": True,
                     "active_language_path": "marulho_lm_head",
                 },
@@ -874,9 +883,10 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                     "external_llm_used": False,
                     "loads_external_checkpoint": False,
                     "summary": {
-                        "case_count": 4,
-                        "passed_case_count": 0,
-                        "case_pass_rate": 0.0,
+                        "case_count": case_count,
+                        "passed_case_count": int(pre_passed_case_count),
+                        "case_pass_rate": float(pre_passed_case_count)
+                        / float(case_count),
                     },
                 },
                 "post_generation_coherence": {
@@ -887,16 +897,20 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                     "external_llm_used": False,
                     "loads_external_checkpoint": False,
                     "summary": {
-                        "case_count": 4,
-                        "passed_case_count": 2,
-                        "case_pass_rate": 0.5,
+                        "case_count": case_count,
+                        "passed_case_count": int(post_passed_case_count),
+                        "case_pass_rate": float(post_passed_case_count)
+                        / float(case_count),
                     },
                 },
                 "generation_quality_delta": {
                     "surface": "marulho_language_quality_replay_coherence_delta.v1",
-                    "passed_case_count_delta": 2,
-                    "case_pass_rate_delta": 0.5,
+                    "passed_case_count_delta": passed_case_count_delta,
+                    "case_pass_rate_delta": float(passed_case_count_delta)
+                    / float(case_count),
                     "mean_prefix_match_chars_delta": 11.0,
+                    "regressed_prompt_count": int(regressed_prompt_count),
+                    "regressed_prompts": [],
                     "promotes_generation_quality_claim": False,
                 },
                 "post_repair_sustained_window": {
@@ -928,14 +942,16 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                     "last_pass_update_token_count": 262144,
                     "repaired_brain_checkpoint_restore_verified": True,
                     "post_generation_runs_through_marulho_brain": True,
-                    "case_count": 4,
-                    "pre_passed_case_count": 0,
-                    "post_passed_case_count": 2,
-                    "passed_case_count_delta": 2,
-                    "pre_case_pass_rate": 0.0,
-                    "post_case_pass_rate": 0.5,
+                    "case_count": case_count,
+                    "pre_passed_case_count": int(pre_passed_case_count),
+                    "post_passed_case_count": int(post_passed_case_count),
+                    "passed_case_count_delta": passed_case_count_delta,
+                    "pre_case_pass_rate": float(pre_passed_case_count)
+                    / float(case_count),
+                    "post_case_pass_rate": float(post_passed_case_count)
+                    / float(case_count),
                     "mean_prefix_match_chars_delta": 11.0,
-                    "quality_repair_observed": True,
+                    "quality_repair_observed": passed_case_count_delta > 0,
                     "post_repair_sustained_enabled": True,
                     "post_repair_sustained_target_reached": True,
                     "external_llm_absent": True,
@@ -1346,6 +1362,59 @@ def test_language_runtime_benchmark_suite_accepts_brain_generation_alignment(
     )
     assert report["promotion_gate"][
         "generation_controlled_decode_house_scale_aligned"
+    ] is True
+
+
+def test_language_runtime_benchmark_suite_accepts_brain_generation_repair_alignment(
+    tmp_path,
+) -> None:
+    output = tmp_path / "language-suite-brain-generation-repair.json"
+    checkpoint = "reports/language_brain_generation_repair/repaired-brain.pt"
+    sustained = tmp_path / "repaired-brain-sustained.json"
+    brain_repair = tmp_path / "repaired-brain-generation.json"
+    _write_sustained_report(
+        sustained,
+        token_delta=524288,
+        controlled_decode=True,
+        checkpoint_path=checkpoint,
+    )
+    _write_brain_installed_generation_repair_report(
+        brain_repair,
+        checkpoint_path=checkpoint,
+        pre_passed_case_count=3,
+        post_passed_case_count=4,
+    )
+
+    report = run_language_runtime_benchmark_suite(
+        output_path=output,
+        sustained_target_tokens=524288,
+        sustained_evidence_paths=(sustained,),
+        brain_installed_generation_repair_evidence_paths=(brain_repair,),
+    )
+    categories = {item["name"]: item for item in report["categories"]}
+    generation = categories["generation_coherence"]
+    repair = generation["evidence"]["brain_installed_generation_repair_evidence"]
+    alignment = generation["evidence"][
+        "brain_installed_generation_repair_long_run_alignment"
+    ]
+
+    assert generation["status"] == "pass"
+    assert generation["missing_evidence"] == []
+    assert generation["evidence"][
+        "brain_installed_generation_repair_satisfies_grounded_coherence"
+    ] is True
+    assert repair["best_report"]["post_passed_case_count"] == 4
+    assert repair["best_report"]["regressed_prompt_count"] == 0
+    assert alignment["same_checkpoint_house_scale_available"] is True
+    assert (
+        alignment["same_checkpoint_controlled_decode_house_scale_available"]
+        is True
+    )
+    assert report["promotion_gate"][
+        "generation_controlled_decode_house_scale_aligned"
+    ] is True
+    assert report["promotion_gate"][
+        "brain_installed_generation_repair_controlled_decode_house_scale_aligned"
     ] is True
 
 

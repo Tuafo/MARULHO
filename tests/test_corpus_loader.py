@@ -5,7 +5,12 @@ import os
 import unittest
 from unittest.mock import patch
 
-from marulho.data.corpus_loader import StreamingCorpusLoader, extract_web_text, load_hf_first_rows
+from marulho.data.corpus_loader import (
+    StreamingCorpusLoader,
+    extract_dataset_row_text,
+    extract_web_text,
+    load_hf_first_rows,
+)
 
 
 class CorpusLoaderTests(unittest.TestCase):
@@ -129,6 +134,49 @@ class CorpusLoaderTests(unittest.TestCase):
 
         self.assertEqual(observed, "abc")
         self.assertEqual(calls, [["text"]])
+
+    def test_hf_loader_flattens_messages_rows(self) -> None:
+        calls: list[list[str]] = []
+
+        class _FakeDataset:
+            def select_columns(self, columns):
+                calls.append(list(columns))
+                return [
+                    {
+                        "messages": [
+                            {"role": "user", "content": "Solve the recurrence."},
+                            {"role": "assistant", "content": "Use induction."},
+                        ]
+                    }
+                ]
+
+        with patch("datasets.load_dataset", return_value=_FakeDataset()):
+            loader = StreamingCorpusLoader(
+                "nvidia/Nemotron-Post-Training-Dataset-v1",
+                source_type="hf",
+                hf_config="default",
+                text_field="messages",
+            )
+            observed = "".join(loader.char_stream())
+
+        self.assertEqual(calls, [["messages"]])
+        self.assertIn("user: Solve the recurrence.", observed)
+        self.assertIn("assistant: Use induction.", observed)
+        self.assertNotIn("{'role'", observed)
+
+    def test_extract_dataset_row_text_combines_structured_fields(self) -> None:
+        row = {
+            "problem": "What is 2 + 2?",
+            "generated_solution": "Add the two values.",
+            "expected_answer": "4",
+        }
+
+        text = extract_dataset_row_text(
+            row,
+            "problem,generated_solution,expected_answer",
+        )
+
+        self.assertEqual(text, "What is 2 + 2?\nAdd the two values.\n4")
 
     def test_extract_web_text_normalizes_openalex_work_json(self) -> None:
         payload = json.dumps(

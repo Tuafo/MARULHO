@@ -1,4 +1,4 @@
-from .corpus_loader import StreamingCorpusLoader
+from .corpus_loader import StreamingCorpusLoader, extract_dataset_row_text
 from .dataset_adapters import (
     FSDDAdapter,
     NMNISTAdapter,
@@ -24,6 +24,7 @@ __all__ = [
     "StreamingCorpusLoader",
     "discover_remote_search_source_specs",
     "expand_source_bank_specs",
+    "extract_dataset_row_text",
     "iter_episode_steps",
     "load_probe_train_examples",
     "load_train_eval_examples",

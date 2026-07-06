@@ -624,10 +624,32 @@ def _throughput_evidence(
     alignment = _mapping(
         category_evidence.get("brain_installed_generation_long_run_alignment")
     )
+    repair_alignment = _mapping(
+        category_evidence.get("brain_installed_generation_repair_long_run_alignment")
+    )
     matching = alignment.get("matching_reports")
-    alignment_reports = [item for item in matching if isinstance(item, Mapping)] if isinstance(matching, list) else []
+    alignment_reports = (
+        [item for item in matching if isinstance(item, Mapping)]
+        if isinstance(matching, list)
+        else []
+    )
+    repair_matching = repair_alignment.get("matching_reports")
+    repair_alignment_reports = (
+        [item for item in repair_matching if isinstance(item, Mapping)]
+        if isinstance(repair_matching, list)
+        else []
+    )
     long_run_evidence = _mapping(long_run_category.get("evidence"))
     best_long = _mapping(long_run_evidence.get("best_long_report"))
+    best_repair_long: Mapping[str, Any] = {}
+    if repair_alignment_reports:
+        best_repair_long = max(
+            repair_alignment_reports,
+            key=lambda item: (
+                _first_int(item.get("token_delta")) or 0,
+                _first_float(item.get("tokens_per_second")) or 0.0,
+            ),
+        )
     if not best_long and alignment_reports:
         best_long = max(
             alignment_reports,
@@ -636,12 +658,47 @@ def _throughput_evidence(
                 _first_float(item.get("tokens_per_second")) or 0.0,
             ),
         )
-    report = post_repair or best_long
+    selected = _mapping(repair_sweep.get("selected_repair_evidence"))
+    selection = _mapping(repair_sweep.get("candidate_selection"))
+    selected_repair_checkpoint_path = _first_string(
+        selected.get("repaired_brain_checkpoint_path"),
+        selection.get("selected_repaired_brain_checkpoint_path"),
+        repair_alignment.get("generation_checkpoint_path"),
+    )
+    if (
+        best_repair_long
+        and repair_alignment.get("same_checkpoint_controlled_decode_house_scale_available")
+        is True
+    ):
+        report = best_repair_long
+        source = "benchmark_suite.brain_installed_generation_repair_long_run_alignment"
+        selected_alignment = repair_alignment
+    elif post_repair:
+        report = post_repair
+        source = "generation_repair_sweep.post_repair_sustained_window"
+        selected_alignment = repair_alignment or alignment
+    elif best_long:
+        report = best_long
+        source = "benchmark_suite.long_run_alignment"
+        selected_alignment = alignment
+    else:
+        report = {}
+        source = None
+        selected_alignment = {}
+    supplemental_report = (
+        post_repair
+        if source == "benchmark_suite.brain_installed_generation_repair_long_run_alignment"
+        else {}
+    )
     target_tokens = _first_int(report.get("target_tokens"))
     token_delta = _first_int(report.get("token_delta"))
     tracked_triton_kernel_names = _string_list(
         report.get("tracked_triton_kernel_used_names")
     )
+    if not tracked_triton_kernel_names:
+        tracked_triton_kernel_names = _string_list(
+            supplemental_report.get("tracked_triton_kernel_used_names")
+        )
     house_scale_reached = bool(
         (token_delta or 0) >= 524_288
         and (target_tokens or 0) >= 524_288
@@ -650,18 +707,19 @@ def _throughput_evidence(
     return {
         "surface": "marulho_current_language_house_scale_throughput_evidence.v1",
         "available": bool(report),
-        "source": (
-            "generation_repair_sweep.post_repair_sustained_window"
-            if post_repair
-            else "benchmark_suite.long_run_alignment"
-            if best_long
-            else None
-        ),
+        "source": source,
         "runtime_owner": _first_string(report.get("runtime_owner")),
         "active_language_path": _first_string(report.get("active_language_path")),
         "checkpoint_path": _first_string(
             report.get("checkpoint_path"),
-            alignment.get("generation_checkpoint_path"),
+            selected_repair_checkpoint_path
+            if source
+            in {
+                "benchmark_suite.brain_installed_generation_repair_long_run_alignment",
+                "generation_repair_sweep.post_repair_sustained_window",
+            }
+            else None,
+            selected_alignment.get("generation_checkpoint_path"),
         ),
         "backend": _first_string(report.get("backend"), report.get("mode")),
         "device": _first_string(report.get("device")),
@@ -683,14 +741,16 @@ def _throughput_evidence(
             house_scale_reached,
         ),
         "controlled_decode_house_scale_aligned": _bool_or_none(
-            alignment.get("same_checkpoint_controlled_decode_house_scale_available")
+            selected_alignment.get("same_checkpoint_controlled_decode_house_scale_available")
         ),
         "triton_kernel_used": _first_bool(
             report.get("triton_kernel_used"),
+            supplemental_report.get("triton_kernel_used"),
             bool(tracked_triton_kernel_names) if tracked_triton_kernel_names else None,
         ),
         "tracked_triton_kernel_failure_count": _first_int(
-            report.get("tracked_triton_kernel_failure_count")
+            report.get("tracked_triton_kernel_failure_count"),
+            supplemental_report.get("tracked_triton_kernel_failure_count"),
         ),
         "tracked_triton_kernel_used_names": tracked_triton_kernel_names,
         "generation_decode": dict(_mapping(report.get("generation_decode"))),

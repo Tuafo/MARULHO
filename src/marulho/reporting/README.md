@@ -51,6 +51,12 @@ Installed structural evidence follows the same raw-report priority: the newest
 installed-brain structural report supplies mutation, checkpoint, and sustained
 speed fields, while the benchmark-suite best report remains visible only as an
 aggregate-availability flag.
+For house-scale inference, the projection prefers the benchmark suite's
+same-repaired-checkpoint generation-repair long-run alignment when it is
+available, and only supplements kernel counters from the compact repair sweep
+summary. This keeps `/brain/evidence/language` pointed at the selected repaired
+child checkpoint instead of an older post-structure parent when both reports are
+present.
 Checkpoint artifact continuity also protects the structural rollback baseline
 checkpoint from that raw report, not only the pre- and post-structure brain
 checkpoints, so report-folder cleanup does not erase rollback evidence.
