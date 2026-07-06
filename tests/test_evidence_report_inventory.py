@@ -753,6 +753,12 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["repair_evidence"]["selected_candidate_id"] == "candidate-02"
     assert projection["repair_evidence"]["regressed_prompt_count"] == 0
     assert projection["repair_evidence"]["update_token_count"] == 491520
+    assert projection["training_throughput_evidence"]["source"] == (
+        "saved_brain_installed_continual_learning_report"
+    )
+    assert projection["training_throughput_evidence"][
+        "benchmark_suite_best_report_available"
+    ] is True
     assert projection["training_throughput_evidence"]["update_token_count"] == 524288
     assert projection["training_throughput_evidence"]["tokens_per_second"] == 3079.87
     assert projection["training_throughput_evidence"]["device"] == "cuda:0"

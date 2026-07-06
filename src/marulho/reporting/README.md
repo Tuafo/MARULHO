@@ -43,6 +43,10 @@ tracked PyTorch fallback calls, per-kernel fallback names, and whether
 continual-learning batches were staged on the model device before the measured
 update window. This makes remaining sampled-vocab, memory-slot, or other
 fallback work visible without running a benchmark from the service path.
+For training throughput, the projection prefers the newest raw installed-brain
+continual-learning report over an older benchmark-suite best report, while
+keeping a flag that the suite aggregate exists. This lets fresh direct-reviewed
+checkpoint runs appear in the UI immediately without rebuilding the suite first.
 Standalone continual speed-sweep reports are projected separately from
 installed-brain learning evidence. The projection can show the selected
 recurrent horizon, same-session update/total-window throughput, accepted

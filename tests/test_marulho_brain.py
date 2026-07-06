@@ -331,6 +331,84 @@ def test_marulho_brain_installs_reviewed_language_checkpoint(tmp_path: Path) -> 
     ]["hash_verified"] is True
 
 
+def test_marulho_brain_installs_direct_reviewed_language_checkpoint(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, _report = _language_model_fixture()
+    checkpoint_path = tmp_path / "direct-child.pt"
+    save_language_model_checkpoint(
+        checkpoint_path,
+        model,
+        tokenizer,
+        metadata={"source": "direct-reviewed-test"},
+    )
+    checkpoint_hash = _sha256_file(checkpoint_path)
+
+    install = brain.install_language_checkpoint_from_direct_review(
+        checkpoint_path.name,
+        expected_sha256=checkpoint_hash,
+        operator_approved=True,
+        operator_id="pytest-operator",
+        approval_note="direct reviewed local checkpoint install",
+        artifact_base_dir=tmp_path,
+    )
+    status = brain.status()
+    saved = brain.save(tmp_path / "direct-language-brain.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_status = restored.status()
+
+    assert install["surface"] == (
+        "marulho_brain_language_checkpoint_direct_installation.v1"
+    )
+    assert install["status"] == "installed_direct_reviewed_language_checkpoint"
+    assert install["installed"] is True
+    assert install["candidate_checkpoint"]["hash_verified"] is True
+    assert install["candidate_checkpoint"]["actual_sha256"] == checkpoint_hash
+    assert install["approval"]["operator_approved"] is True
+    assert install["mutates_runtime_state"] is True
+    assert install["writes_live_checkpoint"] is False
+    assert install["status_read_mutation"] is False
+    assert install["service_owned_cognition"] is False
+    assert install["external_llm_used"] is False
+    assert install["promotes_runtime_claim"] is False
+    assert install["trace"]["event"] == "language_checkpoint_direct_install"
+    assert status["active_language_path"] == "marulho_lm_head"
+    assert status["language_model"]["checkpoint_installation_count"] == 1
+    assert status["language_model"]["last_checkpoint_installation"]["status"] == (
+        "installed_direct_reviewed_language_checkpoint"
+    )
+    assert restored_status["active_language_path"] == "marulho_lm_head"
+    assert restored_status["language_model"]["checkpoint_installation_count"] == 1
+
+
+def test_marulho_brain_blocks_direct_language_checkpoint_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, _report = _language_model_fixture()
+    checkpoint_path = tmp_path / "direct-child.pt"
+    save_language_model_checkpoint(
+        checkpoint_path,
+        model,
+        tokenizer,
+        metadata={"source": "direct-reviewed-test"},
+    )
+
+    install = brain.install_language_checkpoint_from_direct_review(
+        checkpoint_path,
+        expected_sha256="wrong",
+        operator_approved=True,
+    )
+
+    assert install["status"] == "blocked_language_checkpoint_direct_installation"
+    assert install["installed"] is False
+    assert install["mutates_runtime_state"] is False
+    assert install["candidate_checkpoint"]["hash_verified"] is False
+    assert "candidate_checkpoint_hash_matches_file" in install["missing_evidence"]
+    assert brain.status()["active_language_path"] == "local_transition_readout"
+
+
 def test_marulho_brain_blocks_reviewed_language_checkpoint_without_operator_approval(
     tmp_path: Path,
 ) -> None:

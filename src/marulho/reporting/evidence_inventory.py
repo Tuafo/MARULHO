@@ -725,22 +725,23 @@ def _training_throughput_evidence(
     )
     gate = _mapping(continual_learning_report.get("promotion_gate"))
     memory_slots = _mapping(
-        saved_best.get("memory_slots")
-        if isinstance(saved_best.get("memory_slots"), Mapping)
-        else summary.get("memory_slots")
+        summary.get("memory_slots")
+        if isinstance(summary.get("memory_slots"), Mapping)
+        else saved_best.get("memory_slots")
     )
-    best = saved_best or summary or continual_learning_report
+    best = summary or continual_learning_report or saved_best
     source = (
-        "benchmark_suite.brain_installed_continual_learning_evidence"
-        if saved_best
-        else "saved_brain_installed_continual_learning_report"
+        "saved_brain_installed_continual_learning_report"
         if continual_learning_report
+        else "benchmark_suite.brain_installed_continual_learning_evidence"
+        if saved_best
         else None
     )
     return {
         "surface": "marulho_current_language_training_throughput_evidence.v1",
         "available": bool(best),
         "source": source,
+        "benchmark_suite_best_report_available": bool(saved_best),
         "runtime_owner": _first_string(
             best.get("runtime_owner"),
             continual_learning_report.get("runtime_owner"),

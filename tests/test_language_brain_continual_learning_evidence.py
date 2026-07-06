@@ -85,6 +85,33 @@ def _write_review(tmp_path: Path, *, approved_hash: bool = True) -> Path:
     return review_path
 
 
+def _write_direct_checkpoint(tmp_path: Path) -> tuple[Path, str]:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size + 8,
+            embedding_dim=8,
+            state_dim=12,
+            sampled_vocab_size=16,
+            sampled_vocab_sparse_lm_head_gradient=True,
+            sparse_token_embedding_gradients=True,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=16,
+            generation_vocab_size=tokenizer.vocab_size,
+        )
+    )
+    checkpoint = tmp_path / "direct-child.pt"
+    save_language_model_checkpoint(
+        checkpoint,
+        model,
+        tokenizer,
+        metadata={"source": "brain-continual-learning-direct-checkpoint-test"},
+    )
+    return checkpoint, _sha256_file(checkpoint)
+
+
 def test_brain_installed_continual_learning_evidence_learns_and_restores(
     tmp_path: Path,
 ) -> None:
@@ -181,6 +208,59 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
     assert report["promotion_gate"]["learned_brain_checkpoint_restore_verified"] is True
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
     assert (tmp_path / "README.md").exists()
+
+
+def test_brain_installed_continual_learning_evidence_accepts_direct_checkpoint(
+    tmp_path: Path,
+) -> None:
+    checkpoint, checkpoint_hash = _write_direct_checkpoint(tmp_path)
+
+    report = build_language_brain_installed_continual_learning_evidence(
+        output_path=tmp_path / "direct-brain-installed-learning.json",
+        language_checkpoint_path=checkpoint.name,
+        language_checkpoint_sha256=checkpoint_hash,
+        operator_approved=True,
+        operator_id="pytest-operator",
+        approval_note="exercise direct reviewed checkpoint evidence",
+        artifact_base_dir=tmp_path,
+        config=BrainInstalledContinualLearningEvidenceConfig(
+            sequence_length=10,
+            stride=5,
+            batch_size=2,
+            max_old_eval_batches=1,
+            max_new_eval_batches=1,
+            max_new_batches=1,
+            max_replay_batches=1,
+            learning_rate=2e-2,
+            max_steps=1,
+            gradient_clip_interval=1,
+            recurrent_gradient_horizon=2,
+            run_post_learning_sustained=False,
+            device="cpu",
+        ),
+    )
+
+    assert report["report_status"] == "final"
+    assert report["checkpoint_install_source"] == "direct_checkpoint_review"
+    assert report["installation"]["surface"] == (
+        "marulho_brain_language_checkpoint_direct_installation.v1"
+    )
+    assert report["installation"]["installed"] is True
+    assert report["installation"]["candidate_checkpoint"]["hash_verified"] is True
+    assert report["installation"]["candidate_checkpoint"]["actual_sha256"] == (
+        checkpoint_hash
+    )
+    assert report["learning_window"]["surface"] == (
+        "marulho_brain_language_learning_window.v1"
+    )
+    assert report["learning_window"]["trace"]["event"] == "language_learn"
+    assert report["pre_learning_brain_checkpoint"]["restore_verified"] is True
+    assert report["learned_brain_checkpoint"]["restore_verified"] is True
+    assert report["promotion_gate"]["learning_runs_through_marulho_brain"] is True
+    assert report["promotion_gate"][
+        "recurrent_gradient_horizon_override_applied"
+    ] is True
+    assert report["promotion_gate"]["promotes_runtime_claim"] is False
 
 
 def test_brain_installed_continual_learning_evidence_blocks_bad_hash(

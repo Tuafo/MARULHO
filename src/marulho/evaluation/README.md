@@ -475,6 +475,19 @@ harnesses.
   through `MarulhoBrain.set_language_recurrent_gradient_horizon()` before the
   pre-learning checkpoint save, and gates that both the config horizon and the
   live state-block horizon survive pre-learning and learned-brain restore.
+  It can also install a direct-reviewed local checkpoint through
+  `MarulhoBrain.install_language_checkpoint_from_direct_review()` when stale
+  promotion-review checkpoint payloads have been cleaned up; that path requires
+  operator approval and an exact checkpoint SHA. The fresh CUDA report
+  `reports/language_brain_continual_learning/direct-reviewed-horizon2-fresh-installed-continual-update524288-20260706.json`
+  installs a `524288` model-vocab, horizon-2 direct checkpoint, accepts
+  `524288` update tokens at `5938.519` update tokens/sec and `4913.377`
+  total-window tokens/sec, improves new-domain loss by `7.0373`, improves
+  old-domain loss instead of forgetting (`-6.9046`), improves replay retention
+  (`-6.9228`), restores the learned brain checkpoint, and reaches
+  `524288/524288` post-learning sustained tokens at `8341.802` tokens/sec with
+  zero tracked Triton failures. This is direct installed-brain speed/learning
+  evidence, not a runtime or generation-quality promotion.
 - `language_brain_structural_plasticity_evidence.py` verifies installed-brain
   structural mutation from the brain side. It loads the learned brain checkpoint,
   saves and restores the pre-structure brain, builds eval batches with the

@@ -81,6 +81,12 @@ tokenizer rows, preserving the no-full-padded-vocab decode boundary.
 Blocked approval or hash evidence leaves the active runtime unchanged. The
 method does not run from status/read surfaces, does not use a service-owned
 cognition path, and still keeps `promotes_runtime_claim=false`.
+`MarulhoBrain.install_language_checkpoint_from_direct_review()` is the fast
+experiment sibling for freshly generated local checkpoints when older reviewed
+payloads have been cleaned up. It requires explicit operator approval and an
+exact checkpoint SHA before loading through the same MARULHO language checkpoint
+loader, records `language_checkpoint_direct_install`, and keeps live checkpoint
+writes, service-owned cognition, and runtime promotion false.
 `language_brain_checkpoint_runtime_evidence.py` now verifies the next restored
 brain step: install the reviewed child, save a brain checkpoint, restore it, and
 generate from `MarulhoBrain`. The current CUDA report
@@ -113,6 +119,14 @@ The runner can apply a recurrent-gradient horizon override through
 `MarulhoBrain.set_language_recurrent_gradient_horizon()` before saving the
 pre-learning brain; the report gates that the configured model horizon and live
 state-block horizon survive both pre-learning and learned-brain restore.
+The direct-reviewed 2026-07-06 CUDA report
+`reports/language_brain_continual_learning/direct-reviewed-horizon2-fresh-installed-continual-update524288-20260706.json`
+installs a fresh `524288` model-vocab, horizon-2 checkpoint, accepts `524288`
+update tokens at `5938.519` update tokens/sec and `4913.377` total-window
+tokens/sec, restores the learned brain checkpoint, and reaches `524288/524288`
+post-learning sustained tokens at `8341.802` tokens/sec with zero tracked
+Triton failures. It is direct installed-brain speed/learning evidence, not a
+runtime or quality promotion.
 `language_brain_structural_plasticity_evidence.py` verifies installed-brain
 structural mutation after learning. It loads the learned brain checkpoint, saves
 and restores the pre-structure brain, proposes and applies structure through

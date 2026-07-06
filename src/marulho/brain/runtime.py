@@ -337,6 +337,123 @@ class MarulhoBrain:
             report["language_model"] = self._language_runtime.summary()
         return report
 
+    def install_language_checkpoint_from_direct_review(
+        self,
+        checkpoint_path: str | Path,
+        *,
+        expected_sha256: str,
+        operator_approved: bool,
+        operator_id: str | None = None,
+        approval_note: str = "",
+        artifact_base_dir: str | Path | None = None,
+    ) -> dict[str, Any]:
+        candidate_path_text = str(checkpoint_path)
+        candidate_path = _resolve_artifact_path(
+            candidate_path_text,
+            base_dir=artifact_base_dir,
+        )
+        expected_hash = str(expected_sha256 or "")
+        candidate_exists = candidate_path.is_file()
+        candidate_hash = _sha256_file(candidate_path) if candidate_exists else ""
+        approved = bool(operator_approved)
+        approval_record = {
+            "surface": "marulho_brain_language_checkpoint_install_approval.v1",
+            "operator_approved": approved,
+            "operator_id": operator_id,
+            "approval_note": str(approval_note),
+            "approved_at": datetime.now(timezone.utc).isoformat() if approved else None,
+        }
+        required = {
+            "direct_checkpoint_review": True,
+            "operator_approval_recorded": approved,
+            "candidate_checkpoint_file_exists": candidate_exists,
+            "candidate_checkpoint_expected_hash_recorded": bool(expected_hash),
+            "candidate_checkpoint_hash_matches_file": bool(expected_hash)
+            and candidate_hash == expected_hash,
+            "direct_review_runtime_claim_not_promoted": True,
+            "direct_review_writes_live_checkpoint_absent": True,
+            "direct_review_status_read_mutation_absent": True,
+        }
+        missing = [name for name, passed in required.items() if not bool(passed)]
+        status = (
+            "installed_direct_reviewed_language_checkpoint"
+            if not missing
+            else "blocked_language_checkpoint_direct_installation"
+        )
+        base_report: dict[str, Any] = {
+            "surface": "marulho_brain_language_checkpoint_direct_installation.v1",
+            "status": status,
+            "installed": False,
+            "runtime_owner": "MarulhoBrain",
+            "candidate_checkpoint": {
+                "path": candidate_path_text,
+                "resolved_path": str(candidate_path),
+                "expected_sha256": expected_hash,
+                "actual_sha256": candidate_hash,
+                "file_exists": candidate_exists,
+                "hash_verified": bool(expected_hash and candidate_hash == expected_hash),
+            },
+            "approval": approval_record,
+            "required_evidence": required,
+            "missing_evidence": missing,
+            "mutates_runtime_state": False,
+            "writes_live_checkpoint": False,
+            "status_read_mutation": False,
+            "service_owned_cognition": False,
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+            "direct_checkpoint_review": True,
+        }
+        if missing:
+            return base_report
+
+        model, tokenizer, metadata = load_language_model_checkpoint(
+            candidate_path,
+            map_location="cpu",
+        )
+        install = self.install_language_model(
+            model,
+            tokenizer,
+            evaluation_report=base_report,
+        )
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_checkpoint_direct_install",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note=status,
+            )
+        )
+        report = {
+            **base_report,
+            "installed": True,
+            "active_language_path": self._active_language_path(),
+            "tokenizer_hash": tokenizer.vocabulary_hash(),
+            "vocab_size": int(tokenizer.vocab_size),
+            "model_vocab_size": int(model.config.vocab_size),
+            "model_device": self._device_string(),
+            "checkpoint_metadata": dict(metadata),
+            "install": dict(install),
+            "trace": trace,
+            "mutates_runtime_state": True,
+            "live_parent_replacement_applied": True,
+        }
+        if self._language_runtime is not None:
+            self._language_runtime.record_checkpoint_installation(report)
+            report["language_model"] = self._language_runtime.summary()
+        return report
+
     def learn_language_window(
         self,
         *,

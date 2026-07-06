@@ -370,7 +370,9 @@ def _tracked_torch_fallback_calls(accounting: Mapping[str, Any]) -> int:
 def _base_report(
     *,
     output_path: str | Path,
-    promotion_review_path: str | Path,
+    promotion_review_path: str | Path | None,
+    language_checkpoint_path: str | Path | None,
+    language_checkpoint_sha256: str | None,
     pre_learning_brain_checkpoint_path: str | Path,
     learned_brain_checkpoint_path: str | Path,
     device: str,
@@ -383,7 +385,20 @@ def _base_report(
         "status": "partial",
         "report_status": "partial",
         "output_path": str(output_path),
-        "promotion_review_path": str(promotion_review_path),
+        "promotion_review_path": (
+            None if promotion_review_path is None else str(promotion_review_path)
+        ),
+        "language_checkpoint_path": (
+            None if language_checkpoint_path is None else str(language_checkpoint_path)
+        ),
+        "language_checkpoint_sha256": language_checkpoint_sha256,
+        "checkpoint_install_source": (
+            "promotion_review"
+            if promotion_review_path is not None
+            else "direct_checkpoint_review"
+            if language_checkpoint_path is not None
+            else "missing_checkpoint_install_source"
+        ),
         "pre_learning_brain_checkpoint_path": str(pre_learning_brain_checkpoint_path),
         "learned_brain_checkpoint_path": str(learned_brain_checkpoint_path),
         "runtime_owner": "MarulhoBrain",
@@ -402,7 +417,9 @@ def _base_report(
 def build_language_brain_installed_continual_learning_evidence(
     *,
     output_path: str | Path,
-    promotion_review_path: str | Path,
+    promotion_review_path: str | Path | None = None,
+    language_checkpoint_path: str | Path | None = None,
+    language_checkpoint_sha256: str | None = None,
     operator_approved: bool,
     operator_id: str | None = None,
     approval_note: str = "",
@@ -433,6 +450,8 @@ def build_language_brain_installed_continual_learning_evidence(
     report = _base_report(
         output_path=output,
         promotion_review_path=promotion_review_path,
+        language_checkpoint_path=language_checkpoint_path,
+        language_checkpoint_sha256=language_checkpoint_sha256,
         pre_learning_brain_checkpoint_path=pre_checkpoint,
         learned_brain_checkpoint_path=learned_checkpoint,
         device=selected_device,
@@ -442,13 +461,36 @@ def build_language_brain_installed_continual_learning_evidence(
     try:
         cuda_math_policy = _apply_cuda_math_policy(torch.device(selected_device), cfg)
         brain = MarulhoBrain.fresh(_tiny_brain_config(device=selected_device))
-        install = brain.install_language_checkpoint_from_promotion_review(
-            promotion_review_path,
-            operator_approved=bool(operator_approved),
-            operator_id=operator_id,
-            approval_note=approval_note,
-            artifact_base_dir=artifact_base_dir,
-        )
+        if promotion_review_path is not None:
+            install = brain.install_language_checkpoint_from_promotion_review(
+                promotion_review_path,
+                operator_approved=bool(operator_approved),
+                operator_id=operator_id,
+                approval_note=approval_note,
+                artifact_base_dir=artifact_base_dir,
+            )
+        elif language_checkpoint_path is not None:
+            install = brain.install_language_checkpoint_from_direct_review(
+                language_checkpoint_path,
+                expected_sha256=str(language_checkpoint_sha256 or ""),
+                operator_approved=bool(operator_approved),
+                operator_id=operator_id,
+                approval_note=approval_note,
+                artifact_base_dir=artifact_base_dir,
+            )
+        else:
+            install = {
+                "surface": "marulho_brain_language_checkpoint_installation_missing_source.v1",
+                "status": "blocked_language_checkpoint_installation",
+                "installed": False,
+                "missing_evidence": [
+                    "promotion_review_or_language_checkpoint_required"
+                ],
+                "mutates_runtime_state": False,
+                "service_owned_cognition": False,
+                "external_llm_used": False,
+                "promotes_runtime_claim": False,
+            }
         report["installation"] = dict(install)
         if not bool(install.get("installed")):
             report.update(
@@ -840,7 +882,9 @@ def build_language_brain_installed_continual_learning_evidence(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--promotion-review", type=Path, required=True)
+    parser.add_argument("--promotion-review", type=Path, default=None)
+    parser.add_argument("--language-checkpoint", type=Path, default=None)
+    parser.add_argument("--language-checkpoint-sha256", type=str, default="")
     parser.add_argument("--artifact-base-dir", type=Path, default=Path.cwd())
     parser.add_argument("--pre-learning-brain-checkpoint", type=Path, default=None)
     parser.add_argument("--learned-brain-checkpoint", type=Path, default=None)
@@ -943,6 +987,8 @@ def main() -> int:
     report = build_language_brain_installed_continual_learning_evidence(
         output_path=args.output,
         promotion_review_path=args.promotion_review,
+        language_checkpoint_path=args.language_checkpoint,
+        language_checkpoint_sha256=str(args.language_checkpoint_sha256 or ""),
         operator_approved=bool(args.operator_approved),
         operator_id=args.operator_id,
         approval_note=args.approval_note,
