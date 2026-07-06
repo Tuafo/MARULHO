@@ -1379,6 +1379,21 @@ def test_brain_service_contract(tmp_path: Path) -> None:
         )
         assert before_reports_status == after_reports_status
 
+        before_language_evidence_status = client.get("/brain/status").json()["token_count"]
+        language_evidence = client.get("/brain/evidence/language")
+        after_language_evidence_status = client.get("/brain/status").json()["token_count"]
+        assert language_evidence.status_code == 200
+        assert language_evidence.json()["surface"] == (
+            "marulho_current_language_evidence_projection.v1"
+        )
+        assert language_evidence.json()["reports_not_run_by_service"] is True
+        assert language_evidence.json()["mutates_runtime_state"] is False
+        assert language_evidence.json()["service_owned_cognition"] is False
+        assert language_evidence.json()["runtime_review_gate"]["status"] == (
+            "blocked_missing_required_evidence"
+        )
+        assert before_language_evidence_status == after_language_evidence_status
+
         checkpoints = client.get("/brain/checkpoints")
         assert checkpoints.status_code == 200
         assert any(item["path"].endswith("service-brain.pt") for item in checkpoints.json()["checkpoints"])
@@ -1417,6 +1432,7 @@ def test_brain_service_contract(tmp_path: Path) -> None:
             "/brain/checkpoints",
             "/brain/traces",
             "/brain/evidence/reports",
+            "/brain/evidence/language",
             "/brain/feed",
             "/brain/tick",
             "/brain/generate",

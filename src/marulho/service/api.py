@@ -110,6 +110,10 @@ def create_app(
     def brain_evidence_reports(limit: int = Query(20, ge=1, le=200)) -> dict[str, Any]:
         return runtime.evidence_report_inventory(limit=limit)
 
+    @app.get("/brain/evidence/language")
+    def brain_current_language_evidence() -> dict[str, Any]:
+        return runtime.current_language_evidence()
+
     @app.post("/brain/feed")
     def brain_feed(request: dict[str, Any]) -> dict[str, Any]:
         text = str(request.get("text") or "")

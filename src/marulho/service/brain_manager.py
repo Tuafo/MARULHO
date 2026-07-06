@@ -9,7 +9,10 @@ from threading import RLock
 from typing import Any, Mapping
 
 from marulho.brain import MarulhoBrain
-from marulho.reporting import build_evidence_report_inventory
+from marulho.reporting import (
+    build_current_language_evidence_projection,
+    build_evidence_report_inventory,
+)
 
 
 CURRENT_CHECKPOINT_MANIFEST = "marulho_current_checkpoint.json"
@@ -59,6 +62,9 @@ class MarulhoBrainRuntimeFacade:
 
     def evidence_report_inventory(self, limit: int = 20) -> dict[str, Any]:
         return self._manager.evidence_report_inventory(limit=limit)
+
+    def current_language_evidence(self) -> dict[str, Any]:
+        return self._manager.current_language_evidence()
 
 
 class MarulhoBrainServiceManager:
@@ -162,6 +168,14 @@ class MarulhoBrainServiceManager:
             else Path("reports")
         )
         return build_evidence_report_inventory(reports_root, limit=limit)
+
+    def current_language_evidence(self) -> dict[str, Any]:
+        reports_root = (
+            self._env_root / "reports"
+            if self._env_root is not None
+            else Path("reports")
+        )
+        return build_current_language_evidence_projection(reports_root)
 
     @staticmethod
     def checkpoint_root_for_path(checkpoint_path: str | Path) -> Path:
