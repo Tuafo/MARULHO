@@ -40,6 +40,7 @@ from marulho.training.language_model import (
     evaluate_language_model,
     precompute_sampled_vocab_batches,
 )
+from marulho.training.language_model_parameters import estimate_language_model_parameters
 
 
 _TRAINING_WINDOW_TRITON_TRACKERS = (
@@ -564,6 +565,170 @@ def _memory_slot_learning_summary(
     }
 
 
+def _active_compute_learning_summary(
+    model: MarulhoLanguageModel,
+    *,
+    loss_evidence: Mapping[str, Any],
+    update_routing: Mapping[str, Any],
+    replay_routing: Mapping[str, Any],
+    memory_slots: Mapping[str, Any],
+    update_token_count: int,
+    measured_update_loop_model_loss_calls: int,
+) -> dict[str, Any]:
+    parameter_estimate = estimate_language_model_parameters(model.config)
+    update_route = dict(update_routing)
+    replay_route = dict(replay_routing)
+    route_source = update_route if update_route else replay_route
+    expert_count = int(
+        route_source.get("total_columns", int(model.config.expert_count)) or 0
+    )
+    active_columns_per_token = int(
+        route_source.get(
+            "active_expert_count_per_token",
+            parameter_estimate.get("active_expert_count_per_token", 0),
+        )
+        or 0
+    )
+    route_candidate_rows_per_token = int(
+        route_source.get(
+            "route_candidate_count",
+            parameter_estimate.get("route_candidate_rows_scored_per_token", 0),
+        )
+        or 0
+    )
+    route_candidate_rows_scored_estimate = int(
+        max(0, int(update_token_count)) * max(0, route_candidate_rows_per_token)
+    )
+    observed_probe_route_candidate_rows = int(
+        (update_route.get("candidate_rows_scored", 0) or 0)
+        + (replay_route.get("candidate_rows_scored", 0) or 0)
+    )
+    sampled_vocab_training = bool(loss_evidence.get("sampled_vocab_training", False))
+    configured_sampled_vocab_size = int(
+        loss_evidence.get(
+            "configured_sampled_vocab_size",
+            int(model.config.sampled_vocab_size),
+        )
+        or 0
+    )
+    sampled_vocab_rows_per_loss_call = int(
+        loss_evidence.get("actual_sampled_vocab_size", 0) or 0
+    )
+    loss_target_tokens_per_call = int(loss_evidence.get("target_token_count", 0) or 0)
+    state_dim = int(model.config.state_dim)
+    vocab_size = int(model.config.vocab_size)
+    dense_lm_head_parameters = int(
+        parameter_estimate.get("parameter_breakdown", {}).get(
+            "lm_head_dense_vocab",
+            (state_dim * vocab_size) + vocab_size,
+        )
+    )
+    active_lm_head_rows_per_loss_call = (
+        sampled_vocab_rows_per_loss_call if sampled_vocab_training else vocab_size
+    )
+    active_lm_head_parameters_per_loss_call = int(
+        max(0, active_lm_head_rows_per_loss_call) * (state_dim + 1)
+    )
+    dense_active_parameters_per_token = int(
+        parameter_estimate.get("active_parameters_per_token_estimate", 0) or 0
+    )
+    sampled_loss_active_parameters_per_loss_call = int(
+        dense_active_parameters_per_token
+        - dense_lm_head_parameters
+        + active_lm_head_parameters_per_loss_call
+    )
+    total_slots = int(memory_slots.get("total_slots", 0) or 0)
+    active_slots = int(memory_slots.get("active_slots_per_token", 0) or 0)
+    candidate_slots = int(memory_slots.get("candidate_slot_count", 0) or 0)
+    runs_all_columns = bool(
+        update_route.get("runs_all_columns", False)
+        or replay_route.get("runs_all_columns", False)
+    )
+    runs_all_slots = bool(memory_slots.get("runs_all_slots", False))
+    return {
+        "surface": "marulho_language_continual_active_compute.v1",
+        "scope": "post_window_report_for_measured_update_shape",
+        "collected_outside_measured_update_window": True,
+        "per_step_active_compute_dict_build": False,
+        "device": str(model.device),
+        "active_language_path": str(model.config.active_language_path),
+        "model_vocab_size": vocab_size,
+        "generation_vocab_size": int(model.generation_vocab_size),
+        "sampled_vocab_size": int(model.config.sampled_vocab_size),
+        "configured_sampled_vocab_size": configured_sampled_vocab_size,
+        "sampled_vocab_training": sampled_vocab_training,
+        "full_vocab_logits_materialized": bool(
+            loss_evidence.get("full_vocab_logits_materialized", True)
+        ),
+        "sampled_vocab_rows_per_loss_call": sampled_vocab_rows_per_loss_call,
+        "loss_target_tokens_per_loss_call": loss_target_tokens_per_call,
+        "measured_update_loop_model_loss_calls": int(
+            measured_update_loop_model_loss_calls
+        ),
+        "update_token_count": int(update_token_count),
+        "total_parameters": int(parameter_estimate.get("total_parameters", 0) or 0),
+        "parameter_breakdown": dict(parameter_estimate.get("parameter_breakdown", {})),
+        "active_parameters_per_token_estimate": dense_active_parameters_per_token,
+        "active_parameter_fraction_estimate": float(
+            parameter_estimate.get("active_parameter_fraction_estimate", 0.0) or 0.0
+        ),
+        "active_parameter_estimate_counts_dense_lm_head": True,
+        "dense_lm_head_parameters": dense_lm_head_parameters,
+        "active_lm_head_rows_per_loss_call": int(active_lm_head_rows_per_loss_call),
+        "active_lm_head_parameters_per_loss_call": int(
+            active_lm_head_parameters_per_loss_call
+        ),
+        "sampled_loss_active_parameters_per_loss_call_estimate": int(
+            sampled_loss_active_parameters_per_loss_call
+        ),
+        "sampled_loss_active_parameter_fraction_estimate": (
+            float(sampled_loss_active_parameters_per_loss_call)
+            / float(parameter_estimate.get("total_parameters", 1) or 1)
+        ),
+        "total_columns": expert_count,
+        "active_columns_per_token": active_columns_per_token,
+        "route_candidate_rows_scored_per_token": route_candidate_rows_per_token,
+        "route_candidate_rows_scored_in_measured_update_window_estimate": (
+            route_candidate_rows_scored_estimate
+        ),
+        "observed_probe_route_candidate_rows_scored": (
+            observed_probe_route_candidate_rows
+        ),
+        "runs_all_columns": runs_all_columns,
+        "route_fallback_reason": (
+            update_route.get("fallback_reason") or replay_route.get("fallback_reason")
+        ),
+        "route_device": route_source.get("route_device", str(model.device)),
+        "route_candidate_id_source": route_source.get("candidate_id_source"),
+        "precomputed_route_candidate_ids_used": bool(
+            update_route.get("precomputed_candidate_ids_used", False)
+            or replay_route.get("precomputed_candidate_ids_used", False)
+        ),
+        "total_memory_slots": total_slots,
+        "candidate_memory_slots_per_token": candidate_slots,
+        "active_memory_slots_per_token": active_slots,
+        "memory_slot_candidate_rows_scored_in_measured_update_window": int(
+            memory_slots.get("candidate_slots_scored", 0) or 0
+        ),
+        "active_memory_parameters_per_token": int(
+            memory_slots.get("active_parameters_per_token", 0) or 0
+        ),
+        "runs_all_memory_slots": runs_all_slots,
+        "memory_slot_fallback_reason": memory_slots.get("fallback_reason"),
+        "memory_slot_candidate_id_source": memory_slots.get("candidate_id_source"),
+        "precomputed_memory_candidate_ids_used": bool(
+            memory_slots.get("precomputed_candidate_ids_used", False)
+        ),
+        "bounded_active_compute_path": bool(
+            not runs_all_columns
+            and not runs_all_slots
+            and (expert_count <= 0 or route_candidate_rows_per_token < expert_count)
+            and (total_slots <= 0 or candidate_slots < total_slots)
+        ),
+        "parameter_estimate": parameter_estimate,
+    }
+
+
 def _continual_optimizer_policy(
     model: MarulhoLanguageModel,
     config: LanguageContinualLearningConfig,
@@ -851,6 +1016,8 @@ def run_language_continual_learning_window(
     last_replay_loss_evidence: dict[str, Any] = {}
     last_update_memory_evidence: dict[str, Any] = {}
     last_replay_memory_evidence: dict[str, Any] = {}
+    last_update_routing_evidence: dict[str, Any] = {}
+    last_replay_routing_evidence: dict[str, Any] = {}
     update_memory_candidate_slots_scored = 0
     replay_memory_candidate_slots_scored = 0
     update_memory_observation_count = 0
@@ -1061,6 +1228,9 @@ def run_language_continual_learning_window(
         last_update_memory_evidence = dict(
             (update_probe_result.get("telemetry") or {}).get("memory") or {}
         )
+        last_update_routing_evidence = dict(
+            (update_probe_result.get("telemetry") or {}).get("routing") or {}
+        )
         del update_probe_result
     if last_replay_batch_for_probe is not None:
         replay_probe_result = model.next_token_loss(
@@ -1083,6 +1253,9 @@ def run_language_continual_learning_window(
         )
         last_replay_memory_evidence = dict(
             (replay_probe_result.get("telemetry") or {}).get("memory") or {}
+        )
+        last_replay_routing_evidence = dict(
+            (replay_probe_result.get("telemetry") or {}).get("routing") or {}
         )
         del replay_probe_result
     mean_update_loss = (
@@ -1168,6 +1341,15 @@ def run_language_continual_learning_window(
         update_observation_count=update_memory_observation_count,
         replay_observation_count=replay_memory_observation_count,
     )
+    active_compute_evidence = _active_compute_learning_summary(
+        model,
+        loss_evidence=last_loss_evidence,
+        update_routing=last_update_routing_evidence,
+        replay_routing=last_replay_routing_evidence,
+        memory_slots=memory_slot_evidence,
+        update_token_count=update_token_count,
+        measured_update_loop_model_loss_calls=measured_update_loop_model_loss_calls,
+    )
     return {
         "artifact_kind": "marulho_language_continual_learning_window",
         "surface": "marulho_language_continual_learning_window.v1",
@@ -1187,6 +1369,7 @@ def run_language_continual_learning_window(
         "status": status,
         "config": asdict(cfg),
         "memory_slots": memory_slot_evidence,
+        "active_compute": active_compute_evidence,
         "old_domain_before": old_before,
         "old_domain_after": old_after,
         "new_domain_before": new_before,
@@ -1209,6 +1392,7 @@ def run_language_continual_learning_window(
             "general_replay_retention_delta": float(replay_retention_delta),
             "spike_rate_delta": float(_spike_rate(new_after) - _spike_rate(new_before)),
             "memory_slots": memory_slot_evidence,
+            "active_compute": active_compute_evidence,
             "training_window_memory_slot_triton_stats_delta": (
                 training_window_memory_slot_triton_stats_delta
             ),

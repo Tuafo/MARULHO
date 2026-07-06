@@ -1207,6 +1207,12 @@ def run_language_continual_learning_experiment(
             "records_actual_continual_learning": bool(
                 report["learning_evidence"]["update_token_count"] > 0
             ),
+            "records_active_compute": bool(
+                report["learning_evidence"]
+                .get("active_compute", {})
+                .get("surface")
+                == "marulho_language_continual_active_compute.v1"
+            ),
             "records_forgetting": "old_domain_forgetting" in report["learning_evidence"],
             "records_replay_retention": (
                 "general_replay_retention_delta" in report["learning_evidence"]

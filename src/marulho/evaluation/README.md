@@ -194,6 +194,18 @@ harnesses.
   fused sampled-vocab CE steps and reduces tracked torch fallback calls to
   `512`, but is slower at `4595.157` update tokens/sec and `4037.457`
   total-window tokens/sec, so it stays off by default as rejection evidence.
+- Continual-learning experiment reports now require
+  `experiment_review.records_active_compute=true` when
+  `learning_evidence.active_compute.surface` is
+  `marulho_language_continual_active_compute.v1`. That block records the
+  current update shape's active columns, route candidates, memory-slot
+  candidates, sampled-vocab loss rows, full-vocab materialization truth, total
+  parameters, active-parameter estimates, and all-column/all-slot fallback truth
+  without turning active-compute reporting into a runtime-promotion shortcut.
+  The current `524288` active-compute rerun reaches `4635.942` update tokens/sec
+  and `4054.424` total-window tokens/sec, `-6.117%` and `-5.761%` versus the
+  retained paired default, while preserving `768` tracked torch fallback calls
+  and zero tracked Triton failures.
 - Heldout and replay evaluation keeps the deferred scalar readback boundary but
   no longer builds loss/memory evidence for every eval batch. Evaluation
   reports now record `evidence_collection_mode=last_batch_only`,

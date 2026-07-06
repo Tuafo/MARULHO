@@ -197,6 +197,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["experiment_review"]["records_sampled_vocab_training"] is True
     assert report["experiment_review"]["records_training_backend_policy"] is True
     assert report["experiment_review"]["records_dense_adamw_backend"] is True
+    assert report["experiment_review"]["records_active_compute"] is True
     assert report["experiment_review"]["records_memory_slot_path"] is True
     assert report["experiment_review"]["records_bounded_memory_slot_path"] is True
     assert report["experiment_review"]["records_memory_slot_online_update_path"] is True
@@ -248,6 +249,34 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert memory_slots["precomputed_candidate_ids_used"] is True
     assert memory_slots["memory_gate_readback"] is False
     assert memory_slots["bounded_memory_slot_path"] is True
+    active_compute = report["learning_evidence"]["active_compute"]
+    assert active_compute["surface"] == "marulho_language_continual_active_compute.v1"
+    assert report["active_compute"] == active_compute
+    assert active_compute["collected_outside_measured_update_window"] is True
+    assert active_compute["per_step_active_compute_dict_build"] is False
+    assert active_compute["total_parameters"] > 0
+    assert active_compute["active_parameters_per_token_estimate"] > 0
+    assert active_compute["sampled_vocab_training"] is True
+    assert active_compute["full_vocab_logits_materialized"] is False
+    assert active_compute["sampled_vocab_rows_per_loss_call"] == 32
+    assert active_compute["sampled_loss_active_parameters_per_loss_call_estimate"] < (
+        active_compute["active_parameters_per_token_estimate"]
+    )
+    assert active_compute["total_columns"] == 2
+    assert active_compute["active_columns_per_token"] == 1
+    assert active_compute["route_candidate_rows_scored_per_token"] == 2
+    assert (
+        active_compute["route_candidate_rows_scored_in_measured_update_window_estimate"]
+        > 0
+    )
+    assert active_compute["total_memory_slots"] == 4
+    assert active_compute["candidate_memory_slots_per_token"] == 2
+    assert active_compute["active_memory_slots_per_token"] == 1
+    assert active_compute["runs_all_memory_slots"] is False
+    assert active_compute["precomputed_memory_candidate_ids_used"] is True
+    assert active_compute["parameter_estimate"]["surface"] == (
+        "marulho_language_model_parameter_estimate.v1"
+    )
     training_delta = memory_slots["training_window_memory_slot_triton_stats_delta"]
     assert training_delta["surface"] == (
         "marulho_language_memory_slots_triton_stats_delta.v1"

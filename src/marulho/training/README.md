@@ -579,6 +579,23 @@ developmental and consolidation runners, query runners, and long-run evidence.
   complete window to `4595.157` update tokens/sec and `4037.457`
   total-window tokens/sec, so it is rejection evidence for the maintained
   default.
+- Continual-learning reports include `active_compute` with surface
+  `marulho_language_continual_active_compute.v1`. It is assembled after the
+  measured update window from the shared training-owned parameter estimator and
+  existing route/memory/loss probes, so reports expose total parameters,
+  active parameters per token, sampled-vocab rows per loss call, active LM-head
+  rows, active columns, route candidate rows, active memory slots, all-column/
+  all-slot fallback truth, and `per_step_active_compute_dict_build=false`
+  without adding hot-loop report work. The current `524288` active-compute
+  rerun
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-active-compute-rerun-evalmatched-update524288-20260706.json`
+  accepts the update, records `102228689` total parameters, `67948808`
+  dense-head active parameters/token, `447752` sampled-loss active parameters/
+  loss-call, `4/16` active columns, `8` route candidates, `2/8/1024` active/
+  candidate/total memory slots, and no all-column/all-slot fallback. It reaches
+  `4635.942` update tokens/sec and `4054.424` total-window tokens/sec, which is
+  `-6.117%` and `-5.761%` versus the retained paired default, so this is
+  visibility evidence rather than a speed promotion.
 - Continual-learning reports now include
   `training_window_triton_accounting` with scope
   `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,
