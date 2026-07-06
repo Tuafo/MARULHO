@@ -429,6 +429,15 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                             "torch_autograd_bounded_memory_slots"
                         ),
                     },
+                    "batch_device_staging": {
+                        "surface": (
+                            "marulho_language_continual_batch_device_staging.v1"
+                        ),
+                        "staged_before_measured_update_window": True,
+                        "all_update_batches_on_device_before_timing": True,
+                        "measured_update_loop_caller_device_transfer_calls": 0,
+                    },
+                    "measured_update_loop_caller_device_transfer_calls": 0,
                     "training_window_triton_accounting": {
                         "tracked_triton_failure_count": 0,
                         "tracked_torch_fallback_call_count": 0,
@@ -664,6 +673,12 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["training_throughput_evidence"]["post_learning_sustained"][
         "tokens_per_second"
     ] == 8132.27
+    assert projection["training_throughput_evidence"][
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
+    assert projection["training_throughput_evidence"]["batch_device_staging"][
+        "all_update_batches_on_device_before_timing"
+    ] is True
     training_accounting = projection["training_throughput_evidence"][
         "training_window_triton_accounting"
     ]
@@ -727,6 +742,10 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert training_backend["tracked_torch_fallback_kernel_names"] == [
         "language_sampled_vocab_ce_triton"
     ]
+    assert training_backend["all_update_batches_on_device_before_timing"] is True
+    assert training_backend[
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
     assert training_backend["gpu_training_hot_path_status"] == (
         "torch_fallbacks_present"
     )

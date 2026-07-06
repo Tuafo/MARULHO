@@ -230,6 +230,59 @@ def _precomputed_memory_candidate_slots_scored(batch: LanguageBatch) -> int:
     return int(batch.memory_candidate_ids.numel())
 
 
+def _batch_tensors_on_device(batch: LanguageBatch, device: torch.device) -> bool:
+    tensors = (
+        batch.input_ids,
+        batch.target_ids,
+        batch.sampled_vocab_ids,
+        batch.sampled_target_positions,
+        batch.memory_candidate_ids,
+        batch.route_candidate_ids,
+    )
+    return all(tensor is None or tensor.device == device for tensor in tensors)
+
+
+def _stage_batch_on_device(batch: LanguageBatch, device: torch.device) -> LanguageBatch:
+    if _batch_tensors_on_device(batch, device):
+        return batch
+    return batch.to(device)
+
+
+def _stage_batches_on_device(
+    batches: Sequence[LanguageBatch],
+    device: torch.device,
+) -> tuple[LanguageBatch, ...]:
+    return tuple(_stage_batch_on_device(batch, device) for batch in batches)
+
+
+def _batch_device_staging_report(
+    *,
+    device: torch.device,
+    old_eval_batches: Sequence[LanguageBatch],
+    new_eval_batches: Sequence[LanguageBatch],
+    new_update_batches: Sequence[LanguageBatch],
+    replay_update_batches: Sequence[LanguageBatch],
+    elapsed_seconds: float,
+) -> dict[str, Any]:
+    update_batches_on_device = all(
+        _batch_tensors_on_device(batch, device)
+        for batch in (*tuple(new_update_batches), *tuple(replay_update_batches))
+    )
+    return {
+        "surface": "marulho_language_continual_batch_device_staging.v1",
+        "device": str(device),
+        "old_eval_batch_count": int(len(old_eval_batches)),
+        "new_eval_batch_count": int(len(new_eval_batches)),
+        "new_update_batch_count": int(len(new_update_batches)),
+        "replay_update_batch_count": int(len(replay_update_batches)),
+        "elapsed_seconds": float(elapsed_seconds),
+        "staged_before_pre_update_evaluation": True,
+        "staged_before_measured_update_window": True,
+        "all_update_batches_on_device_before_timing": bool(update_batches_on_device),
+        "measured_update_loop_caller_device_transfer_calls": 0,
+    }
+
+
 def _memory_slot_learning_summary(
     model: MarulhoLanguageModel,
     *,
@@ -511,6 +564,32 @@ def run_language_continual_learning_window(
         0.0,
         time.perf_counter() - precompute_started,
     )
+    batch_device_staging_started = time.perf_counter()
+    old_eval_runtime_batches = _stage_batches_on_device(
+        old_eval_runtime_batches,
+        model.device,
+    )
+    new_eval_runtime_batches = _stage_batches_on_device(
+        new_eval_runtime_batches,
+        model.device,
+    )
+    new_update_batches = _stage_batches_on_device(new_update_batches, model.device)
+    replay_update_batches = _stage_batches_on_device(
+        replay_update_batches,
+        model.device,
+    )
+    batch_device_staging_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - batch_device_staging_started,
+    )
+    batch_device_staging = _batch_device_staging_report(
+        device=model.device,
+        old_eval_batches=old_eval_runtime_batches,
+        new_eval_batches=new_eval_runtime_batches,
+        new_update_batches=new_update_batches,
+        replay_update_batches=replay_update_batches,
+        elapsed_seconds=batch_device_staging_elapsed_seconds,
+    )
     pre_update_evaluation_started = time.perf_counter()
     old_before = evaluate_language_model(model, old_eval_runtime_batches)
     new_before = evaluate_language_model(model, new_eval_runtime_batches)
@@ -569,8 +648,8 @@ def run_language_continual_learning_window(
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
             update_result = model.next_token_loss(
-                batch.input_ids.to(model.device),
-                batch.target_ids.to(model.device),
+                batch.input_ids,
+                batch.target_ids,
                 collect_telemetry=bool(cfg.collect_training_telemetry),
                 assume_no_sleeping_experts=assume_no_sleeping,
                 sampled_vocab_ids=batch.sampled_vocab_ids,
@@ -593,8 +672,8 @@ def run_language_continual_learning_window(
                 ]
                 last_replay_batch_for_probe = replay_batch
                 replay_result = model.next_token_loss(
-                    replay_batch.input_ids.to(model.device),
-                    replay_batch.target_ids.to(model.device),
+                    replay_batch.input_ids,
+                    replay_batch.target_ids,
                     collect_telemetry=bool(cfg.collect_training_telemetry),
                     assume_no_sleeping_experts=assume_no_sleeping,
                     sampled_vocab_ids=replay_batch.sampled_vocab_ids,
@@ -681,8 +760,8 @@ def run_language_continual_learning_window(
         optimizer.zero_grad(set_to_none=True)
     if last_update_batch_for_probe is not None:
         update_probe_result = model.next_token_loss(
-            last_update_batch_for_probe.input_ids.to(model.device),
-            last_update_batch_for_probe.target_ids.to(model.device),
+            last_update_batch_for_probe.input_ids,
+            last_update_batch_for_probe.target_ids,
             collect_telemetry=bool(cfg.collect_training_telemetry),
             assume_no_sleeping_experts=assume_no_sleeping,
             sampled_vocab_ids=last_update_batch_for_probe.sampled_vocab_ids,
@@ -702,8 +781,8 @@ def run_language_continual_learning_window(
         del update_probe_result
     if last_replay_batch_for_probe is not None:
         replay_probe_result = model.next_token_loss(
-            last_replay_batch_for_probe.input_ids.to(model.device),
-            last_replay_batch_for_probe.target_ids.to(model.device),
+            last_replay_batch_for_probe.input_ids,
+            last_replay_batch_for_probe.target_ids,
             collect_telemetry=bool(cfg.collect_training_telemetry),
             assume_no_sleeping_experts=assume_no_sleeping,
             sampled_vocab_ids=last_replay_batch_for_probe.sampled_vocab_ids,
@@ -866,6 +945,7 @@ def run_language_continual_learning_window(
                 "new_batches": new_sampled_vocab_precompute,
                 "replay_batches": replay_sampled_vocab_precompute,
             },
+            "batch_device_staging": batch_device_staging,
             "optimizer_step_count": int(optimizer_step_count),
             "optimizer_policy": optimizer_policy,
             "dense_adamw_backend": str(cfg.dense_adamw_backend),
@@ -889,6 +969,9 @@ def run_language_continual_learning_window(
                 "state_snapshot_seconds": float(snapshot_elapsed_seconds),
                 "sampled_vocab_precompute_seconds": float(
                     sampled_vocab_precompute_elapsed_seconds
+                ),
+                "batch_device_staging_seconds": float(
+                    batch_device_staging_elapsed_seconds
                 ),
                 "pre_update_evaluation_seconds": float(
                     pre_update_evaluation_elapsed_seconds
@@ -917,6 +1000,7 @@ def run_language_continual_learning_window(
             "max_gradient_norm": max_gradient_norm,
             "metric_readback_mode": "deferred_gpu_scalar_aggregation",
             "per_step_metric_cpu_sync": False,
+            "measured_update_loop_caller_device_transfer_calls": 0,
             "hot_update_evidence_mode": "post_window_telemetry_probe",
             "per_step_evidence_dict_build": False,
             "memory_slot_hot_update_evidence_mode": (

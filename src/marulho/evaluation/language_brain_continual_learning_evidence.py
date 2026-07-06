@@ -289,6 +289,14 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
         "per_step_metric_cpu_sync": bool(
             evidence.get("per_step_metric_cpu_sync", True)
         ),
+        "batch_device_staging": dict(
+            evidence.get("batch_device_staging")
+            if isinstance(evidence.get("batch_device_staging"), Mapping)
+            else {}
+        ),
+        "measured_update_loop_caller_device_transfer_calls": int(
+            evidence.get("measured_update_loop_caller_device_transfer_calls", 0) or 0
+        ),
         "device": evidence.get("device"),
         "memory_slots": {
             "enabled": bool(memory_slots.get("enabled", False)),

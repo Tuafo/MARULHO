@@ -551,8 +551,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   replay loss, and max observed grad norm in the measured loop, then read back
   after a single CUDA stop synchronization. The update and replay loss calls
   also use the lean loss path in the measured loop, count precomputed memory
-  candidates from batch tensors, and run post-window telemetry probes to fill
-  final evidence without per-step report assembly.
+  candidates from batch tensors, stage all update/eval/replay batches onto the
+  model device before the measured update timer starts, and run post-window
+  telemetry probes to fill final evidence without per-step report assembly.
+  Reports record `measured_update_loop_caller_device_transfer_calls=0`; model
+  internals still own final device normalization.
 - Continual-learning reports now include
   `training_window_triton_accounting` with scope
   `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,

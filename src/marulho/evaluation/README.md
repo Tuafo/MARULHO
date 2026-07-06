@@ -177,6 +177,9 @@ harnesses.
   count under `tracked_torch_fallback_calls` with the legacy singular alias
   kept only for compatibility, so repair/learning evidence cannot silently
   report zero fallback work when the update window recorded PyTorch fallbacks.
+  They also preserve `batch_device_staging` and
+  `measured_update_loop_caller_device_transfer_calls=0` so installed evidence
+  shows update batches were staged on the model device before timing.
 - `language_continual_learning_experiment.py` exposes full-window backend
   toggles through `--sampled-vocab-ce-triton-training` and
   `--memory-slots-triton-training`, plus

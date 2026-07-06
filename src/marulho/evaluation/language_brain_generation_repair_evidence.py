@@ -257,6 +257,14 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
         "final_parameter_delta_l2": float(
             evidence.get("final_parameter_delta_l2", 0.0) or 0.0
         ),
+        "batch_device_staging": dict(
+            evidence.get("batch_device_staging")
+            if isinstance(evidence.get("batch_device_staging"), Mapping)
+            else {}
+        ),
+        "measured_update_loop_caller_device_transfer_calls": int(
+            evidence.get("measured_update_loop_caller_device_transfer_calls", 0) or 0
+        ),
         "device": evidence.get("device"),
         "memory_slots": {
             "enabled": bool(memory_slots.get("enabled", False)),
@@ -381,6 +389,21 @@ def _aggregate_learning_summaries(
         ),
         "last_pass_total_window_tokens_per_second": float(
             last.get("total_window_tokens_per_second", 0.0) or 0.0
+        ),
+        "last_pass_batch_device_staging": dict(
+            last.get("batch_device_staging")
+            if isinstance(last.get("batch_device_staging"), Mapping)
+            else {}
+        ),
+        "measured_update_loop_caller_device_transfer_calls": sum(
+            int(
+                summary.get(
+                    "measured_update_loop_caller_device_transfer_calls",
+                    0,
+                )
+                or 0
+            )
+            for summary in summaries
         ),
         "new_domain_loss_delta": float(
             last.get("new_domain_loss_delta", 0.0) or 0.0

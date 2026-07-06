@@ -1845,6 +1845,18 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
         "deferred_gpu_scalar_aggregation"
     )
     assert report["learning_evidence"]["per_step_metric_cpu_sync"] is False
+    batch_device_staging = report["learning_evidence"]["batch_device_staging"]
+    assert batch_device_staging["surface"] == (
+        "marulho_language_continual_batch_device_staging.v1"
+    )
+    assert batch_device_staging["staged_before_measured_update_window"] is True
+    assert batch_device_staging["all_update_batches_on_device_before_timing"] is True
+    assert batch_device_staging[
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
+    assert report["learning_evidence"][
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
     assert report["learning_evidence"][
         "training_window_memory_slot_triton_stats_delta"
     ]["surface"] == "marulho_language_memory_slots_triton_stats_delta.v1"
@@ -1877,6 +1889,9 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["window_phase_timings"]["surface"] == (
         "marulho_language_continual_window_phase_timings.v1"
     )
+    assert "batch_device_staging_seconds" in report["learning_evidence"][
+        "window_phase_timings"
+    ]
     assert report["learning_evidence"]["window_phase_timings"][
         "total_window_seconds"
     ] >= report["learning_evidence"]["window_phase_timings"]["update_seconds"]

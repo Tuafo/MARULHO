@@ -760,6 +760,20 @@ def _training_throughput_evidence(
             summary.get("total_window_tokens_per_second"),
             continual_learning_report.get("total_window_tokens_per_second"),
         ),
+        "batch_device_staging": dict(
+            _mapping(
+                learning_evidence.get("batch_device_staging")
+                or summary.get("batch_device_staging")
+                or best.get("batch_device_staging")
+            )
+        ),
+        "measured_update_loop_caller_device_transfer_calls": _first_int(
+            learning_evidence.get(
+                "measured_update_loop_caller_device_transfer_calls"
+            ),
+            summary.get("measured_update_loop_caller_device_transfer_calls"),
+            best.get("measured_update_loop_caller_device_transfer_calls"),
+        ),
         "new_domain_loss_delta": _first_float(
             best.get("new_domain_loss_delta"),
             summary.get("new_domain_loss_delta"),
@@ -1245,6 +1259,7 @@ def _backend_bottleneck_evidence(
     training_fallback_kernel_names = _training_window_fallback_kernel_names(
         training_triton_accounting
     )
+    batch_device_staging = _mapping(training.get("batch_device_staging"))
     decisions = []
     if state_cmp:
         decisions.append(
@@ -1353,6 +1368,15 @@ def _backend_bottleneck_evidence(
             "tracked_torch_fallback_kernel_names": training_fallback_kernel_names,
             "tracked_triton_failure_count": _first_int(
                 training_triton_accounting.get("tracked_triton_failure_count")
+            ),
+            "batch_device_staging_outside_measured_window": _first_bool(
+                batch_device_staging.get("staged_before_measured_update_window")
+            ),
+            "all_update_batches_on_device_before_timing": _first_bool(
+                batch_device_staging.get("all_update_batches_on_device_before_timing")
+            ),
+            "measured_update_loop_caller_device_transfer_calls": _first_int(
+                training.get("measured_update_loop_caller_device_transfer_calls")
             ),
             "torch_fallbacks_visible_in_current_projection": True,
             "gpu_training_hot_path_status": (

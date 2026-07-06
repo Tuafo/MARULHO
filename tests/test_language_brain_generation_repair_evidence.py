@@ -125,6 +125,12 @@ def test_brain_installed_generation_repair_learns_and_rescores(
     assert report["status_read_mutation"] is False
     assert report["learning_summary"]["trace_event"] == "language_learn"
     assert report["learning_summary"]["update_token_count"] > 0
+    assert report["learning_summary"][
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
+    assert report["learning_summary"]["batch_device_staging"][
+        "staged_before_measured_update_window"
+    ] is True
     learning_accounting = report["learning_summary"][
         "training_window_triton_accounting"
     ]
@@ -136,6 +142,12 @@ def test_brain_installed_generation_repair_learns_and_rescores(
     assert report["aggregate_learning_summary"]["update_token_count"] >= (
         report["learning_summary"]["update_token_count"]
     )
+    assert report["aggregate_learning_summary"][
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
+    assert report["aggregate_learning_summary"]["last_pass_batch_device_staging"][
+        "staged_before_measured_update_window"
+    ] is True
     aggregate_accounting = report["aggregate_learning_summary"][
         "training_window_triton_accounting"
     ]

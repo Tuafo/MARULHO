@@ -136,6 +136,12 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
     assert report["learning_window"]["report"]["mutates_language_model_weights"] is True
     assert report["learning_summary"]["update_token_count"] > 0
     assert report["learning_summary"]["tokens_per_second"] > 0.0
+    assert report["learning_summary"][
+        "measured_update_loop_caller_device_transfer_calls"
+    ] == 0
+    assert report["learning_summary"]["batch_device_staging"][
+        "staged_before_measured_update_window"
+    ] is True
     learning_accounting = report["learning_summary"][
         "training_window_triton_accounting"
     ]
