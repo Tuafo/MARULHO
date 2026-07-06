@@ -1117,19 +1117,23 @@ def _structural_plasticity_evidence(
     gate = _mapping(structural_report.get("promotion_gate"))
     pre_checkpoint = _mapping(structural_report.get("pre_structural_brain_checkpoint"))
     post_checkpoint = _mapping(structural_report.get("post_structural_brain_checkpoint"))
+    transaction = _mapping(structural_report.get("structural_transaction"))
+    transaction_report = _mapping(transaction.get("report"))
+    baseline_checkpoint = _mapping(transaction_report.get("checkpoint"))
     sustained = _mapping(structural_report.get("post_structure_sustained_window"))
-    best = saved_best or summary or structural_report
+    best = summary or structural_report or saved_best
     source = (
-        "benchmark_suite.brain_installed_structural_plasticity_evidence"
-        if saved_best
-        else "saved_brain_installed_structural_plasticity_report"
+        "saved_brain_installed_structural_plasticity_report"
         if structural_report
+        else "benchmark_suite.brain_installed_structural_plasticity_evidence"
+        if saved_best
         else None
     )
     return {
         "surface": "marulho_current_language_structural_plasticity_evidence.v1",
         "available": bool(best),
         "source": source,
+        "benchmark_suite_best_report_available": bool(saved_best),
         "runtime_owner": _first_string(
             best.get("runtime_owner"),
             structural_report.get("runtime_owner"),
@@ -1246,6 +1250,29 @@ def _structural_plasticity_evidence(
                 best.get("pre_structure_checkpoint_restore_verified"),
                 pre_checkpoint.get("restore_verified"),
                 gate.get("pre_structure_brain_checkpoint_restore_verified"),
+            ),
+        },
+        "baseline_checkpoint": {
+            "surface": "marulho_current_language_structural_baseline_checkpoint_evidence.v1",
+            "path": _first_string(
+                best.get("structural_baseline_checkpoint_path"),
+                baseline_checkpoint.get("path"),
+            ),
+            "baseline_state_hash": _first_string(
+                baseline_checkpoint.get("baseline_state_hash")
+            ),
+            "checkpoint_restore_hash": _first_string(
+                baseline_checkpoint.get("checkpoint_restore_hash")
+            ),
+            "restore_verified": _first_bool(
+                best.get("structural_baseline_checkpoint_restore_verified"),
+                baseline_checkpoint.get("checkpoint_restore_verified"),
+            ),
+            "delete_protected_by_current_evidence": bool(
+                _first_string(
+                    best.get("structural_baseline_checkpoint_path"),
+                    baseline_checkpoint.get("path"),
+                )
             ),
         },
         "post_structure_checkpoint": {
@@ -1752,6 +1779,14 @@ def _checkpoint_artifact_continuity(
         _mapping(structural.get("post_structure_checkpoint")).get("path"),
         sha256=_mapping(structural.get("post_structure_checkpoint")).get("sha256"),
         restore_verified=_mapping(structural.get("post_structure_checkpoint")).get(
+            "restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "structural_baseline_report_checkpoint",
+        _mapping(structural.get("baseline_checkpoint")).get("path"),
+        restore_verified=_mapping(structural.get("baseline_checkpoint")).get(
             "restore_verified"
         ),
         delete_protected=True,

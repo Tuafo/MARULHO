@@ -47,6 +47,13 @@ For training throughput, the projection prefers the newest raw installed-brain
 continual-learning report over an older benchmark-suite best report, while
 keeping a flag that the suite aggregate exists. This lets fresh direct-reviewed
 checkpoint runs appear in the UI immediately without rebuilding the suite first.
+Installed structural evidence follows the same raw-report priority: the newest
+installed-brain structural report supplies mutation, checkpoint, and sustained
+speed fields, while the benchmark-suite best report remains visible only as an
+aggregate-availability flag.
+Checkpoint artifact continuity also protects the structural rollback baseline
+checkpoint from that raw report, not only the pre- and post-structure brain
+checkpoints, so report-folder cleanup does not erase rollback evidence.
 Standalone continual speed-sweep reports are projected separately from
 installed-brain learning evidence. The projection can show the selected
 recurrent horizon, same-session update/total-window throughput, accepted

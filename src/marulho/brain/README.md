@@ -131,15 +131,16 @@ runtime or quality promotion.
 structural mutation after learning. It loads the learned brain checkpoint, saves
 and restores the pre-structure brain, proposes and applies structure through
 `MarulhoBrain`, saves and restores the post-structure brain, then can run
-post-mutation sustained generation. The current CUDA report
-`reports/language_brain_structural_plasticity/evo-child-quality-repair-installed-learned-brain-route-bank-structure-524288-20260705.json`
-applies route-bank expansion from `8` to `12` bounded candidates on the learned
-`524288` model-vocab brain, verifies checkpoint restore and rollback evidence,
-records no status-read mutation, restores the post-structure brain checkpoint,
-and sustains `524288/524288` post-structure tokens at `8060.863` tokens/sec
-through `torch_cuda_graph_burst_decode_controls` with zero tracked Triton
-failures. This is installed-brain structural evidence, not a runtime or
-language-quality promotion.
+post-mutation sustained generation. The current direct-reviewed CUDA report
+`reports/language_brain_structural_plasticity/direct-reviewed-horizon2-fresh-learned-route-bank-structure-524288-20260706.json`
+starts from the fresh horizon-2 learned brain checkpoint, applies route-bank
+expansion from `4` to `7` bounded candidates on the learned `524288`
+model-vocab brain, verifies checkpoint restore and rollback evidence, records
+no status-read mutation, restores the post-structure brain checkpoint, and
+sustains `524288/524288` post-structure tokens at `8157.211` tokens/sec through
+`torch_cuda_graph_burst_decode_controls` with zero tracked Triton failures.
+This is installed-brain structural evidence, not a runtime or language-quality
+promotion.
 `language_brain_generation_evidence.py` verifies installed-brain generation
 after structural mutation. It restores the post-structure `MarulhoBrain`
 checkpoint, checks that status reads do not mutate runtime state, verifies the

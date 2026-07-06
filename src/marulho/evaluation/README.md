@@ -495,14 +495,15 @@ harnesses.
   `MarulhoBrain.propose_language_structure()` and
   `MarulhoBrain.apply_language_structure()`, saves and restores the
   post-structure brain, and can run post-mutation sustained generation. The
-  current CUDA report
-  `reports/language_brain_structural_plasticity/evo-child-quality-repair-installed-learned-brain-route-bank-structure-524288-20260705.json`
-  applies route-bank expansion from `8` to `12` bounded candidates on the
-  learned `524288` model-vocab brain, verifies baseline checkpoint restore and
-  rollback evidence, records no status-read mutation, restores the
-  post-structure brain checkpoint, and reaches `524288/524288` post-structure
-  sustained tokens at `8060.863` tokens/sec through
-  `torch_cuda_graph_burst_decode_controls` with zero tracked Triton failures.
+  current direct-reviewed CUDA report
+  `reports/language_brain_structural_plasticity/direct-reviewed-horizon2-fresh-learned-route-bank-structure-524288-20260706.json`
+  starts from the fresh horizon-2 learned brain checkpoint, applies route-bank
+  expansion from `4` to `7` bounded candidates on the learned `524288`
+  model-vocab brain, verifies baseline checkpoint restore and rollback
+  evidence, records no status-read mutation, restores the post-structure brain
+  checkpoint, and reaches `524288/524288` post-structure sustained tokens at
+  `8157.211` tokens/sec through `torch_cuda_graph_burst_decode_controls` with
+  zero tracked Triton failures.
   This is public brain-surface structural evidence, not a runtime or
   generation-quality promotion.
 - `language_runtime_benchmark_suite.py` now accepts

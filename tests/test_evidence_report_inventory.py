@@ -609,19 +609,19 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                     "checkpoint_restore_verified": True,
                     "rollback_verified": True,
                     "heldout_non_regression": True,
-                    "source_expert_count": 18,
-                    "target_expert_count": 18,
-                    "source_memory_slot_count": 1024,
-                    "target_memory_slot_count": 1024,
+                    "source_expert_count": 8,
+                    "target_expert_count": 8,
+                    "source_memory_slot_count": 512,
+                    "target_memory_slot_count": 512,
                     "memory_slot_count_delta": 0,
-                    "source_route_candidate_count": 8,
-                    "target_route_candidate_count": 12,
-                    "route_bank_candidate_count_delta": 4,
+                    "source_route_candidate_count": 4,
+                    "target_route_candidate_count": 7,
+                    "route_bank_candidate_count_delta": 3,
                 },
                 "pre_structural_brain_checkpoint": {
                     "path": (
                         "reports/language_brain_structural_plasticity/"
-                        "pre-structure-brain.pt"
+                        "fresh-pre-structure-brain.pt"
                     ),
                     "sha256": "pre-sha",
                     "restore_verified": True,
@@ -629,17 +629,30 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                 "post_structural_brain_checkpoint": {
                     "path": (
                         "reports/language_brain_structural_plasticity/"
-                        "post-structure-brain.pt"
+                        "fresh-post-structure-brain.pt"
                     ),
                     "sha256": "post-sha",
                     "restore_verified": True,
+                },
+                "structural_transaction": {
+                    "report": {
+                        "checkpoint": {
+                            "path": (
+                                "reports/language_brain_structural_plasticity/"
+                                "fresh-route-bank-baseline.pt"
+                            ),
+                            "baseline_state_hash": "baseline-state",
+                            "checkpoint_restore_hash": "baseline-state",
+                            "checkpoint_restore_verified": True,
+                        }
+                    }
                 },
                 "post_structure_sustained_window": {
                     "enabled": True,
                     "success": True,
                     "target_tokens": 524288,
                     "token_delta": 524288,
-                    "tokens_per_second": 8060.86,
+                    "tokens_per_second": 8157.21,
                     "backend": "torch_cuda_graph_burst_decode_controls",
                     "device": "cuda:0",
                     "tracked_triton_kernel_failure_count": 0,
@@ -799,19 +812,34 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["structural_plasticity_evidence"]["proposal_kind"] == (
         "route_bank_expansion"
     )
+    assert projection["structural_plasticity_evidence"]["source"] == (
+        "saved_brain_installed_structural_plasticity_report"
+    )
+    assert projection["structural_plasticity_evidence"][
+        "benchmark_suite_best_report_available"
+    ] is True
     assert projection["structural_plasticity_evidence"]["mutation"][
         "source_route_candidate_count"
-    ] == 8
+    ] == 4
     assert projection["structural_plasticity_evidence"]["mutation"][
         "target_route_candidate_count"
-    ] == 12
+    ] == 7
     assert projection["structural_plasticity_evidence"]["rollback_verified"] is True
     assert projection["structural_plasticity_evidence"]["post_structure_checkpoint"][
         "delete_protected_by_current_evidence"
     ] is True
+    assert projection["structural_plasticity_evidence"]["post_structure_checkpoint"][
+        "path"
+    ] == "reports/language_brain_structural_plasticity/fresh-post-structure-brain.pt"
+    assert projection["structural_plasticity_evidence"]["baseline_checkpoint"][
+        "path"
+    ] == "reports/language_brain_structural_plasticity/fresh-route-bank-baseline.pt"
+    assert projection["structural_plasticity_evidence"]["baseline_checkpoint"][
+        "delete_protected_by_current_evidence"
+    ] is True
     assert projection["structural_plasticity_evidence"]["post_structure_sustained"][
         "tokens_per_second"
-    ] == 8060.86
+    ] == 8157.21
     assert projection["checkpoint_lineage_evidence"][
         "structural_post_checkpoint_restore_verified"
     ] is True
@@ -893,4 +921,14 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     )
     assert artifacts[learned_checkpoint_path]["exists"] is False
     assert learned_checkpoint_path in continuity["missing_paths"]
+    baseline_checkpoint_path = (
+        "reports/language_brain_structural_plasticity/fresh-route-bank-baseline.pt"
+    )
+    assert artifacts[baseline_checkpoint_path]["exists"] is False
+    assert artifacts[baseline_checkpoint_path][
+        "delete_protected_by_current_evidence"
+    ] is True
+    assert "structural_baseline_report_checkpoint" in artifacts[
+        baseline_checkpoint_path
+    ]["roles"]
     assert continuity["mutates_runtime_state"] is False
