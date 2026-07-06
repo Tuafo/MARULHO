@@ -109,6 +109,10 @@ replay loss (`-4.0014`), restores the learned brain checkpoint, and then reaches
 `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec through
 `torch_cuda_graph_burst_decode_controls`. This is installed-parent learning and
 speed evidence, still with `promotes_runtime_claim=false`.
+The runner can apply a recurrent-gradient horizon override through
+`MarulhoBrain.set_language_recurrent_gradient_horizon()` before saving the
+pre-learning brain; the report gates that the configured model horizon and live
+state-block horizon survive both pre-learning and learned-brain restore.
 `language_brain_structural_plasticity_evidence.py` verifies installed-brain
 structural mutation after learning. It loads the learned brain checkpoint, saves
 and restores the pre-structure brain, proposes and applies structure through

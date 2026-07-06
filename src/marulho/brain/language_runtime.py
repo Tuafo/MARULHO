@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -111,6 +111,50 @@ class BrainLanguageModelRuntime:
         self.model.to(torch.device(device))
         self.model.eval()
 
+    def set_recurrent_gradient_horizon(self, horizon: int) -> dict[str, Any]:
+        requested_horizon = int(horizon)
+        if requested_horizon < 0:
+            raise ValueError("recurrent_gradient_horizon must be non-negative")
+        previous_config_horizon = int(self.model.config.recurrent_gradient_horizon)
+        previous_state_block_horizon = int(
+            getattr(
+                self.model.state_block,
+                "recurrent_gradient_horizon",
+                previous_config_horizon,
+            )
+        )
+        self.model.config = replace(
+            self.model.config,
+            recurrent_gradient_horizon=requested_horizon,
+        )
+        self.model.state_block.recurrent_gradient_horizon = requested_horizon
+        self.model.eval()
+        return {
+            "surface": "marulho_brain_language_recurrent_horizon_config.v1",
+            "requested_recurrent_gradient_horizon": requested_horizon,
+            "previous_recurrent_gradient_horizon": previous_config_horizon,
+            "previous_state_block_recurrent_gradient_horizon": (
+                previous_state_block_horizon
+            ),
+            "current_recurrent_gradient_horizon": int(
+                self.model.config.recurrent_gradient_horizon
+            ),
+            "current_state_block_recurrent_gradient_horizon": int(
+                self.model.state_block.recurrent_gradient_horizon
+            ),
+            "applied": True,
+            "mutates_language_model_config": True,
+            "mutates_language_model_weights": False,
+            "checkpointed_on_next_brain_save": True,
+            "active_language_path": self.active_language_path,
+            "runtime_owner": "MarulhoBrain",
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "service_owned_cognition": False,
+            "device": str(self.device),
+        }
+
     @torch.no_grad()
     def generate(
         self,
@@ -172,6 +216,12 @@ class BrainLanguageModelRuntime:
             "vocab_size": self.tokenizer.vocab_size,
             "model_vocab_size": int(self.model.config.vocab_size),
             "generation_vocab_size": int(self.model.generation_vocab_size),
+            "recurrent_gradient_horizon": int(
+                self.model.config.recurrent_gradient_horizon
+            ),
+            "state_block_recurrent_gradient_horizon": int(
+                self.model.state_block.recurrent_gradient_horizon
+            ),
             "vocab_policy": dict(self.vocab_policy),
             "device": str(self.device),
             "heldout_loss": self.evaluation_report.get("heldout_loss"),
@@ -263,6 +313,12 @@ class BrainLanguageModelRuntime:
             "vocab_size": self.tokenizer.vocab_size,
             "model_vocab_size": int(self.model.config.vocab_size),
             "generation_vocab_size": int(self.model.generation_vocab_size),
+            "recurrent_gradient_horizon": int(
+                self.model.config.recurrent_gradient_horizon
+            ),
+            "state_block_recurrent_gradient_horizon": int(
+                self.model.state_block.recurrent_gradient_horizon
+            ),
             "vocab_policy": dict(self.vocab_policy),
             "device": str(self.device),
             "heldout_evaluation_available": bool(self.evaluation_report),
@@ -303,6 +359,8 @@ class BrainLanguageModelRuntime:
             "external_llm_used": False,
             "loads_external_checkpoint": False,
             "checkpointed_language_components": False,
+            "recurrent_gradient_horizon": None,
+            "state_block_recurrent_gradient_horizon": None,
         }
 
     def to_state(self) -> dict[str, Any]:

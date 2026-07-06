@@ -109,6 +109,7 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
             learning_rate=2e-2,
             max_steps=1,
             gradient_clip_interval=1,
+            recurrent_gradient_horizon=2,
             run_post_learning_sustained=True,
             sustained_target_tokens=4,
             sustained_tick_tokens=4,
@@ -128,6 +129,18 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
     ] is True
     assert report["pre_learning_brain_checkpoint"]["restore_verified"] is True
     assert report["learned_brain_checkpoint"]["restore_verified"] is True
+    assert report["pre_learning_brain_checkpoint"]["recurrent_gradient_horizon"] == 2
+    assert report["pre_learning_brain_checkpoint"][
+        "state_block_recurrent_gradient_horizon"
+    ] == 2
+    assert report["learned_brain_checkpoint"]["recurrent_gradient_horizon"] == 2
+    assert report["learned_brain_checkpoint"][
+        "state_block_recurrent_gradient_horizon"
+    ] == 2
+    assert report["recurrent_gradient_horizon_override"]["applied"] is True
+    assert report["recurrent_gradient_horizon_override"][
+        "requested_recurrent_gradient_horizon"
+    ] == 2
     assert report["status_read_mutation"] is False
     assert report["learning_window"]["surface"] == (
         "marulho_brain_language_learning_window.v1"
@@ -153,6 +166,18 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
     assert "general_replay_retention_delta" in report["learning_evidence"]
     assert report["post_learning_sustained_window"]["success"] is True
     assert report["promotion_gate"]["learning_runs_through_marulho_brain"] is True
+    assert report["promotion_gate"][
+        "records_recurrent_gradient_horizon_override"
+    ] is True
+    assert report["promotion_gate"][
+        "recurrent_gradient_horizon_override_applied"
+    ] is True
+    assert report["promotion_gate"][
+        "pre_learning_checkpoint_recurrent_horizon_matches"
+    ] is True
+    assert report["promotion_gate"][
+        "learned_checkpoint_recurrent_horizon_matches"
+    ] is True
     assert report["promotion_gate"]["learned_brain_checkpoint_restore_verified"] is True
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
     assert (tmp_path / "README.md").exists()

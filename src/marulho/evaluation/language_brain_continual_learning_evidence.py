@@ -55,6 +55,7 @@ class BrainInstalledContinualLearningEvidenceConfig:
     replay_loss_weight: float = 0.25
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 8
+    recurrent_gradient_horizon: int | None = None
     dense_adamw_backend: str = "default"
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
@@ -187,7 +188,38 @@ def _compact_checkpoint(
         "continual_learning_window_count": int(
             language_model.get("continual_learning_window_count", 0) or 0
         ),
+        "recurrent_gradient_horizon": (
+            None
+            if language_model.get("recurrent_gradient_horizon") is None
+            else int(language_model.get("recurrent_gradient_horizon", 0) or 0)
+        ),
+        "state_block_recurrent_gradient_horizon": (
+            None
+            if language_model.get("state_block_recurrent_gradient_horizon") is None
+            else int(
+                language_model.get(
+                    "state_block_recurrent_gradient_horizon",
+                    0,
+                )
+                or 0
+            )
+        ),
         "last_trace": dict(status.get("last_trace") or {}),
+    }
+
+
+def _disabled_recurrent_horizon_override() -> dict[str, Any]:
+    return {
+        "surface": "marulho_brain_language_recurrent_horizon_override.v1",
+        "enabled": False,
+        "applied": False,
+        "reason": "recurrent_gradient_horizon_override_not_requested",
+        "mutates_language_model_config": False,
+        "mutates_language_model_weights": False,
+        "runtime_owner": "MarulhoBrain",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "service_owned_cognition": False,
     }
 
 
@@ -439,9 +471,15 @@ def build_language_brain_installed_continual_learning_evidence(
             map_location="cpu",
         )
         del _candidate_model
+        recurrent_horizon_override = _disabled_recurrent_horizon_override()
+        if cfg.recurrent_gradient_horizon is not None:
+            recurrent_horizon_override = brain.set_language_recurrent_gradient_horizon(
+                int(cfg.recurrent_gradient_horizon)
+            )
+        installed_status = brain.status()
         installed_language = (
-            brain.status().get("language_model")
-            if isinstance(brain.status().get("language_model"), Mapping)
+            installed_status.get("language_model")
+            if isinstance(installed_status.get("language_model"), Mapping)
             else {}
         )
         tokenizer_hash_matches_installed = (
@@ -512,6 +550,50 @@ def build_language_brain_installed_continual_learning_evidence(
             save_report=learned_save,
             status=learned_restored_status,
         )
+        horizon_override_requested = cfg.recurrent_gradient_horizon is not None
+        requested_horizon = (
+            int(cfg.recurrent_gradient_horizon) if horizon_override_requested else None
+        )
+        pre_horizon_matches = (
+            not horizon_override_requested
+            or (
+                pre_checkpoint_report.get("recurrent_gradient_horizon")
+                == requested_horizon
+                and pre_checkpoint_report.get("state_block_recurrent_gradient_horizon")
+                == requested_horizon
+            )
+        )
+        learned_horizon_matches = (
+            not horizon_override_requested
+            or (
+                learned_checkpoint_report.get("recurrent_gradient_horizon")
+                == requested_horizon
+                and learned_checkpoint_report.get(
+                    "state_block_recurrent_gradient_horizon"
+                )
+                == requested_horizon
+            )
+        )
+        recurrent_horizon_override_applied = (
+            not horizon_override_requested
+            or (
+                bool(recurrent_horizon_override.get("applied", False))
+                and int(
+                    recurrent_horizon_override.get(
+                        "current_recurrent_gradient_horizon",
+                        -1,
+                    )
+                )
+                == requested_horizon
+                and int(
+                    recurrent_horizon_override.get(
+                        "current_state_block_recurrent_gradient_horizon",
+                        -1,
+                    )
+                )
+                == requested_horizon
+            )
+        )
         post_learning_sustained: dict[str, Any] = {
             "surface": "marulho_brain_post_learning_sustained_generation_summary.v1",
             "enabled": False,
@@ -571,6 +653,9 @@ def build_language_brain_installed_continual_learning_evidence(
             and update_tokens > 0
             and learning_summary["trace_event"] == "language_learn"
             and post_restore_learning_count >= 1
+            and bool(recurrent_horizon_override_applied)
+            and bool(pre_horizon_matches)
+            and bool(learned_horizon_matches)
             and (
                 not bool(cfg.run_post_learning_sustained)
                 or bool(post_learning_sustained.get("success", False))
@@ -601,6 +686,7 @@ def build_language_brain_installed_continual_learning_evidence(
                 },
                 "pre_learning_brain_checkpoint": pre_checkpoint_report,
                 "learned_brain_checkpoint": learned_checkpoint_report,
+                "recurrent_gradient_horizon_override": recurrent_horizon_override,
                 "status_read": {
                     "surface": "marulho_brain_status_read_check.v1",
                     "mutates_runtime_state": bool(status_read_mutation),
@@ -666,6 +752,22 @@ def build_language_brain_installed_continual_learning_evidence(
             "learning_runs_through_marulho_brain": bool(learning_surface_ok),
             "language_learn_trace_recorded": learning_summary["trace_event"]
             == "language_learn",
+            "recurrent_gradient_horizon_override_requested": bool(
+                horizon_override_requested
+            ),
+            "records_recurrent_gradient_horizon_override": (
+                bool(horizon_override_requested)
+                and bool(recurrent_horizon_override.get("applied", False))
+            ),
+            "recurrent_gradient_horizon_override_applied": bool(
+                recurrent_horizon_override_applied
+            ),
+            "pre_learning_checkpoint_recurrent_horizon_matches": bool(
+                pre_horizon_matches
+            ),
+            "learned_checkpoint_recurrent_horizon_matches": bool(
+                learned_horizon_matches
+            ),
             "records_actual_continual_learning": update_tokens > 0,
             "records_forgetting": "old_domain_forgetting" in evidence,
             "records_replay_retention": "general_replay_retention_delta" in evidence,
@@ -761,6 +863,7 @@ def main() -> int:
     parser.add_argument("--replay-loss-weight", type=float, default=0.25)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--gradient-clip-interval", type=int, default=8)
+    parser.add_argument("--recurrent-gradient-horizon", type=int, default=None)
     parser.add_argument(
         "--dense-adamw-backend",
         choices=("default", "foreach", "fused"),
@@ -804,6 +907,11 @@ def main() -> int:
         replay_loss_weight=float(args.replay_loss_weight),
         max_grad_norm=float(args.max_grad_norm),
         gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
+        recurrent_gradient_horizon=(
+            None
+            if args.recurrent_gradient_horizon is None
+            else max(0, int(args.recurrent_gradient_horizon))
+        ),
         dense_adamw_backend=str(args.dense_adamw_backend),
         forgetting_tolerance=float(args.forgetting_tolerance),
         replay_retention_tolerance=float(args.replay_retention_tolerance),

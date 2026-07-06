@@ -471,6 +471,10 @@ harnesses.
   `524288/524288` post-learning sustained tokens at `8132.276` tokens/sec with
   all tracked generation Triton kernels active and zero tracked failures. This
   is public brain-surface continual-learning evidence, not a runtime promotion.
+  The runner also accepts a recurrent-gradient horizon override, applies it
+  through `MarulhoBrain.set_language_recurrent_gradient_horizon()` before the
+  pre-learning checkpoint save, and gates that both the config horizon and the
+  live state-block horizon survive pre-learning and learned-brain restore.
 - `language_brain_structural_plasticity_evidence.py` verifies installed-brain
   structural mutation from the brain side. It loads the learned brain checkpoint,
   saves and restores the pre-structure brain, builds eval batches with the

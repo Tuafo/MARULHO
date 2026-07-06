@@ -520,6 +520,38 @@ def test_marulho_brain_language_learning_window_is_checkpointed(tmp_path: Path) 
     ] is True
 
 
+def test_marulho_brain_language_recurrent_horizon_override_is_checkpointed(
+    tmp_path: Path,
+) -> None:
+    brain = MarulhoBrain.fresh(_tiny_config())
+    model, tokenizer, report = _language_model_fixture()
+    brain.install_language_model(model, tokenizer, evaluation_report=report)
+
+    override = brain.set_language_recurrent_gradient_horizon(2)
+    status = brain.status()
+    saved = brain.save(tmp_path / "brain-language-horizon.pt")
+    restored = MarulhoBrain.load(saved["path"])
+    restored_status = restored.status()
+
+    assert override["surface"] == (
+        "marulho_brain_language_recurrent_horizon_override.v1"
+    )
+    assert override["applied"] is True
+    assert override["trace"]["event"] == "language_configure"
+    assert override["report"]["mutates_language_model_config"] is True
+    assert override["report"]["mutates_language_model_weights"] is False
+    assert override["report"]["previous_recurrent_gradient_horizon"] == 0
+    assert override["report"]["current_recurrent_gradient_horizon"] == 2
+    assert override["report"]["current_state_block_recurrent_gradient_horizon"] == 2
+    assert status["language_model"]["recurrent_gradient_horizon"] == 2
+    assert status["language_model"]["state_block_recurrent_gradient_horizon"] == 2
+    assert restored_status["active_language_path"] == "marulho_lm_head"
+    assert restored_status["language_model"]["recurrent_gradient_horizon"] == 2
+    assert restored_status["language_model"][
+        "state_block_recurrent_gradient_horizon"
+    ] == 2
+
+
 def test_marulho_brain_language_structural_transaction_is_checkpointed(tmp_path: Path) -> None:
     brain = MarulhoBrain.fresh(_tiny_config())
     tokenizer = ByteLevelLanguageTokenizer()

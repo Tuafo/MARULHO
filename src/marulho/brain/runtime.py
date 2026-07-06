@@ -382,6 +382,58 @@ class MarulhoBrain:
             "trace": trace,
         }
 
+    def set_language_recurrent_gradient_horizon(self, horizon: int) -> dict[str, Any]:
+        if self._language_runtime is None:
+            raise RuntimeError("MARULHO language model runtime is not installed")
+        report = self._language_runtime.set_recurrent_gradient_horizon(int(horizon))
+        trace = self._append_trace(
+            BrainTrace(
+                step=self._step + 1,
+                event="language_configure",
+                device=self._device_string(),
+                token_count=int(self.trainer.token_count),
+                queued_tokens=len(self._source_buffer),
+                executor=self._executor_name(),
+                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
+                active_language_path=self._active_language_path(),
+                cuda_available=bool(torch.cuda.is_available()),
+                checkpoint_path=self._checkpoint_path_string(),
+                source=self._last_source,
+                note="brain-owned recurrent gradient horizon override",
+            )
+        )
+        return {
+            "surface": "marulho_brain_language_recurrent_horizon_override.v1",
+            "active_language_path": self._active_language_path(),
+            "runtime_owner": "MarulhoBrain",
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "service_owned_cognition": False,
+            "status_read_mutation": False,
+            "report": report,
+            "trace": trace,
+            "applied": bool(report.get("applied", False)),
+            "mutates_language_model_config": bool(
+                report.get("mutates_language_model_config", False)
+            ),
+            "mutates_language_model_weights": bool(
+                report.get("mutates_language_model_weights", True)
+            ),
+            "requested_recurrent_gradient_horizon": int(
+                report.get("requested_recurrent_gradient_horizon", int(horizon))
+            ),
+            "current_recurrent_gradient_horizon": int(
+                report.get("current_recurrent_gradient_horizon", int(horizon))
+            ),
+            "current_state_block_recurrent_gradient_horizon": int(
+                report.get(
+                    "current_state_block_recurrent_gradient_horizon",
+                    int(horizon),
+                )
+            ),
+        }
+
     def propose_language_structure(
         self,
         *,
