@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -642,6 +643,125 @@ def _parse_prompt_case(
     return LanguageGenerationPromptCase(**kwargs)
 
 
+def prompt_cases_from_coherence_report(
+    report_path: str | Path,
+    *,
+    source_text: str,
+    failed_only: bool = False,
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    report = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    prompt_metadata_by_text = {
+        str(item.get("prompt_text")): dict(item)
+        for item in dict(report.get("prompt_suite") or {}).get("prompt_cases", ())
+        if item.get("prompt_text") is not None
+    }
+    cases: list[LanguageGenerationPromptCase] = []
+    seen: set[str] = set()
+    for item in report.get("cases", ()):
+        case = dict(item or {})
+        prompt_text = str(case.get("prompt_text") or "").strip()
+        if (
+            not prompt_text
+            or prompt_text in seen
+            or (failed_only and bool(case.get("passed")))
+        ):
+            continue
+        thresholds = dict(case.get("thresholds") or {})
+        metadata = prompt_metadata_by_text.get(prompt_text, {})
+        cases.append(
+            LanguageGenerationPromptCase(
+                prompt_text=prompt_text,
+                source_text=source_text,
+                max_new_tokens=int(metadata.get("max_new_tokens", 64) or 64),
+                min_new_tokens=int(thresholds.get("min_new_tokens", 8) or 8),
+                min_prefix_match_chars=int(
+                    thresholds.get("min_prefix_match_chars", 8) or 8
+                ),
+                min_prefix_match_fraction=float(
+                    thresholds.get("min_prefix_match_fraction", 0.10) or 0.10
+                ),
+                min_printable_fraction=float(
+                    thresholds.get("min_printable_fraction", 0.95) or 0.95
+                ),
+                min_distinct_bigram_fraction=float(
+                    thresholds.get("min_distinct_bigram_fraction", 0.20) or 0.20
+                ),
+                max_token_run_length=int(
+                    thresholds.get("max_token_run_length", 8) or 8
+                ),
+            )
+        )
+        seen.add(prompt_text)
+    return tuple(cases)
+
+
+def _prompt_text_key(prompt_text: str) -> str:
+    return str(prompt_text).strip().casefold()
+
+
+def _prompt_case_training_overlaps(
+    training_cases: Sequence[LanguageGenerationPromptCase],
+    heldout_cases: Sequence[LanguageGenerationPromptCase],
+) -> tuple[str, ...]:
+    training_keys = {
+        _prompt_text_key(case.prompt_text)
+        for case in training_cases
+        if _prompt_text_key(case.prompt_text)
+    }
+    overlaps: list[str] = []
+    seen: set[str] = set()
+    for case in heldout_cases:
+        prompt = str(case.prompt_text).strip()
+        key = _prompt_text_key(prompt)
+        if key and key in training_keys and key not in seen:
+            overlaps.append(prompt)
+            seen.add(key)
+    return tuple(overlaps)
+
+
+def _prompt_cases_from_coherence_reports(
+    *,
+    source_text: str,
+    all_case_paths: Sequence[str | Path],
+    failed_case_paths: Sequence[str | Path],
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    loaded_cases: list[LanguageGenerationPromptCase] = []
+    seen_prompts: set[str] = set()
+    for evidence_path in all_case_paths:
+        for case in prompt_cases_from_coherence_report(
+            evidence_path,
+            source_text=source_text,
+        ):
+            key = _prompt_text_key(case.prompt_text)
+            if key in seen_prompts:
+                continue
+            loaded_cases.append(case)
+            seen_prompts.add(key)
+    for evidence_path in failed_case_paths:
+        for case in failed_prompt_cases_from_coherence_report(
+            evidence_path,
+            source_text=source_text,
+        ):
+            key = _prompt_text_key(case.prompt_text)
+            if key in seen_prompts:
+                continue
+            loaded_cases.append(case)
+            seen_prompts.add(key)
+    return tuple(loaded_cases)
+
+
+def failed_prompt_cases_from_coherence_report(
+    report_path: str | Path,
+    *,
+    source_text: str,
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    return prompt_cases_from_coherence_report(
+        report_path,
+        source_text=source_text,
+        failed_only=True,
+    )
+
+
 def run_language_quality_replay_experiment(
     *,
     checkpoint_path: str | Path,
@@ -672,6 +792,8 @@ def run_language_quality_replay_experiment(
             limit=int(cfg.heldout_prompt_case_count),
         )
     )
+    heldout_training_overlaps = _prompt_case_training_overlaps(cases, heldout_cases)
+    heldout_cases_used_for_replay_training = bool(heldout_training_overlaps)
 
     model, tokenizer, parent_metadata = load_language_model_checkpoint(
         parent_checkpoint,
@@ -1038,7 +1160,11 @@ def run_language_quality_replay_experiment(
         "saves_child_checkpoint_per_candidate": True,
         "runs_sustained_runtime_only_for_selected_child": True,
         "mutates_parent_checkpoint": False,
-        "heldout_cases_used_for_replay_training": False,
+        "heldout_cases_used_for_replay_training": (
+            heldout_cases_used_for_replay_training
+        ),
+        "heldout_training_prompt_overlap_count": len(heldout_training_overlaps),
+        "heldout_training_prompt_overlaps": list(heldout_training_overlaps),
         "candidates": [
             _candidate_summary_for_report(candidate)
             for candidate in candidate_reports
@@ -1091,7 +1217,9 @@ def run_language_quality_replay_experiment(
                 if heldout_prompt_cases is not None
                 else "auto_source_prompt_cases"
             ),
-            "not_used_for_replay_training": True,
+            "not_used_for_replay_training": not heldout_cases_used_for_replay_training,
+            "training_prompt_overlap_count": len(heldout_training_overlaps),
+            "training_prompt_overlaps": list(heldout_training_overlaps),
         },
         "split": {
             "old_replay": old_split.report,
@@ -1213,6 +1341,34 @@ def main() -> int:
     parser.add_argument("--child-checkpoint", type=Path, default=None)
     parser.add_argument("--prompt-case", action="append", default=[])
     parser.add_argument(
+        "--coherence-prompt-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Use all cases from an existing generation-coherence report as hard-prompt cases.",
+    )
+    parser.add_argument(
+        "--failed-coherence-prompt-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Use failed cases from an existing generation-coherence report as hard-prompt cases.",
+    )
+    parser.add_argument(
+        "--heldout-coherence-prompt-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Use all cases from an existing generation-coherence report as explicit heldout cases.",
+    )
+    parser.add_argument(
+        "--failed-heldout-coherence-prompt-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help="Use failed cases from an existing generation-coherence report as explicit heldout cases.",
+    )
+    parser.add_argument(
         "--auto-source-prompt-cases",
         type=int,
         default=0,
@@ -1281,6 +1437,17 @@ def main() -> int:
             _parse_prompt_case(value, source_text=source_text)
             for value in args.prompt_case
         )
+    elif args.coherence_prompt_evidence or args.failed_coherence_prompt_evidence:
+        loaded_cases = _prompt_cases_from_coherence_reports(
+            source_text=source_text,
+            all_case_paths=tuple(args.coherence_prompt_evidence),
+            failed_case_paths=tuple(args.failed_coherence_prompt_evidence),
+        )
+        if not loaded_cases:
+            raise ValueError(
+                "coherence prompt evidence did not contain usable cases"
+            )
+        cases = tuple(loaded_cases)
     elif int(args.auto_source_prompt_cases) > 0:
         cases = auto_source_prompt_cases(
             source_text,
@@ -1288,14 +1455,26 @@ def main() -> int:
         )
     else:
         cases = default_generation_coherence_prompt_cases(source_text)
-    heldout_cases = (
-        tuple(
+    if args.heldout_prompt_case:
+        heldout_cases = tuple(
             _parse_prompt_case(value, source_text=source_text)
             for value in args.heldout_prompt_case
         )
-        if args.heldout_prompt_case
-        else None
-    )
+    elif (
+        args.heldout_coherence_prompt_evidence
+        or args.failed_heldout_coherence_prompt_evidence
+    ):
+        heldout_cases = _prompt_cases_from_coherence_reports(
+            source_text=source_text,
+            all_case_paths=tuple(args.heldout_coherence_prompt_evidence),
+            failed_case_paths=tuple(args.failed_heldout_coherence_prompt_evidence),
+        )
+        if not heldout_cases:
+            raise ValueError(
+                "heldout coherence prompt evidence did not contain usable cases"
+            )
+    else:
+        heldout_cases = None
     report = run_language_quality_replay_experiment(
         checkpoint_path=args.checkpoint,
         output_path=args.output,

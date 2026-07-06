@@ -345,7 +345,14 @@ harnesses.
   together without turning the benchmark suite into a gate-only workflow or
   hiding prompt regressions. It passes its max train/eval batch limits into the
   split builder before CPU/CUDA tensor packing, and its CLI can also use
-  `--auto-source-prompt-cases` for source-anchored hard-prompt cases.
+  `--auto-source-prompt-cases` for source-anchored hard-prompt cases. It can
+  import all or failed cases from saved generation-coherence reports with
+  `--coherence-prompt-evidence` and `--failed-coherence-prompt-evidence`, and
+  can import saved coherence reports as fixed heldout banks with
+  `--heldout-coherence-prompt-evidence` or
+  `--failed-heldout-coherence-prompt-evidence`. Reports expose any overlap
+  between hard-prompt replay cases and heldout cases so validation cannot
+  silently train on its own prompt bank.
 - The current NVIDIA/Nemotron open-curriculum replay report
   `reports/language_quality_replay/nvidia-open-repair-preview-128x-auto-quality-replay-20260706.json`
   starts from the 128x materialized-corpus checkpoint, accepts `1048576`
@@ -358,7 +365,24 @@ harnesses.
   failure. The paired suite
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-quality-replay-20260706.json`
   remains `blocked_missing_required_evidence` because trained prompt coherence
-  is still partial. Treat this as data-backed repair progress plus speed
+  is still partial. The prompt-bank repair follow-up
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
+  imports accumulated coherence cases, accepts `1048576` update tokens at
+  `5861.141` update tokens/sec, reaches trained prompt coherence `9/9`, keeps
+  heldout at `5/6`, and reaches `524288/524288` controlled sustained decode at
+  `8605.296` tokens/sec. The fixed-heldout sweep
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-fixed-heldout-repair5-sweep-20260706.json`
+  trains three child candidates, selects `candidate-01` because it preserves a
+  non-overlapping fixed heldout bank at `5/5`, accepts `1048576` update tokens
+  at `5784.471` update tokens/sec, and reaches `524288/524288` at `8567.510`
+  tokens/sec, but the selected child still regresses one trained prompt
+  (`I'm ready to`, trained `9/10`). The paired suites
+  `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
+  and
+  `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-fixed-heldout-repair5-sweep-20260706.json`
+  remain `blocked_missing_required_evidence` on required generation coherence
+  because no selected child currently has both full trained-prompt coherence and
+  full heldout coherence. Treat this as data-backed repair progress plus speed
   evidence, not generation-quality promotion.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,

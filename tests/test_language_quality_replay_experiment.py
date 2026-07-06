@@ -8,6 +8,8 @@ from marulho.evaluation.language_generation_coherence import LanguageGenerationP
 from marulho.evaluation.language_quality_replay_experiment import (
     SURFACE,
     LanguageQualityReplayExperimentConfig,
+    failed_prompt_cases_from_coherence_report,
+    prompt_cases_from_coherence_report,
     run_language_quality_replay_experiment,
 )
 from marulho.training.language_model import (
@@ -159,6 +161,78 @@ def _write_structural_plasticity_transaction_report(path: Path) -> None:
     )
 
 
+def test_failed_prompt_cases_from_coherence_report_imports_only_failures(
+    tmp_path,
+) -> None:
+    source_text = "alpha beta gamma delta epsilon zeta"
+    report_path = tmp_path / "coherence.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "surface": "marulho_language_generation_coherence_report.v1",
+                "prompt_suite": {
+                    "prompt_cases": [
+                        {
+                            "prompt_text": "alpha beta gamma",
+                            "max_new_tokens": 32,
+                        },
+                        {
+                            "prompt_text": "delta epsilon zeta",
+                            "max_new_tokens": 48,
+                        },
+                    ],
+                },
+                "cases": [
+                    {
+                        "prompt_text": "alpha beta gamma",
+                        "passed": False,
+                        "thresholds": {
+                            "min_new_tokens": 4,
+                            "min_prefix_match_chars": 6,
+                            "min_prefix_match_fraction": 0.25,
+                            "min_printable_fraction": 0.9,
+                            "min_distinct_bigram_fraction": 0.15,
+                            "max_token_run_length": 5,
+                        },
+                    },
+                    {
+                        "prompt_text": "delta epsilon zeta",
+                        "passed": True,
+                        "thresholds": {
+                            "min_prefix_match_chars": 6,
+                        },
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    all_cases = prompt_cases_from_coherence_report(
+        report_path,
+        source_text=source_text,
+    )
+    cases = failed_prompt_cases_from_coherence_report(
+        report_path,
+        source_text=source_text,
+    )
+
+    assert [case.prompt_text for case in all_cases] == [
+        "alpha beta gamma",
+        "delta epsilon zeta",
+    ]
+    assert len(cases) == 1
+    assert cases[0].prompt_text == "alpha beta gamma"
+    assert cases[0].source_text == source_text
+    assert cases[0].max_new_tokens == 32
+    assert cases[0].min_new_tokens == 4
+    assert cases[0].min_prefix_match_chars == 6
+    assert cases[0].min_prefix_match_fraction == 0.25
+    assert cases[0].min_printable_fraction == 0.9
+    assert cases[0].min_distinct_bigram_fraction == 0.15
+    assert cases[0].max_token_run_length == 5
+
+
 def test_language_quality_replay_experiment_writes_child_quality_and_speed_evidence(
     tmp_path,
 ) -> None:
@@ -304,6 +378,12 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["candidate_selection"]["candidate_count"] == 1
     assert report["candidate_selection"]["selected_candidate_id"] == "candidate-00"
     assert report["candidate_selection"]["mutates_parent_checkpoint"] is False
+    assert (
+        report["candidate_selection"]["heldout_cases_used_for_replay_training"]
+        is False
+    )
+    assert report["candidate_selection"]["heldout_training_prompt_overlap_count"] == 0
+    assert report["candidate_selection"]["heldout_training_prompt_overlaps"] == []
     assert report["candidate_selection"][
         "runs_sustained_runtime_only_for_selected_child"
     ] is True
@@ -323,6 +403,8 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["heldout_prompt_suite"]["case_count"] == 2
     assert report["heldout_prompt_suite"]["source"] == "explicit_heldout_prompt_cases"
     assert report["heldout_prompt_suite"]["not_used_for_replay_training"] is True
+    assert report["heldout_prompt_suite"]["training_prompt_overlap_count"] == 0
+    assert report["heldout_prompt_suite"]["training_prompt_overlaps"] == []
     assert "source_text" not in report["heldout_prompt_suite"]["prompt_cases"][0]
     assert report["heldout_prompt_suite"]["prompt_cases"][0][
         "raw_source_text_retained"
