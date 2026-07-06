@@ -604,14 +604,14 @@ developmental and consolidation runners, query runners, and long-run evidence.
   accepts the update at `4816.607` update tokens/sec and shows backward as the
   dominant stage (`0.133416` ms/token), followed by paired forward/loss
   (`0.068868` ms/token); optimizer, clip, and zero-grad are small. The
-  horizon-4 follow-up
-  `reports/language_continual_learning/cuda-sampled-padded-horizon4-tf32-clip8-memory-slots-evalmatched-update524288-20260706.json`
-  keeps the same `524288` sampled/padded memory-slot shape without profiling,
-  accepts the learning gates, and reaches `4954.315` update tokens/sec plus
-  `4330.585` total-window tokens/sec. That is `+0.330%` and `+0.658%` versus
-  the retained horizon-8 paired default with `768` tracked torch fallback calls
-  and zero Triton failures, so horizon-4 is the current speed candidate, not a
-  language-quality promotion.
+  same-session sweep
+  `reports/language_continual_learning/cuda-sampled-padded-horizon-sweep-h4-h2-h1-tf32-clip8-memory-slots-evalmatched-update524288-20260706.json`
+  runs complete `524288` child reports for horizons `4`, `2`, and `1`, accepts
+  all three learning gates, and selects horizon `2` at `4946.932` update
+  tokens/sec plus `4383.376` total-window tokens/sec. Horizon `1` also accepts
+  but is slower at `4910.548`/`4322.016`; every child keeps `768` tracked torch
+  fallback calls and zero Triton failures. Horizon `2` is the current
+  same-session speed candidate, not a language-quality promotion.
 - Continual-learning reports now include
   `training_window_triton_accounting` with scope
   `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,

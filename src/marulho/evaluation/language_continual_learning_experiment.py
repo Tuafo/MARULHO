@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -33,6 +33,8 @@ from marulho.training.language_model import (
 
 SURFACE = "marulho_language_continual_learning_experiment.v1"
 ARTIFACT_KIND = "marulho_language_continual_learning_window"
+SPEED_SWEEP_SURFACE = "marulho_language_continual_speed_sweep.v1"
+SPEED_SWEEP_ARTIFACT_KIND = "marulho_language_continual_speed_sweep"
 
 DEFAULT_OLD_CORPUS = (
     "Old replay domain preserves runtime truth, checkpoint rollback evidence, "
@@ -1388,70 +1390,296 @@ def run_language_continual_learning_experiment(
         _restore_training_backend_policy(training_backend_policy)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--old-corpus", type=Path, default=None)
-    parser.add_argument("--new-corpus", type=Path, default=None)
-    parser.add_argument("--comparison-report", type=Path, default=None)
-    parser.add_argument("--original-baseline-report", type=Path, default=None)
-    parser.add_argument("--precompute-report", type=Path, default=None)
-    parser.add_argument("--deferred-metric-report", type=Path, default=None)
-    parser.add_argument("--model-vocab-size", type=int, default=0)
-    parser.add_argument("--sampled-vocab-size", type=int, default=0)
-    parser.add_argument("--disable-sparse-vocab-optimizer", action="store_true")
-    parser.add_argument("--embedding-dim", type=int, default=32)
-    parser.add_argument("--state-dim", type=int, default=64)
-    parser.add_argument("--expert-count", type=int, default=8)
-    parser.add_argument("--active-expert-count", type=int, default=2)
-    parser.add_argument("--route-candidate-count", type=int, default=4)
-    parser.add_argument("--expert-hidden-dim", type=int, default=96)
-    parser.add_argument("--recurrent-gradient-horizon", type=int, default=0)
-    parser.add_argument("--memory-slot-count", type=int, default=0)
-    parser.add_argument("--memory-slot-candidate-count", type=int, default=0)
-    parser.add_argument("--active-memory-slot-count", type=int, default=1)
-    parser.add_argument("--memory-slot-init-std", type=float, default=0.02)
-    parser.add_argument("--sequence-length", type=int, default=32)
-    parser.add_argument("--stride", type=int, default=16)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--eval-fraction", type=float, default=0.2)
-    parser.add_argument("--max-old-eval-batches", type=int, default=0)
-    parser.add_argument("--max-new-eval-batches", type=int, default=0)
-    parser.add_argument("--match-comparison-eval-batches", action="store_true")
-    parser.add_argument("--max-new-batches", type=int, default=4)
-    parser.add_argument("--max-replay-batches", type=int, default=4)
-    parser.add_argument("--generation-tokens", type=int, default=48)
-    parser.add_argument("--generation-prompt", action="append", default=[])
-    parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
-    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
-    parser.add_argument("--learning-rate", type=float, default=2e-3)
-    parser.add_argument("--max-steps", type=int, default=2)
-    parser.add_argument("--replay-loss-weight", type=float, default=0.25)
-    parser.add_argument("--max-grad-norm", type=float, default=1.0)
-    parser.add_argument("--gradient-clip-interval", type=int, default=1)
-    parser.add_argument(
-        "--dense-adamw-backend",
-        choices=("default", "foreach", "fused"),
-        default="default",
+def _speed_sweep_candidate_output_path(
+    output_path: str | Path,
+    *,
+    candidate_index: int,
+    recurrent_gradient_horizon: int,
+) -> Path:
+    resolved = Path(output_path)
+    suffix = resolved.suffix or ".json"
+    stem = resolved.stem if resolved.suffix else resolved.name
+    return resolved.with_name(
+        f"{stem}-candidate{candidate_index:02d}-horizon"
+        f"{int(recurrent_gradient_horizon)}{suffix}"
     )
-    parser.add_argument("--forgetting-tolerance", type=float, default=100.0)
-    parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
-    parser.add_argument("--rollback-on-forgetting", action="store_true")
-    parser.add_argument("--collect-training-telemetry", action="store_true")
-    parser.add_argument("--profile-update-stages", action="store_true")
-    parser.add_argument("--sampled-vocab-ce-triton-training", action="store_true")
-    parser.add_argument("--memory-slots-triton-training", action="store_true")
-    parser.add_argument("--paired-sampled-vocab-loss", action="store_true")
-    parser.add_argument("--disable-cuda-tf32", action="store_true")
-    parser.add_argument(
-        "--cuda-float32-matmul-precision",
-        choices=("highest", "high", "medium"),
-        default="high",
+
+
+def _float_metric(source: dict[str, Any], key: str) -> float:
+    value = source.get(key, 0.0)
+    if value is None:
+        return 0.0
+    return float(value)
+
+
+def _int_metric(source: dict[str, Any], key: str) -> int:
+    value = source.get(key, 0)
+    if value is None:
+        return 0
+    return int(value)
+
+
+def _speed_sweep_candidate_summary(
+    report: dict[str, Any],
+    *,
+    candidate_index: int,
+    recurrent_gradient_horizon: int,
+    output_path: Path,
+) -> dict[str, Any]:
+    learning = report.get("learning_evidence", {})
+    training_accounting = learning.get("training_window_triton_accounting", {})
+    review = report.get("experiment_review", {})
+    return {
+        "candidate_id": f"horizon_{int(recurrent_gradient_horizon)}",
+        "candidate_index": int(candidate_index),
+        "output_path": str(output_path),
+        "status": str(report.get("status", "")),
+        "accepted_online_update": bool(
+            report.get("status") == "accepted_online_update"
+        ),
+        "recurrent_gradient_horizon": int(recurrent_gradient_horizon),
+        "update_token_count": _int_metric(learning, "update_token_count"),
+        "update_tokens_per_second": _float_metric(learning, "tokens_per_second"),
+        "total_window_tokens_per_second": _float_metric(
+            learning,
+            "total_window_tokens_per_second",
+        ),
+        "new_domain_loss_delta": _float_metric(learning, "new_domain_loss_delta"),
+        "old_domain_forgetting": _float_metric(learning, "old_domain_forgetting"),
+        "general_replay_retention_delta": _float_metric(
+            learning,
+            "general_replay_retention_delta",
+        ),
+        "optimizer_step_count": _int_metric(learning, "optimizer_step_count"),
+        "tracked_torch_fallback_calls": _int_metric(
+            training_accounting,
+            "tracked_torch_fallback_calls",
+        ),
+        "tracked_triton_failures": _int_metric(
+            training_accounting,
+            "tracked_triton_failure_count",
+        ),
+        "tracked_triton_forward_calls": _int_metric(
+            training_accounting,
+            "tracked_triton_forward_calls",
+        ),
+        "tracked_triton_backward_calls": _int_metric(
+            training_accounting,
+            "tracked_triton_backward_calls",
+        ),
+        "records_active_compute": bool(review.get("records_active_compute", False)),
+        "records_update_stage_profile": bool(
+            review.get("records_update_stage_profile", False)
+        ),
+        "records_paired_update_replay_fusion": bool(
+            review.get("records_paired_update_replay_fusion", False)
+        ),
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+
+
+def _best_speed_sweep_candidate(
+    candidates: Sequence[dict[str, Any]],
+) -> dict[str, Any] | None:
+    accepted = [
+        candidate
+        for candidate in candidates
+        if bool(candidate.get("accepted_online_update", False))
+    ]
+    pool = accepted or list(candidates)
+    if not pool:
+        return None
+    best = max(
+        pool,
+        key=lambda candidate: float(candidate.get("update_tokens_per_second", 0.0)),
     )
-    parser.add_argument("--seed", type=int, default=20260704)
-    parser.add_argument("--device", default="auto")
-    args = parser.parse_args()
-    config = LanguageContinualLearningExperimentConfig(
+    return {
+        "candidate_id": best.get("candidate_id"),
+        "candidate_index": best.get("candidate_index"),
+        "output_path": best.get("output_path"),
+        "selection_policy": (
+            "highest_update_tokens_per_second_among_accepted_candidates"
+            if accepted
+            else "highest_update_tokens_per_second_without_accepted_candidate"
+        ),
+        "recurrent_gradient_horizon": best.get("recurrent_gradient_horizon"),
+        "update_tokens_per_second": best.get("update_tokens_per_second"),
+        "total_window_tokens_per_second": best.get("total_window_tokens_per_second"),
+        "accepted_online_update": bool(best.get("accepted_online_update", False)),
+    }
+
+
+def _write_speed_sweep_report(
+    output_path: str | Path,
+    report: dict[str, Any],
+) -> None:
+    write_json_report_with_readme(Path(output_path), report)
+
+
+def _speed_sweep_report(
+    *,
+    output_path: str | Path,
+    status: str,
+    config: LanguageContinualLearningExperimentConfig,
+    recurrent_gradient_horizons: Sequence[int],
+    candidates: Sequence[dict[str, Any]],
+    old_corpus_path: str | Path | None,
+    new_corpus_path: str | Path | None,
+    comparison_report_path: str | Path | None,
+    original_baseline_report_path: str | Path | None,
+    precompute_report_path: str | Path | None,
+    deferred_metric_report_path: str | Path | None,
+    failure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    accepted_count = sum(
+        1
+        for candidate in candidates
+        if bool(candidate.get("accepted_online_update", False))
+    )
+    report: dict[str, Any] = {
+        "surface": SPEED_SWEEP_SURFACE,
+        "artifact_kind": SPEED_SWEEP_ARTIFACT_KIND,
+        "status": str(status),
+        "output_path": str(output_path),
+        "candidate_count": int(len(recurrent_gradient_horizons)),
+        "completed_candidate_count": int(len(candidates)),
+        "accepted_candidate_count": int(accepted_count),
+        "requested_recurrent_gradient_horizons": [
+            int(horizon) for horizon in recurrent_gradient_horizons
+        ],
+        "base_config": asdict(config),
+        "old_corpus_path": None if old_corpus_path is None else str(old_corpus_path),
+        "new_corpus_path": None if new_corpus_path is None else str(new_corpus_path),
+        "comparison_report_path": (
+            None if comparison_report_path is None else str(comparison_report_path)
+        ),
+        "original_baseline_report_path": (
+            None
+            if original_baseline_report_path is None
+            else str(original_baseline_report_path)
+        ),
+        "precompute_report_path": (
+            None if precompute_report_path is None else str(precompute_report_path)
+        ),
+        "deferred_metric_report_path": (
+            None
+            if deferred_metric_report_path is None
+            else str(deferred_metric_report_path)
+        ),
+        "candidates": list(candidates),
+        "best_candidate": _best_speed_sweep_candidate(candidates),
+        "review": {
+            "fast_mutable_experiment": True,
+            "writes_partial_after_each_candidate": True,
+            "candidate_reports_are_complete_continual_learning_reports": True,
+            "selection_metric": "update_tokens_per_second",
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+        },
+    }
+    if failure is not None:
+        report["failure"] = failure
+    return report
+
+
+def run_language_continual_learning_speed_sweep(
+    output_path: str | Path,
+    *,
+    recurrent_gradient_horizons: Sequence[int],
+    old_corpus_path: str | Path | None = None,
+    new_corpus_path: str | Path | None = None,
+    comparison_report_path: str | Path | None = None,
+    original_baseline_report_path: str | Path | None = None,
+    precompute_report_path: str | Path | None = None,
+    deferred_metric_report_path: str | Path | None = None,
+    config: LanguageContinualLearningExperimentConfig | None = None,
+) -> dict[str, Any]:
+    horizons = tuple(max(0, int(horizon)) for horizon in recurrent_gradient_horizons)
+    if not horizons:
+        raise ValueError("At least one recurrent-gradient horizon is required")
+    cfg = config or LanguageContinualLearningExperimentConfig()
+    candidates: list[dict[str, Any]] = []
+    aggregate = _speed_sweep_report(
+        output_path=output_path,
+        status="running",
+        config=cfg,
+        recurrent_gradient_horizons=horizons,
+        candidates=candidates,
+        old_corpus_path=old_corpus_path,
+        new_corpus_path=new_corpus_path,
+        comparison_report_path=comparison_report_path,
+        original_baseline_report_path=original_baseline_report_path,
+        precompute_report_path=precompute_report_path,
+        deferred_metric_report_path=deferred_metric_report_path,
+    )
+    _write_speed_sweep_report(output_path, aggregate)
+    try:
+        for index, horizon in enumerate(horizons, start=1):
+            candidate_output = _speed_sweep_candidate_output_path(
+                output_path,
+                candidate_index=index,
+                recurrent_gradient_horizon=horizon,
+            )
+            candidate_report = run_language_continual_learning_experiment(
+                output_path=candidate_output,
+                old_corpus_path=old_corpus_path,
+                new_corpus_path=new_corpus_path,
+                comparison_report_path=comparison_report_path,
+                original_baseline_report_path=original_baseline_report_path,
+                precompute_report_path=precompute_report_path,
+                deferred_metric_report_path=deferred_metric_report_path,
+                config=replace(cfg, recurrent_gradient_horizon=horizon),
+            )
+            candidates.append(
+                _speed_sweep_candidate_summary(
+                    candidate_report,
+                    candidate_index=index,
+                    recurrent_gradient_horizon=horizon,
+                    output_path=candidate_output,
+                )
+            )
+            aggregate = _speed_sweep_report(
+                output_path=output_path,
+                status="partial" if len(candidates) < len(horizons) else "final",
+                config=cfg,
+                recurrent_gradient_horizons=horizons,
+                candidates=candidates,
+                old_corpus_path=old_corpus_path,
+                new_corpus_path=new_corpus_path,
+                comparison_report_path=comparison_report_path,
+                original_baseline_report_path=original_baseline_report_path,
+                precompute_report_path=precompute_report_path,
+                deferred_metric_report_path=deferred_metric_report_path,
+            )
+            _write_speed_sweep_report(output_path, aggregate)
+    except Exception as exc:
+        aggregate = _speed_sweep_report(
+            output_path=output_path,
+            status="exception",
+            config=cfg,
+            recurrent_gradient_horizons=horizons,
+            candidates=candidates,
+            old_corpus_path=old_corpus_path,
+            new_corpus_path=new_corpus_path,
+            comparison_report_path=comparison_report_path,
+            original_baseline_report_path=original_baseline_report_path,
+            precompute_report_path=precompute_report_path,
+            deferred_metric_report_path=deferred_metric_report_path,
+            failure={
+                "type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        _write_speed_sweep_report(output_path, aggregate)
+        raise
+    return aggregate
+
+
+def _config_from_args(
+    args: argparse.Namespace,
+) -> LanguageContinualLearningExperimentConfig:
+    return LanguageContinualLearningExperimentConfig(
         model_vocab_size=args.model_vocab_size,
         sampled_vocab_size=args.sampled_vocab_size,
         sparse_vocab_optimizer=not bool(args.disable_sparse_vocab_optimizer),
@@ -1507,6 +1735,103 @@ def main() -> int:
         seed=args.seed,
         device=args.device,
     )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--old-corpus", type=Path, default=None)
+    parser.add_argument("--new-corpus", type=Path, default=None)
+    parser.add_argument("--comparison-report", type=Path, default=None)
+    parser.add_argument("--original-baseline-report", type=Path, default=None)
+    parser.add_argument("--precompute-report", type=Path, default=None)
+    parser.add_argument("--deferred-metric-report", type=Path, default=None)
+    parser.add_argument("--model-vocab-size", type=int, default=0)
+    parser.add_argument("--sampled-vocab-size", type=int, default=0)
+    parser.add_argument("--disable-sparse-vocab-optimizer", action="store_true")
+    parser.add_argument("--embedding-dim", type=int, default=32)
+    parser.add_argument("--state-dim", type=int, default=64)
+    parser.add_argument("--expert-count", type=int, default=8)
+    parser.add_argument("--active-expert-count", type=int, default=2)
+    parser.add_argument("--route-candidate-count", type=int, default=4)
+    parser.add_argument("--expert-hidden-dim", type=int, default=96)
+    parser.add_argument("--recurrent-gradient-horizon", type=int, default=0)
+    parser.add_argument(
+        "--sweep-recurrent-gradient-horizon",
+        action="append",
+        default=[],
+        type=int,
+        help=(
+            "Run one complete continual-learning report per supplied horizon and "
+            "write an aggregate speed-sweep report to --output."
+        ),
+    )
+    parser.add_argument("--memory-slot-count", type=int, default=0)
+    parser.add_argument("--memory-slot-candidate-count", type=int, default=0)
+    parser.add_argument("--active-memory-slot-count", type=int, default=1)
+    parser.add_argument("--memory-slot-init-std", type=float, default=0.02)
+    parser.add_argument("--sequence-length", type=int, default=32)
+    parser.add_argument("--stride", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--eval-fraction", type=float, default=0.2)
+    parser.add_argument("--max-old-eval-batches", type=int, default=0)
+    parser.add_argument("--max-new-eval-batches", type=int, default=0)
+    parser.add_argument("--match-comparison-eval-batches", action="store_true")
+    parser.add_argument("--max-new-batches", type=int, default=4)
+    parser.add_argument("--max-replay-batches", type=int, default=4)
+    parser.add_argument("--generation-tokens", type=int, default=48)
+    parser.add_argument("--generation-prompt", action="append", default=[])
+    parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
+    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
+    parser.add_argument("--learning-rate", type=float, default=2e-3)
+    parser.add_argument("--max-steps", type=int, default=2)
+    parser.add_argument("--replay-loss-weight", type=float, default=0.25)
+    parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument("--gradient-clip-interval", type=int, default=1)
+    parser.add_argument(
+        "--dense-adamw-backend",
+        choices=("default", "foreach", "fused"),
+        default="default",
+    )
+    parser.add_argument("--forgetting-tolerance", type=float, default=100.0)
+    parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
+    parser.add_argument("--rollback-on-forgetting", action="store_true")
+    parser.add_argument("--collect-training-telemetry", action="store_true")
+    parser.add_argument("--profile-update-stages", action="store_true")
+    parser.add_argument("--sampled-vocab-ce-triton-training", action="store_true")
+    parser.add_argument("--memory-slots-triton-training", action="store_true")
+    parser.add_argument("--paired-sampled-vocab-loss", action="store_true")
+    parser.add_argument("--disable-cuda-tf32", action="store_true")
+    parser.add_argument(
+        "--cuda-float32-matmul-precision",
+        choices=("highest", "high", "medium"),
+        default="high",
+    )
+    parser.add_argument("--seed", type=int, default=20260704)
+    parser.add_argument("--device", default="auto")
+    args = parser.parse_args()
+    config = _config_from_args(args)
+    sweep_horizons = tuple(
+        max(0, int(horizon)) for horizon in args.sweep_recurrent_gradient_horizon
+    )
+    if sweep_horizons:
+        sweep_report = run_language_continual_learning_speed_sweep(
+            output_path=args.output,
+            old_corpus_path=args.old_corpus,
+            new_corpus_path=args.new_corpus,
+            comparison_report_path=args.comparison_report,
+            original_baseline_report_path=args.original_baseline_report,
+            precompute_report_path=args.precompute_report,
+            deferred_metric_report_path=args.deferred_metric_report,
+            recurrent_gradient_horizons=sweep_horizons,
+            config=config,
+        )
+        return (
+            0
+            if sweep_report["status"] == "final"
+            and int(sweep_report.get("accepted_candidate_count", 0)) > 0
+            else 1
+        )
     report = run_language_continual_learning_experiment(
         output_path=args.output,
         old_corpus_path=args.old_corpus,

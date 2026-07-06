@@ -9,7 +9,9 @@ from marulho.evaluation.language_continual_learning_experiment import (
     _comparison_eval_batch_limits,
     _memory_slot_architecture_cost_comparison,
     _restore_training_backend_policy,
+    _speed_sweep_candidate_output_path,
     run_language_continual_learning_experiment,
+    run_language_continual_learning_speed_sweep,
 )
 
 
@@ -150,6 +152,99 @@ def test_training_backend_policy_sets_and_restores_env(monkeypatch) -> None:
 
     assert os.environ["MARULHO_LANGUAGE_SAMPLED_VOCAB_CE_TRITON_TRAINING"] == "1"
     assert "MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING" not in os.environ
+
+
+def test_language_continual_learning_speed_sweep_writes_candidate_reports(
+    tmp_path,
+) -> None:
+    output = tmp_path / "speed-sweep.json"
+    old_corpus = tmp_path / "old.txt"
+    new_corpus = tmp_path / "new.txt"
+    old_corpus.write_text(
+        (
+            "Old replay domain keeps rollback evidence and retained language. "
+            "Replay protection measures old heldout loss. "
+        )
+        * 16,
+        encoding="utf-8",
+    )
+    new_corpus.write_text(
+        (
+            "New continual domain adapts sparse rows with replay protection. "
+            "GPU evidence measures update throughput. "
+        )
+        * 16,
+        encoding="utf-8",
+    )
+
+    report = run_language_continual_learning_speed_sweep(
+        output_path=output,
+        recurrent_gradient_horizons=(1, 2),
+        old_corpus_path=old_corpus,
+        new_corpus_path=new_corpus,
+        config=LanguageContinualLearningExperimentConfig(
+            model_vocab_size=512,
+            sampled_vocab_size=32,
+            embedding_dim=8,
+            state_dim=12,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=16,
+            sequence_length=8,
+            stride=4,
+            batch_size=2,
+            max_new_batches=1,
+            max_replay_batches=1,
+            generation_tokens=2,
+            generation_prompts=("Old replay domain",),
+            max_steps=1,
+            gradient_clip_interval=1,
+            device="cpu",
+        ),
+    )
+
+    loaded = json.loads(output.read_text(encoding="utf-8"))
+    candidate_one = _speed_sweep_candidate_output_path(
+        output,
+        candidate_index=1,
+        recurrent_gradient_horizon=1,
+    )
+    candidate_two = _speed_sweep_candidate_output_path(
+        output,
+        candidate_index=2,
+        recurrent_gradient_horizon=2,
+    )
+
+    assert output.exists()
+    assert (tmp_path / "README.md").exists()
+    assert candidate_one.exists()
+    assert candidate_two.exists()
+    assert report["surface"] == "marulho_language_continual_speed_sweep.v1"
+    assert report["status"] == "final"
+    assert report["candidate_count"] == 2
+    assert report["completed_candidate_count"] == 2
+    assert report["accepted_candidate_count"] >= 1
+    assert loaded["best_candidate"] == report["best_candidate"]
+    assert [candidate["recurrent_gradient_horizon"] for candidate in report["candidates"]] == [
+        1,
+        2,
+    ]
+    assert all(
+        candidate["update_tokens_per_second"] > 0.0
+        for candidate in report["candidates"]
+    )
+    assert all(
+        candidate["tracked_triton_failures"] == 0
+        for candidate in report["candidates"]
+    )
+    assert report["best_candidate"]["accepted_online_update"] is True
+    assert report["review"]["writes_partial_after_each_candidate"] is True
+    assert (
+        report["review"]["candidate_reports_are_complete_continual_learning_reports"]
+        is True
+    )
+    assert report["review"]["promotes_runtime_claim"] is False
 
 
 def test_language_continual_learning_experiment_writes_deferred_eval_report(
