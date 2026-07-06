@@ -212,6 +212,15 @@ harnesses.
   can satisfy the benchmark suite's generation-coherence category, but it is
   not a human review, a broad generation-quality claim, or a runtime-promotion
   claim.
+- `language_brain_generation_evidence.py` is the installed-brain generation
+  evidence runner. It restores a `MarulhoBrain` checkpoint, verifies the
+  installed LM tokenizer and non-mutating status reads, then runs the grounded
+  prompt suite through public `MarulhoBrain.generate()`. The current CUDA
+  report
+  `reports/language_brain_generation/evo-child-quality-repair-installed-post-structure-brain-generation-20260706.json`
+  records brain-owned generation with no external/service-owned cognition, but
+  passes `0/4` grounded cases. Treat it as path ownership and quality
+  instrumentation, not generation-quality promotion.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -253,6 +262,9 @@ harnesses.
   parity, and existing
   `marulho_language_generation_coherence_report.v1` reports for grounded
   prompt-suite coherence. It also ingests accepted
+  `marulho_language_brain_installed_generation_evidence.v1` reports for
+  installed-brain generation path evidence without requiring them to promote
+  quality. It also ingests accepted
   `marulho_language_continual_learning_experiment.v1` reports with
   `marulho_language_continual_memory_slot_architecture_cost.v1` sections, so
   bounded memory slots can be judged against no-memory baselines on update
@@ -404,6 +416,14 @@ harnesses.
   It also accepts `--brain-installed-structural-plasticity-evidence` so
   installed-brain structural reports can strengthen the growth/prune category
   separately from standalone structural transactions.
+- The current installed generation aggregate
+  `reports/language_benchmark_suite/language-suite-evo-child-installed-parent-learning-structure-generation-20260706.json`
+  accepts `--brain-installed-generation-evidence` beside the installed learning
+  and structural reports. It reaches `ready_for_review` with long-run,
+  checkpoint-level generation coherence, quality replay, Triton parity, and
+  installed-brain generation evidence available. The installed-brain generation
+  lane records `0/4` prompt cases passed and keeps
+  `promotes_generation_quality_claim=false`.
 - The suite summarizes controlled sustained decode evidence inside the
   long-run throughput category when saved sustained reports include
   `generation_decode` or execution-level decode-control telemetry. Controlled

@@ -5,6 +5,8 @@ import json
 from marulho.evaluation.language_runtime_benchmark_suite import (
     BRAIN_INSTALLED_CONTINUAL_LEARNING_ARTIFACT_KIND,
     BRAIN_INSTALLED_CONTINUAL_LEARNING_SURFACE,
+    BRAIN_INSTALLED_GENERATION_ARTIFACT_KIND,
+    BRAIN_INSTALLED_GENERATION_SURFACE,
     BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND,
     BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE,
     ELIGIBILITY_TRACE_KERNEL_NAME,
@@ -718,6 +720,87 @@ def _write_brain_installed_structural_plasticity_report(path) -> None:
     )
 
 
+def _write_brain_installed_generation_report(path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "artifact_kind": BRAIN_INSTALLED_GENERATION_ARTIFACT_KIND,
+                "surface": BRAIN_INSTALLED_GENERATION_SURFACE,
+                "status": "final",
+                "report_status": "final",
+                "runtime_owner": "MarulhoBrain",
+                "active_language_path": "marulho_lm_head",
+                "brain_checkpoint_path": (
+                    "reports/language_brain_structural/post-structure-brain.pt"
+                ),
+                "owned_by_marulho": True,
+                "external_llm_used": False,
+                "loads_external_checkpoint": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "brain_checkpoint": {
+                    "path": (
+                        "reports/language_brain_structural/post-structure-brain.pt"
+                    ),
+                    "restore_verified": True,
+                    "active_language_path": "marulho_lm_head",
+                },
+                "generation_coherence": {
+                    "artifact_kind": GENERATION_COHERENCE_ARTIFACT_KIND,
+                    "surface": GENERATION_COHERENCE_SURFACE,
+                    "active_language_path": "marulho_lm_head",
+                    "owned_by_marulho": True,
+                    "external_llm_used": False,
+                    "loads_external_checkpoint": False,
+                    "status": "passed_generation_coherence_gate",
+                    "summary": {
+                        "case_count": 4,
+                        "passed_case_count": 2,
+                        "case_pass_rate": 0.5,
+                    },
+                    "promotion_gate": {
+                        "generation_coherence_available": False,
+                        "grounded_prompt_suite_available": True,
+                        "promotes_generation_quality_claim": False,
+                        "promotes_runtime_claim": False,
+                    },
+                },
+                "generation_summary": {
+                    "case_count": 4,
+                    "passed_case_count": 2,
+                    "case_pass_rate": 0.5,
+                    "mean_prefix_match_chars": 12.5,
+                    "mean_prefix_match_fraction": 0.21,
+                    "mean_printable_fraction": 1.0,
+                    "mean_distinct_bigram_fraction": 0.73,
+                    "next_character_match_rate": 0.25,
+                },
+                "promotion_gate": {
+                    "surface": (
+                        "marulho_language_brain_installed_generation_gate.v1"
+                    ),
+                    "loaded_installed_brain_checkpoint": True,
+                    "brain_checkpoint_restore_verified": True,
+                    "batch_tokenizer_matches_installed_runtime": True,
+                    "generation_runs_through_marulho_brain": True,
+                    "generation_coherence_available": False,
+                    "grounded_prompt_suite_available": True,
+                    "case_count": 4,
+                    "passed_case_count": 2,
+                    "case_pass_rate": 0.5,
+                    "status_read_mutation_absent": True,
+                    "external_llm_absent": True,
+                    "service_owned_cognition_absent": True,
+                    "ready_for_runtime_claim_review": False,
+                    "promotes_runtime_claim": False,
+                    "promotes_generation_quality_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_structural_plasticity_experiment_report(path) -> None:
     path.write_text(
         json.dumps(
@@ -1098,6 +1181,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     brain_installed_structural_plasticity = (
         tmp_path / "brain-installed-structural-plasticity.json"
     )
+    brain_installed_generation = tmp_path / "brain-installed-generation.json"
     structural_plasticity = tmp_path / "structural-plasticity.json"
     _write_sustained_report(diagnostic, token_delta=8192)
     _write_sustained_report(long_gate, token_delta=131072)
@@ -1147,6 +1231,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     _write_brain_installed_structural_plasticity_report(
         brain_installed_structural_plasticity
     )
+    _write_brain_installed_generation_report(brain_installed_generation)
     _write_structural_plasticity_experiment_report(structural_plasticity)
 
     report = run_language_runtime_benchmark_suite(
@@ -1159,6 +1244,7 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
         brain_installed_structural_plasticity_evidence_paths=(
             brain_installed_structural_plasticity,
         ),
+        brain_installed_generation_evidence_paths=(brain_installed_generation,),
         memory_slot_runtime_impact_evidence_paths=(memory_slot_runtime_impact,),
         memory_slot_architecture_cost_evidence_paths=(
             memory_slot_architecture_cost,
@@ -1224,6 +1310,23 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert long_run["evidence"]["promotes_hot_path"] is False
     assert gpu_kernel_category["status"] == "pass"
     assert generation_category["status"] == "pass"
+    brain_generation = generation_category["evidence"][
+        "brain_installed_generation_evidence"
+    ]
+    assert brain_generation["brain_installed_generation_available"] is True
+    assert brain_generation["valid_report_count"] == 1
+    assert brain_generation["best_report"]["runtime_owner"] == "MarulhoBrain"
+    assert brain_generation["best_report"]["case_count"] == 4
+    assert brain_generation["best_report"]["passed_case_count"] == 2
+    assert brain_generation["best_report"]["case_pass_rate"] == 0.5
+    assert (
+        brain_generation["best_report"]["generation_runs_through_marulho_brain"]
+        is True
+    )
+    assert brain_generation["promotes_generation_quality_claim"] is False
+    assert report["promotion_gate"][
+        "brain_installed_generation_evidence_available"
+    ] is True
     assert memory_slot_category["status"] == "pass"
     assert memory_slot_category["missing_evidence"] == []
     assert memory_slot_category["evidence"]["best_report"][

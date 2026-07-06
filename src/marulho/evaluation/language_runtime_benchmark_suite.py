@@ -88,6 +88,12 @@ BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_SURFACE = (
 BRAIN_INSTALLED_STRUCTURAL_PLASTICITY_ARTIFACT_KIND = (
     "marulho_language_brain_installed_structural_plasticity_evidence"
 )
+BRAIN_INSTALLED_GENERATION_SURFACE = (
+    "marulho_language_brain_installed_generation_evidence.v1"
+)
+BRAIN_INSTALLED_GENERATION_ARTIFACT_KIND = (
+    "marulho_language_brain_installed_generation_evidence"
+)
 STRUCTURAL_PLASTICITY_EXPERIMENT_SURFACE = (
     "marulho_language_structural_plasticity_experiment.v1"
 )
@@ -296,6 +302,19 @@ def _read_brain_installed_structural_plasticity_report(
     if not isinstance(payload, dict):
         raise ValueError(
             f"Brain-installed structural-plasticity report is not an object: {report_path}"
+        )
+    payload = dict(payload)
+    payload.setdefault("path", str(report_path))
+    return payload
+
+
+def _read_brain_installed_generation_report(path: str | Path) -> dict[str, Any]:
+    report_path = Path(path)
+    with report_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Brain-installed generation report is not an object: {report_path}"
         )
     payload = dict(payload)
     payload.setdefault("path", str(report_path))
@@ -729,6 +748,161 @@ def _language_generation_coherence_evidence(
             else _generation_coherence_report_summary(best_report)
         ),
         "missing_evidence": missing,
+        "promotes_runtime_claim": False,
+    }
+
+
+def _valid_brain_installed_generation_report(report: Mapping[str, Any]) -> bool:
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    coherence = (
+        report.get("generation_coherence")
+        if isinstance(report.get("generation_coherence"), Mapping)
+        else {}
+    )
+    summary = (
+        report.get("generation_summary")
+        if isinstance(report.get("generation_summary"), Mapping)
+        else {}
+    )
+    checkpoint = (
+        report.get("brain_checkpoint")
+        if isinstance(report.get("brain_checkpoint"), Mapping)
+        else {}
+    )
+    return (
+        report.get("artifact_kind") == BRAIN_INSTALLED_GENERATION_ARTIFACT_KIND
+        and report.get("surface") == BRAIN_INSTALLED_GENERATION_SURFACE
+        and report.get("report_status") == "final"
+        and report.get("status") == "final"
+        and report.get("runtime_owner") == "MarulhoBrain"
+        and report.get("active_language_path") == "marulho_lm_head"
+        and report.get("owned_by_marulho") is True
+        and report.get("external_llm_used") is False
+        and report.get("loads_external_checkpoint") is False
+        and report.get("service_owned_cognition") is False
+        and report.get("status_read_mutation") is False
+        and checkpoint.get("restore_verified") is True
+        and coherence.get("active_language_path") == "marulho_lm_head"
+        and coherence.get("owned_by_marulho") is True
+        and coherence.get("external_llm_used") is False
+        and int(summary.get("case_count", 0) or 0) > 0
+        and gate.get("loaded_installed_brain_checkpoint") is True
+        and gate.get("brain_checkpoint_restore_verified") is True
+        and gate.get("batch_tokenizer_matches_installed_runtime") is True
+        and gate.get("generation_runs_through_marulho_brain") is True
+        and gate.get("status_read_mutation_absent") is True
+        and gate.get("external_llm_absent") is True
+        and gate.get("service_owned_cognition_absent") is True
+        and gate.get("promotes_runtime_claim") is False
+        and gate.get("promotes_generation_quality_claim") is False
+    )
+
+
+def _brain_installed_generation_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = (
+        report.get("generation_summary")
+        if isinstance(report.get("generation_summary"), Mapping)
+        else {}
+    )
+    checkpoint = (
+        report.get("brain_checkpoint")
+        if isinstance(report.get("brain_checkpoint"), Mapping)
+        else {}
+    )
+    gate = (
+        report.get("promotion_gate")
+        if isinstance(report.get("promotion_gate"), Mapping)
+        else {}
+    )
+    coherence = (
+        report.get("generation_coherence")
+        if isinstance(report.get("generation_coherence"), Mapping)
+        else {}
+    )
+    return {
+        "path": str(report.get("path") or report.get("output_path") or ""),
+        "runtime_owner": report.get("runtime_owner"),
+        "active_language_path": report.get("active_language_path"),
+        "brain_checkpoint_path": report.get("brain_checkpoint_path"),
+        "brain_checkpoint_restore_verified": bool(
+            checkpoint.get("restore_verified", False)
+        ),
+        "case_count": int(summary.get("case_count", 0) or 0),
+        "passed_case_count": int(summary.get("passed_case_count", 0) or 0),
+        "case_pass_rate": float(summary.get("case_pass_rate", 0.0) or 0.0),
+        "mean_prefix_match_chars": summary.get("mean_prefix_match_chars"),
+        "mean_prefix_match_fraction": summary.get("mean_prefix_match_fraction"),
+        "mean_printable_fraction": summary.get("mean_printable_fraction"),
+        "mean_distinct_bigram_fraction": summary.get(
+            "mean_distinct_bigram_fraction"
+        ),
+        "next_character_match_rate": summary.get("next_character_match_rate"),
+        "generation_coherence_available": bool(
+            gate.get("generation_coherence_available", False)
+        ),
+        "grounded_prompt_suite_available": bool(
+            gate.get("grounded_prompt_suite_available", False)
+        ),
+        "generation_runs_through_marulho_brain": bool(
+            gate.get("generation_runs_through_marulho_brain", False)
+        ),
+        "status_read_mutation_absent": bool(
+            gate.get("status_read_mutation_absent", False)
+        ),
+        "coherence_report_status": coherence.get("status"),
+        "promotes_generation_quality_claim": False,
+        "promotes_runtime_claim": False,
+    }
+
+
+def _language_brain_installed_generation_evidence(
+    reports: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    valid_reports = [
+        dict(report)
+        for report in reports
+        if _valid_brain_installed_generation_report(report)
+    ]
+    best_report = max(
+        valid_reports,
+        key=lambda item: (
+            int(
+                (item.get("generation_summary") or {}).get("case_count", 0)
+                if isinstance(item.get("generation_summary"), Mapping)
+                else 0
+            ),
+            float(
+                (item.get("generation_summary") or {}).get("case_pass_rate", 0.0)
+                if isinstance(item.get("generation_summary"), Mapping)
+                else 0.0
+            ),
+        ),
+        default=None,
+    )
+    supplied_invalid_reports = len(reports) > 0 and best_report is None
+    return {
+        "surface": "marulho_language_brain_installed_generation_saved_evidence.v1",
+        "report_count": len(reports),
+        "valid_report_count": len(valid_reports),
+        "brain_installed_generation_available": best_report is not None,
+        "best_report": (
+            None
+            if best_report is None
+            else _brain_installed_generation_summary(best_report)
+        ),
+        "missing_evidence": (
+            ["valid_brain_installed_generation_report"]
+            if supplied_invalid_reports
+            else []
+        ),
+        "required_for_runtime_promotion": False,
+        "promotes_generation_quality_claim": False,
         "promotes_runtime_claim": False,
     }
 
@@ -2446,6 +2620,7 @@ def run_language_runtime_benchmark_suite(
     sustained_evidence_paths: Sequence[str | Path] = (),
     brain_installed_continual_learning_evidence_paths: Sequence[str | Path] = (),
     brain_installed_structural_plasticity_evidence_paths: Sequence[str | Path] = (),
+    brain_installed_generation_evidence_paths: Sequence[str | Path] = (),
     memory_slot_runtime_impact_evidence_paths: Sequence[str | Path] = (),
     memory_slot_architecture_cost_evidence_paths: Sequence[str | Path] = (),
     structural_plasticity_evidence_paths: Sequence[str | Path] = (),
@@ -2525,6 +2700,15 @@ def run_language_runtime_benchmark_suite(
     generation_coherence_evidence = _language_generation_coherence_evidence(
         generation_coherence_reports
     )
+    brain_installed_generation_reports = [
+        _read_brain_installed_generation_report(path)
+        for path in brain_installed_generation_evidence_paths
+    ]
+    brain_installed_generation_evidence = (
+        _language_brain_installed_generation_evidence(
+            brain_installed_generation_reports
+        )
+    )
     quality_replay_reports = [
         _read_quality_replay_report(path) for path in quality_replay_evidence_paths
     ]
@@ -2542,6 +2726,7 @@ def run_language_runtime_benchmark_suite(
     )
     generation_coherence_missing = tuple(
         generation_coherence_evidence["missing_evidence"]
+        + brain_installed_generation_evidence["missing_evidence"]
         + quality_replay_evidence["missing_evidence"]
     )
     generation_category = _category(
@@ -2553,6 +2738,7 @@ def run_language_runtime_benchmark_suite(
             "external_llm_used": generation["external_llm_used"],
             "review_kind": "token_stream_smoke_not_human_quality_review",
             **generation_coherence_evidence,
+            "brain_installed_generation_evidence": brain_installed_generation_evidence,
             "quality_replay_evidence": quality_replay_evidence,
         },
         missing=generation_coherence_missing,
@@ -3838,6 +4024,9 @@ def run_language_runtime_benchmark_suite(
                 str(Path(path))
                 for path in brain_installed_structural_plasticity_evidence_paths
             ],
+            "brain_installed_generation_evidence": [
+                str(Path(path)) for path in brain_installed_generation_evidence_paths
+            ],
             "memory_slot_runtime_impact_evidence": [
                 str(Path(path))
                 for path in memory_slot_runtime_impact_evidence_paths
@@ -3883,6 +4072,11 @@ def run_language_runtime_benchmark_suite(
             "quality_replay_evidence_available": quality_replay_evidence[
                 "quality_replay_available"
             ],
+            "brain_installed_generation_evidence_available": bool(
+                brain_installed_generation_evidence[
+                    "brain_installed_generation_available"
+                ]
+            ),
             "brain_installed_continual_learning_evidence_available": bool(
                 brain_installed_learning_evidence[
                     "brain_installed_continual_learning_available"
@@ -3971,6 +4165,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--brain-installed-generation-evidence",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Existing marulho_language_brain_installed_generation_evidence JSON "
+            "report."
+        ),
+    )
+    parser.add_argument(
         "--memory-slot-architecture-cost-evidence",
         type=Path,
         action="append",
@@ -4024,6 +4228,9 @@ def main() -> int:
         ),
         brain_installed_structural_plasticity_evidence_paths=tuple(
             args.brain_installed_structural_plasticity_evidence
+        ),
+        brain_installed_generation_evidence_paths=tuple(
+            args.brain_installed_generation_evidence
         ),
         memory_slot_runtime_impact_evidence_paths=tuple(
             args.memory_slot_runtime_impact_evidence

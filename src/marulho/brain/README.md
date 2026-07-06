@@ -122,6 +122,16 @@ and sustains `524288/524288` post-structure tokens at `8060.863` tokens/sec
 through `torch_cuda_graph_burst_decode_controls` with zero tracked Triton
 failures. This is installed-brain structural evidence, not a runtime or
 language-quality promotion.
+`language_brain_generation_evidence.py` verifies installed-brain generation
+after structural mutation. It restores the post-structure `MarulhoBrain`
+checkpoint, checks that status reads do not mutate runtime state, verifies the
+installed tokenizer, and scores grounded prompt continuations through public
+`MarulhoBrain.generate()`. The current CUDA report
+`reports/language_brain_generation/evo-child-quality-repair-installed-post-structure-brain-generation-20260706.json`
+records `generation_runs_through_marulho_brain=true`,
+`status_read_mutation_absent=true`, no external/service-owned cognition, and
+`0/4` grounded prompt cases passed. This proves the installed generation path is
+owned by the brain surface, but it is not a language-quality promotion.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend
