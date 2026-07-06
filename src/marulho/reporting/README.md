@@ -13,8 +13,9 @@ summaries, and report helpers.
 - Read-only inventories over saved JSON reports for service/UI display.
 - Current language-evidence projections that condense saved benchmark,
   generation, repair, continual-learning throughput, forgetting/replay,
-  sustained-throughput, active-compute, GPU-kernel, backend-decision, and
-  checkpoint evidence without running the machinery.
+  structural-plasticity, checkpoint-lineage, sustained-throughput,
+  active-compute, GPU-kernel, backend-decision, and checkpoint evidence without
+  running the machinery.
 
 ## Must Not Own
 
@@ -36,3 +37,7 @@ but it cannot create a runtime or generation-quality promotion claim by itself.
 It also separates accepted training/inference throughput from backend rejection
 evidence, so a tempting Triton or buffer variant is visible without becoming
 the default until complete-window evidence supports it.
+Installed-brain structural evidence remains a report projection: it can show a
+checkpoint-backed route-bank expansion, rollback verification, and post-
+structure sustained speed, but it does not make reporting or service code a
+mutation owner.

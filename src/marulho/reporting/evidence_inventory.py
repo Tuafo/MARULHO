@@ -21,6 +21,9 @@ LANGUAGE_BRAIN_GENERATION_REPAIR_SWEEP_ARTIFACT = (
 LANGUAGE_BRAIN_CONTINUAL_LEARNING_ARTIFACT = (
     "marulho_language_brain_installed_continual_learning_evidence"
 )
+LANGUAGE_BRAIN_STRUCTURAL_PLASTICITY_ARTIFACT = (
+    "marulho_language_brain_installed_structural_plasticity_evidence"
+)
 LANGUAGE_STATE_BLOCK_RUNTIME_IMPACT_ARTIFACT = (
     "marulho_language_state_block_runtime_impact"
 )
@@ -95,6 +98,10 @@ def build_current_language_evidence_projection(
         reports,
         LANGUAGE_BRAIN_CONTINUAL_LEARNING_ARTIFACT,
     )
+    structural_plasticity_entry = _latest_report(
+        reports,
+        LANGUAGE_BRAIN_STRUCTURAL_PLASTICITY_ARTIFACT,
+    )
     state_block_impact_entry = _latest_report(
         reports,
         LANGUAGE_STATE_BLOCK_RUNTIME_IMPACT_ARTIFACT,
@@ -114,6 +121,9 @@ def build_current_language_evidence_projection(
     continual_learning_category = _category(suite, "continual_learning")
     forgetting_category = _category(suite, "forgetting")
     replay_recovery_category = _category(suite, "replay_recovery")
+    growth_prune_category = _category(suite, "growth_prune_safety")
+    checkpoint_restore_category = _category(suite, "checkpoint_restore")
+    rollback_category = _category(suite, "rollback")
     generation_evidence = _generation_evidence(
         generation_category,
         generation_entry[1] if generation_entry is not None else {},
@@ -140,6 +150,19 @@ def build_current_language_evidence_projection(
         training_evidence,
     )
     active_compute_evidence = _active_compute_evidence(_category(suite, "active_compute"))
+    structural_evidence = _structural_plasticity_evidence(
+        growth_prune_category,
+        structural_plasticity_entry[1]
+        if structural_plasticity_entry is not None
+        else {},
+    )
+    checkpoint_lineage_evidence = _checkpoint_lineage_evidence(
+        checkpoint_restore_category,
+        rollback_category,
+        training_evidence,
+        structural_evidence,
+        repair_evidence,
+    )
     bottleneck_evidence = _backend_bottleneck_evidence(
         training_evidence,
         state_block_impact_entry[1] if state_block_impact_entry is not None else {},
@@ -163,6 +186,7 @@ def build_current_language_evidence_projection(
         ("installed_generation_repair", repair_entry),
         ("installed_generation_repair_sweep", repair_sweep_entry),
         ("installed_continual_learning", continual_learning_entry),
+        ("installed_structural_plasticity", structural_plasticity_entry),
         ("state_block_runtime_impact", state_block_impact_entry),
         ("eligibility_trace_runtime_impact", eligibility_impact_entry),
         ("memory_slot_training_impact", memory_slot_training_impact_entry),
@@ -242,6 +266,8 @@ def build_current_language_evidence_projection(
         "repair_evidence": repair_evidence,
         "training_throughput_evidence": training_evidence,
         "forgetting_replay_evidence": forgetting_replay_evidence,
+        "structural_plasticity_evidence": structural_evidence,
+        "checkpoint_lineage_evidence": checkpoint_lineage_evidence,
         "house_scale_throughput_evidence": throughput_evidence,
         "active_compute_evidence": active_compute_evidence,
         "gpu_kernel_evidence": gpu_evidence,
@@ -252,6 +278,7 @@ def build_current_language_evidence_projection(
                 repair_evidence.get("runtime_owner"),
                 generation_evidence.get("runtime_owner"),
                 training_evidence.get("runtime_owner"),
+                structural_evidence.get("runtime_owner"),
                 throughput_evidence.get("runtime_owner"),
             ),
             "service_owner": "thin_brain_adapter",
@@ -867,6 +894,296 @@ def _active_compute_evidence(active_compute_category: Mapping[str, Any]) -> dict
         ),
         "total_parameters": _first_int(evidence.get("total_parameters")),
         "category_passed": _bool_or_none(active_compute_category.get("passed")),
+    }
+
+
+def _structural_plasticity_evidence(
+    growth_prune_category: Mapping[str, Any],
+    structural_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    category_evidence = _mapping(growth_prune_category.get("evidence"))
+    saved = _mapping(
+        category_evidence.get("brain_installed_structural_plasticity_evidence")
+    )
+    saved_best = _mapping(saved.get("best_report"))
+    summary = _mapping(structural_report.get("structural_transaction_summary"))
+    gate = _mapping(structural_report.get("promotion_gate"))
+    pre_checkpoint = _mapping(structural_report.get("pre_structural_brain_checkpoint"))
+    post_checkpoint = _mapping(structural_report.get("post_structural_brain_checkpoint"))
+    sustained = _mapping(structural_report.get("post_structure_sustained_window"))
+    best = saved_best or summary or structural_report
+    source = (
+        "benchmark_suite.brain_installed_structural_plasticity_evidence"
+        if saved_best
+        else "saved_brain_installed_structural_plasticity_report"
+        if structural_report
+        else None
+    )
+    return {
+        "surface": "marulho_current_language_structural_plasticity_evidence.v1",
+        "available": bool(best),
+        "source": source,
+        "runtime_owner": _first_string(
+            best.get("runtime_owner"),
+            structural_report.get("runtime_owner"),
+        ),
+        "active_language_path": _first_string(
+            best.get("active_language_path"),
+            structural_report.get("active_language_path"),
+        ),
+        "brain_surface": _first_string(
+            best.get("brain_surface"),
+            summary.get("brain_surface"),
+        ),
+        "training_surface": _first_string(
+            best.get("training_surface"),
+            summary.get("training_surface"),
+        ),
+        "trace_event": _first_string(best.get("trace_event"), summary.get("trace_event")),
+        "transaction_status": _first_string(
+            best.get("transaction_status"),
+            summary.get("status"),
+            structural_report.get("status"),
+        ),
+        "proposal_kind": _first_string(best.get("proposal_kind"), summary.get("proposal_kind")),
+        "applied": _first_bool(best.get("applied"), summary.get("applied")),
+        "operator_approved": _first_bool(
+            best.get("operator_approved"),
+            summary.get("operator_approved"),
+        ),
+        "checkpoint_restore_verified": _first_bool(
+            best.get("checkpoint_restore_verified"),
+            summary.get("checkpoint_restore_verified"),
+        ),
+        "rollback_verified": _first_bool(
+            best.get("rollback_verified"),
+            summary.get("rollback_verified"),
+            gate.get("records_rollback_evidence"),
+        ),
+        "heldout_non_regression": _first_bool(
+            best.get("heldout_non_regression"),
+            summary.get("heldout_non_regression"),
+        ),
+        "proposal_non_mutating": _first_bool(
+            gate.get("proposal_non_mutating"),
+            category_evidence.get("route_bank_proposal_mutates_runtime_state") is False
+            if "route_bank_proposal_mutates_runtime_state" in category_evidence
+            else None,
+        ),
+        "proposal_runs_through_marulho_brain": _bool_or_none(
+            gate.get("proposal_runs_through_marulho_brain")
+        ),
+        "structural_apply_runs_through_marulho_brain": _bool_or_none(
+            gate.get("structural_apply_runs_through_marulho_brain")
+        ),
+        "records_checkpoint_backed_transaction": _bool_or_none(
+            gate.get("records_checkpoint_backed_transaction")
+        ),
+        "status_read_mutation_absent": _first_bool(
+            best.get("status_read_mutation_absent"),
+            gate.get("status_read_mutation_absent"),
+            structural_report.get("status_read_mutation") is False
+            if "status_read_mutation" in structural_report
+            else None,
+        ),
+        "mutation": {
+            "surface": "marulho_current_language_structural_mutation_evidence.v1",
+            "proposal_kind": _first_string(best.get("proposal_kind"), summary.get("proposal_kind")),
+            "source_expert_count": _first_int(
+                best.get("source_expert_count"),
+                summary.get("source_expert_count"),
+            ),
+            "target_expert_count": _first_int(
+                best.get("target_expert_count"),
+                summary.get("target_expert_count"),
+            ),
+            "source_memory_slot_count": _first_int(
+                best.get("source_memory_slot_count"),
+                summary.get("source_memory_slot_count"),
+            ),
+            "target_memory_slot_count": _first_int(
+                best.get("target_memory_slot_count"),
+                summary.get("target_memory_slot_count"),
+            ),
+            "memory_slot_count_delta": _first_int(
+                best.get("memory_slot_count_delta"),
+                summary.get("memory_slot_count_delta"),
+            ),
+            "source_route_candidate_count": _first_int(
+                best.get("source_route_candidate_count"),
+                summary.get("source_route_candidate_count"),
+                category_evidence.get("route_bank_source_candidate_count"),
+            ),
+            "target_route_candidate_count": _first_int(
+                best.get("target_route_candidate_count"),
+                summary.get("target_route_candidate_count"),
+                category_evidence.get("route_bank_target_candidate_count"),
+            ),
+            "route_bank_candidate_count_delta": _first_int(
+                best.get("route_bank_candidate_count_delta"),
+                summary.get("route_bank_candidate_count_delta"),
+            ),
+            "route_bank_runs_all_columns": _first_bool(
+                category_evidence.get("route_bank_runs_all_columns"),
+                False,
+            ),
+        },
+        "pre_structure_checkpoint": {
+            "surface": "marulho_current_language_pre_structure_checkpoint_evidence.v1",
+            "path": _first_string(
+                best.get("pre_structure_checkpoint_path"),
+                pre_checkpoint.get("path"),
+            ),
+            "sha256": _first_string(pre_checkpoint.get("sha256")),
+            "restore_verified": _first_bool(
+                best.get("pre_structure_checkpoint_restore_verified"),
+                pre_checkpoint.get("restore_verified"),
+                gate.get("pre_structure_brain_checkpoint_restore_verified"),
+            ),
+        },
+        "post_structure_checkpoint": {
+            "surface": "marulho_current_language_post_structure_checkpoint_evidence.v1",
+            "path": _first_string(
+                best.get("post_structure_checkpoint_path"),
+                post_checkpoint.get("path"),
+            ),
+            "sha256": _first_string(post_checkpoint.get("sha256")),
+            "restore_verified": _first_bool(
+                best.get("post_structure_checkpoint_restore_verified"),
+                post_checkpoint.get("restore_verified"),
+                gate.get("post_structure_brain_checkpoint_restore_verified"),
+            ),
+            "delete_protected_by_current_evidence": bool(
+                _first_string(
+                    best.get("post_structure_checkpoint_path"),
+                    post_checkpoint.get("path"),
+                )
+            ),
+        },
+        "post_structure_sustained": {
+            "surface": "marulho_current_language_post_structure_sustained_evidence.v1",
+            "enabled": _first_bool(
+                sustained.get("enabled"),
+                best.get("post_structure_sustained_enabled"),
+            ),
+            "success": _first_bool(
+                sustained.get("success"),
+                best.get("post_structure_sustained_success"),
+            ),
+            "target_tokens": _first_int(sustained.get("target_tokens")),
+            "token_delta": _first_int(
+                sustained.get("token_delta"),
+                best.get("post_structure_sustained_token_delta"),
+            ),
+            "tokens_per_second": _first_float(
+                sustained.get("tokens_per_second"),
+                best.get("post_structure_sustained_tokens_per_second"),
+            ),
+            "backend": _first_string(
+                sustained.get("backend"),
+                best.get("post_structure_sustained_backend"),
+            ),
+            "device": _first_string(sustained.get("device")),
+            "tracked_triton_kernel_failure_count": _first_int(
+                sustained.get("tracked_triton_kernel_failure_count"),
+                best.get("post_structure_sustained_triton_failure_count"),
+            ),
+            "tracked_triton_kernel_used_names": _string_list(
+                sustained.get("tracked_triton_kernel_used_names")
+            ),
+        },
+        "external_llm_used": _first_bool(structural_report.get("external_llm_used"), False),
+        "service_owned_cognition": _first_bool(
+            structural_report.get("service_owned_cognition"),
+            False,
+        ),
+        "promotes_runtime_claim": _first_bool(
+            best.get("promotes_runtime_claim"),
+            structural_report.get("promotes_runtime_claim"),
+            gate.get("promotes_runtime_claim"),
+            False,
+        ),
+        "promotes_generation_quality_claim": _first_bool(
+            structural_report.get("promotes_generation_quality_claim"),
+            gate.get("promotes_generation_quality_claim"),
+            False,
+        ),
+    }
+
+
+def _checkpoint_lineage_evidence(
+    checkpoint_restore_category: Mapping[str, Any],
+    rollback_category: Mapping[str, Any],
+    training: Mapping[str, Any],
+    structural: Mapping[str, Any],
+    repair: Mapping[str, Any],
+) -> dict[str, Any]:
+    checkpoint_restore = _mapping(checkpoint_restore_category.get("evidence"))
+    rollback = _mapping(rollback_category.get("evidence"))
+    return {
+        "surface": "marulho_current_language_checkpoint_lineage_evidence.v1",
+        "available": bool(checkpoint_restore or rollback or training or structural or repair),
+        "suite_checkpoint_path": _first_string(checkpoint_restore.get("checkpoint_path")),
+        "brain_installed_pre_learning_checkpoint_path": _first_string(
+            checkpoint_restore.get("brain_installed_pre_learning_checkpoint_path")
+        ),
+        "brain_installed_learned_checkpoint_path": _first_string(
+            checkpoint_restore.get("brain_installed_learned_checkpoint_path"),
+            training.get("learned_brain_checkpoint_path"),
+        ),
+        "brain_installed_learned_checkpoint_restore_verified": _first_bool(
+            checkpoint_restore.get("brain_installed_learned_checkpoint_restore_verified"),
+            training.get("learned_brain_checkpoint_restore_verified"),
+        ),
+        "structural_pre_checkpoint_path": _first_string(
+            _mapping(structural.get("pre_structure_checkpoint")).get("path")
+        ),
+        "structural_pre_checkpoint_restore_verified": _first_bool(
+            _mapping(structural.get("pre_structure_checkpoint")).get("restore_verified")
+        ),
+        "structural_post_checkpoint_path": _first_string(
+            _mapping(structural.get("post_structure_checkpoint")).get("path")
+        ),
+        "structural_post_checkpoint_restore_verified": _first_bool(
+            _mapping(structural.get("post_structure_checkpoint")).get("restore_verified")
+        ),
+        "selected_repair_checkpoint_path": _first_string(
+            repair.get("selected_checkpoint_path")
+        ),
+        "selected_repair_checkpoint_restore_verified": _first_bool(
+            repair.get("checkpoint_restore_verified")
+        ),
+        "checkpoint_evolution": {
+            "surface": "marulho_current_language_checkpoint_evolution_evidence.v1",
+            "checkpoint_lineage_complete": _bool_or_none(
+                rollback.get("checkpoint_lineage_complete")
+            ),
+            "lineage_id": _first_string(rollback.get("lineage_id")),
+            "parent_kept_installed": _bool_or_none(rollback.get("parent_kept_installed")),
+            "parent_runtime_unchanged": _bool_or_none(
+                rollback.get("parent_runtime_unchanged")
+            ),
+            "rollback_to_parent_verified": _bool_or_none(
+                rollback.get("rollback_to_parent_verified")
+            ),
+            "operator_review_required": _bool_or_none(
+                rollback.get("operator_review_required")
+            ),
+            "long_run_evidence_required_for_promotion": _bool_or_none(
+                rollback.get("long_run_evidence_required_for_promotion")
+            ),
+            "saved_checkpoint_evolution_available": _bool_or_none(
+                _mapping(rollback.get("saved_checkpoint_evolution_evidence")).get(
+                    "checkpoint_evolution_evidence_available"
+                )
+            ),
+            "promotes_runtime_claim": _first_bool(
+                _mapping(rollback.get("saved_checkpoint_evolution_evidence")).get(
+                    "promotes_runtime_claim"
+                ),
+                False,
+            ),
+        },
     }
 
 

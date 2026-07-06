@@ -44,11 +44,12 @@ capability claim.
 `/brain/evidence/language` is the current saved-language-evidence projection
 for UI/status display. It condenses the latest benchmark suite, installed-brain
 generation, installed-brain repair sweep, installed-brain continual-learning
-update throughput, forgetting/replay metrics, 524288-token house-scale
-sustained runs, active compute, GPU-kernel, backend rejection, and selected
-checkpoint references from JSON artifacts only. It is read-only,
-service-owned-cognition stays false, and it does not promote runtime or
-generation-quality claims without the source report gates doing so.
+update throughput, forgetting/replay metrics, installed-brain structural
+plasticity, checkpoint lineage, 524288-token house-scale sustained runs, active
+compute, GPU-kernel, backend rejection, and selected checkpoint references from
+JSON artifacts only. It is read-only, service-owned-cognition stays false, and
+it does not promote runtime or generation-quality claims without the source
+report gates doing so.
 
 Some machinery modules for replay, SNN readout ledger, action execution,
 runtime sources, and plasticity live under `service` because they currently

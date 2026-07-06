@@ -68,10 +68,12 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     reports = tmp_path / "reports"
     suite_dir = reports / "language_benchmark_suite"
     learning_dir = reports / "language_brain_continual_learning"
+    structural_dir = reports / "language_brain_structural_plasticity"
     training_dir = reports / "language_training_experiments"
     repair_dir = reports / "language_brain_generation_repair"
     suite_dir.mkdir(parents=True)
     learning_dir.mkdir(parents=True)
+    structural_dir.mkdir(parents=True)
     training_dir.mkdir(parents=True)
     repair_dir.mkdir(parents=True)
     checkpoint_path = (
@@ -226,6 +228,96 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                             "total_parameters": 14744,
                         },
                     },
+                    {
+                        "name": "growth_prune_safety",
+                        "passed": True,
+                        "evidence": {
+                            "brain_installed_structural_plasticity_evidence": {
+                                "best_report": {
+                                    "active_language_path": "marulho_lm_head",
+                                    "runtime_owner": "MarulhoBrain",
+                                    "brain_surface": (
+                                        "marulho_brain_language_structural_transaction.v1"
+                                    ),
+                                    "training_surface": (
+                                        "marulho_language_structural_plasticity_transaction.v1"
+                                    ),
+                                    "trace_event": "language_structure",
+                                    "transaction_status": "applied_structural_mutation",
+                                    "proposal_kind": "route_bank_expansion",
+                                    "applied": True,
+                                    "checkpoint_restore_verified": True,
+                                    "rollback_verified": True,
+                                    "heldout_non_regression": True,
+                                    "source_expert_count": 18,
+                                    "target_expert_count": 18,
+                                    "source_memory_slot_count": 1024,
+                                    "target_memory_slot_count": 1024,
+                                    "memory_slot_count_delta": 0,
+                                    "source_route_candidate_count": 8,
+                                    "target_route_candidate_count": 12,
+                                    "route_bank_candidate_count_delta": 4,
+                                    "pre_structure_checkpoint_path": (
+                                        "reports/language_brain_structural_plasticity/"
+                                        "pre-structure-brain.pt"
+                                    ),
+                                    "pre_structure_checkpoint_restore_verified": True,
+                                    "post_structure_checkpoint_path": (
+                                        "reports/language_brain_structural_plasticity/"
+                                        "post-structure-brain.pt"
+                                    ),
+                                    "post_structure_checkpoint_restore_verified": True,
+                                    "post_structure_sustained_enabled": True,
+                                    "post_structure_sustained_success": True,
+                                    "post_structure_sustained_token_delta": 524288,
+                                    "post_structure_sustained_tokens_per_second": 8060.86,
+                                    "post_structure_sustained_backend": (
+                                        "torch_cuda_graph_burst_decode_controls"
+                                    ),
+                                    "post_structure_sustained_triton_failure_count": 0,
+                                    "status_read_mutation_absent": True,
+                                    "promotes_runtime_claim": False,
+                                }
+                            },
+                            "route_bank_proposal_mutates_runtime_state": False,
+                            "route_bank_runs_all_columns": False,
+                            "route_bank_source_candidate_count": 8,
+                            "route_bank_target_candidate_count": 12,
+                        },
+                    },
+                    {
+                        "name": "checkpoint_restore",
+                        "passed": True,
+                        "evidence": {
+                            "checkpoint_path": "reports/language_benchmark_suite/checkpoint.pt",
+                            "brain_installed_pre_learning_checkpoint_path": (
+                                "reports/language_brain_continual_learning/"
+                                "pre-learning-brain.pt"
+                            ),
+                            "brain_installed_learned_checkpoint_path": (
+                                "reports/language_brain_continual_learning/"
+                                "learned-brain.pt"
+                            ),
+                            "brain_installed_learned_checkpoint_restore_verified": True,
+                        },
+                    },
+                    {
+                        "name": "rollback",
+                        "passed": True,
+                        "evidence": {
+                            "checkpoint_lineage_complete": True,
+                            "lineage_id": "lineage-1",
+                            "parent_kept_installed": True,
+                            "parent_runtime_unchanged": True,
+                            "rollback_to_parent_verified": True,
+                            "operator_review_required": True,
+                            "long_run_evidence_required_for_promotion": True,
+                            "saved_checkpoint_evolution_evidence": {
+                                "checkpoint_evolution_evidence_available": False,
+                                "promotes_runtime_claim": False,
+                            },
+                        },
+                    },
                 ],
             }
         ),
@@ -368,6 +460,90 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         ),
         encoding="utf-8",
     )
+    (structural_dir / "structural-plasticity.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": (
+                    "marulho_language_brain_installed_structural_plasticity_evidence"
+                ),
+                "surface": (
+                    "marulho_language_brain_installed_structural_plasticity_evidence.v1"
+                ),
+                "active_language_path": "marulho_lm_head",
+                "runtime_owner": "MarulhoBrain",
+                "external_llm_used": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "promotes_runtime_claim": False,
+                "promotes_generation_quality_claim": False,
+                "structural_transaction_summary": {
+                    "brain_surface": "marulho_brain_language_structural_transaction.v1",
+                    "training_surface": (
+                        "marulho_language_structural_plasticity_transaction.v1"
+                    ),
+                    "trace_event": "language_structure",
+                    "status": "applied_structural_mutation",
+                    "proposal_kind": "route_bank_expansion",
+                    "applied": True,
+                    "operator_approved": True,
+                    "checkpoint_restore_verified": True,
+                    "rollback_verified": True,
+                    "heldout_non_regression": True,
+                    "source_expert_count": 18,
+                    "target_expert_count": 18,
+                    "source_memory_slot_count": 1024,
+                    "target_memory_slot_count": 1024,
+                    "memory_slot_count_delta": 0,
+                    "source_route_candidate_count": 8,
+                    "target_route_candidate_count": 12,
+                    "route_bank_candidate_count_delta": 4,
+                },
+                "pre_structural_brain_checkpoint": {
+                    "path": (
+                        "reports/language_brain_structural_plasticity/"
+                        "pre-structure-brain.pt"
+                    ),
+                    "sha256": "pre-sha",
+                    "restore_verified": True,
+                },
+                "post_structural_brain_checkpoint": {
+                    "path": (
+                        "reports/language_brain_structural_plasticity/"
+                        "post-structure-brain.pt"
+                    ),
+                    "sha256": "post-sha",
+                    "restore_verified": True,
+                },
+                "post_structure_sustained_window": {
+                    "enabled": True,
+                    "success": True,
+                    "target_tokens": 524288,
+                    "token_delta": 524288,
+                    "tokens_per_second": 8060.86,
+                    "backend": "torch_cuda_graph_burst_decode_controls",
+                    "device": "cuda:0",
+                    "tracked_triton_kernel_failure_count": 0,
+                    "tracked_triton_kernel_used_names": [
+                        "language_rmsnorm_triton",
+                        "language_plif_triton",
+                    ],
+                },
+                "promotion_gate": {
+                    "proposal_non_mutating": True,
+                    "proposal_runs_through_marulho_brain": True,
+                    "structural_apply_runs_through_marulho_brain": True,
+                    "records_checkpoint_backed_transaction": True,
+                    "records_rollback_evidence": True,
+                    "pre_structure_brain_checkpoint_restore_verified": True,
+                    "post_structure_brain_checkpoint_restore_verified": True,
+                    "status_read_mutation_absent": True,
+                    "promotes_runtime_claim": False,
+                    "promotes_generation_quality_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (training_dir / "state-block-impact.json").write_text(
         json.dumps(
             {
@@ -439,6 +615,28 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["forgetting_replay_evidence"]["forgetting_measured"] is True
     assert projection["forgetting_replay_evidence"]["replay_retention_measured"] is True
     assert projection["active_compute_evidence"]["active_parameters_per_token_estimate"] == 10280
+    assert projection["structural_plasticity_evidence"]["proposal_kind"] == (
+        "route_bank_expansion"
+    )
+    assert projection["structural_plasticity_evidence"]["mutation"][
+        "source_route_candidate_count"
+    ] == 8
+    assert projection["structural_plasticity_evidence"]["mutation"][
+        "target_route_candidate_count"
+    ] == 12
+    assert projection["structural_plasticity_evidence"]["rollback_verified"] is True
+    assert projection["structural_plasticity_evidence"]["post_structure_checkpoint"][
+        "delete_protected_by_current_evidence"
+    ] is True
+    assert projection["structural_plasticity_evidence"]["post_structure_sustained"][
+        "tokens_per_second"
+    ] == 8060.86
+    assert projection["checkpoint_lineage_evidence"][
+        "structural_post_checkpoint_restore_verified"
+    ] is True
+    assert projection["checkpoint_lineage_evidence"]["checkpoint_evolution"][
+        "checkpoint_lineage_complete"
+    ] is True
     assert projection["house_scale_throughput_evidence"]["target_tokens"] == 524288
     assert projection["house_scale_throughput_evidence"]["house_scale_gate_reached"] is True
     assert projection["house_scale_throughput_evidence"]["tokens_per_second"] == 8123.13
