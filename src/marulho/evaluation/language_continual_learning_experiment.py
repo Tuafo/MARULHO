@@ -88,6 +88,7 @@ class LanguageContinualLearningExperimentConfig:
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 1
     dense_adamw_backend: str = "default"
+    paired_sampled_vocab_loss: bool = False
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
@@ -1101,6 +1102,7 @@ def run_language_continual_learning_experiment(
             rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
             sparse_vocab_optimizer=bool(cfg.sparse_vocab_optimizer),
             dense_adamw_backend=str(cfg.dense_adamw_backend),
+            paired_sampled_vocab_loss=bool(cfg.paired_sampled_vocab_loss),
             max_grad_norm=float(cfg.max_grad_norm),
             gradient_clip_interval=max(0, int(cfg.gradient_clip_interval)),
             collect_training_telemetry=bool(cfg.collect_training_telemetry),
@@ -1230,6 +1232,11 @@ def run_language_continual_learning_experiment(
                 report["learning_evidence"]
                 .get("paired_update_replay_fusion", {})
                 .get("enabled", False)
+            ),
+            "records_paired_sampled_vocab_loss_fusion": bool(
+                report["learning_evidence"]
+                .get("paired_update_replay_fusion", {})
+                .get("paired_sampled_vocab_loss_fused_steps", 0)
             ),
             "records_eval_metric_readback": (
                 report["old_domain_before"].get("metric_readback_mode")
@@ -1420,6 +1427,7 @@ def main() -> int:
     parser.add_argument("--collect-training-telemetry", action="store_true")
     parser.add_argument("--sampled-vocab-ce-triton-training", action="store_true")
     parser.add_argument("--memory-slots-triton-training", action="store_true")
+    parser.add_argument("--paired-sampled-vocab-loss", action="store_true")
     parser.add_argument("--disable-cuda-tf32", action="store_true")
     parser.add_argument(
         "--cuda-float32-matmul-precision",
@@ -1470,6 +1478,7 @@ def main() -> int:
         max_grad_norm=args.max_grad_norm,
         gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
         dense_adamw_backend=args.dense_adamw_backend,
+        paired_sampled_vocab_loss=bool(args.paired_sampled_vocab_loss),
         forgetting_tolerance=args.forgetting_tolerance,
         replay_retention_tolerance=args.replay_retention_tolerance,
         rollback_on_forgetting=bool(args.rollback_on_forgetting),

@@ -185,11 +185,15 @@ harnesses.
   preserving separate update and weighted replay loss values. The report keeps
   `measured_update_loop_model_loss_calls` and avoided replay forward-call counts
   visible so speed claims can be checked against real skipped work.
-  The accepted 2026-07-06 paired-fusion report at `524288` update tokens records
-  `4817.900` update tokens/sec, `4201.073` total-window tokens/sec, `256`
+  The accepted 2026-07-06 paired-fusion default report at `524288` update tokens
+  records `4938.007` update tokens/sec, `4302.285` total-window tokens/sec,
+  `256`
   fused steps, `256` avoided replay forward loss calls, `256` measured
   model-loss calls, `768` tracked torch fallback calls, and zero tracked Triton
-  failures.
+  failures. The opt-in `--paired-sampled-vocab-loss` report records `256`
+  fused sampled-vocab CE steps and reduces tracked torch fallback calls to
+  `512`, but is slower at `4595.157` update tokens/sec and `4037.457`
+  total-window tokens/sec, so it stays off by default as rejection evidence.
 - Heldout and replay evaluation keeps the deferred scalar readback boundary but
   no longer builds loss/memory evidence for every eval batch. Evaluation
   reports now record `evidence_collection_mode=last_batch_only`,

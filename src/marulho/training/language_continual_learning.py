@@ -29,6 +29,8 @@ from marulho.core.language_route_topk_triton import (
     language_route_topk_triton_stats_delta,
 )
 from marulho.core.language_sampled_vocab_ce_triton import (
+    build_sampled_target_positions,
+    build_sampled_vocab_ids,
     language_sampled_vocab_ce_triton_stats,
     language_sampled_vocab_ce_triton_stats_delta,
 )
@@ -167,6 +169,7 @@ class LanguageContinualLearningConfig:
     gradient_clip_interval: int = 1
     sparse_vocab_optimizer: bool = True
     dense_adamw_backend: str = "default"
+    paired_sampled_vocab_loss: bool = False
     collect_training_telemetry: bool = False
     forgetting_tolerance: float = 0.10
     replay_retention_tolerance: float = 0.10
@@ -305,6 +308,105 @@ def _paired_update_replay_fusion_plan(
         "planned_optimizer_steps": planned_steps,
         "planned_fused_steps": planned_steps,
         "unique_pair_count": len(unique_pairs),
+    }
+
+
+def _precompute_paired_update_replay_sampled_vocab(
+    model: MarulhoLanguageModel,
+    *,
+    new_update_batches: Sequence[LanguageBatch],
+    replay_update_batches: Sequence[LanguageBatch],
+    step_count: int,
+) -> tuple[
+    dict[tuple[int, int], tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    dict[str, Any],
+]:
+    configured_sample_count = int(model.config.sampled_vocab_size)
+    use_sampled_vocab = (
+        configured_sample_count > 0
+        and configured_sample_count < int(model.config.vocab_size)
+    )
+    planned_steps = int(max(1, step_count) * len(new_update_batches))
+    if not bool(use_sampled_vocab):
+        return {}, {
+            "surface": (
+                "marulho_language_continual_paired_sampled_vocab_precompute.v1"
+            ),
+            "enabled": False,
+            "reason": "sampled_vocab_training_disabled",
+            "planned_optimizer_steps": planned_steps,
+            "pair_count": 0,
+            "device": str(model.device),
+        }
+    if not replay_update_batches:
+        return {}, {
+            "surface": (
+                "marulho_language_continual_paired_sampled_vocab_precompute.v1"
+            ),
+            "enabled": False,
+            "reason": "no_replay_batches",
+            "planned_optimizer_steps": planned_steps,
+            "pair_count": 0,
+            "device": str(model.device),
+        }
+    pair_inputs: dict[tuple[int, int], tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    sampled_row_counts: list[int] = []
+    update_position_counts: list[int] = []
+    replay_position_counts: list[int] = []
+    replay_count = len(replay_update_batches)
+    for step in range(max(1, step_count)):
+        for index, update_batch in enumerate(new_update_batches):
+            replay_index = (step * len(new_update_batches) + index) % replay_count
+            pair_key = (index, replay_index)
+            if pair_key in pair_inputs:
+                continue
+            replay_batch = replay_update_batches[replay_index]
+            update_targets = update_batch.target_ids.to(
+                device=model.device,
+                dtype=torch.long,
+            ).reshape(-1)
+            replay_targets = replay_batch.target_ids.to(
+                device=model.device,
+                dtype=torch.long,
+            ).reshape(-1)
+            combined_targets = torch.cat((update_targets, replay_targets), dim=0)
+            sampled_vocab_ids = build_sampled_vocab_ids(
+                combined_targets,
+                vocab_size=int(model.config.vocab_size),
+                sample_count=configured_sample_count,
+                device=model.device,
+                validate_ids=False,
+            )
+            combined_positions = build_sampled_target_positions(
+                combined_targets,
+                sampled_vocab_ids,
+                device=model.device,
+                validate_targets=True,
+            )
+            pair_inputs[pair_key] = (
+                sampled_vocab_ids,
+                combined_targets,
+                combined_positions,
+            )
+            sampled_row_counts.append(int(sampled_vocab_ids.numel()))
+            update_position_count = int(update_targets.numel())
+            update_position_counts.append(update_position_count)
+            replay_position_counts.append(int(replay_targets.numel()))
+    return pair_inputs, {
+        "surface": "marulho_language_continual_paired_sampled_vocab_precompute.v1",
+        "enabled": True,
+        "reason": None,
+        "planned_optimizer_steps": planned_steps,
+        "pair_count": len(pair_inputs),
+        "device": str(model.device),
+        "sampled_vocab_size": int(configured_sample_count),
+        "min_sampled_rows": min(sampled_row_counts, default=0),
+        "max_sampled_rows": max(sampled_row_counts, default=0),
+        "min_update_target_positions": min(update_position_counts, default=0),
+        "max_update_target_positions": max(update_position_counts, default=0),
+        "min_replay_target_positions": min(replay_position_counts, default=0),
+        "max_replay_target_positions": max(replay_position_counts, default=0),
+        "hot_update_window_precomputed": True,
     }
 
 
@@ -668,6 +770,49 @@ def run_language_continual_learning_window(
         replay_update_batches=replay_update_batches,
         elapsed_seconds=batch_device_staging_elapsed_seconds,
     )
+    step_count = max(1, int(cfg.max_steps))
+    replay_count = len(replay_update_batches)
+    paired_update_replay_plan_started = time.perf_counter()
+    paired_update_replay_fusion = _paired_update_replay_fusion_plan(
+        new_update_batches=new_update_batches,
+        replay_update_batches=replay_update_batches,
+        step_count=step_count,
+        replay_loss_weight=float(cfg.replay_loss_weight),
+    )
+    paired_update_replay_plan_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - paired_update_replay_plan_started,
+    )
+    paired_update_replay_fusion_enabled = bool(
+        paired_update_replay_fusion.get("enabled", False)
+    )
+    paired_sampled_vocab_precompute_started = time.perf_counter()
+    if bool(cfg.paired_sampled_vocab_loss):
+        (
+            paired_sampled_vocab_inputs,
+            paired_sampled_vocab_precompute,
+        ) = _precompute_paired_update_replay_sampled_vocab(
+            model,
+            new_update_batches=new_update_batches,
+            replay_update_batches=replay_update_batches,
+            step_count=step_count,
+        )
+    else:
+        paired_sampled_vocab_inputs = {}
+        paired_sampled_vocab_precompute = {
+            "surface": (
+                "marulho_language_continual_paired_sampled_vocab_precompute.v1"
+            ),
+            "enabled": False,
+            "reason": "paired_sampled_vocab_loss_disabled",
+            "planned_optimizer_steps": int(step_count * len(new_update_batches)),
+            "pair_count": 0,
+            "device": str(model.device),
+        }
+    paired_sampled_vocab_precompute_elapsed_seconds = max(
+        0.0,
+        time.perf_counter() - paired_sampled_vocab_precompute_started,
+    )
     pre_update_evaluation_started = time.perf_counter()
     old_before = evaluate_language_model(model, old_eval_runtime_batches)
     new_before = evaluate_language_model(model, new_eval_runtime_batches)
@@ -717,48 +862,53 @@ def run_language_continual_learning_window(
     gradient_clip_applied_step_count = 0
     gradient_clip_skipped_step_count = 0
     gradient_clip_interval = max(0, int(cfg.gradient_clip_interval))
-    step_count = max(1, int(cfg.max_steps))
-    replay_count = len(replay_update_batches)
-    paired_update_replay_fusion = _paired_update_replay_fusion_plan(
-        new_update_batches=new_update_batches,
-        replay_update_batches=replay_update_batches,
-        step_count=step_count,
-        replay_loss_weight=float(cfg.replay_loss_weight),
-    )
-    paired_update_replay_fusion_enabled = bool(
-        paired_update_replay_fusion.get("enabled", False)
-    )
     measured_update_loop_model_loss_calls = 0
     fused_update_replay_step_count = 0
     separate_replay_forward_loss_calls_avoided = 0
+    paired_sampled_vocab_loss_fused_step_count = 0
     for step in range(step_count):
         for index, batch in enumerate(new_update_batches):
             optimizer_step_count += 1
             last_update_batch_for_probe = batch
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
-            replay_batch = (
-                replay_update_batches[
-                    (step * len(new_update_batches) + index) % replay_count
-                ]
+            replay_index = (
+                (step * len(new_update_batches) + index) % replay_count
                 if replay_update_batches
-                else None
+                else -1
+            )
+            replay_batch = (
+                replay_update_batches[replay_index] if replay_update_batches else None
             )
             if (
                 replay_batch is not None
                 and bool(paired_update_replay_fusion_enabled)
             ):
                 last_replay_batch_for_probe = replay_batch
+                paired_sampled_vocab = paired_sampled_vocab_inputs.get(
+                    (index, replay_index)
+                )
                 paired_result = model.next_token_loss_pair(
                     batch,
                     replay_batch,
                     replay_loss_weight=float(cfg.replay_loss_weight),
                     collect_telemetry=bool(cfg.collect_training_telemetry),
                     assume_no_sleeping_experts=assume_no_sleeping,
+                    paired_sampled_vocab_ids=(
+                        None if paired_sampled_vocab is None else paired_sampled_vocab[0]
+                    ),
+                    paired_sampled_target_ids=(
+                        None if paired_sampled_vocab is None else paired_sampled_vocab[1]
+                    ),
+                    paired_sampled_target_positions=(
+                        None if paired_sampled_vocab is None else paired_sampled_vocab[2]
+                    ),
                 )
                 measured_update_loop_model_loss_calls += 1
                 fused_update_replay_step_count += 1
                 separate_replay_forward_loss_calls_avoided += 1
+                if bool(paired_result.get("paired_sampled_vocab_loss_fused", False)):
+                    paired_sampled_vocab_loss_fused_step_count += 1
                 loss = paired_result["loss"]
                 replay_loss = paired_result["replay_loss"]
             else:
@@ -858,6 +1008,12 @@ def run_language_continual_learning_window(
         ),
         "separate_replay_forward_loss_calls_avoided": int(
             separate_replay_forward_loss_calls_avoided
+        ),
+        "paired_sampled_vocab_loss_fused_steps": int(
+            paired_sampled_vocab_loss_fused_step_count
+        ),
+        "sampled_vocab_ce_loss_calls_avoided": int(
+            paired_sampled_vocab_loss_fused_step_count
         ),
     }
     training_triton_stats_after = _language_training_triton_stats_snapshot()
@@ -1021,8 +1177,11 @@ def run_language_continual_learning_window(
         "active_language_path": model.config.active_language_path,
         "model_vocab_size": int(model.config.vocab_size),
         "generation_vocab_size": int(model.generation_vocab_size),
-        "sampled_vocab_size": int(model.config.sampled_vocab_size),
-        "sparse_vocab_optimizer": bool(cfg.sparse_vocab_optimizer),
+            "sampled_vocab_size": int(model.config.sampled_vocab_size),
+            "paired_sampled_vocab_loss_enabled": bool(
+                cfg.paired_sampled_vocab_loss
+            ),
+            "sparse_vocab_optimizer": bool(cfg.sparse_vocab_optimizer),
         "mutates_language_model_weights": not rollback_applied,
         "runtime_training": True,
         "status": status,
@@ -1071,6 +1230,7 @@ def run_language_continual_learning_window(
                 "new_eval_batches": new_eval_sampled_vocab_precompute,
                 "new_batches": new_sampled_vocab_precompute,
                 "replay_batches": replay_sampled_vocab_precompute,
+                "paired_update_replay_batches": paired_sampled_vocab_precompute,
             },
             "batch_device_staging": batch_device_staging,
             "optimizer_step_count": int(optimizer_step_count),
@@ -1096,6 +1256,12 @@ def run_language_continual_learning_window(
                 "state_snapshot_seconds": float(snapshot_elapsed_seconds),
                 "sampled_vocab_precompute_seconds": float(
                     sampled_vocab_precompute_elapsed_seconds
+                ),
+                "paired_update_replay_plan_seconds": float(
+                    paired_update_replay_plan_elapsed_seconds
+                ),
+                "paired_sampled_vocab_precompute_seconds": float(
+                    paired_sampled_vocab_precompute_elapsed_seconds
                 ),
                 "batch_device_staging_seconds": float(
                     batch_device_staging_elapsed_seconds

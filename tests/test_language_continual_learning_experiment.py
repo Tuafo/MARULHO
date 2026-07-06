@@ -182,6 +182,7 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
             generation_no_repeat_ngram_size=2,
             max_steps=1,
             gradient_clip_interval=1,
+            paired_sampled_vocab_loss=True,
             device="cpu",
         ),
     )
@@ -310,10 +311,25 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert fusion["separate_replay_forward_loss_calls_avoided"] == fusion[
         "actual_fused_steps"
     ]
+    assert fusion["paired_sampled_vocab_loss_fused_steps"] == fusion[
+        "actual_fused_steps"
+    ]
+    assert fusion["sampled_vocab_ce_loss_calls_avoided"] == fusion[
+        "actual_fused_steps"
+    ]
+    paired_sampled_vocab = report["learning_evidence"]["sampled_vocab_precompute"][
+        "paired_update_replay_batches"
+    ]
+    assert paired_sampled_vocab["enabled"] is True
+    assert paired_sampled_vocab["hot_update_window_precomputed"] is True
     assert report["learning_evidence"]["measured_update_loop_model_loss_calls"] == (
         fusion["actual_fused_steps"]
     )
     assert report["experiment_review"]["records_paired_update_replay_fusion"] is True
+    assert (
+        report["experiment_review"]["records_paired_sampled_vocab_loss_fusion"]
+        is True
+    )
     assert report["experiment_review"]["records_eval_last_batch_evidence"] is True
     assert report["learning_evidence"]["hot_update_evidence_mode"] == (
         "post_window_telemetry_probe"

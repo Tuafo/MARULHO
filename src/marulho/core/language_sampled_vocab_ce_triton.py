@@ -305,6 +305,65 @@ def language_sampled_vocab_cross_entropy_torch_reference(
     return F.cross_entropy(logits.float(), sampled_targets, reduction="mean")
 
 
+def language_sampled_vocab_cross_entropy_pair_torch_reference(
+    hidden: torch.Tensor,
+    target_ids: torch.Tensor,
+    sampled_vocab_ids: torch.Tensor,
+    lm_head_weight: torch.Tensor,
+    lm_head_bias: torch.Tensor,
+    *,
+    update_token_count: int,
+    replay_loss_weight: float,
+    validate_targets: bool = True,
+    sparse_weight_gradient: bool = False,
+    sampled_target_positions: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    _validate_sampled_vocab_contract(
+        hidden,
+        target_ids,
+        sampled_vocab_ids,
+        lm_head_weight,
+        lm_head_bias,
+    )
+    split = int(update_token_count)
+    token_count = int(hidden.shape[0])
+    if split <= 0 or split >= token_count:
+        raise ValueError("update_token_count must split update and replay tokens")
+    runtime_sampled_ids = sampled_vocab_ids.to(
+        device=hidden.device,
+        dtype=torch.long,
+    )
+    runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long).reshape(-1)
+    runtime_weight = lm_head_weight.to(device=hidden.device, dtype=hidden.dtype)
+    if bool(sparse_weight_gradient):
+        sampled_weight = F.embedding(runtime_sampled_ids, runtime_weight, sparse=True)
+    else:
+        sampled_weight = runtime_weight.index_select(0, runtime_sampled_ids)
+    sampled_bias = lm_head_bias.to(device=hidden.device, dtype=hidden.dtype).index_select(
+        0,
+        runtime_sampled_ids,
+    )
+    logits = hidden.matmul(sampled_weight.transpose(0, 1)) + sampled_bias
+    sampled_targets = _runtime_target_positions(
+        runtime_targets,
+        runtime_sampled_ids,
+        sampled_target_positions,
+        validate_targets=validate_targets,
+    )
+    token_losses = F.cross_entropy(
+        logits.float(),
+        sampled_targets,
+        reduction="none",
+    )
+    update_loss = token_losses[:split].mean()
+    replay_loss = token_losses[split:].mean()
+    return (
+        update_loss + float(replay_loss_weight) * replay_loss,
+        update_loss,
+        replay_loss,
+    )
+
+
 def can_use_language_sampled_vocab_ce_triton(
     hidden: torch.Tensor,
     target_ids: torch.Tensor,
@@ -828,6 +887,50 @@ def language_sampled_vocab_cross_entropy(
         runtime_sampled_ids,
         lm_head_weight,
         lm_head_bias,
+        validate_targets=bool(validate_targets),
+        sparse_weight_gradient=bool(sparse_weight_gradient),
+        sampled_target_positions=sampled_target_positions,
+    )
+
+
+def language_sampled_vocab_cross_entropy_pair(
+    hidden: torch.Tensor,
+    target_ids: torch.Tensor,
+    sampled_vocab_ids: torch.Tensor,
+    lm_head_weight: torch.Tensor,
+    lm_head_bias: torch.Tensor,
+    *,
+    update_token_count: int,
+    replay_loss_weight: float,
+    prefer_triton: bool = True,
+    validate_targets: bool = True,
+    sparse_weight_gradient: bool = False,
+    sampled_target_positions: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    _validate_sampled_vocab_contract(
+        hidden,
+        target_ids,
+        sampled_vocab_ids,
+        lm_head_weight,
+        lm_head_bias,
+    )
+    runtime_targets = target_ids.to(device=hidden.device, dtype=torch.long)
+    runtime_sampled_ids = sampled_vocab_ids.to(device=hidden.device, dtype=torch.long)
+    if bool(prefer_triton) and hidden.device.type == "cuda":
+        _STATS.torch_fallback_calls += 1
+        _STATS.torch_fallback_elements += int(hidden.shape[0]) * int(
+            runtime_sampled_ids.numel()
+        )
+        _STATS.last_device = str(hidden.device)
+        _STATS.last_dtype = str(hidden.dtype)
+    return language_sampled_vocab_cross_entropy_pair_torch_reference(
+        hidden,
+        runtime_targets,
+        runtime_sampled_ids,
+        lm_head_weight,
+        lm_head_bias,
+        update_token_count=int(update_token_count),
+        replay_loss_weight=float(replay_loss_weight),
         validate_targets=bool(validate_targets),
         sparse_weight_gradient=bool(sparse_weight_gradient),
         sampled_target_positions=sampled_target_positions,

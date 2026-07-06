@@ -48,6 +48,7 @@ from marulho.core.language_sampled_vocab_ce_triton import (
     language_sampled_vocab_ce_triton_stats,
     language_sampled_vocab_ce_triton_stats_delta,
     language_sampled_vocab_cross_entropy,
+    language_sampled_vocab_cross_entropy_pair,
 )
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 
@@ -2214,6 +2215,9 @@ class MarulhoLanguageModel(nn.Module):
         replay_loss_weight: float,
         collect_telemetry: bool = False,
         assume_no_sleeping_experts: bool = False,
+        paired_sampled_vocab_ids: torch.Tensor | None = None,
+        paired_sampled_target_ids: torch.Tensor | None = None,
+        paired_sampled_target_positions: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         if update_batch.input_ids.ndim != replay_batch.input_ids.ndim:
             raise ValueError("paired input_ids must have the same rank")
@@ -2256,36 +2260,90 @@ class MarulhoLanguageModel(nn.Module):
         hidden = result["hidden"]
         update_hidden = hidden[:update_batch_size]
         replay_hidden = hidden[update_batch_size:]
-        update_result = self._next_token_loss_from_hidden(
-            update_hidden,
-            update_batch.target_ids,
-            state=None,
-            telemetry={},
-            collect_telemetry=False,
-            sampled_vocab_ids=update_batch.sampled_vocab_ids,
-            sampled_target_positions=update_batch.sampled_target_positions,
-            return_evidence=False,
+        configured_sample_count = int(self.config.sampled_vocab_size)
+        use_paired_sampled_vocab_loss = (
+            configured_sample_count > 0
+            and configured_sample_count < int(self.config.vocab_size)
+            and paired_sampled_vocab_ids is not None
         )
-        replay_result = self._next_token_loss_from_hidden(
-            replay_hidden,
-            replay_batch.target_ids,
-            state=None,
-            telemetry={},
-            collect_telemetry=False,
-            sampled_vocab_ids=replay_batch.sampled_vocab_ids,
-            sampled_target_positions=replay_batch.sampled_target_positions,
-            return_evidence=False,
-        )
-        update_loss = update_result["loss"]
-        replay_loss = replay_result["loss"]
+        if bool(use_paired_sampled_vocab_loss):
+            if paired_sampled_target_positions is None:
+                raise ValueError(
+                    "paired sampled-vocab loss requires sampled target positions"
+                )
+            flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
+            update_token_count = int(update_batch.target_ids.numel())
+            if paired_sampled_target_ids is None:
+                update_targets = update_batch.target_ids.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1)
+                replay_targets = replay_batch.target_ids.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1)
+                combined_targets = torch.cat((update_targets, replay_targets), dim=0)
+            else:
+                combined_targets = paired_sampled_target_ids.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1)
+            loss, update_loss, replay_loss = language_sampled_vocab_cross_entropy_pair(
+                flat_hidden,
+                combined_targets,
+                paired_sampled_vocab_ids.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1),
+                self.lm_head.weight,
+                self.lm_head.bias,
+                update_token_count=update_token_count,
+                replay_loss_weight=float(replay_loss_weight),
+                prefer_triton=True,
+                validate_targets=True,
+                sparse_weight_gradient=bool(
+                    self.config.sampled_vocab_sparse_lm_head_gradient
+                ),
+                sampled_target_positions=paired_sampled_target_positions.to(
+                    device=flat_hidden.device,
+                    dtype=torch.long,
+                ).reshape(-1),
+            )
+            loss_kind = "paired_sampled_adaptive_vocab_cross_entropy"
+        else:
+            update_result = self._next_token_loss_from_hidden(
+                update_hidden,
+                update_batch.target_ids,
+                state=None,
+                telemetry={},
+                collect_telemetry=False,
+                sampled_vocab_ids=update_batch.sampled_vocab_ids,
+                sampled_target_positions=update_batch.sampled_target_positions,
+                return_evidence=False,
+            )
+            replay_result = self._next_token_loss_from_hidden(
+                replay_hidden,
+                replay_batch.target_ids,
+                state=None,
+                telemetry={},
+                collect_telemetry=False,
+                sampled_vocab_ids=replay_batch.sampled_vocab_ids,
+                sampled_target_positions=replay_batch.sampled_target_positions,
+                return_evidence=False,
+            )
+            update_loss = update_result["loss"]
+            replay_loss = replay_result["loss"]
+            loss = update_loss + float(replay_loss_weight) * replay_loss
+            loss_kind = "paired_update_replay_next_token_loss"
         return {
             "logits": None,
             "state": result["state"],
-            "loss": update_loss + float(replay_loss_weight) * replay_loss,
+            "loss": loss,
             "update_loss": update_loss,
             "replay_loss": replay_loss,
-            "loss_kind": "paired_update_replay_next_token_loss",
+            "loss_kind": loss_kind,
             "paired_forward": True,
+            "paired_sampled_vocab_loss_fused": bool(use_paired_sampled_vocab_loss),
         }
 
     def forward_step(

@@ -21,6 +21,7 @@ from marulho.training.language_continual_learning import (
 )
 from marulho.training import language_model as language_model_module
 from marulho.training.language_model import (
+    LanguageBatch,
     LanguageModelConfig,
     MarulhoLanguageModel,
     MarulhoSelectiveSpikingStateBlock,
@@ -293,6 +294,94 @@ def test_language_model_sampled_vocab_loss_skips_full_logits_and_trains_head() -
     assert 0 < updated_rows <= int(evidence["actual_sampled_vocab_size"])
     assert torch.isfinite(model.token_embedding.weight.grad.coalesce().values()).all()
     assert torch.isfinite(model.lm_head.weight.grad.coalesce().values()).all()
+
+
+def test_language_model_pair_fuses_sampled_vocab_loss_with_shared_rows() -> None:
+    torch.manual_seed(20260704)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        _texts(),
+        tokenizer,
+        sequence_length=12,
+        batch_size=2,
+    )
+    model_vocab_size = tokenizer.vocab_size + 128
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=model_vocab_size,
+            embedding_dim=16,
+            state_dim=24,
+            expert_count=4,
+            active_expert_count=2,
+            route_candidate_count=2,
+            expert_hidden_dim=32,
+            sampled_vocab_size=32,
+            sampled_vocab_sparse_lm_head_gradient=True,
+            sparse_token_embedding_gradients=True,
+        )
+    )
+    update_source = split.train[0]
+    replay_source = split.train[1]
+    update_targets = update_source.target_ids.reshape(-1)
+    replay_targets = replay_source.target_ids.reshape(-1)
+    combined_targets = torch.cat((update_targets, replay_targets), dim=0)
+    paired_sampled_vocab_ids = build_sampled_vocab_ids(
+        combined_targets,
+        vocab_size=model_vocab_size,
+        sample_count=32,
+        device=combined_targets.device,
+        validate_ids=False,
+    )
+    paired_positions = build_sampled_target_positions(
+        combined_targets,
+        paired_sampled_vocab_ids,
+        device=combined_targets.device,
+        validate_targets=True,
+    )
+    update_positions = paired_positions[: int(update_targets.numel())]
+    replay_positions = paired_positions[int(update_targets.numel()) :]
+    update_batch = LanguageBatch(
+        input_ids=update_source.input_ids,
+        target_ids=update_source.target_ids,
+        sampled_vocab_ids=paired_sampled_vocab_ids,
+        sampled_target_positions=update_positions,
+    )
+    replay_batch = LanguageBatch(
+        input_ids=replay_source.input_ids,
+        target_ids=replay_source.target_ids,
+        sampled_vocab_ids=paired_sampled_vocab_ids,
+        sampled_target_positions=replay_positions,
+    )
+
+    separate_result = model.next_token_loss_pair(
+        update_batch,
+        replay_batch,
+        replay_loss_weight=0.35,
+    )
+    fused_result = model.next_token_loss_pair(
+        update_batch,
+        replay_batch,
+        replay_loss_weight=0.35,
+        paired_sampled_vocab_ids=paired_sampled_vocab_ids,
+        paired_sampled_target_ids=combined_targets,
+        paired_sampled_target_positions=paired_positions,
+    )
+
+    assert separate_result["paired_sampled_vocab_loss_fused"] is False
+    assert fused_result["paired_sampled_vocab_loss_fused"] is True
+    assert fused_result["loss_kind"] == "paired_sampled_adaptive_vocab_cross_entropy"
+    torch.testing.assert_close(
+        fused_result["update_loss"].detach(),
+        separate_result["update_loss"].detach(),
+    )
+    torch.testing.assert_close(
+        fused_result["replay_loss"].detach(),
+        separate_result["replay_loss"].detach(),
+    )
+    torch.testing.assert_close(
+        fused_result["loss"].detach(),
+        separate_result["loss"].detach(),
+    )
 
 
 def test_padded_vocab_generation_limits_decode_rows_and_restores_checkpoint(tmp_path) -> None:
@@ -1989,6 +2078,7 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
             replay_loss_weight=0.25,
             gradient_clip_interval=2,
             dense_adamw_backend="foreach",
+            paired_sampled_vocab_loss=True,
             forgetting_tolerance=100.0,
             replay_retention_tolerance=100.0,
             rollback_on_forgetting=False,
@@ -2011,6 +2101,14 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert fusion["actual_fused_steps"] == 4
     assert fusion["separate_replay_forward_loss_calls_avoided"] == 4
     assert evidence["measured_update_loop_model_loss_calls"] == 4
+    assert fusion["paired_sampled_vocab_loss_fused_steps"] == 4
+    assert fusion["sampled_vocab_ce_loss_calls_avoided"] == 4
+    paired_sampled_vocab = evidence["sampled_vocab_precompute"][
+        "paired_update_replay_batches"
+    ]
+    assert paired_sampled_vocab["enabled"] is True
+    assert paired_sampled_vocab["pair_count"] == 2
+    assert paired_sampled_vocab["hot_update_window_precomputed"] is True
     assert evidence["gradient_clip_mode"] == (
         "sparse_aware_device_norm_every_n_steps"
     )
