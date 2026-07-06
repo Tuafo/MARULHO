@@ -50,6 +50,9 @@ lineage, 524288-token house-scale sustained runs, active compute, GPU-kernel,
 backend rejection, and selected checkpoint references from JSON artifacts only.
 It is read-only, service-owned-cognition stays false, and it does not promote
 runtime or generation-quality claims without the source report gates doing so.
+It also exposes checkpoint artifact continuity for report-referenced `.pt`
+payloads so the UI can distinguish protected but missing checkpoint evidence
+from currently restorable checkpoint files after report-folder cleanup.
 
 Some machinery modules for replay, SNN readout ledger, action execution,
 runtime sources, and plasticity live under `service` because they currently

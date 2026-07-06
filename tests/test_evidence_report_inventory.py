@@ -83,6 +83,8 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         "reports/language_brain_generation_repair/"
         "selected-candidate-02-repaired-brain.pt"
     )
+    selected_checkpoint = repair_dir / "selected-candidate-02-repaired-brain.pt"
+    selected_checkpoint.write_bytes(b"checkpoint-payload")
     suite_path = suite_dir / "language-suite.json"
     suite_path.write_text(
         json.dumps(
@@ -869,3 +871,20 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     ] is True
     assert projection["current_checkpoint"]["path"] == checkpoint_path
     assert projection["current_checkpoint"]["delete_protected_by_current_evidence"] is True
+    continuity = projection["checkpoint_artifact_continuity"]
+    assert continuity["available"] is True
+    assert continuity["artifact_count"] >= 4
+    assert continuity["existing_artifact_count"] == 1
+    assert continuity["missing_artifact_count"] == continuity["artifact_count"] - 1
+    assert continuity["all_referenced_checkpoint_artifacts_present"] is False
+    artifacts = {item["path"]: item for item in continuity["artifacts"]}
+    assert artifacts[checkpoint_path]["exists"] is True
+    assert artifacts[checkpoint_path]["size_bytes"] == len(b"checkpoint-payload")
+    assert artifacts[checkpoint_path]["delete_protected_by_current_evidence"] is True
+    assert "generation_repair_selected_checkpoint" in artifacts[checkpoint_path]["roles"]
+    learned_checkpoint_path = (
+        "reports/language_brain_continual_learning/learned-brain.pt"
+    )
+    assert artifacts[learned_checkpoint_path]["exists"] is False
+    assert learned_checkpoint_path in continuity["missing_paths"]
+    assert continuity["mutates_runtime_state"] is False

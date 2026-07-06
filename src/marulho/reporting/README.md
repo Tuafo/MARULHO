@@ -48,6 +48,12 @@ installed-brain learning evidence. The projection can show the selected
 recurrent horizon, same-session update/total-window throughput, accepted
 candidate count, and fallback/failure counts, but it remains saved-report
 visibility and does not replace checkpoint-backed installed learning gates.
+Checkpoint artifact continuity is projected from the same saved reports. It
+resolves delete-protected `.pt` references, records whether each payload still
+exists, reports current size for present files, and lists missing payloads that
+must be regenerated before checkpoint-backed installed-brain gates can be rerun.
+This is cleanup safety evidence only; it does not hash large checkpoints or
+promote a capability claim.
 Memory-slot training impact reports can write partial JSON while long arms are
 still running. The projection exposes the newest partial status, completed arm
 names, and missing arm names, but backend-default decisions use the newest final

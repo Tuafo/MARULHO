@@ -191,6 +191,16 @@ def build_current_language_evidence_projection(
         repair_evidence,
         throughput_evidence,
     )
+    checkpoint_artifact_continuity = _checkpoint_artifact_continuity(
+        reports_root=root_resolved,
+        current_checkpoint=checkpoint_evidence,
+        generation=generation_evidence,
+        repair=repair_evidence,
+        throughput=throughput_evidence,
+        training=training_evidence,
+        structural=structural_evidence,
+        checkpoint_lineage=checkpoint_lineage_evidence,
+    )
     gpu_evidence = _gpu_kernel_evidence(
         _category(suite, "gpu_kernel_correctness"),
         throughput_evidence,
@@ -282,6 +292,7 @@ def build_current_language_evidence_projection(
             "promotes_runtime_claim": promotes_runtime_claim,
         },
         "current_checkpoint": checkpoint_evidence,
+        "checkpoint_artifact_continuity": checkpoint_artifact_continuity,
         "generation_evidence": generation_evidence,
         "repair_evidence": repair_evidence,
         "training_throughput_evidence": training_evidence,
@@ -1614,6 +1625,204 @@ def _current_checkpoint_evidence(
         ),
         "delete_protected_by_current_evidence": bool(path),
     }
+
+
+def _checkpoint_artifact_continuity(
+    *,
+    reports_root: Path,
+    current_checkpoint: Mapping[str, Any],
+    generation: Mapping[str, Any],
+    repair: Mapping[str, Any],
+    throughput: Mapping[str, Any],
+    training: Mapping[str, Any],
+    structural: Mapping[str, Any],
+    checkpoint_lineage: Mapping[str, Any],
+) -> dict[str, Any]:
+    refs: list[dict[str, Any]] = []
+
+    def add_ref(
+        role: str,
+        path: Any,
+        *,
+        sha256: Any = None,
+        restore_verified: Any = None,
+        delete_protected: bool = False,
+    ) -> None:
+        path_text = _first_string(path)
+        if not path_text:
+            return
+        refs.append(
+            {
+                "role": str(role),
+                "path": path_text,
+                "sha256": _string_or_none(sha256),
+                "restore_verified_by_report": _bool_or_none(restore_verified),
+                "delete_protected_by_current_evidence": bool(delete_protected),
+            }
+        )
+
+    add_ref(
+        "current_checkpoint",
+        current_checkpoint.get("path"),
+        sha256=current_checkpoint.get("sha256"),
+        restore_verified=current_checkpoint.get("restore_verified"),
+        delete_protected=bool(
+            current_checkpoint.get("delete_protected_by_current_evidence")
+        ),
+    )
+    add_ref(
+        "installed_generation_checkpoint",
+        generation.get("brain_checkpoint_path"),
+        restore_verified=generation.get("brain_checkpoint_restore_verified"),
+        delete_protected=True,
+    )
+    add_ref(
+        "generation_repair_selected_checkpoint",
+        repair.get("selected_checkpoint_path"),
+        sha256=repair.get("selected_checkpoint_sha256"),
+        restore_verified=repair.get("checkpoint_restore_verified"),
+        delete_protected=True,
+    )
+    add_ref(
+        "house_scale_throughput_checkpoint",
+        throughput.get("checkpoint_path"),
+        restore_verified=throughput.get("success"),
+        delete_protected=True,
+    )
+    add_ref(
+        "installed_continual_learned_checkpoint",
+        training.get("learned_brain_checkpoint_path"),
+        restore_verified=training.get("learned_brain_checkpoint_restore_verified"),
+        delete_protected=True,
+    )
+    add_ref(
+        "suite_checkpoint_restore_checkpoint",
+        checkpoint_lineage.get("suite_checkpoint_path"),
+        delete_protected=True,
+    )
+    add_ref(
+        "brain_installed_pre_learning_checkpoint",
+        checkpoint_lineage.get("brain_installed_pre_learning_checkpoint_path"),
+        delete_protected=True,
+    )
+    add_ref(
+        "brain_installed_learned_checkpoint",
+        checkpoint_lineage.get("brain_installed_learned_checkpoint_path"),
+        restore_verified=checkpoint_lineage.get(
+            "brain_installed_learned_checkpoint_restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "structural_pre_checkpoint",
+        checkpoint_lineage.get("structural_pre_checkpoint_path"),
+        restore_verified=checkpoint_lineage.get(
+            "structural_pre_checkpoint_restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "structural_post_checkpoint",
+        checkpoint_lineage.get("structural_post_checkpoint_path"),
+        restore_verified=checkpoint_lineage.get(
+            "structural_post_checkpoint_restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "selected_repair_checkpoint",
+        checkpoint_lineage.get("selected_repair_checkpoint_path"),
+        restore_verified=checkpoint_lineage.get(
+            "selected_repair_checkpoint_restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "structural_pre_report_checkpoint",
+        _mapping(structural.get("pre_structure_checkpoint")).get("path"),
+        sha256=_mapping(structural.get("pre_structure_checkpoint")).get("sha256"),
+        restore_verified=_mapping(structural.get("pre_structure_checkpoint")).get(
+            "restore_verified"
+        ),
+        delete_protected=True,
+    )
+    add_ref(
+        "structural_post_report_checkpoint",
+        _mapping(structural.get("post_structure_checkpoint")).get("path"),
+        sha256=_mapping(structural.get("post_structure_checkpoint")).get("sha256"),
+        restore_verified=_mapping(structural.get("post_structure_checkpoint")).get(
+            "restore_verified"
+        ),
+        delete_protected=True,
+    )
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for ref in refs:
+        path_text = str(ref["path"])
+        item = grouped.setdefault(
+            path_text,
+            {
+                "surface": "marulho_checkpoint_artifact_liveness.v1",
+                "path": path_text,
+                "resolved_path": str(
+                    _resolve_report_artifact_path(path_text, reports_root=reports_root)
+                ),
+                "roles": [],
+                "referenced_sha256s": [],
+                "restore_verified_by_any_report": False,
+                "delete_protected_by_current_evidence": False,
+            },
+        )
+        item["roles"].append(str(ref["role"]))
+        if ref.get("sha256"):
+            item["referenced_sha256s"].append(str(ref["sha256"]))
+        if ref.get("restore_verified_by_report") is True:
+            item["restore_verified_by_any_report"] = True
+        if ref.get("delete_protected_by_current_evidence") is True:
+            item["delete_protected_by_current_evidence"] = True
+
+    artifacts: list[dict[str, Any]] = []
+    for item in grouped.values():
+        resolved = Path(str(item["resolved_path"]))
+        exists = resolved.is_file()
+        item["roles"] = sorted(set(item["roles"]))
+        item["referenced_sha256s"] = sorted(set(item["referenced_sha256s"]))
+        item["exists"] = bool(exists)
+        item["size_bytes"] = int(resolved.stat().st_size) if exists else 0
+        item["hash_check_performed"] = False
+        artifacts.append(item)
+    artifacts.sort(key=lambda item: str(item["path"]))
+    missing = [item for item in artifacts if not bool(item["exists"])]
+    existing_size = sum(int(item["size_bytes"]) for item in artifacts)
+    return {
+        "surface": "marulho_current_language_checkpoint_artifact_continuity.v1",
+        "available": bool(artifacts),
+        "read_only_projection": True,
+        "reports_not_run_by_service": True,
+        "mutates_runtime_state": False,
+        "artifact_count": len(artifacts),
+        "existing_artifact_count": len(artifacts) - len(missing),
+        "missing_artifact_count": len(missing),
+        "all_referenced_checkpoint_artifacts_present": bool(artifacts)
+        and not bool(missing),
+        "total_existing_checkpoint_bytes": int(existing_size),
+        "missing_paths": [str(item["path"]) for item in missing],
+        "cleanup_boundary": (
+            "delete-protected report references must stay present or be regenerated "
+            "before checkpoint-backed installed-brain gates are rerun"
+        ),
+        "artifacts": artifacts,
+    }
+
+
+def _resolve_report_artifact_path(path_text: str, *, reports_root: Path) -> Path:
+    raw = Path(path_text)
+    if raw.is_absolute():
+        return raw
+    parts = raw.parts
+    if parts and str(parts[0]).lower() == reports_root.name.lower():
+        return reports_root.parent.joinpath(*parts)
+    return reports_root / raw
 
 
 def _gpu_kernel_evidence(
