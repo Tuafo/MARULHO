@@ -1955,6 +1955,14 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["final_parameter_delta_l2"] > 0.0
     assert report["learning_evidence"]["optimizer_policy"] == "AdamW_all_parameters"
     assert report["learning_evidence"]["dense_adamw_backend"] == "default"
+    default_anchor = report["learning_evidence"]["parameter_anchor"]
+    assert default_anchor["surface"] == (
+        "marulho_language_continual_parameter_anchor.v1"
+    )
+    assert default_anchor["enabled"] is False
+    assert default_anchor["reason"] == "parameter_anchor_loss_weight_zero"
+    assert default_anchor["loss_weight"] == 0.0
+    assert report["learning_evidence"]["mean_parameter_anchor_loss"] == 0.0
     assert report["learning_evidence"]["optimizer_step_count"] == 8
     fusion = report["learning_evidence"]["paired_update_replay_fusion"]
     assert fusion["surface"] == (
@@ -2103,6 +2111,7 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
             learning_rate=2e-2,
             max_steps=2,
             replay_loss_weight=0.25,
+            parameter_anchor_loss_weight=0.01,
             gradient_clip_interval=2,
             dense_adamw_backend="foreach",
             paired_sampled_vocab_loss=True,
@@ -2122,6 +2131,19 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
         "AdamW_foreach_dense_core_plus_SparseAdam_vocab_rows"
     )
     assert evidence["dense_adamw_backend"] == "foreach"
+    anchor = evidence["parameter_anchor"]
+    assert anchor["surface"] == "marulho_language_continual_parameter_anchor.v1"
+    assert anchor["enabled"] is True
+    assert anchor["loss_weight"] == 0.01
+    assert anchor["include_sparse_vocab_parameters"] is False
+    assert set(anchor["excluded_sparse_parameter_names"]) == {
+        "lm_head.weight",
+        "token_embedding.weight",
+    }
+    assert anchor["anchored_parameter_count"] > 0
+    assert anchor["anchored_element_count"] > 0
+    assert anchor["anchor_loss_observed_step_count"] == 4
+    assert evidence["mean_parameter_anchor_loss"] >= 0.0
     assert evidence["optimizer_step_count"] == 4
     fusion = evidence["paired_update_replay_fusion"]
     assert fusion["enabled"] is True

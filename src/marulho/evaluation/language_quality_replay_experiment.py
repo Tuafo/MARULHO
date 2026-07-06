@@ -57,9 +57,12 @@ class LanguageQualityReplayExperimentConfig:
     max_steps: int = 2
     learning_rate: float = 8e-4
     replay_loss_weight: float = 0.35
+    parameter_anchor_loss_weight: float = 0.0
     candidate_learning_rates: tuple[float, ...] = ()
     candidate_replay_loss_weights: tuple[float, ...] = ()
     candidate_max_steps: tuple[int, ...] = ()
+    candidate_parameter_anchor_loss_weights: tuple[float, ...] = ()
+    min_new_loss_improvement: float = 0.0
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
@@ -91,6 +94,7 @@ class _ReplayCandidateSpec:
     candidate_id: str
     learning_rate: float
     replay_loss_weight: float
+    parameter_anchor_loss_weight: float
     max_steps: int
 
 
@@ -154,11 +158,15 @@ def _replay_candidate_specs(
         float(value) for value in config.candidate_replay_loss_weights
     )
     max_steps = tuple(int(value) for value in config.candidate_max_steps)
+    anchor_weights = tuple(
+        float(value) for value in config.candidate_parameter_anchor_loss_weights
+    )
     candidate_count = max(
         1,
         len(learning_rates),
         len(replay_weights),
         len(max_steps),
+        len(anchor_weights),
     )
     return tuple(
         _ReplayCandidateSpec(
@@ -172,6 +180,13 @@ def _replay_candidate_specs(
                     replay_weights,
                     index,
                     float(config.replay_loss_weight),
+                )
+            ),
+            parameter_anchor_loss_weight=float(
+                _candidate_value(
+                    anchor_weights,
+                    index,
+                    float(config.parameter_anchor_loss_weight),
                 )
             ),
             max_steps=int(
@@ -886,8 +901,12 @@ def run_language_quality_replay_experiment(
             learning_rate=float(candidate_spec.learning_rate),
             max_steps=int(candidate_spec.max_steps),
             replay_loss_weight=float(candidate_spec.replay_loss_weight),
+            parameter_anchor_loss_weight=float(
+                candidate_spec.parameter_anchor_loss_weight
+            ),
             forgetting_tolerance=float(cfg.forgetting_tolerance),
             replay_retention_tolerance=float(cfg.replay_retention_tolerance),
+            min_new_loss_improvement=float(cfg.min_new_loss_improvement),
             rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
             sparse_vocab_optimizer=bool(candidate_model.config.sampled_vocab_size > 0),
             max_grad_norm=float(cfg.max_grad_norm),
@@ -924,6 +943,9 @@ def run_language_quality_replay_experiment(
             "candidate_learning_config": {
                 "learning_rate": float(candidate_spec.learning_rate),
                 "replay_loss_weight": float(candidate_spec.replay_loss_weight),
+                "parameter_anchor_loss_weight": float(
+                    candidate_spec.parameter_anchor_loss_weight
+                ),
                 "max_steps": int(candidate_spec.max_steps),
             },
             "candidate_selection_policy": selection_policy,
@@ -1003,6 +1025,9 @@ def run_language_quality_replay_experiment(
             "learning_config": {
                 "learning_rate": float(candidate_spec.learning_rate),
                 "replay_loss_weight": float(candidate_spec.replay_loss_weight),
+                "parameter_anchor_loss_weight": float(
+                    candidate_spec.parameter_anchor_loss_weight
+                ),
                 "max_steps": int(candidate_spec.max_steps),
             },
             "learning_evidence": learning_report,
@@ -1387,6 +1412,7 @@ def main() -> int:
     parser.add_argument("--max-steps", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=8e-4)
     parser.add_argument("--replay-loss-weight", type=float, default=0.35)
+    parser.add_argument("--parameter-anchor-loss-weight", type=float, default=0.0)
     parser.add_argument("--candidate-learning-rate", type=float, action="append", default=[])
     parser.add_argument(
         "--candidate-replay-loss-weight",
@@ -1395,6 +1421,13 @@ def main() -> int:
         default=[],
     )
     parser.add_argument("--candidate-max-steps", type=int, action="append", default=[])
+    parser.add_argument(
+        "--candidate-parameter-anchor-loss-weight",
+        type=float,
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--min-new-loss-improvement", type=float, default=0.0)
     parser.add_argument("--forgetting-tolerance", type=float, default=100.0)
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
@@ -1495,9 +1528,14 @@ def main() -> int:
             max_steps=args.max_steps,
             learning_rate=args.learning_rate,
             replay_loss_weight=args.replay_loss_weight,
+            parameter_anchor_loss_weight=args.parameter_anchor_loss_weight,
             candidate_learning_rates=tuple(args.candidate_learning_rate),
             candidate_replay_loss_weights=tuple(args.candidate_replay_loss_weight),
             candidate_max_steps=tuple(args.candidate_max_steps),
+            candidate_parameter_anchor_loss_weights=tuple(
+                args.candidate_parameter_anchor_loss_weight
+            ),
+            min_new_loss_improvement=args.min_new_loss_improvement,
             forgetting_tolerance=args.forgetting_tolerance,
             replay_retention_tolerance=args.replay_retention_tolerance,
             rollback_on_forgetting=bool(args.rollback_on_forgetting),

@@ -166,6 +166,8 @@ class LanguageContinualLearningConfig:
     learning_rate: float = 1e-3
     max_steps: int = 1
     replay_loss_weight: float = 0.25
+    parameter_anchor_loss_weight: float = 0.0
+    parameter_anchor_include_sparse_vocab: bool = False
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 1
     sparse_vocab_optimizer: bool = True
@@ -916,6 +918,66 @@ def _continual_optimizer_policy(
     )
 
 
+def _sparse_vocab_parameter_names(model: MarulhoLanguageModel) -> set[str]:
+    sparse_names: set[str] = set()
+    if bool(model.config.sparse_token_embedding_gradients):
+        sparse_names.add("token_embedding.weight")
+    if bool(model.config.sampled_vocab_sparse_lm_head_gradient):
+        sparse_names.add("lm_head.weight")
+    return sparse_names
+
+
+def _parameter_anchor_terms(
+    model: MarulhoLanguageModel,
+    snapshot: Mapping[str, torch.Tensor],
+    *,
+    include_sparse_vocab: bool,
+) -> tuple[
+    tuple[tuple[str, torch.nn.Parameter, torch.Tensor], ...],
+    dict[str, Any],
+]:
+    sparse_names = _sparse_vocab_parameter_names(model)
+    terms: list[tuple[str, torch.nn.Parameter, torch.Tensor]] = []
+    excluded_sparse_names: list[str] = []
+    element_count = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad or not torch.is_floating_point(parameter):
+            continue
+        if name in sparse_names and not bool(include_sparse_vocab):
+            excluded_sparse_names.append(name)
+            continue
+        anchor = snapshot.get(name)
+        if anchor is None or not torch.is_floating_point(anchor):
+            continue
+        anchor = anchor.to(device=parameter.device, dtype=parameter.dtype)
+        terms.append((name, parameter, anchor))
+        element_count += int(parameter.numel())
+    report = {
+        "surface": "marulho_language_continual_parameter_anchor.v1",
+        "enabled": bool(terms),
+        "include_sparse_vocab_parameters": bool(include_sparse_vocab),
+        "anchored_parameter_count": len(terms),
+        "anchored_element_count": int(element_count),
+        "excluded_sparse_parameter_names": excluded_sparse_names,
+    }
+    return tuple(terms), report
+
+
+def _parameter_anchor_loss(
+    terms: Sequence[tuple[str, torch.nn.Parameter, torch.Tensor]],
+) -> torch.Tensor:
+    if not terms:
+        raise ValueError("parameter anchor terms must not be empty")
+    device = terms[0][1].device
+    total = torch.zeros((), device=device, dtype=torch.float32)
+    element_count = 0
+    for _name, parameter, anchor in terms:
+        delta = parameter.float() - anchor.float()
+        total = total + delta.pow(2).sum()
+        element_count += int(parameter.numel())
+    return total / float(max(1, element_count))
+
+
 def _clip_grad_norm_sparse_aware(
     parameters: Sequence[torch.nn.Parameter],
     *,
@@ -1115,6 +1177,33 @@ def run_language_continual_learning_window(
     trainable_parameters = [
         parameter for parameter in model.parameters() if parameter.requires_grad
     ]
+    anchor_terms: tuple[
+        tuple[str, torch.nn.Parameter, torch.Tensor],
+        ...
+    ] = tuple()
+    parameter_anchor = {
+        "surface": "marulho_language_continual_parameter_anchor.v1",
+        "enabled": False,
+        "reason": "parameter_anchor_loss_weight_zero",
+        "loss_weight": float(cfg.parameter_anchor_loss_weight),
+        "include_sparse_vocab_parameters": bool(
+            cfg.parameter_anchor_include_sparse_vocab
+        ),
+        "anchored_parameter_count": 0,
+        "anchored_element_count": 0,
+        "excluded_sparse_parameter_names": [],
+    }
+    if float(cfg.parameter_anchor_loss_weight) > 0.0:
+        anchor_terms, parameter_anchor = _parameter_anchor_terms(
+            model,
+            snapshot,
+            include_sparse_vocab=bool(cfg.parameter_anchor_include_sparse_vocab),
+        )
+        parameter_anchor = {
+            **parameter_anchor,
+            "loss_weight": float(cfg.parameter_anchor_loss_weight),
+            "reason": None if anchor_terms else "no_anchorable_parameters",
+        }
     stage_profiler = _ContinualUpdateStageProfiler(
         model.device,
         enabled=bool(cfg.profile_update_stages),
@@ -1133,6 +1222,8 @@ def run_language_continual_learning_window(
     update_loss_count = 0
     replay_loss_sum: torch.Tensor | None = None
     replay_loss_count = 0
+    parameter_anchor_loss_sum: torch.Tensor | None = None
+    parameter_anchor_loss_count = 0
     max_gradient_norm_tensor: torch.Tensor | None = None
     last_loss_evidence: dict[str, Any] = {}
     last_replay_loss_evidence: dict[str, Any] = {}
@@ -1284,6 +1375,22 @@ def run_language_continual_learning_window(
                 if not bool(paired_update_replay_fusion_enabled):
                     loss = loss + float(cfg.replay_loss_weight) * replay_loss
                 update_token_count += int(replay_batch.target_ids.numel())
+            if anchor_terms:
+                stage_marker = stage_profiler.start()
+                anchor_loss = _parameter_anchor_loss(anchor_terms)
+                stage_profiler.record_elapsed(
+                    "parameter_anchor_loss",
+                    optimizer_step_token_count,
+                    stage_marker,
+                )
+                loss = loss + float(cfg.parameter_anchor_loss_weight) * anchor_loss
+                detached_anchor_loss = anchor_loss.detach()
+                parameter_anchor_loss_sum = (
+                    detached_anchor_loss
+                    if parameter_anchor_loss_sum is None
+                    else parameter_anchor_loss_sum + detached_anchor_loss
+                )
+                parameter_anchor_loss_count += 1
             stage_marker = stage_profiler.start()
             loss.backward()
             stage_profiler.record_elapsed(
@@ -1443,6 +1550,23 @@ def run_language_continual_learning_window(
         if replay_loss_sum is not None
         else None
     )
+    mean_parameter_anchor_loss = (
+        float(
+            (
+                parameter_anchor_loss_sum / max(1, parameter_anchor_loss_count)
+            )
+            .detach()
+            .cpu()
+            .item()
+        )
+        if parameter_anchor_loss_sum is not None
+        else 0.0
+    )
+    parameter_anchor = {
+        **parameter_anchor,
+        "mean_anchor_loss": float(mean_parameter_anchor_loss),
+        "anchor_loss_observed_step_count": int(parameter_anchor_loss_count),
+    }
     max_gradient_norm = (
         float(max_gradient_norm_tensor.detach().cpu().item())
         if max_gradient_norm_tensor is not None
@@ -1568,6 +1692,7 @@ def run_language_continual_learning_window(
             "spike_rate_delta": float(_spike_rate(new_after) - _spike_rate(new_before)),
             "memory_slots": memory_slot_evidence,
             "active_compute": active_compute_evidence,
+            "parameter_anchor": parameter_anchor,
             "training_window_memory_slot_triton_stats_delta": (
                 training_window_memory_slot_triton_stats_delta
             ),
@@ -1650,6 +1775,7 @@ def run_language_continual_learning_window(
             ),
             "mean_update_loss": mean_update_loss,
             "mean_replay_loss": mean_replay_loss,
+            "mean_parameter_anchor_loss": mean_parameter_anchor_loss,
             "max_gradient_norm": max_gradient_norm,
             "metric_readback_mode": "deferred_gpu_scalar_aggregation",
             "per_step_metric_cpu_sync": False,

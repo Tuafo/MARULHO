@@ -326,6 +326,7 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
             max_steps=1,
             learning_rate=1e-3,
             replay_loss_weight=0.25,
+            min_new_loss_improvement=-100.0,
             gradient_clip_interval=1,
             generation_repetition_penalty=1.15,
             generation_no_repeat_ngram_size=2,

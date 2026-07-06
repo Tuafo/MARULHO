@@ -565,6 +565,16 @@ developmental and consolidation runners, query runners, and long-run evidence.
   `measured_update_loop_model_loss_calls`, avoided replay forward calls, and
   `measured_update_loop_caller_device_transfer_calls=0`; model internals still
   own final device normalization.
+  The update window can also opt into a dense-core parent-parameter anchor
+  through `parameter_anchor_loss_weight`. The anchor is disabled by default,
+  snapshots the pre-update parent weights, excludes sparse vocab parameters
+  (`token_embedding.weight` and `lm_head.weight`) unless explicitly requested,
+  adds a normalized drift penalty before backward, and reports
+  `marulho_language_continual_parameter_anchor.v1` with anchored parameter
+  counts, excluded sparse names, observed anchor-loss steps, and mean anchor
+  loss. This is an anti-interference experiment surface; it must be judged by
+  trained/heldout prompt coherence and full update-window throughput, not by
+  anchor presence alone.
   The 2026-07-06 `524288` update-token CUDA report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-paired-default-preserved-evalmatched-update524288-20260706.json`
   accepted the online update at `4938.007` update tokens/sec and `4302.285`

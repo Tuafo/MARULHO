@@ -376,10 +376,24 @@ harnesses.
   non-overlapping fixed heldout bank at `5/5`, accepts `1048576` update tokens
   at `5784.471` update tokens/sec, and reaches `524288/524288` at `8567.510`
   tokens/sec, but the selected child still regresses one trained prompt
-  (`I'm ready to`, trained `9/10`). The paired suites
+  (`I'm ready to`, trained `9/10`). The wider retention sweep
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-retention-repair6-sweep-20260706.json`
+  shows the same tradeoff under larger hard-prompt pressure: trained-repairing
+  candidates regress fixed heldout `I am a`, while heldout-preserving
+  candidates keep trained prompts broken; the selected child reaches
+  `524288/524288` at `8431.704` tokens/sec but trained coherence is only
+  `8/10`. The anchor sweep
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-anchor-repair7-sweep-20260706.json`
+  exercises the optional dense-core parent-parameter anchor path, records
+  `marulho_language_continual_parameter_anchor.v1` with sparse
+  `token_embedding.weight` and `lm_head.weight` excluded, selects a
+  heldout-preserving child, and reaches `524288/524288` at `8388.813`
+  tokens/sec, but trained coherence remains `9/10`. The paired suites
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
   and
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-fixed-heldout-repair5-sweep-20260706.json`
+  through
+  `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-anchor-repair7-sweep-20260706.json`
   remain `blocked_missing_required_evidence` on required generation coherence
   because no selected child currently has both full trained-prompt coherence and
   full heldout coherence. Treat this as data-backed repair progress plus speed
