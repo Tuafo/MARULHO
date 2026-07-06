@@ -294,6 +294,12 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["hard_prompt_replay"]["source_prompt_found_count"] == 1
     assert report["split"]["used_new_batches"] == 1
     assert report["split"]["used_replay_batches"] == 1
+    assert report["split"]["old_replay"]["max_train_batches"] == 1
+    assert report["split"]["old_replay"]["max_eval_batches"] == 1
+    assert report["split"]["hard_prompt"]["max_train_batches"] == 1
+    assert report["split"]["hard_prompt"]["max_eval_batches"] == 1
+    assert report["split"]["old_replay"]["train_batch_count"] <= 1
+    assert report["split"]["hard_prompt"]["train_batch_count"] <= 1
     assert report["learning_evidence"]["learning_evidence"]["update_token_count"] > 0
     assert report["candidate_selection"]["candidate_count"] == 1
     assert report["candidate_selection"]["selected_candidate_id"] == "candidate-00"
@@ -317,6 +323,10 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["heldout_prompt_suite"]["case_count"] == 2
     assert report["heldout_prompt_suite"]["source"] == "explicit_heldout_prompt_cases"
     assert report["heldout_prompt_suite"]["not_used_for_replay_training"] is True
+    assert "source_text" not in report["heldout_prompt_suite"]["prompt_cases"][0]
+    assert report["heldout_prompt_suite"]["prompt_cases"][0][
+        "raw_source_text_retained"
+    ] is False
     assert report["heldout_generation_coherence_before"]["checkpoint_path"] == str(parent)
     assert report["heldout_generation_coherence_after"]["checkpoint_path"] == str(child)
     assert report["heldout_generation_coherence_delta"]["surface"] == (

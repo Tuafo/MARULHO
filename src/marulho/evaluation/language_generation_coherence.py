@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import hashlib
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -54,6 +55,110 @@ def default_generation_coherence_prompt_cases(
             source_text=source_text,
         ),
     )
+
+
+def _prompt_exclusion_keys(
+    cases: Sequence[LanguageGenerationPromptCase],
+) -> tuple[str, ...]:
+    return tuple(
+        str(case.prompt_text).strip().casefold()
+        for case in cases
+        if str(case.prompt_text).strip()
+    )
+
+
+def _is_excluded_prompt(prompt_text: str, exclusions: Sequence[str]) -> bool:
+    normalized = str(prompt_text).strip().casefold()
+    return any(
+        normalized == exclusion
+        or normalized.startswith(f"{exclusion} ")
+        or exclusion.startswith(f"{normalized} ")
+        for exclusion in exclusions
+    )
+
+
+def auto_source_prompt_cases(
+    source_text: str,
+    *,
+    limit: int = 4,
+    exclude_prompt_cases: Sequence[LanguageGenerationPromptCase] = (),
+    max_new_tokens: int = 64,
+    min_new_tokens: int = 8,
+    min_prefix_match_chars: int = 8,
+    min_prefix_match_fraction: float = 0.10,
+    min_printable_fraction: float = 0.95,
+    min_distinct_bigram_fraction: float = 0.20,
+    max_token_run_length: int = 8,
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    requested = max(0, int(limit))
+    if requested <= 0:
+        return tuple()
+    exclusions = _prompt_exclusion_keys(exclude_prompt_cases)
+    prompts: list[str] = []
+    seen: set[str] = set()
+    lines = [
+        line.strip()
+        for line in str(source_text).splitlines()
+        if line.strip() and not line.lstrip().startswith("###")
+    ]
+    chunks: list[str] = []
+    for line in lines:
+        chunks.extend(
+            chunk.strip()
+            for chunk in re.split(r"(?<=[.!?])\s+", line)
+            if chunk.strip()
+        )
+    for chunk in chunks:
+        token_matches = list(re.finditer(r"\S+", chunk))
+        if len(token_matches) < 3:
+            continue
+        span_count = min(3, len(token_matches) - 2)
+        for start_index in range(span_count):
+            start = token_matches[start_index].start()
+            stop = token_matches[start_index + 2].end()
+            prompt = chunk[start:stop].strip()
+            key = prompt.casefold()
+            if not prompt or key in seen or _is_excluded_prompt(prompt, exclusions):
+                continue
+            if prompt not in source_text:
+                continue
+            seen.add(key)
+            prompts.append(prompt)
+            if len(prompts) >= requested:
+                break
+        if len(prompts) >= requested:
+            break
+    return tuple(
+        LanguageGenerationPromptCase(
+            prompt_text=prompt,
+            source_text=source_text,
+            max_new_tokens=int(max_new_tokens),
+            min_new_tokens=int(min_new_tokens),
+            min_prefix_match_chars=int(min_prefix_match_chars),
+            min_prefix_match_fraction=float(min_prefix_match_fraction),
+            min_printable_fraction=float(min_printable_fraction),
+            min_distinct_bigram_fraction=float(min_distinct_bigram_fraction),
+            max_token_run_length=int(max_token_run_length),
+        )
+        for prompt in prompts
+    )
+
+
+def prompt_case_metadata(case: LanguageGenerationPromptCase) -> dict[str, Any]:
+    return {
+        "surface": "marulho_language_generation_prompt_case_metadata.v1",
+        "prompt_text": str(case.prompt_text),
+        "source_text_hash": _sha256_text(case.source_text),
+        "source_character_count": len(str(case.source_text)),
+        "max_new_tokens": int(case.max_new_tokens),
+        "min_new_tokens": int(case.min_new_tokens),
+        "min_prefix_match_chars": int(case.min_prefix_match_chars),
+        "min_prefix_match_fraction": float(case.min_prefix_match_fraction),
+        "min_printable_fraction": float(case.min_printable_fraction),
+        "min_distinct_bigram_fraction": float(case.min_distinct_bigram_fraction),
+        "max_token_run_length": int(case.max_token_run_length),
+        "raw_source_text_retained": False,
+    }
 
 
 def _sha256_text(text: str) -> str:
@@ -346,7 +451,7 @@ def run_language_generation_coherence_report(
                     repetition_penalty > 1.0 or no_repeat_ngram_size > 0
                 ),
             },
-            "prompt_cases": [asdict(case) for case in cases],
+            "prompt_cases": [prompt_case_metadata(case) for case in cases],
         },
         "cases": case_reports,
         "summary": summary,
@@ -401,6 +506,12 @@ def main() -> int:
             "May be passed multiple times."
         ),
     )
+    parser.add_argument(
+        "--auto-source-prompt-cases",
+        type=int,
+        default=0,
+        help="Build this many anchored prompt cases from --source when no --prompt-case is provided.",
+    )
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
@@ -414,11 +525,18 @@ def main() -> int:
     )
     if args.map_location is not None:
         model = model.to(torch.device(args.map_location))
-    prompt_cases = (
-        tuple(_prompt_case_from_arg(value, source_text=source_text) for value in args.prompt_case)
-        if args.prompt_case
-        else default_generation_coherence_prompt_cases(source_text=source_text)
-    )
+    if args.prompt_case:
+        prompt_cases = tuple(
+            _prompt_case_from_arg(value, source_text=source_text)
+            for value in args.prompt_case
+        )
+    elif int(args.auto_source_prompt_cases) > 0:
+        prompt_cases = auto_source_prompt_cases(
+            source_text,
+            limit=int(args.auto_source_prompt_cases),
+        )
+    else:
+        prompt_cases = default_generation_coherence_prompt_cases(source_text=source_text)
     report = run_language_generation_coherence_report(
         model,
         tokenizer,

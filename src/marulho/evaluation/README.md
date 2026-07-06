@@ -320,6 +320,11 @@ harnesses.
   through bounded train/eval evidence windows instead of spending the run on
   full-corpus eval packing before the measured update begins. Reports carry
   pre-limit and post-limit split counts so bounded eval is visible.
+- `language_generation_coherence.py` accepts `--auto-source-prompt-cases` to
+  build grounded prompt cases from the supplied source corpus. Prompt-suite
+  metadata records prompt text, thresholds, source hash, source length, and
+  `raw_source_text_retained=false` instead of repeating large source bodies in
+  every prompt case.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -338,7 +343,23 @@ harnesses.
   structural-plasticity, and GPU-kernel evidence paths, then rewrites the final
   report with the suite result. It is meant to move quality and speed evidence
   together without turning the benchmark suite into a gate-only workflow or
-  hiding prompt regressions.
+  hiding prompt regressions. It passes its max train/eval batch limits into the
+  split builder before CPU/CUDA tensor packing, and its CLI can also use
+  `--auto-source-prompt-cases` for source-anchored hard-prompt cases.
+- The current NVIDIA/Nemotron open-curriculum replay report
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-auto-quality-replay-20260706.json`
+  starts from the 128x materialized-corpus checkpoint, accepts `1048576`
+  update tokens at `5930.903` update tokens/sec, repairs trained prompt
+  coherence from `0/4` to `2/4`, repairs auto heldout prompt coherence from
+  `0/4` to `4/4` with zero regressions, and reaches same-child controlled
+  sustained decode at `131072/131072` and `524288/524288` tokens. The
+  house-scale child report reaches `8526.804` tokens/sec through
+  `torch_cuda_graph_burst_decode_controls` with zero tracked Triton fallback or
+  failure. The paired suite
+  `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-quality-replay-20260706.json`
+  remains `blocked_missing_required_evidence` because trained prompt coherence
+  is still partial. Treat this as data-backed repair progress plus speed
+  evidence, not generation-quality promotion.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and

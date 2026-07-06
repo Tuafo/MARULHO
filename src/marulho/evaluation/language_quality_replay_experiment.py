@@ -6,7 +6,6 @@ import argparse
 from dataclasses import asdict, dataclass
 import hashlib
 from pathlib import Path
-import re
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -14,7 +13,9 @@ import torch
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_generation_coherence import (
     LanguageGenerationPromptCase,
+    auto_source_prompt_cases,
     default_generation_coherence_prompt_cases,
+    prompt_case_metadata,
     run_language_generation_coherence_report,
 )
 from marulho.evaluation.language_runtime_benchmark_suite import (
@@ -296,76 +297,16 @@ def _build_hard_prompt_corpus(
     }
 
 
-def _prompt_exclusion_keys(
-    cases: Sequence[LanguageGenerationPromptCase],
-) -> tuple[str, ...]:
-    return tuple(
-        str(case.prompt_text).strip().casefold()
-        for case in cases
-        if str(case.prompt_text).strip()
-    )
-
-
-def _is_excluded_prompt(prompt_text: str, exclusions: Sequence[str]) -> bool:
-    normalized = str(prompt_text).strip().casefold()
-    return any(
-        normalized == exclusion
-        or normalized.startswith(f"{exclusion} ")
-        or exclusion.startswith(f"{normalized} ")
-        for exclusion in exclusions
-    )
-
-
 def _auto_heldout_prompt_cases(
     source_text: str,
     *,
     training_prompt_cases: Sequence[LanguageGenerationPromptCase],
     limit: int,
 ) -> tuple[LanguageGenerationPromptCase, ...]:
-    requested = max(0, int(limit))
-    if requested <= 0:
-        return tuple()
-    exclusions = _prompt_exclusion_keys(training_prompt_cases)
-    candidates: list[str] = []
-    seen: set[str] = set()
-    sentence_chunks = [
-        chunk.strip()
-        for chunk in re.split(r"(?<=[.!?])\s+", str(source_text))
-        if chunk.strip()
-    ]
-    for sentence in sentence_chunks:
-        words = [word.strip(" ,;:()[]{}") for word in sentence.split()]
-        words = [word for word in words if word]
-        if len(words) < 3:
-            continue
-        spans = [
-            words[:3],
-            words[1:4] if len(words) >= 4 else (),
-            words[2:5] if len(words) >= 5 else (),
-        ]
-        for span in spans:
-            if not span:
-                continue
-            prompt = " ".join(span).strip()
-            key = prompt.casefold()
-            if key in seen or _is_excluded_prompt(prompt, exclusions):
-                continue
-            seen.add(key)
-            candidates.append(prompt)
-            if len(candidates) >= requested:
-                break
-        if len(candidates) >= requested:
-            break
-    return tuple(
-        LanguageGenerationPromptCase(
-            prompt_text=prompt,
-            source_text=source_text,
-            max_new_tokens=64,
-            min_new_tokens=8,
-            min_prefix_match_chars=8,
-            min_prefix_match_fraction=0.10,
-        )
-        for prompt in candidates
+    return auto_source_prompt_cases(
+        source_text,
+        limit=int(limit),
+        exclude_prompt_cases=training_prompt_cases,
     )
 
 
@@ -757,6 +698,8 @@ def run_language_quality_replay_experiment(
         stride=int(cfg.stride),
         batch_size=int(cfg.batch_size),
         device=device,
+        max_train_batches=int(cfg.max_replay_batches),
+        max_eval_batches=int(cfg.max_old_eval_batches),
     )
     hard_split = build_language_model_splits(
         [hard_text],
@@ -766,6 +709,8 @@ def run_language_quality_replay_experiment(
         stride=int(cfg.stride),
         batch_size=int(cfg.batch_size),
         device=device,
+        max_train_batches=int(cfg.max_new_batches),
+        max_eval_batches=int(cfg.max_new_eval_batches),
     )
     before_coherence_path = output.with_name(f"{output.stem}-parent-coherence.json")
     before_coherence = run_language_generation_coherence_report(
@@ -1140,7 +1085,7 @@ def run_language_quality_replay_experiment(
             "surface": "marulho_language_quality_replay_heldout_prompt_suite.v1",
             "enabled": bool(heldout_cases),
             "case_count": len(heldout_cases),
-            "prompt_cases": [asdict(case) for case in heldout_cases],
+            "prompt_cases": [prompt_case_metadata(case) for case in heldout_cases],
             "source": (
                 "explicit_heldout_prompt_cases"
                 if heldout_prompt_cases is not None
@@ -1267,6 +1212,12 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=None)
     parser.add_argument("--child-checkpoint", type=Path, default=None)
     parser.add_argument("--prompt-case", action="append", default=[])
+    parser.add_argument(
+        "--auto-source-prompt-cases",
+        type=int,
+        default=0,
+        help="Build this many hard-prompt cases from --source when no --prompt-case is provided.",
+    )
     parser.add_argument("--heldout-prompt-case", action="append", default=[])
     parser.add_argument("--sequence-length", type=int, default=64)
     parser.add_argument("--stride", type=int, default=16)
@@ -1325,14 +1276,18 @@ def main() -> int:
     args = parser.parse_args()
 
     source_text, _source_label = _read_text(args.source, default=DEFAULT_CORPUS)
-    cases = (
-        tuple(
+    if args.prompt_case:
+        cases = tuple(
             _parse_prompt_case(value, source_text=source_text)
             for value in args.prompt_case
         )
-        if args.prompt_case
-        else default_generation_coherence_prompt_cases(source_text)
-    )
+    elif int(args.auto_source_prompt_cases) > 0:
+        cases = auto_source_prompt_cases(
+            source_text,
+            limit=int(args.auto_source_prompt_cases),
+        )
+    else:
+        cases = default_generation_coherence_prompt_cases(source_text)
     heldout_cases = (
         tuple(
             _parse_prompt_case(value, source_text=source_text)
