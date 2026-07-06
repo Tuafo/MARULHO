@@ -1840,6 +1840,16 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert report["learning_evidence"]["optimizer_policy"] == "AdamW_all_parameters"
     assert report["learning_evidence"]["dense_adamw_backend"] == "default"
     assert report["learning_evidence"]["optimizer_step_count"] == 8
+    fusion = report["learning_evidence"]["paired_update_replay_fusion"]
+    assert fusion["surface"] == (
+        "marulho_language_continual_paired_update_replay_fusion.v1"
+    )
+    assert fusion["enabled"] is True
+    assert fusion["mode"] == "single_hidden_forward_split_update_replay_losses"
+    assert fusion["weighted_replay_loss_preserved"] is True
+    assert fusion["actual_fused_steps"] == 8
+    assert fusion["separate_replay_forward_loss_calls_avoided"] == 8
+    assert report["learning_evidence"]["measured_update_loop_model_loss_calls"] == 8
     assert report["learning_evidence"]["gradient_clip_mode"] == (
         "sparse_aware_device_norm_every_step"
     )
@@ -1996,6 +2006,11 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     )
     assert evidence["dense_adamw_backend"] == "foreach"
     assert evidence["optimizer_step_count"] == 4
+    fusion = evidence["paired_update_replay_fusion"]
+    assert fusion["enabled"] is True
+    assert fusion["actual_fused_steps"] == 4
+    assert fusion["separate_replay_forward_loss_calls_avoided"] == 4
+    assert evidence["measured_update_loop_model_loss_calls"] == 4
     assert evidence["gradient_clip_mode"] == (
         "sparse_aware_device_norm_every_n_steps"
     )

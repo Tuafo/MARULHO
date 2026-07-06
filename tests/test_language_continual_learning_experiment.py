@@ -301,6 +301,19 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
     assert report["learning_evidence"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )
+    fusion = report["learning_evidence"]["paired_update_replay_fusion"]
+    assert fusion["enabled"] is True
+    assert fusion["weighted_replay_loss_preserved"] is True
+    assert fusion["actual_fused_steps"] == report["learning_evidence"][
+        "optimizer_step_count"
+    ]
+    assert fusion["separate_replay_forward_loss_calls_avoided"] == fusion[
+        "actual_fused_steps"
+    ]
+    assert report["learning_evidence"]["measured_update_loop_model_loss_calls"] == (
+        fusion["actual_fused_steps"]
+    )
+    assert report["experiment_review"]["records_paired_update_replay_fusion"] is True
     assert report["experiment_review"]["records_eval_last_batch_evidence"] is True
     assert report["learning_evidence"]["hot_update_evidence_mode"] == (
         "post_window_telemetry_probe"

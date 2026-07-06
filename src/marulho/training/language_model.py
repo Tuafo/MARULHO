@@ -111,6 +111,22 @@ class LanguageBatch:
         )
 
 
+def _cat_optional_batch_tensor(
+    left: torch.Tensor | None,
+    right: torch.Tensor | None,
+    *,
+    device: torch.device,
+    name: str,
+) -> torch.Tensor | None:
+    if left is None and right is None:
+        return None
+    if left is None or right is None:
+        raise ValueError(f"{name} must be present on both paired batches")
+    if left.ndim != right.ndim or tuple(left.shape[1:]) != tuple(right.shape[1:]):
+        raise ValueError(f"{name} paired batches must share non-batch dimensions")
+    return torch.cat((left.to(device), right.to(device)), dim=0)
+
+
 @dataclass(frozen=True)
 class LanguageSplit:
     train: tuple[LanguageBatch, ...]
@@ -1952,28 +1968,18 @@ class MarulhoLanguageModel(nn.Module):
             candidate_positions.shape
         )
 
-    def next_token_loss(
+    def _next_token_loss_from_hidden(
         self,
-        input_ids: torch.Tensor,
+        hidden: torch.Tensor,
         target_ids: torch.Tensor,
         *,
-        collect_telemetry: bool = True,
-        assume_no_sleeping_experts: bool = False,
+        state: Mapping[str, torch.Tensor] | None,
+        telemetry: Mapping[str, Any],
+        collect_telemetry: bool,
         sampled_vocab_ids: torch.Tensor | None = None,
         sampled_target_positions: torch.Tensor | None = None,
-        memory_candidate_ids: torch.Tensor | None = None,
-        route_candidate_ids: torch.Tensor | None = None,
         return_evidence: bool = True,
     ) -> dict[str, Any]:
-        result = self._forward_hidden(
-            input_ids,
-            collect_telemetry=collect_telemetry,
-            collect_memory_evidence=return_evidence,
-            assume_no_sleeping_experts=assume_no_sleeping_experts,
-            memory_candidate_ids=memory_candidate_ids,
-            route_candidate_ids=route_candidate_ids,
-        )
-        hidden = result["hidden"]
         flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
         flat_targets = target_ids.to(
             device=flat_hidden.device,
@@ -2039,7 +2045,7 @@ class MarulhoLanguageModel(nn.Module):
             if not bool(return_evidence):
                 return {
                     "logits": None,
-                    "state": result["state"],
+                    "state": state,
                     "loss": loss,
                     "loss_kind": "sampled_adaptive_vocab_cross_entropy",
                 }
@@ -2119,14 +2125,14 @@ class MarulhoLanguageModel(nn.Module):
                 "triton_stats_delta": sampled_vocab_stats_delta,
                 "sampled_vocab_hash": sampled_vocab_hash,
             }
-            telemetry = {
-                **result["telemetry"],
+            merged_telemetry = {
+                **telemetry,
                 "vocab_loss": loss_evidence,
             }
             return {
                 "logits": None,
-                "state": result["state"],
-                "telemetry": telemetry,
+                "state": state,
+                "telemetry": merged_telemetry,
                 "loss": loss,
                 "loss_kind": "sampled_adaptive_vocab_cross_entropy",
                 "loss_evidence": loss_evidence,
@@ -2140,7 +2146,7 @@ class MarulhoLanguageModel(nn.Module):
         if not bool(return_evidence):
             return {
                 "logits": None,
-                "state": result["state"],
+                "state": state,
                 "loss": loss,
                 "loss_kind": "causal_next_token_cross_entropy",
             }
@@ -2155,17 +2161,131 @@ class MarulhoLanguageModel(nn.Module):
             "target_token_count": int(flat_targets.numel()),
             "loss_backend": "torch_dense_full_vocab_cross_entropy",
         }
-        telemetry = {
-            **result["telemetry"],
+        merged_telemetry = {
+            **telemetry,
             "vocab_loss": loss_evidence,
         }
         return {
             "logits": logits,
-            "state": result["state"],
-            "telemetry": telemetry,
+            "state": state,
+            "telemetry": merged_telemetry,
             "loss": loss,
             "loss_kind": "causal_next_token_cross_entropy",
             "loss_evidence": loss_evidence,
+        }
+
+    def next_token_loss(
+        self,
+        input_ids: torch.Tensor,
+        target_ids: torch.Tensor,
+        *,
+        collect_telemetry: bool = True,
+        assume_no_sleeping_experts: bool = False,
+        sampled_vocab_ids: torch.Tensor | None = None,
+        sampled_target_positions: torch.Tensor | None = None,
+        memory_candidate_ids: torch.Tensor | None = None,
+        route_candidate_ids: torch.Tensor | None = None,
+        return_evidence: bool = True,
+    ) -> dict[str, Any]:
+        result = self._forward_hidden(
+            input_ids,
+            collect_telemetry=collect_telemetry,
+            collect_memory_evidence=return_evidence,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+            memory_candidate_ids=memory_candidate_ids,
+            route_candidate_ids=route_candidate_ids,
+        )
+        return self._next_token_loss_from_hidden(
+            result["hidden"],
+            target_ids,
+            state=result["state"],
+            telemetry=result["telemetry"],
+            collect_telemetry=collect_telemetry,
+            sampled_vocab_ids=sampled_vocab_ids,
+            sampled_target_positions=sampled_target_positions,
+            return_evidence=return_evidence,
+        )
+
+    def next_token_loss_pair(
+        self,
+        update_batch: LanguageBatch,
+        replay_batch: LanguageBatch,
+        *,
+        replay_loss_weight: float,
+        collect_telemetry: bool = False,
+        assume_no_sleeping_experts: bool = False,
+    ) -> dict[str, Any]:
+        if update_batch.input_ids.ndim != replay_batch.input_ids.ndim:
+            raise ValueError("paired input_ids must have the same rank")
+        if tuple(update_batch.input_ids.shape[1:]) != tuple(
+            replay_batch.input_ids.shape[1:]
+        ):
+            raise ValueError("paired input_ids must share non-batch dimensions")
+        if tuple(update_batch.target_ids.shape[1:]) != tuple(
+            replay_batch.target_ids.shape[1:]
+        ):
+            raise ValueError("paired target_ids must share non-batch dimensions")
+        update_batch_size = int(update_batch.input_ids.shape[0])
+        combined_input_ids = torch.cat(
+            (
+                update_batch.input_ids.to(self.device),
+                replay_batch.input_ids.to(self.device),
+            ),
+            dim=0,
+        )
+        combined_memory_candidate_ids = _cat_optional_batch_tensor(
+            update_batch.memory_candidate_ids,
+            replay_batch.memory_candidate_ids,
+            device=self.device,
+            name="memory_candidate_ids",
+        )
+        combined_route_candidate_ids = _cat_optional_batch_tensor(
+            update_batch.route_candidate_ids,
+            replay_batch.route_candidate_ids,
+            device=self.device,
+            name="route_candidate_ids",
+        )
+        result = self._forward_hidden(
+            combined_input_ids,
+            collect_telemetry=collect_telemetry,
+            collect_memory_evidence=False,
+            assume_no_sleeping_experts=assume_no_sleeping_experts,
+            memory_candidate_ids=combined_memory_candidate_ids,
+            route_candidate_ids=combined_route_candidate_ids,
+        )
+        hidden = result["hidden"]
+        update_hidden = hidden[:update_batch_size]
+        replay_hidden = hidden[update_batch_size:]
+        update_result = self._next_token_loss_from_hidden(
+            update_hidden,
+            update_batch.target_ids,
+            state=None,
+            telemetry={},
+            collect_telemetry=False,
+            sampled_vocab_ids=update_batch.sampled_vocab_ids,
+            sampled_target_positions=update_batch.sampled_target_positions,
+            return_evidence=False,
+        )
+        replay_result = self._next_token_loss_from_hidden(
+            replay_hidden,
+            replay_batch.target_ids,
+            state=None,
+            telemetry={},
+            collect_telemetry=False,
+            sampled_vocab_ids=replay_batch.sampled_vocab_ids,
+            sampled_target_positions=replay_batch.sampled_target_positions,
+            return_evidence=False,
+        )
+        update_loss = update_result["loss"]
+        replay_loss = replay_result["loss"]
+        return {
+            "logits": None,
+            "state": result["state"],
+            "loss": update_loss + float(replay_loss_weight) * replay_loss,
+            "update_loss": update_loss,
+            "replay_loss": replay_loss,
+            "loss_kind": "paired_update_replay_next_token_loss",
+            "paired_forward": True,
         }
 
     def forward_step(

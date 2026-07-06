@@ -180,6 +180,16 @@ harnesses.
   They also preserve `batch_device_staging` and
   `measured_update_loop_caller_device_transfer_calls=0` so installed evidence
   shows update batches were staged on the model device before timing.
+- Continual-learning reports record `paired_update_replay_fusion` when compatible
+  update/replay batches share one hidden forward in the measured loop while
+  preserving separate update and weighted replay loss values. The report keeps
+  `measured_update_loop_model_loss_calls` and avoided replay forward-call counts
+  visible so speed claims can be checked against real skipped work.
+  The accepted 2026-07-06 paired-fusion report at `524288` update tokens records
+  `4817.900` update tokens/sec, `4201.073` total-window tokens/sec, `256`
+  fused steps, `256` avoided replay forward loss calls, `256` measured
+  model-loss calls, `768` tracked torch fallback calls, and zero tracked Triton
+  failures.
 - Heldout and replay evaluation keeps the deferred scalar readback boundary but
   no longer builds loss/memory evidence for every eval batch. Evaluation
   reports now record `evidence_collection_mode=last_batch_only`,

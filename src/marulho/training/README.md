@@ -554,8 +554,20 @@ developmental and consolidation runners, query runners, and long-run evidence.
   candidates from batch tensors, stage all update/eval/replay batches onto the
   model device before the measured update timer starts, and run post-window
   telemetry probes to fill final evidence without per-step report assembly.
-  Reports record `measured_update_loop_caller_device_transfer_calls=0`; model
-  internals still own final device normalization.
+  When update and replay batch shapes match, the measured loop runs one paired
+  hidden forward over the concatenated update/replay batch, then splits the
+  hidden sequence to preserve the original update loss plus weighted replay
+  loss semantics. Reports record `paired_update_replay_fusion`,
+  `measured_update_loop_model_loss_calls`, avoided replay forward calls, and
+  `measured_update_loop_caller_device_transfer_calls=0`; model internals still
+  own final device normalization.
+  The 2026-07-06 `524288` update-token CUDA report
+  `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-paired-update-replay-evalmatched-update524288-20260706.json`
+  accepted the online update at `4817.900` update tokens/sec and `4201.073`
+  total-window tokens/sec, fused `256/256` optimizer steps, avoided `256`
+  separate replay forward loss calls, kept measured model-loss calls at `256`,
+  recorded `768` tracked torch fallback calls (`256` memory-slot plus `512`
+  sampled-vocab CE), and recorded zero tracked Triton failures.
 - Continual-learning reports now include
   `training_window_triton_accounting` with scope
   `measured_update_window_only`. It snapshots RMSNorm, PLIF, route top-k,

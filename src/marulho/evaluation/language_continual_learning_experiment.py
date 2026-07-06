@@ -1226,6 +1226,11 @@ def run_language_continual_learning_experiment(
                 report["learning_evidence"].get("metric_readback_mode")
                 == "deferred_gpu_scalar_aggregation"
             ),
+            "records_paired_update_replay_fusion": bool(
+                report["learning_evidence"]
+                .get("paired_update_replay_fusion", {})
+                .get("enabled", False)
+            ),
             "records_eval_metric_readback": (
                 report["old_domain_before"].get("metric_readback_mode")
                 == "deferred_gpu_scalar_aggregation"

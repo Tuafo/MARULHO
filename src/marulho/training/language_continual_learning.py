@@ -230,6 +230,84 @@ def _precomputed_memory_candidate_slots_scored(batch: LanguageBatch) -> int:
     return int(batch.memory_candidate_ids.numel())
 
 
+def _optional_batch_tensor_pair_fusable(
+    left: torch.Tensor | None,
+    right: torch.Tensor | None,
+) -> bool:
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    return left.ndim == right.ndim and tuple(left.shape[1:]) == tuple(right.shape[1:])
+
+
+def _update_replay_pair_fusable(update_batch: LanguageBatch, replay_batch: LanguageBatch) -> bool:
+    return (
+        update_batch.input_ids.ndim == replay_batch.input_ids.ndim
+        and tuple(update_batch.input_ids.shape[1:])
+        == tuple(replay_batch.input_ids.shape[1:])
+        and tuple(update_batch.target_ids.shape[1:])
+        == tuple(replay_batch.target_ids.shape[1:])
+        and _optional_batch_tensor_pair_fusable(
+            update_batch.memory_candidate_ids,
+            replay_batch.memory_candidate_ids,
+        )
+        and _optional_batch_tensor_pair_fusable(
+            update_batch.route_candidate_ids,
+            replay_batch.route_candidate_ids,
+        )
+    )
+
+
+def _paired_update_replay_fusion_plan(
+    *,
+    new_update_batches: Sequence[LanguageBatch],
+    replay_update_batches: Sequence[LanguageBatch],
+    step_count: int,
+    replay_loss_weight: float,
+) -> dict[str, Any]:
+    if not replay_update_batches:
+        return {
+            "surface": "marulho_language_continual_paired_update_replay_fusion.v1",
+            "enabled": False,
+            "reason": "no_replay_batches",
+            "replay_loss_weight": float(replay_loss_weight),
+            "planned_optimizer_steps": int(max(1, step_count) * len(new_update_batches)),
+            "planned_fused_steps": 0,
+        }
+    replay_count = len(replay_update_batches)
+    planned_steps = int(max(1, step_count) * len(new_update_batches))
+    unique_pairs: set[tuple[int, int]] = set()
+    for step in range(max(1, step_count)):
+        for index, batch in enumerate(new_update_batches):
+            replay_index = (step * len(new_update_batches) + index) % replay_count
+            replay_batch = replay_update_batches[replay_index]
+            unique_pairs.add((index, replay_index))
+            if not _update_replay_pair_fusable(batch, replay_batch):
+                return {
+                    "surface": (
+                        "marulho_language_continual_paired_update_replay_fusion.v1"
+                    ),
+                    "enabled": False,
+                    "reason": "paired_batch_shape_or_candidate_mismatch",
+                    "replay_loss_weight": float(replay_loss_weight),
+                    "planned_optimizer_steps": planned_steps,
+                    "planned_fused_steps": 0,
+                    "unique_pair_count": len(unique_pairs),
+                }
+    return {
+        "surface": "marulho_language_continual_paired_update_replay_fusion.v1",
+        "enabled": True,
+        "reason": None,
+        "mode": "single_hidden_forward_split_update_replay_losses",
+        "weighted_replay_loss_preserved": True,
+        "replay_loss_weight": float(replay_loss_weight),
+        "planned_optimizer_steps": planned_steps,
+        "planned_fused_steps": planned_steps,
+        "unique_pair_count": len(unique_pairs),
+    }
+
+
 def _batch_tensors_on_device(batch: LanguageBatch, device: torch.device) -> bool:
     tensors = (
         batch.input_ids,
@@ -641,24 +719,63 @@ def run_language_continual_learning_window(
     gradient_clip_interval = max(0, int(cfg.gradient_clip_interval))
     step_count = max(1, int(cfg.max_steps))
     replay_count = len(replay_update_batches)
+    paired_update_replay_fusion = _paired_update_replay_fusion_plan(
+        new_update_batches=new_update_batches,
+        replay_update_batches=replay_update_batches,
+        step_count=step_count,
+        replay_loss_weight=float(cfg.replay_loss_weight),
+    )
+    paired_update_replay_fusion_enabled = bool(
+        paired_update_replay_fusion.get("enabled", False)
+    )
+    measured_update_loop_model_loss_calls = 0
+    fused_update_replay_step_count = 0
+    separate_replay_forward_loss_calls_avoided = 0
     for step in range(step_count):
         for index, batch in enumerate(new_update_batches):
             optimizer_step_count += 1
             last_update_batch_for_probe = batch
             for optimizer in optimizers:
                 optimizer.zero_grad(set_to_none=True)
-            update_result = model.next_token_loss(
-                batch.input_ids,
-                batch.target_ids,
-                collect_telemetry=bool(cfg.collect_training_telemetry),
-                assume_no_sleeping_experts=assume_no_sleeping,
-                sampled_vocab_ids=batch.sampled_vocab_ids,
-                sampled_target_positions=batch.sampled_target_positions,
-                memory_candidate_ids=batch.memory_candidate_ids,
-                route_candidate_ids=batch.route_candidate_ids,
-                return_evidence=False,
+            replay_batch = (
+                replay_update_batches[
+                    (step * len(new_update_batches) + index) % replay_count
+                ]
+                if replay_update_batches
+                else None
             )
-            loss = update_result["loss"]
+            if (
+                replay_batch is not None
+                and bool(paired_update_replay_fusion_enabled)
+            ):
+                last_replay_batch_for_probe = replay_batch
+                paired_result = model.next_token_loss_pair(
+                    batch,
+                    replay_batch,
+                    replay_loss_weight=float(cfg.replay_loss_weight),
+                    collect_telemetry=bool(cfg.collect_training_telemetry),
+                    assume_no_sleeping_experts=assume_no_sleeping,
+                )
+                measured_update_loop_model_loss_calls += 1
+                fused_update_replay_step_count += 1
+                separate_replay_forward_loss_calls_avoided += 1
+                loss = paired_result["loss"]
+                replay_loss = paired_result["replay_loss"]
+            else:
+                update_result = model.next_token_loss(
+                    batch.input_ids,
+                    batch.target_ids,
+                    collect_telemetry=bool(cfg.collect_training_telemetry),
+                    assume_no_sleeping_experts=assume_no_sleeping,
+                    sampled_vocab_ids=batch.sampled_vocab_ids,
+                    sampled_target_positions=batch.sampled_target_positions,
+                    memory_candidate_ids=batch.memory_candidate_ids,
+                    route_candidate_ids=batch.route_candidate_ids,
+                    return_evidence=False,
+                )
+                measured_update_loop_model_loss_calls += 1
+                loss = update_result["loss"]
+                replay_loss = None
             update_candidate_slots_scored = _precomputed_memory_candidate_slots_scored(
                 batch
             )
@@ -666,23 +783,22 @@ def run_language_continual_learning_window(
                 update_memory_candidate_slots_scored += update_candidate_slots_scored
                 update_memory_observation_count += 1
             update_token_count += int(batch.target_ids.numel())
-            if replay_update_batches:
-                replay_batch = replay_update_batches[
-                    (step * len(new_update_batches) + index) % replay_count
-                ]
+            if replay_batch is not None:
                 last_replay_batch_for_probe = replay_batch
-                replay_result = model.next_token_loss(
-                    replay_batch.input_ids,
-                    replay_batch.target_ids,
-                    collect_telemetry=bool(cfg.collect_training_telemetry),
-                    assume_no_sleeping_experts=assume_no_sleeping,
-                    sampled_vocab_ids=replay_batch.sampled_vocab_ids,
-                    sampled_target_positions=replay_batch.sampled_target_positions,
-                    memory_candidate_ids=replay_batch.memory_candidate_ids,
-                    route_candidate_ids=replay_batch.route_candidate_ids,
-                    return_evidence=False,
-                )
-                replay_loss = replay_result["loss"]
+                if replay_loss is None:
+                    replay_result = model.next_token_loss(
+                        replay_batch.input_ids,
+                        replay_batch.target_ids,
+                        collect_telemetry=bool(cfg.collect_training_telemetry),
+                        assume_no_sleeping_experts=assume_no_sleeping,
+                        sampled_vocab_ids=replay_batch.sampled_vocab_ids,
+                        sampled_target_positions=replay_batch.sampled_target_positions,
+                        memory_candidate_ids=replay_batch.memory_candidate_ids,
+                        route_candidate_ids=replay_batch.route_candidate_ids,
+                        return_evidence=False,
+                    )
+                    measured_update_loop_model_loss_calls += 1
+                    replay_loss = replay_result["loss"]
                 replay_candidate_slots_scored = (
                     _precomputed_memory_candidate_slots_scored(replay_batch)
                 )
@@ -696,7 +812,8 @@ def run_language_continual_learning_window(
                     else replay_loss_sum + detached_replay_loss
                 )
                 replay_loss_count += 1
-                loss = loss + float(cfg.replay_loss_weight) * replay_loss
+                if not bool(paired_update_replay_fusion_enabled):
+                    loss = loss + float(cfg.replay_loss_weight) * replay_loss
                 update_token_count += int(replay_batch.target_ids.numel())
             loss.backward()
             should_clip_gradients = bool(
@@ -733,6 +850,16 @@ def run_language_continual_learning_window(
         torch.cuda.synchronize(model.device)
         cuda_synchronized_before_timing_stop = True
     elapsed_seconds = max(0.0, time.perf_counter() - started)
+    paired_update_replay_fusion = {
+        **paired_update_replay_fusion,
+        "actual_fused_steps": int(fused_update_replay_step_count),
+        "measured_update_loop_model_loss_calls": int(
+            measured_update_loop_model_loss_calls
+        ),
+        "separate_replay_forward_loss_calls_avoided": int(
+            separate_replay_forward_loss_calls_avoided
+        ),
+    }
     training_triton_stats_after = _language_training_triton_stats_snapshot()
     training_triton_stats_delta = _language_training_triton_stats_delta(
         training_triton_stats_before,
@@ -1003,6 +1130,10 @@ def run_language_continual_learning_window(
             "measured_update_loop_caller_device_transfer_calls": 0,
             "hot_update_evidence_mode": "post_window_telemetry_probe",
             "per_step_evidence_dict_build": False,
+            "paired_update_replay_fusion": paired_update_replay_fusion,
+            "measured_update_loop_model_loss_calls": int(
+                measured_update_loop_model_loss_calls
+            ),
             "memory_slot_hot_update_evidence_mode": (
                 "training_window_counter_delta_plus_post_window_probe"
             ),
