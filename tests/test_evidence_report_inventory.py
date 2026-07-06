@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from marulho.reporting.evidence_inventory import (
     CURRENT_LANGUAGE_EVIDENCE_SURFACE,
@@ -574,7 +575,8 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         ),
         encoding="utf-8",
     )
-    (training_dir / "memory-slot-training-impact.json").write_text(
+    memory_slot_training_report = training_dir / "memory-slot-training-impact.json"
+    memory_slot_training_report.write_text(
         json.dumps(
             {
                 "artifact_kind": "marulho_language_memory_slot_training_impact",
@@ -597,6 +599,27 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         ),
         encoding="utf-8",
     )
+    partial_memory_slot_training_report = (
+        training_dir / "memory-slot-training-impact-partial.json"
+    )
+    partial_memory_slot_training_report.write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_memory_slot_training_impact",
+                "surface": "marulho_language_memory_slot_training_impact.v1",
+                "report_status": "partial",
+                "partial_reason": "completed_control_arm",
+                "completed_arm_names": ["memory_slots_disabled_control"],
+                "missing_arm_names": [
+                    "bounded_torch_memory_slots",
+                    "triton_forward_torch_backward_memory_slots",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    newer_mtime = memory_slot_training_report.stat().st_mtime + 10.0
+    os.utime(partial_memory_slot_training_report, (newer_mtime, newer_mtime))
 
     projection = build_current_language_evidence_projection(reports)
 
@@ -667,5 +690,22 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert decisions["memory_slot_triton_training_autograd"][
         "per_step_memory_slot_stats_delta"
     ] is False
+    memory_slot_selection = projection["backend_bottleneck_evidence"][
+        "memory_slot_training_report_selection"
+    ]
+    assert memory_slot_selection["latest_report_status"] == "partial"
+    assert memory_slot_selection["latest_report_complete"] is False
+    assert memory_slot_selection["latest_completed_arm_names"] == [
+        "memory_slots_disabled_control"
+    ]
+    assert memory_slot_selection["latest_missing_arm_names"] == [
+        "bounded_torch_memory_slots",
+        "triton_forward_torch_backward_memory_slots",
+    ]
+    assert memory_slot_selection["backend_decision_report_status"] == "final"
+    assert memory_slot_selection["backend_decision_uses_latest_report"] is False
+    assert memory_slot_selection[
+        "partial_reports_do_not_replace_complete_backend_decision"
+    ] is True
     assert projection["current_checkpoint"]["path"] == checkpoint_path
     assert projection["current_checkpoint"]["delete_protected_by_current_evidence"] is True

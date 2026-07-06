@@ -37,6 +37,11 @@ but it cannot create a runtime or generation-quality promotion claim by itself.
 It also separates accepted training/inference throughput from backend rejection
 evidence, so a tempting Triton or buffer variant is visible without becoming
 the default until complete-window evidence supports it.
+Memory-slot training impact reports can write partial JSON while long arms are
+still running. The projection exposes the newest partial status, completed arm
+names, and missing arm names, but backend-default decisions use the newest final
+or legacy-complete comparison report so an incomplete run cannot erase the last
+complete backend decision.
 Installed-brain structural evidence remains a report projection: it can show a
 checkpoint-backed route-bank expansion, rollback verification, and post-
 structure sustained speed, but it does not make reporting or service code a

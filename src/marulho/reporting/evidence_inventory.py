@@ -110,7 +110,11 @@ def build_current_language_evidence_projection(
         reports,
         LANGUAGE_ELIGIBILITY_TRACE_RUNTIME_IMPACT_ARTIFACT,
     )
-    memory_slot_training_impact_entry = _latest_report(
+    latest_memory_slot_training_impact_entry = _latest_report(
+        reports,
+        LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT,
+    )
+    memory_slot_training_impact_entry = _latest_complete_report(
         reports,
         LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT,
     )
@@ -170,6 +174,9 @@ def build_current_language_evidence_projection(
         memory_slot_training_impact_entry[1]
         if memory_slot_training_impact_entry is not None
         else {},
+        latest_memory_slot_training_impact_entry[1]
+        if latest_memory_slot_training_impact_entry is not None
+        else {},
     )
     checkpoint_evidence = _current_checkpoint_evidence(
         generation_evidence,
@@ -189,7 +196,11 @@ def build_current_language_evidence_projection(
         ("installed_structural_plasticity", structural_plasticity_entry),
         ("state_block_runtime_impact", state_block_impact_entry),
         ("eligibility_trace_runtime_impact", eligibility_impact_entry),
-        ("memory_slot_training_impact", memory_slot_training_impact_entry),
+        (
+            "memory_slot_training_impact_backend_decision",
+            memory_slot_training_impact_entry,
+        ),
+        ("memory_slot_training_impact_latest", latest_memory_slot_training_impact_entry),
     ]
     source_reports = [
         _source_report_ref(role, entry, root_resolved)
@@ -351,6 +362,26 @@ def _latest_report(
         if payload.get("artifact_kind") == artifact_kind:
             return path, payload
     return None
+
+
+def _latest_complete_report(
+    reports: list[tuple[Path, Mapping[str, Any]]],
+    artifact_kind: str,
+) -> tuple[Path, Mapping[str, Any]] | None:
+    for path, payload in reports:
+        if (
+            payload.get("artifact_kind") == artifact_kind
+            and _report_is_complete(payload)
+        ):
+            return path, payload
+    return None
+
+
+def _report_is_complete(payload: Mapping[str, Any]) -> bool:
+    status = _string_or_none(payload.get("report_status"))
+    if status is None:
+        return bool(_mapping(payload.get("comparison")))
+    return status == "final"
 
 
 def _category(report: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -1192,11 +1223,13 @@ def _backend_bottleneck_evidence(
     state_block_impact: Mapping[str, Any],
     eligibility_impact: Mapping[str, Any],
     memory_slot_training_impact: Mapping[str, Any],
+    latest_memory_slot_training_impact: Mapping[str, Any],
 ) -> dict[str, Any]:
     state_cmp = _mapping(state_block_impact.get("comparison"))
     eligibility_cmp = _mapping(eligibility_impact.get("comparison"))
     memory_cmp = _mapping(memory_slot_training_impact.get("comparison"))
     memory_review = _mapping(memory_slot_training_impact.get("review"))
+    latest_memory_report = _mapping(latest_memory_slot_training_impact)
     memory_slots = _mapping(training.get("memory_slots"))
     decisions = []
     if state_cmp:
@@ -1294,6 +1327,36 @@ def _backend_bottleneck_evidence(
             training.get("total_window_tokens_per_second")
         ),
         "complete_window_evidence_required_for_default_change": True,
+        "memory_slot_training_report_selection": {
+            "surface": (
+                "marulho_current_language_memory_slot_training_report_selection.v1"
+            ),
+            "latest_report_status": _string_or_none(
+                latest_memory_report.get("report_status")
+            ),
+            "latest_report_complete": (
+                _report_is_complete(latest_memory_report)
+                if latest_memory_report
+                else None
+            ),
+            "latest_completed_arm_names": _string_list(
+                latest_memory_report.get("completed_arm_names")
+            ),
+            "latest_missing_arm_names": _string_list(
+                latest_memory_report.get("missing_arm_names")
+            ),
+            "latest_partial_reason": _string_or_none(
+                latest_memory_report.get("partial_reason")
+            ),
+            "backend_decision_report_status": _string_or_none(
+                memory_slot_training_impact.get("report_status")
+            ),
+            "backend_decision_uses_latest_report": bool(
+                latest_memory_report
+                and latest_memory_slot_training_impact is memory_slot_training_impact
+            ),
+            "partial_reports_do_not_replace_complete_backend_decision": True,
+        },
         "decision_count": len(decisions),
         "decisions": decisions,
     }
