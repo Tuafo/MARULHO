@@ -226,13 +226,17 @@ harnesses.
   hard-prompt replay windows, learns through
   `MarulhoBrain.learn_language_window()`, saves/restores a repaired brain
   checkpoint, then re-scores public `MarulhoBrain.generate()` and can attach a
-  post-repair sustained run. The current CUDA report
-  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sustained524288-20260706.json`
-  repairs grounded prompt cases from `0/4` to `3/4`, records `98304` update
-  tokens at `3042.237` update tokens/sec, improves mean prefix match by `18.5`
-  chars with no prompt regressions, and reaches `524288/524288` post-repair
-  sustained tokens at `8120.458` tokens/sec with zero tracked Triton failures.
-  It is still evidence, not a broad generation-quality claim.
+  post-repair sustained run. It also supports multiple installed-brain repair
+  passes with per-pass generation deltas and aggregate update throughput. The
+  current CUDA report
+  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-multipass-sustained524288-20260706.json`
+  continues from the previous repaired `3/4` brain for `3` repair passes,
+  records `294912` update tokens at `2477.118` update tokens/sec, improves
+  mean prefix match by `4.75` chars with no prompt regressions, and reaches
+  `524288/524288` post-repair sustained tokens at `8109.102` tokens/sec with
+  zero tracked Triton failures. The prompt suite remains `3/4`, so
+  same-checkpoint generation coherence is still blocked. It is still evidence,
+  not a broad generation-quality claim.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or

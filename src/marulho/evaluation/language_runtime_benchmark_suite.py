@@ -1005,6 +1005,11 @@ def _brain_installed_generation_repair_summary(
         if isinstance(report.get("learning_summary"), Mapping)
         else {}
     )
+    aggregate_learning = (
+        report.get("aggregate_learning_summary")
+        if isinstance(report.get("aggregate_learning_summary"), Mapping)
+        else learning
+    )
     delta = (
         report.get("generation_quality_delta")
         if isinstance(report.get("generation_quality_delta"), Mapping)
@@ -1029,10 +1034,24 @@ def _brain_installed_generation_repair_summary(
         "repaired_brain_checkpoint_restore_verified": bool(
             checkpoint.get("restore_verified", False)
         ),
-        "update_token_count": int(learning.get("update_token_count", 0) or 0),
-        "tokens_per_second": float(learning.get("tokens_per_second", 0.0) or 0.0),
+        "update_token_count": int(
+            aggregate_learning.get("update_token_count", 0) or 0
+        ),
+        "tokens_per_second": float(
+            aggregate_learning.get("tokens_per_second", 0.0) or 0.0
+        ),
         "total_window_tokens_per_second": float(
-            learning.get("total_window_tokens_per_second", 0.0) or 0.0
+            aggregate_learning.get("total_window_tokens_per_second", 0.0) or 0.0
+        ),
+        "last_pass_update_token_count": int(
+            learning.get("update_token_count", 0) or 0
+        ),
+        "repair_pass_count": int(gate.get("repair_pass_count", 1) or 1),
+        "executed_repair_pass_count": int(
+            gate.get("executed_repair_pass_count", 1) or 1
+        ),
+        "stopped_after_generation_coherence_available": bool(
+            gate.get("stopped_after_generation_coherence_available", False)
         ),
         "final_parameter_delta_l2": float(
             learning.get("final_parameter_delta_l2", 0.0) or 0.0

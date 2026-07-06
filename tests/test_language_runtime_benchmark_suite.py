@@ -835,6 +835,23 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                     "total_window_tokens_per_second": 2501.25,
                     "final_parameter_delta_l2": 4.5,
                 },
+                "aggregate_learning_summary": {
+                    "surface": (
+                        "marulho_brain_installed_generation_repair_"
+                        "aggregate_learning_summary.v1"
+                    ),
+                    "brain_surface": "marulho_brain_language_learning_window.v1",
+                    "training_surface": "marulho_language_continual_learning_window.v1",
+                    "status": "accepted_online_update",
+                    "trace_event": "language_learn",
+                    "repair_pass_count": 2,
+                    "all_passes_record_language_learn_trace": True,
+                    "update_token_count": 524288,
+                    "tokens_per_second": 3010.5,
+                    "total_window_tokens_per_second": 2480.75,
+                    "last_pass_update_token_count": 262144,
+                    "final_parameter_delta_l2": 4.5,
+                },
                 "repaired_brain_checkpoint": {
                     "surface": "marulho_brain_generation_repair_checkpoint.v1",
                     "path": "reports/language_brain_generation/repaired.pt",
@@ -895,6 +912,12 @@ def _write_brain_installed_generation_repair_report(path) -> None:
                     "learning_runs_through_marulho_brain": True,
                     "language_learn_trace_recorded": True,
                     "records_actual_continual_learning": True,
+                    "repair_pass_count": 2,
+                    "executed_repair_pass_count": 2,
+                    "stop_when_generation_coherence_available": True,
+                    "stopped_after_generation_coherence_available": False,
+                    "total_update_token_count": 524288,
+                    "last_pass_update_token_count": 262144,
                     "repaired_brain_checkpoint_restore_verified": True,
                     "post_generation_runs_through_marulho_brain": True,
                     "case_count": 4,
@@ -1456,7 +1479,10 @@ def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(
     assert brain_repair["brain_installed_generation_repair_available"] is True
     assert brain_repair["valid_report_count"] == 1
     assert brain_repair["best_report"]["runtime_owner"] == "MarulhoBrain"
-    assert brain_repair["best_report"]["update_token_count"] == 262144
+    assert brain_repair["best_report"]["update_token_count"] == 524288
+    assert brain_repair["best_report"]["last_pass_update_token_count"] == 262144
+    assert brain_repair["best_report"]["repair_pass_count"] == 2
+    assert brain_repair["best_report"]["executed_repair_pass_count"] == 2
     assert brain_repair["best_report"]["pre_passed_case_count"] == 0
     assert brain_repair["best_report"]["post_passed_case_count"] == 2
     assert brain_repair["best_report"]["passed_case_count_delta"] == 2

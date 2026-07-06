@@ -133,17 +133,20 @@ records `generation_runs_through_marulho_brain=true`,
 `0/4` grounded prompt cases passed. This proves the installed generation path is
 owned by the brain surface, but it is not a language-quality promotion.
 `language_brain_generation_repair_evidence.py` verifies the next brain-owned
-quality repair step. It restores the post-structure brain, builds hard-prompt
-replay batches, calls `MarulhoBrain.learn_language_window()`, saves/restores a
-repaired brain checkpoint, and re-scores public `MarulhoBrain.generate()`. The
-current CUDA report
-`reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sustained524288-20260706.json`
-repairs the prompt suite from `0/4` to `3/4`, records `98304` update tokens at
-`3042.237` update tokens/sec, improves mean prefix match by `18.5` chars with
-no prompt regressions, restores the repaired checkpoint, and sustains
-`524288/524288` post-repair tokens at `8120.458` tokens/sec with zero tracked
-Triton failures. This is installed-brain learning and repair evidence, not a
-broad generation-quality promotion.
+quality repair step. It restores an installed brain checkpoint, builds
+hard-prompt replay batches, calls `MarulhoBrain.learn_language_window()`,
+saves/restores a repaired brain checkpoint, and re-scores public
+`MarulhoBrain.generate()`. It can run multiple installed-brain repair passes
+while recording per-pass generation deltas. The current CUDA report
+`reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-multipass-sustained524288-20260706.json`
+continues from the previous repaired `3/4` brain for `3` repair passes,
+records `294912` update tokens at `2477.118` update tokens/sec, improves mean
+prefix match by `4.75` chars with no prompt regressions, restores the repaired
+checkpoint, and sustains `524288/524288` post-repair tokens at `8109.102`
+tokens/sec with zero tracked Triton failures. The prompt suite remains `3/4`,
+so same-checkpoint generation coherence is still blocked. This is
+installed-brain learning and repair evidence, not a broad generation-quality
+promotion.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

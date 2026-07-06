@@ -107,6 +107,8 @@ def test_brain_installed_generation_repair_learns_and_rescores(
             max_steps=1,
             learning_rate=1e-3,
             replay_loss_weight=0.25,
+            repair_pass_count=2,
+            stop_when_generation_coherence_available=False,
             min_case_pass_rate=0.0,
             run_post_repair_sustained=False,
             device="cpu",
@@ -121,6 +123,14 @@ def test_brain_installed_generation_repair_learns_and_rescores(
     assert report["status_read_mutation"] is False
     assert report["learning_summary"]["trace_event"] == "language_learn"
     assert report["learning_summary"]["update_token_count"] > 0
+    assert report["aggregate_learning_summary"]["repair_pass_count"] == 2
+    assert report["aggregate_learning_summary"]["update_token_count"] >= (
+        report["learning_summary"]["update_token_count"]
+    )
+    assert report["executed_repair_pass_count"] == 2
+    assert len(report["repair_passes"]) == 2
+    assert report["promotion_gate"]["repair_pass_count"] == 2
+    assert report["promotion_gate"]["executed_repair_pass_count"] == 2
     assert report["repaired_brain_checkpoint"]["restore_verified"] is True
     assert report["pre_generation_coherence"]["active_language_path"] == (
         "marulho_lm_head"

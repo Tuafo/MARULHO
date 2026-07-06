@@ -70,6 +70,8 @@ class BrainInstalledGenerationRepairEvidenceConfig:
     replay_retention_tolerance: float = 100.0
     rollback_on_forgetting: bool = False
     collect_training_telemetry: bool = False
+    repair_pass_count: int = 1
+    stop_when_generation_coherence_available: bool = True
     min_case_pass_rate: float = 1.0
     generation_repetition_penalty: float = 1.15
     generation_no_repeat_ngram_size: int = 3
@@ -192,6 +194,155 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
             ),
         },
         "rollback_evidence": dict(rollback),
+    }
+
+
+def _weighted_tokens_per_second(
+    summaries: Sequence[Mapping[str, Any]],
+    *,
+    tokens_key: str,
+    throughput_key: str,
+) -> float:
+    token_total = 0
+    elapsed_total = 0.0
+    for summary in summaries:
+        tokens = int(summary.get(tokens_key, 0) or 0)
+        throughput = float(summary.get(throughput_key, 0.0) or 0.0)
+        if tokens <= 0:
+            continue
+        token_total += tokens
+        if throughput > 0.0:
+            elapsed_total += float(tokens) / throughput
+    if token_total > 0 and elapsed_total > 0.0:
+        return float(token_total) / elapsed_total
+    if summaries:
+        return float(summaries[-1].get(throughput_key, 0.0) or 0.0)
+    return 0.0
+
+
+def _aggregate_learning_summaries(
+    summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not summaries:
+        return {
+            "surface": "marulho_brain_installed_generation_repair_aggregate_learning_summary.v1",
+            "repair_pass_count": 0,
+            "update_token_count": 0,
+            "tokens_per_second": 0.0,
+            "total_window_tokens_per_second": 0.0,
+            "all_passes_record_language_learn_trace": False,
+        }
+    last = dict(summaries[-1])
+    total_update_tokens = sum(
+        int(summary.get("update_token_count", 0) or 0) for summary in summaries
+    )
+    kernel_names: set[str] = set()
+    fallback_count = 0
+    failure_count = 0
+    for summary in summaries:
+        accounting = (
+            summary.get("training_window_triton_accounting")
+            if isinstance(summary.get("training_window_triton_accounting"), Mapping)
+            else {}
+        )
+        kernel_names.update(accounting.get("tracked_triton_kernel_used_names") or [])
+        fallback_count += int(
+            accounting.get("tracked_torch_fallback_call_count", 0) or 0
+        )
+        failure_count += int(
+            accounting.get("tracked_triton_failure_count", 0) or 0
+        )
+    return {
+        "surface": "marulho_brain_installed_generation_repair_aggregate_learning_summary.v1",
+        "brain_surface": last.get("brain_surface"),
+        "training_surface": last.get("training_surface"),
+        "status": last.get("status"),
+        "trace_event": last.get("trace_event"),
+        "repair_pass_count": len(summaries),
+        "all_passes_record_language_learn_trace": all(
+            summary.get("trace_event") == "language_learn" for summary in summaries
+        ),
+        "all_passes_mutate_language_model_weights": all(
+            bool(summary.get("mutates_language_model_weights", False))
+            for summary in summaries
+        ),
+        "update_token_count": int(total_update_tokens),
+        "tokens_per_second": _weighted_tokens_per_second(
+            summaries,
+            tokens_key="update_token_count",
+            throughput_key="tokens_per_second",
+        ),
+        "total_window_tokens_per_second": _weighted_tokens_per_second(
+            summaries,
+            tokens_key="update_token_count",
+            throughput_key="total_window_tokens_per_second",
+        ),
+        "last_pass_update_token_count": int(
+            last.get("update_token_count", 0) or 0
+        ),
+        "last_pass_tokens_per_second": float(
+            last.get("tokens_per_second", 0.0) or 0.0
+        ),
+        "last_pass_total_window_tokens_per_second": float(
+            last.get("total_window_tokens_per_second", 0.0) or 0.0
+        ),
+        "new_domain_loss_delta": float(
+            last.get("new_domain_loss_delta", 0.0) or 0.0
+        ),
+        "old_domain_forgetting": float(
+            last.get("old_domain_forgetting", 0.0) or 0.0
+        ),
+        "general_replay_retention_delta": float(
+            last.get("general_replay_retention_delta", 0.0) or 0.0
+        ),
+        "final_parameter_delta_l2": float(
+            last.get("final_parameter_delta_l2", 0.0) or 0.0
+        ),
+        "device": last.get("device"),
+        "memory_slots": dict(last.get("memory_slots") or {}),
+        "training_window_triton_accounting": {
+            "tracked_triton_kernel_used_names": sorted(
+                str(name) for name in kernel_names
+            ),
+            "tracked_torch_fallback_call_count": int(fallback_count),
+            "tracked_triton_failure_count": int(failure_count),
+        },
+        "rollback_evidence": dict(last.get("rollback_evidence") or {}),
+    }
+
+
+def _generation_pass_summary(
+    generation: Mapping[str, Any],
+    *,
+    delta_from_initial: Mapping[str, Any],
+    delta_from_previous: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = (
+        generation.get("summary")
+        if isinstance(generation.get("summary"), Mapping)
+        else {}
+    )
+    gate = (
+        generation.get("promotion_gate")
+        if isinstance(generation.get("promotion_gate"), Mapping)
+        else {}
+    )
+    return {
+        "surface": "marulho_brain_generation_repair_pass_generation_summary.v1",
+        "active_language_path": generation.get("active_language_path"),
+        "owned_by_marulho": bool(generation.get("owned_by_marulho", False)),
+        "external_llm_used": bool(generation.get("external_llm_used", True)),
+        "case_count": int(summary.get("case_count", 0) or 0),
+        "passed_case_count": int(summary.get("passed_case_count", 0) or 0),
+        "case_pass_rate": float(summary.get("case_pass_rate", 0.0) or 0.0),
+        "mean_prefix_match_chars": float(
+            summary.get("mean_prefix_match_chars", 0.0) or 0.0
+        ),
+        "generation_coherence_available": bool(
+            gate.get("generation_coherence_available", False)
+        ),
+        "delta_from_initial": dict(delta_from_initial),
+        "delta_from_previous": dict(delta_from_previous),
     }
 
 
@@ -386,13 +537,72 @@ def build_language_brain_installed_generation_repair_evidence(
             rollback_on_forgetting=bool(cfg.rollback_on_forgetting),
             collect_training_telemetry=bool(cfg.collect_training_telemetry),
         )
-        learning = brain.learn_language_window(
-            new_batches=used_new_batches,
-            old_eval_batches=used_old_eval_batches,
-            new_eval_batches=used_new_eval_batches,
-            replay_batches=used_replay_batches,
-            config=learning_config,
-        )
+        repair_passes: list[dict[str, Any]] = []
+        learning_windows: list[dict[str, Any]] = []
+        learning_summaries: list[dict[str, Any]] = []
+        previous_generation: Mapping[str, Any] = pre_generation
+        max_repair_passes = max(1, int(cfg.repair_pass_count))
+        stopped_after_generation_coherence = False
+        learning: Mapping[str, Any] = {}
+        for pass_index in range(max_repair_passes):
+            learning = brain.learn_language_window(
+                new_batches=used_new_batches,
+                old_eval_batches=used_old_eval_batches,
+                new_eval_batches=used_new_eval_batches,
+                replay_batches=used_replay_batches,
+                config=learning_config,
+            )
+            learning_windows.append(dict(learning))
+            pass_learning_summary = _learning_summary(learning)
+            learning_summaries.append(pass_learning_summary)
+            pass_generation = _score_generation(
+                brain,
+                tokenizer=tokenizer,
+                prompt_cases=cases,
+                checkpoint_path=repaired_checkpoint,
+                config=cfg,
+            )
+            delta_from_initial = _coherence_delta(pre_generation, pass_generation)
+            delta_from_previous = _coherence_delta(
+                previous_generation,
+                pass_generation,
+            )
+            generation_summary = _generation_pass_summary(
+                pass_generation,
+                delta_from_initial=delta_from_initial,
+                delta_from_previous=delta_from_previous,
+            )
+            repair_passes.append(
+                {
+                    "surface": "marulho_brain_generation_repair_pass.v1",
+                    "pass_index": pass_index,
+                    "pass_number": pass_index + 1,
+                    "learning_summary": pass_learning_summary,
+                    "generation_summary": generation_summary,
+                    "quality_repair_observed": (
+                        int(
+                            delta_from_initial.get("passed_case_count_delta", 0)
+                            or 0
+                        )
+                        > 0
+                        or float(
+                            delta_from_initial.get(
+                                "mean_prefix_match_chars_delta",
+                                0.0,
+                            )
+                            or 0.0
+                        )
+                        > 0.0
+                    ),
+                }
+            )
+            previous_generation = pass_generation
+            if (
+                bool(cfg.stop_when_generation_coherence_available)
+                and bool(generation_summary["generation_coherence_available"])
+            ):
+                stopped_after_generation_coherence = True
+                break
         learned_status = brain.status()
         repaired_save = brain.save(repaired_checkpoint)
         repaired_restored = MarulhoBrain.load(repaired_save["path"])
@@ -406,6 +616,7 @@ def build_language_brain_installed_generation_repair_evidence(
         )
         delta = _coherence_delta(pre_generation, post_generation)
         learning_summary = _learning_summary(learning)
+        aggregate_learning_summary = _aggregate_learning_summaries(learning_summaries)
         post_repair_sustained: dict[str, Any] = {
             "surface": "marulho_brain_post_generation_repair_sustained_summary.v1",
             "enabled": False,
@@ -443,7 +654,9 @@ def build_language_brain_installed_generation_repair_evidence(
             if isinstance(post_generation.get("summary"), Mapping)
             else {}
         )
-        update_tokens = int(learning_summary.get("update_token_count", 0) or 0)
+        update_tokens = int(
+            aggregate_learning_summary.get("update_token_count", 0) or 0
+        )
         quality_repair_observed = (
             int(delta.get("passed_case_count_delta", 0) or 0) > 0
             or float(delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0) > 0.0
@@ -462,8 +675,16 @@ def build_language_brain_installed_generation_repair_evidence(
             and post_generation.get("owned_by_marulho") is True
             and pre_generation.get("external_llm_used") is False
             and post_generation.get("external_llm_used") is False
-            and learning.get("surface") == "marulho_brain_language_learning_window.v1"
-            and learning_summary.get("trace_event") == "language_learn"
+            and all(
+                window.get("surface") == "marulho_brain_language_learning_window.v1"
+                for window in learning_windows
+            )
+            and bool(
+                aggregate_learning_summary.get(
+                    "all_passes_record_language_learn_trace",
+                    False,
+                )
+            )
             and update_tokens > 0
             and bool(repaired_checkpoint_report["restore_verified"])
             and (
@@ -521,7 +742,14 @@ def build_language_brain_installed_generation_repair_evidence(
                 },
                 "continual_learning_config": asdict(learning_config),
                 "learning_window": dict(learning),
+                "learning_windows": learning_windows,
                 "learning_summary": learning_summary,
+                "aggregate_learning_summary": aggregate_learning_summary,
+                "repair_passes": repair_passes,
+                "executed_repair_pass_count": len(repair_passes),
+                "stopped_after_generation_coherence_available": bool(
+                    stopped_after_generation_coherence
+                ),
                 "pre_generation_coherence": dict(pre_generation),
                 "post_generation_coherence": dict(post_generation),
                 "generation_quality_delta": dict(delta),
@@ -539,10 +767,13 @@ def build_language_brain_installed_generation_repair_evidence(
                 "status_read_mutation": bool(status_read_mutation),
                 "update_token_count": update_tokens,
                 "tokens_per_second": float(
-                    learning_summary.get("tokens_per_second", 0.0) or 0.0
+                    aggregate_learning_summary.get("tokens_per_second", 0.0) or 0.0
                 ),
                 "total_window_tokens_per_second": float(
-                    learning_summary.get("total_window_tokens_per_second", 0.0)
+                    aggregate_learning_summary.get(
+                        "total_window_tokens_per_second",
+                        0.0,
+                    )
                     or 0.0
                 ),
             }
@@ -561,12 +792,29 @@ def build_language_brain_installed_generation_repair_evidence(
                 pre_generation.get("owned_by_marulho") is True
                 and pre_generation.get("active_language_path") == "marulho_lm_head"
             ),
-            "learning_runs_through_marulho_brain": bool(
-                learning.get("surface") == "marulho_brain_language_learning_window.v1"
+            "learning_runs_through_marulho_brain": all(
+                window.get("surface") == "marulho_brain_language_learning_window.v1"
+                for window in learning_windows
             ),
-            "language_learn_trace_recorded": learning_summary.get("trace_event")
-            == "language_learn",
+            "language_learn_trace_recorded": bool(
+                aggregate_learning_summary.get(
+                    "all_passes_record_language_learn_trace",
+                    False,
+                )
+            ),
             "records_actual_continual_learning": update_tokens > 0,
+            "repair_pass_count": int(max_repair_passes),
+            "executed_repair_pass_count": len(repair_passes),
+            "stop_when_generation_coherence_available": bool(
+                cfg.stop_when_generation_coherence_available
+            ),
+            "stopped_after_generation_coherence_available": bool(
+                stopped_after_generation_coherence
+            ),
+            "total_update_token_count": update_tokens,
+            "last_pass_update_token_count": int(
+                learning_summary.get("update_token_count", 0) or 0
+            ),
             "repaired_brain_checkpoint_restore_verified": bool(
                 repaired_checkpoint_report["restore_verified"]
             ),
@@ -681,6 +929,11 @@ def main() -> int:
     parser.add_argument("--replay-retention-tolerance", type=float, default=100.0)
     parser.add_argument("--rollback-on-forgetting", action="store_true")
     parser.add_argument("--collect-training-telemetry", action="store_true")
+    parser.add_argument("--repair-pass-count", type=int, default=1)
+    parser.add_argument(
+        "--disable-stop-when-generation-coherence-available",
+        action="store_true",
+    )
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=3)
@@ -731,6 +984,10 @@ def main() -> int:
             replay_retention_tolerance=float(args.replay_retention_tolerance),
             rollback_on_forgetting=bool(args.rollback_on_forgetting),
             collect_training_telemetry=bool(args.collect_training_telemetry),
+            repair_pass_count=max(1, int(args.repair_pass_count)),
+            stop_when_generation_coherence_available=not bool(
+                args.disable_stop_when_generation_coherence_available
+            ),
             min_case_pass_rate=float(args.min_case_pass_rate),
             generation_repetition_penalty=max(
                 1.0,
