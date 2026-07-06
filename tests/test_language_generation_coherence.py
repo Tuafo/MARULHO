@@ -12,6 +12,7 @@ from marulho.evaluation.language_generation_coherence import (
     auto_source_prompt_cases,
     run_language_generation_coherence_report,
 )
+from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
 
 class _FakeGenerationModel:
@@ -94,8 +95,14 @@ def test_language_generation_coherence_report_passes_grounded_prompt_suite(
     assert report["promotion_gate"]["human_review_available"] is False
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
     assert report["summary"]["passed_case_count"] == 1
+    assert report["summary"]["source_continuation_loss_available"] is False
+    assert report["summary"]["source_continuation_loss_case_count"] == 0
     assert report["cases"][0]["passed"] is True
     assert report["cases"][0]["external_llm_used"] is False
+    assert report["cases"][0]["source_continuation_loss"]["enabled"] is False
+    assert report["cases"][0]["source_continuation_loss"]["reason"] == (
+        "model_forward_unavailable"
+    )
     assert "learns runtime evidence" in report["cases"][0]["continuation_text"]
     prompt_case = report["prompt_suite"]["prompt_cases"][0]
     assert prompt_case["prompt_text"] == "MARULHO"
@@ -137,6 +144,46 @@ def test_language_generation_coherence_report_records_decode_controls() -> None:
     assert decode["no_repeat_ngram_size"] == 2
     assert decode["decode_controls_backend"] == "torch_device_tensor"
     assert decode["decode_controls_cpu_token_copy"] is False
+
+
+def test_language_generation_coherence_report_records_prompt_continuation_loss() -> None:
+    torch.manual_seed(20260706)
+    tokenizer = ByteLevelLanguageTokenizer()
+    source_text = "MARULHO learns runtime evidence from local source windows."
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+        )
+    )
+
+    report = run_language_generation_coherence_report(
+        model,
+        tokenizer,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="MARULHO",
+                source_text=source_text,
+                max_new_tokens=8,
+                min_new_tokens=1,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+            ),
+        ),
+    )
+
+    loss = report["cases"][0]["source_continuation_loss"]
+    assert loss["surface"] == "marulho_language_generation_source_continuation_loss.v1"
+    assert loss["enabled"] is True
+    assert loss["reason"] is None
+    assert loss["loss"] > 0.0
+    assert loss["perplexity"] > 0.0
+    assert loss["evaluated_token_count"] > 0
+    assert loss["decode_vocab_only"] is True
+    assert report["summary"]["source_continuation_loss_available"] is True
+    assert report["summary"]["source_continuation_loss_case_count"] == 1
+    assert report["summary"]["mean_source_continuation_loss"] == loss["loss"]
 
 
 def test_auto_source_prompt_cases_anchor_to_source_and_skip_headers() -> None:

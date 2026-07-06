@@ -346,6 +346,20 @@ def _coherence_delta(
 ) -> dict[str, Any]:
     before_summary = dict(before.get("summary") or {})
     after_summary = dict(after.get("summary") or {})
+    before_loss_available = bool(
+        before_summary.get("source_continuation_loss_available", False)
+    )
+    after_loss_available = bool(
+        after_summary.get("source_continuation_loss_available", False)
+    )
+    before_loss = float(before_summary.get("mean_source_continuation_loss", 0.0) or 0.0)
+    after_loss = float(after_summary.get("mean_source_continuation_loss", 0.0) or 0.0)
+    before_perplexity = float(
+        before_summary.get("mean_source_continuation_perplexity", 0.0) or 0.0
+    )
+    after_perplexity = float(
+        after_summary.get("mean_source_continuation_perplexity", 0.0) or 0.0
+    )
     before_cases = {
         str(case.get("prompt_text")): case for case in before.get("cases", ())
     }
@@ -380,6 +394,20 @@ def _coherence_delta(
             after_summary.get("next_character_match_rate", 0.0) or 0.0
         )
         - float(before_summary.get("next_character_match_rate", 0.0) or 0.0),
+        "source_continuation_loss_available": bool(
+            before_loss_available and after_loss_available
+        ),
+        "mean_source_continuation_loss_before": before_loss,
+        "mean_source_continuation_loss_after": after_loss,
+        "mean_source_continuation_loss_delta": after_loss - before_loss,
+        "mean_source_continuation_loss_improved": bool(
+            before_loss_available and after_loss_available and after_loss < before_loss
+        ),
+        "mean_source_continuation_perplexity_before": before_perplexity,
+        "mean_source_continuation_perplexity_after": after_perplexity,
+        "mean_source_continuation_perplexity_delta": (
+            after_perplexity - before_perplexity
+        ),
         "repaired_prompt_count": len(repaired_prompts),
         "repaired_prompts": repaired_prompts,
         "regressed_prompt_count": len(regressed_prompts),

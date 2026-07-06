@@ -400,6 +400,13 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["generation_coherence_delta"]["surface"] == (
         "marulho_language_quality_replay_coherence_delta.v1"
     )
+    assert report["generation_coherence_delta"][
+        "source_continuation_loss_available"
+    ] is True
+    assert isinstance(
+        report["generation_coherence_delta"]["mean_source_continuation_loss_delta"],
+        float,
+    )
     assert report["heldout_prompt_suite"]["enabled"] is True
     assert report["heldout_prompt_suite"]["case_count"] == 2
     assert report["heldout_prompt_suite"]["source"] == "explicit_heldout_prompt_cases"
@@ -415,6 +422,9 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["heldout_generation_coherence_delta"]["surface"] == (
         "marulho_language_quality_replay_coherence_delta.v1"
     )
+    assert report["heldout_generation_coherence_delta"][
+        "source_continuation_loss_available"
+    ] is True
     assert report["quality_generalization_review"]["surface"] == (
         "marulho_language_quality_replay_generalization_review.v1"
     )
@@ -586,6 +596,12 @@ def test_language_quality_replay_experiment_selects_from_multiple_child_candidat
         candidate["learning_config"]["replay_gradient_projection_mode"]
         for candidate in selection["candidates"]
     ] == ["disabled", "dense_core"]
+    assert all(
+        candidate["trained_generation_coherence_delta"][
+            "source_continuation_loss_available"
+        ]
+        for candidate in selection["candidates"]
+    )
     assert len(selected_candidates) == 1
     assert all(
         candidate["learning_update_accepted"] for candidate in selection["candidates"]

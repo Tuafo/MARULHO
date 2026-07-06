@@ -324,7 +324,13 @@ harnesses.
   build grounded prompt cases from the supplied source corpus. Prompt-suite
   metadata records prompt text, thresholds, source hash, source length, and
   `raw_source_text_retained=false` instead of repeating large source bodies in
-  every prompt case.
+  every prompt case. Each case also records
+  `marulho_language_generation_source_continuation_loss.v1` when model forward
+  loss is available, using decode-vocab logits over the expected source
+  continuation. The summary includes mean prompt-continuation loss,
+  perplexity, evaluated token count, and full-model-vocab materialization
+  truth so prompt repair can be checked against loss instead of pass counts
+  alone.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -352,7 +358,10 @@ harnesses.
   `--heldout-coherence-prompt-evidence` or
   `--failed-heldout-coherence-prompt-evidence`. Reports expose any overlap
   between hard-prompt replay cases and heldout cases so validation cannot
-  silently train on its own prompt bank.
+  silently train on its own prompt bank. Trained and heldout coherence deltas
+  now preserve before/after prompt-continuation loss and perplexity deltas, so a
+  child can show whether a pass-rate change came with a better source
+  continuation loss signal.
 - The current NVIDIA/Nemotron open-curriculum replay report
   `reports/language_quality_replay/nvidia-open-repair-preview-128x-auto-quality-replay-20260706.json`
   starts from the 128x materialized-corpus checkpoint, accepts `1048576`
@@ -395,16 +404,35 @@ harnesses.
   `cuda:0` through `torch_cuda_graph_burst_decode_controls`, with graph burst
   covering all generated tokens, zero CUDA graph failures, zero tracked Triton
   failures or fallbacks, active columns `14/16`, and `197888` active parameters
-  per token. The paired suites
+  per token. This extended sustained report is inference evidence, not a
+  training/update run. The follow-up long training report
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-anchor-repair7-failedprompt-train8388608-20260706.json`
+  starts from the selected repair7 child, imports only the failed `I'm ready to`
+  case as hard-prompt pressure, accepts `8388608` update tokens at `5420.404`
+  update tokens/sec and `5202.127` total-window tokens/sec, repairs that prompt
+  from `0/1` to `1/1`, improves its source-continuation loss from `0.7726` to
+  `0.6272`, keeps the non-overlapping heldout bank at `10/10` with zero pass
+  regressions, and reaches same-child `524288/524288` controlled sustained
+  decode at `8668.199` tokens/sec. The full-bank diagnostic
+  `reports/language_generation_coherence/nvidia-open-repair-preview-128x-anchor-repair7-failedprompt-train8388608-fullbank-diagnostic-20260706.json`
+  moves the original 10 auto-source prompt bank from `9/10` to `10/10`; mean
+  full-bank loss stays roughly flat (`0.8341` before, `0.8354` after), so the
+  main win is repairing the failed greedy prompt under replay/anchor protection,
+  not broad fluency. The aggregate suite
+  `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-failedprompt-train8388608-20260706.json`
+  is `ready_for_review` with no missing required categories and still keeps
+  `promotes_runtime_claim=false`.
+  Earlier paired suites
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
   and
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-fixed-heldout-repair5-sweep-20260706.json`
   through
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-anchor-repair7-sweep-20260706.json`
   remain `blocked_missing_required_evidence` on required generation coherence
-  because no selected child currently has both full trained-prompt coherence and
-  full heldout coherence. Treat this as data-backed repair progress plus speed
-  evidence, not generation-quality promotion.
+  because those selected children did not have both full trained-prompt coherence
+  and full heldout coherence. Treat this as data-backed repair progress plus speed
+  evidence, not generation-quality promotion; raw continuations after the
+  matched prefix still need quality work.
   `language_quality_replay_experiment.py` can now sweep
   `replay_gradient_projection_mode` per child candidate so future
   anti-interference runs can compare disabled and dense-core projection without

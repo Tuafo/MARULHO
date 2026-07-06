@@ -10,6 +10,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 import torch
+import torch.nn.functional as F
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_training_experiment import DEFAULT_CORPUS
@@ -229,6 +230,109 @@ def _expected_source_continuation(
     }
 
 
+def _source_continuation_loss_case(
+    model: MarulhoLanguageModel,
+    tokenizer: ByteLevelLanguageTokenizer,
+    case: LanguageGenerationPromptCase,
+) -> dict[str, Any]:
+    base = {
+        "surface": "marulho_language_generation_source_continuation_loss.v1",
+        "enabled": False,
+        "reason": None,
+        "loss": None,
+        "perplexity": None,
+        "perplexity_capped": False,
+        "evaluated_token_count": 0,
+        "prompt_token_count": 0,
+        "decode_vocab_only": True,
+        "full_model_vocab_logits_materialized": None,
+    }
+    if not hasattr(model, "forward"):
+        return {**base, "reason": "model_forward_unavailable"}
+    source_index = str(case.source_text).find(str(case.prompt_text))
+    if source_index < 0:
+        return {**base, "reason": "prompt_not_found_in_source"}
+    prompt_ids = tokenizer.encode(case.prompt_text, add_eos=False)
+    continuation_text = str(case.source_text)[
+        source_index + len(str(case.prompt_text)) :
+    ]
+    continuation_ids = tokenizer.encode(continuation_text, add_eos=False)[
+        : max(0, int(case.max_new_tokens))
+    ]
+    if not prompt_ids:
+        return {**base, "reason": "empty_prompt_tokens"}
+    if not continuation_ids:
+        return {
+            **base,
+            "reason": "empty_source_continuation_tokens",
+            "prompt_token_count": int(len(prompt_ids)),
+        }
+    combined_ids = prompt_ids + continuation_ids
+    input_ids = torch.tensor([combined_ids[:-1]], dtype=torch.long)
+    target_ids = torch.tensor(combined_ids[1:], dtype=torch.long)
+    continuation_start = max(0, len(prompt_ids) - 1)
+    continuation_stop = continuation_start + len(continuation_ids)
+    was_training = bool(getattr(model, "training", False))
+    try:
+        if hasattr(model, "eval"):
+            model.eval()
+        with torch.no_grad():
+            output = model.forward(
+                input_ids,
+                collect_telemetry=False,
+                decode_vocab_only=True,
+            )
+            logits = output["logits"][0, continuation_start:continuation_stop, :]
+            targets = target_ids[continuation_start:continuation_stop].to(
+                device=logits.device,
+                dtype=torch.long,
+            )
+            if logits.numel() == 0 or targets.numel() == 0:
+                return {
+                    **base,
+                    "reason": "empty_loss_window",
+                    "prompt_token_count": int(len(prompt_ids)),
+                }
+            if int(targets.max().detach().cpu().item()) >= int(logits.shape[-1]):
+                return {
+                    **base,
+                    "reason": "target_outside_decode_vocab",
+                    "prompt_token_count": int(len(prompt_ids)),
+                    "evaluated_token_count": int(targets.numel()),
+                    "generation_vocab_size": int(logits.shape[-1]),
+                }
+            loss = F.cross_entropy(logits, targets)
+            loss_value = float(loss.detach().cpu().item())
+            perplexity_capped = bool(loss_value > 80.0)
+            perplexity = float(
+                torch.exp(torch.clamp(loss.detach(), max=80.0)).cpu().item()
+            )
+            generation_vocab_size = int(logits.shape[-1])
+            model_vocab_size = int(
+                getattr(model.config, "vocab_size", generation_vocab_size)
+            )
+            return {
+                **base,
+                "enabled": True,
+                "reason": None,
+                "loss": loss_value,
+                "perplexity": perplexity,
+                "perplexity_capped": perplexity_capped,
+                "evaluated_token_count": int(targets.numel()),
+                "prompt_token_count": int(len(prompt_ids)),
+                "source_continuation_token_count": int(len(continuation_ids)),
+                "continuation_target_start_index": int(continuation_start),
+                "generation_vocab_size": generation_vocab_size,
+                "model_vocab_size": model_vocab_size,
+                "full_model_vocab_logits_materialized": bool(
+                    generation_vocab_size >= model_vocab_size
+                ),
+            }
+    finally:
+        if was_training and hasattr(model, "train"):
+            model.train()
+
+
 def _decoded_generation_case(
     model: MarulhoLanguageModel,
     tokenizer: ByteLevelLanguageTokenizer,
@@ -264,6 +368,11 @@ def _decoded_generation_case(
         max_chars=len(continuation_text),
     )
     expected_text = str(expected["expected_source_continuation"])
+    source_continuation_loss = _source_continuation_loss_case(
+        model,
+        tokenizer,
+        case,
+    )
     prefix_match_chars = _common_prefix_length(expected_text, continuation_text)
     prefix_match_fraction = (
         float(prefix_match_chars) / float(len(expected_text)) if expected_text else 0.0
@@ -330,6 +439,7 @@ def _decoded_generation_case(
         "continuation_sequence_hash": tokenizer.sequence_hash(continuation_ids),
         "source_prompt_found": source_prompt_found,
         "expected_source_continuation": expected_text,
+        "source_continuation_loss": source_continuation_loss,
         "next_character_matches_source": next_character_matches_source,
         "prefix_match_chars": int(prefix_match_chars),
         "prefix_match_fraction": float(prefix_match_fraction),
@@ -352,6 +462,11 @@ def _decoded_generation_case(
 def _coherence_summary(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     case_count = len(cases)
     passed_cases = [case for case in cases if bool(case.get("passed"))]
+    loss_reports = [
+        dict(case.get("source_continuation_loss") or {})
+        for case in cases
+        if bool(dict(case.get("source_continuation_loss") or {}).get("enabled", False))
+    ]
     return {
         "surface": "marulho_language_generation_coherence_summary.v1",
         "case_count": int(case_count),
@@ -378,6 +493,17 @@ def _coherence_summary(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 1.0 if bool(case.get("next_character_matches_source")) else 0.0
                 for case in cases
             ]
+        ),
+        "source_continuation_loss_available": bool(loss_reports),
+        "source_continuation_loss_case_count": int(len(loss_reports)),
+        "mean_source_continuation_loss": _mean(
+            [float(item.get("loss", 0.0) or 0.0) for item in loss_reports]
+        ),
+        "mean_source_continuation_perplexity": _mean(
+            [float(item.get("perplexity", 0.0) or 0.0) for item in loss_reports]
+        ),
+        "source_continuation_loss_token_count": int(
+            sum(int(item.get("evaluated_token_count", 0) or 0) for item in loss_reports)
         ),
     }
 
