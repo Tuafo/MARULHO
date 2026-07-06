@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -46,6 +46,18 @@ from marulho.training.language_model import (
 
 SURFACE = "marulho_language_brain_installed_generation_repair_evidence.v1"
 ARTIFACT_KIND = "marulho_language_brain_installed_generation_repair_evidence"
+SWEEP_SURFACE = "marulho_language_brain_installed_generation_repair_sweep.v1"
+SWEEP_ARTIFACT_KIND = "marulho_language_brain_installed_generation_repair_sweep"
+
+
+@dataclass(frozen=True)
+class _RepairCandidateSpec:
+    index: int
+    candidate_id: str
+    learning_rate: float
+    replay_loss_weight: float
+    max_steps: int
+    repair_pass_count: int
 
 
 @dataclass(frozen=True)
@@ -72,6 +84,10 @@ class BrainInstalledGenerationRepairEvidenceConfig:
     collect_training_telemetry: bool = False
     repair_pass_count: int = 1
     stop_when_generation_coherence_available: bool = True
+    candidate_learning_rates: tuple[float, ...] = ()
+    candidate_replay_loss_weights: tuple[float, ...] = ()
+    candidate_max_steps: tuple[int, ...] = ()
+    candidate_repair_pass_counts: tuple[int, ...] = ()
     min_case_pass_rate: float = 1.0
     generation_repetition_penalty: float = 1.15
     generation_no_repeat_ngram_size: int = 3
@@ -91,6 +107,78 @@ def _trim(batches: Sequence[LanguageBatch], limit: int) -> tuple[LanguageBatch, 
     if int(limit) <= 0:
         return tuple(batches)
     return tuple(batches[: int(limit)])
+
+
+def _candidate_value(
+    values: Sequence[float] | Sequence[int],
+    index: int,
+    default: float | int,
+) -> float | int:
+    if not values:
+        return default
+    if int(index) < len(values):
+        return values[int(index)]
+    return values[-1]
+
+
+def _repair_candidate_specs(
+    config: BrainInstalledGenerationRepairEvidenceConfig,
+) -> tuple[_RepairCandidateSpec, ...]:
+    learning_rates = tuple(float(value) for value in config.candidate_learning_rates)
+    replay_weights = tuple(
+        float(value) for value in config.candidate_replay_loss_weights
+    )
+    max_steps = tuple(int(value) for value in config.candidate_max_steps)
+    repair_passes = tuple(int(value) for value in config.candidate_repair_pass_counts)
+    candidate_count = max(
+        1,
+        len(learning_rates),
+        len(replay_weights),
+        len(max_steps),
+        len(repair_passes),
+    )
+    return tuple(
+        _RepairCandidateSpec(
+            index=index,
+            candidate_id=f"candidate-{index:02d}",
+            learning_rate=float(
+                _candidate_value(learning_rates, index, float(config.learning_rate))
+            ),
+            replay_loss_weight=float(
+                _candidate_value(
+                    replay_weights,
+                    index,
+                    float(config.replay_loss_weight),
+                )
+            ),
+            max_steps=int(_candidate_value(max_steps, index, int(config.max_steps))),
+            repair_pass_count=max(
+                1,
+                int(
+                    _candidate_value(
+                        repair_passes,
+                        index,
+                        int(config.repair_pass_count),
+                    )
+                ),
+            ),
+        )
+        for index in range(candidate_count)
+    )
+
+
+def _candidate_artifact_path(
+    output: Path,
+    *,
+    candidate_count: int,
+    candidate_index: int,
+    suffix: str,
+) -> Path:
+    if int(candidate_count) <= 1:
+        return output.with_name(f"{output.stem}-{suffix}")
+    return output.with_name(
+        f"{output.stem}-candidate-{int(candidate_index):02d}-{suffix}"
+    )
 
 
 def _language_model_status(status: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -343,6 +431,135 @@ def _generation_pass_summary(
         ),
         "delta_from_initial": dict(delta_from_initial),
         "delta_from_previous": dict(delta_from_previous),
+    }
+
+
+def _summary_from_generation(generation: Mapping[str, Any]) -> Mapping[str, Any]:
+    summary = generation.get("summary")
+    return summary if isinstance(summary, Mapping) else {}
+
+
+def _gate_from_report(report: Mapping[str, Any]) -> Mapping[str, Any]:
+    gate = report.get("promotion_gate")
+    return gate if isinstance(gate, Mapping) else {}
+
+
+def _candidate_selection_rank(report: Mapping[str, Any]) -> tuple[float, ...]:
+    gate = _gate_from_report(report)
+    delta = (
+        report.get("generation_quality_delta")
+        if isinstance(report.get("generation_quality_delta"), Mapping)
+        else {}
+    )
+    post = (
+        report.get("post_generation_coherence")
+        if isinstance(report.get("post_generation_coherence"), Mapping)
+        else {}
+    )
+    post_summary = _summary_from_generation(post)
+    return (
+        1.0 if report.get("report_status") == "final" else 0.0,
+        -float(delta.get("regressed_prompt_count", 0) or 0),
+        1.0
+        if bool(
+            (
+                post.get("promotion_gate")
+                if isinstance(post.get("promotion_gate"), Mapping)
+                else {}
+            ).get("generation_coherence_available", False)
+        )
+        else 0.0,
+        float(post_summary.get("passed_case_count", 0) or 0),
+        float(delta.get("passed_case_count_delta", 0) or 0),
+        float(delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0),
+        float(post_summary.get("mean_prefix_match_chars", 0.0) or 0.0),
+        float(report.get("tokens_per_second", 0.0) or 0.0),
+        float(report.get("total_window_tokens_per_second", 0.0) or 0.0),
+        -float(gate.get("executed_repair_pass_count", 0) or 0),
+    )
+
+
+def _candidate_selection_score(rank: Sequence[float]) -> float:
+    weights = (
+        10_000_000.0,
+        1_000_000.0,
+        500_000.0,
+        100_000.0,
+        50_000.0,
+        1_000.0,
+        100.0,
+        0.01,
+        0.01,
+        1.0,
+    )
+    return float(sum(float(value) * weight for value, weight in zip(rank, weights)))
+
+
+def _candidate_summary_for_report(
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    report = (
+        candidate.get("repair_report")
+        if isinstance(candidate.get("repair_report"), Mapping)
+        else {}
+    )
+    gate = _gate_from_report(report)
+    delta = (
+        report.get("generation_quality_delta")
+        if isinstance(report.get("generation_quality_delta"), Mapping)
+        else {}
+    )
+    post = (
+        report.get("post_generation_coherence")
+        if isinstance(report.get("post_generation_coherence"), Mapping)
+        else {}
+    )
+    post_summary = _summary_from_generation(post)
+    selection_rank = [float(value) for value in candidate.get("selection_rank", ())]
+    return {
+        "candidate_id": str(candidate.get("candidate_id") or ""),
+        "candidate_index": int(candidate.get("candidate_index", 0) or 0),
+        "selected": bool(candidate.get("selected", False)),
+        "repair_report_path": str(candidate.get("repair_report_path") or ""),
+        "repaired_brain_checkpoint_path": str(
+            candidate.get("repaired_brain_checkpoint_path") or ""
+        ),
+        "repaired_brain_checkpoint_sha256": str(
+            candidate.get("repaired_brain_checkpoint_sha256") or ""
+        ),
+        "learning_config": dict(candidate.get("learning_config") or {}),
+        "report_status": report.get("report_status"),
+        "status": report.get("status"),
+        "post_passed_case_count": int(
+            post_summary.get("passed_case_count", 0) or 0
+        ),
+        "case_count": int(post_summary.get("case_count", 0) or 0),
+        "post_case_pass_rate": float(post_summary.get("case_pass_rate", 0.0) or 0.0),
+        "generation_coherence_available": bool(
+            (
+                post.get("promotion_gate")
+                if isinstance(post.get("promotion_gate"), Mapping)
+                else {}
+            ).get("generation_coherence_available", False)
+        ),
+        "passed_case_count_delta": int(
+            delta.get("passed_case_count_delta", 0) or 0
+        ),
+        "mean_prefix_match_chars_delta": float(
+            delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0
+        ),
+        "regressed_prompt_count": int(delta.get("regressed_prompt_count", 0) or 0),
+        "regressed_prompts": list(delta.get("regressed_prompts") or []),
+        "update_token_count": int(report.get("update_token_count", 0) or 0),
+        "tokens_per_second": float(report.get("tokens_per_second", 0.0) or 0.0),
+        "total_window_tokens_per_second": float(
+            report.get("total_window_tokens_per_second", 0.0) or 0.0
+        ),
+        "executed_repair_pass_count": int(
+            gate.get("executed_repair_pass_count", 0) or 0
+        ),
+        "selection_rank": selection_rank,
+        "selection_score": float(candidate.get("selection_score", 0.0) or 0.0),
     }
 
 
@@ -892,6 +1109,298 @@ def build_language_brain_installed_generation_repair_evidence(
         write_json_report_with_readme(output, report)
 
 
+def build_language_brain_installed_generation_repair_sweep(
+    *,
+    output_path: str | Path,
+    brain_checkpoint_path: str | Path,
+    repaired_brain_checkpoint_path: str | Path | None = None,
+    post_repair_sustained_output_path: str | Path | None = None,
+    source_path: str | Path | None = None,
+    replay_source_path: str | Path | None = None,
+    prompt_cases: Sequence[LanguageGenerationPromptCase] | None = None,
+    config: BrainInstalledGenerationRepairEvidenceConfig | None = None,
+) -> dict[str, Any]:
+    """Run multiple installed-brain repair candidates and select one."""
+
+    cfg = config or BrainInstalledGenerationRepairEvidenceConfig()
+    output = Path(output_path)
+    candidate_specs = _repair_candidate_specs(cfg)
+    candidate_count = len(candidate_specs)
+    report: dict[str, Any] = {
+        "artifact_kind": SWEEP_ARTIFACT_KIND,
+        "surface": SWEEP_SURFACE,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "partial",
+        "report_status": "partial",
+        "output_path": str(output),
+        "brain_checkpoint_path": str(brain_checkpoint_path),
+        "runtime_owner": "MarulhoBrain",
+        "candidate_count": int(candidate_count),
+        "config": asdict(cfg),
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "service_owned_cognition": False,
+        "status_read_mutation": False,
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
+    }
+    candidate_reports: list[dict[str, Any]] = []
+    selected_candidate: dict[str, Any] | None = None
+    selected_rank: tuple[float, ...] | None = None
+    post_repair_sustained: dict[str, Any] = {
+        "surface": "marulho_brain_post_generation_repair_sustained_summary.v1",
+        "enabled": False,
+        "reason": "selected_post_repair_sustained_not_requested",
+    }
+    exception: BaseException | None = None
+    cuda_math_policy: dict[str, Any] = {"before": None}
+    try:
+        for spec in candidate_specs:
+            candidate_output = _candidate_artifact_path(
+                output,
+                candidate_count=candidate_count,
+                candidate_index=spec.index,
+                suffix="repair.json",
+            )
+            candidate_checkpoint = (
+                Path(repaired_brain_checkpoint_path)
+                if repaired_brain_checkpoint_path is not None and candidate_count <= 1
+                else _candidate_artifact_path(
+                    output,
+                    candidate_count=candidate_count,
+                    candidate_index=spec.index,
+                    suffix="repaired-brain.pt",
+                )
+            )
+            candidate_config = replace(
+                cfg,
+                learning_rate=float(spec.learning_rate),
+                replay_loss_weight=float(spec.replay_loss_weight),
+                max_steps=int(spec.max_steps),
+                repair_pass_count=int(spec.repair_pass_count),
+                run_post_repair_sustained=False,
+                candidate_learning_rates=(),
+                candidate_replay_loss_weights=(),
+                candidate_max_steps=(),
+                candidate_repair_pass_counts=(),
+            )
+            candidate_report = build_language_brain_installed_generation_repair_evidence(
+                output_path=candidate_output,
+                brain_checkpoint_path=brain_checkpoint_path,
+                repaired_brain_checkpoint_path=candidate_checkpoint,
+                source_path=source_path,
+                replay_source_path=replay_source_path,
+                prompt_cases=prompt_cases,
+                config=candidate_config,
+            )
+            checkpoint = (
+                candidate_report.get("repaired_brain_checkpoint")
+                if isinstance(candidate_report.get("repaired_brain_checkpoint"), Mapping)
+                else {}
+            )
+            rank = _candidate_selection_rank(candidate_report)
+            candidate = {
+                "candidate_id": spec.candidate_id,
+                "candidate_index": int(spec.index),
+                "selected": False,
+                "repair_report_path": str(candidate_output),
+                "repaired_brain_checkpoint_path": checkpoint.get(
+                    "path",
+                    str(candidate_checkpoint),
+                ),
+                "repaired_brain_checkpoint_sha256": checkpoint.get("sha256", ""),
+                "learning_config": {
+                    "learning_rate": float(spec.learning_rate),
+                    "replay_loss_weight": float(spec.replay_loss_weight),
+                    "max_steps": int(spec.max_steps),
+                    "repair_pass_count": int(spec.repair_pass_count),
+                },
+                "repair_report": candidate_report,
+                "selection_rank": rank,
+                "selection_score": _candidate_selection_score(rank),
+            }
+            candidate_reports.append(candidate)
+            if selected_rank is None or rank > selected_rank:
+                selected_candidate = candidate
+                selected_rank = rank
+        if selected_candidate is None:
+            raise RuntimeError("Installed-brain generation repair sweep had no candidates")
+        for candidate in candidate_reports:
+            candidate["selected"] = (
+                candidate["candidate_id"] == selected_candidate["candidate_id"]
+            )
+        selected_candidate["selected"] = True
+        selected_report = (
+            selected_candidate.get("repair_report")
+            if isinstance(selected_candidate.get("repair_report"), Mapping)
+            else {}
+        )
+        selected_checkpoint_path = Path(
+            str(selected_candidate.get("repaired_brain_checkpoint_path") or "")
+        )
+        if bool(cfg.run_post_repair_sustained):
+            cuda_math_policy = _apply_cuda_math_policy(_resolve_device(str(cfg.device)), cfg)
+            sustained_output = Path(
+                post_repair_sustained_output_path
+                or output.with_name(f"{output.stem}-selected-post-repair-sustained.json")
+            )
+            selected_brain = MarulhoBrain.load(selected_checkpoint_path)
+            sustained_report = selected_brain.generate_sustained_language(
+                output_path=sustained_output,
+                target_tokens=int(cfg.sustained_target_tokens),
+                prompt=str(cfg.sustained_prompt),
+                tick_tokens=int(cfg.sustained_tick_tokens),
+                quantum_tokens=int(cfg.sustained_quantum_tokens),
+                timeout_seconds=float(cfg.sustained_timeout_seconds),
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+                collect_environment=False,
+            )
+            post_repair_sustained = _compact_sustained_generation(
+                sustained_report,
+                output_path=sustained_output,
+            )
+        selected_gate = _gate_from_report(selected_report)
+        selected_summary = _candidate_summary_for_report(selected_candidate)
+        success = (
+            selected_report.get("report_status") == "final"
+            and bool(selected_checkpoint_path.is_file())
+            and (
+                not bool(cfg.run_post_repair_sustained)
+                or bool(post_repair_sustained.get("success", False))
+            )
+        )
+        report.update(
+            {
+                "status": "final" if success else "blocked_generation_repair_sweep",
+                "report_status": "final" if success else "partial",
+                "failure_reason": None if success else "evidence_gate_not_satisfied",
+                "cuda_math_policy": cuda_math_policy,
+                "candidate_selection": {
+                    "surface": (
+                        "marulho_brain_generation_repair_candidate_selection.v1"
+                    ),
+                    "enabled": candidate_count > 1,
+                    "candidate_count": int(candidate_count),
+                    "selection_policy": (
+                        "prefer_final_no_regression_then_generation_coherence_"
+                        "then_pass_count_then_prefix_delta_then_throughput"
+                    ),
+                    "selected_candidate_id": str(selected_candidate["candidate_id"]),
+                    "selected_candidate_index": int(
+                        selected_candidate["candidate_index"]
+                    ),
+                    "selected_repair_report_path": str(
+                        selected_candidate["repair_report_path"]
+                    ),
+                    "selected_repaired_brain_checkpoint_path": str(
+                        selected_checkpoint_path
+                    ),
+                    "selected_repaired_brain_checkpoint_sha256": str(
+                        selected_candidate.get("repaired_brain_checkpoint_sha256")
+                        or ""
+                    ),
+                    "selected_selection_rank": [
+                        float(value)
+                        for value in selected_candidate.get("selection_rank", ())
+                    ],
+                    "selected_selection_score": float(
+                        selected_candidate.get("selection_score", 0.0) or 0.0
+                    ),
+                    "saves_repaired_checkpoint_per_candidate": True,
+                    "runs_sustained_runtime_only_for_selected_child": True,
+                    "mutates_parent_checkpoint": False,
+                    "candidates": [
+                        _candidate_summary_for_report(candidate)
+                        for candidate in candidate_reports
+                    ],
+                },
+                "selected_repair_evidence": selected_summary,
+                "selected_repair_report": dict(selected_report),
+                "post_repair_sustained_window": post_repair_sustained,
+                "active_language_path": selected_report.get("active_language_path"),
+                "status_read_mutation": any(
+                    bool(
+                        (
+                            candidate.get("repair_report")
+                            if isinstance(candidate.get("repair_report"), Mapping)
+                            else {}
+                        ).get("status_read_mutation", False)
+                    )
+                    for candidate in candidate_reports
+                ),
+            }
+        )
+        report["promotion_gate"] = {
+            "surface": "marulho_language_brain_installed_generation_repair_sweep_gate.v1",
+            "candidate_count": int(candidate_count),
+            "selected_candidate_id": str(selected_candidate["candidate_id"]),
+            "selected_report_final": selected_report.get("report_status") == "final",
+            "selected_generation_coherence_available": bool(
+                selected_summary.get("generation_coherence_available", False)
+            ),
+            "selected_post_passed_case_count": int(
+                selected_summary.get("post_passed_case_count", 0) or 0
+            ),
+            "selected_case_count": int(selected_summary.get("case_count", 0) or 0),
+            "selected_regressed_prompt_count": int(
+                selected_summary.get("regressed_prompt_count", 0) or 0
+            ),
+            "selected_update_token_count": int(
+                selected_summary.get("update_token_count", 0) or 0
+            ),
+            "selected_tokens_per_second": float(
+                selected_summary.get("tokens_per_second", 0.0) or 0.0
+            ),
+            "selected_checkpoint_restore_verified": bool(
+                selected_gate.get("repaired_brain_checkpoint_restore_verified", False)
+            ),
+            "selected_post_repair_sustained_enabled": bool(
+                cfg.run_post_repair_sustained
+            ),
+            "selected_post_repair_sustained_target_reached": bool(
+                post_repair_sustained.get("success", False)
+            ),
+            "external_llm_absent": not bool(report.get("external_llm_used", False)),
+            "service_owned_cognition_absent": not bool(
+                report.get("service_owned_cognition", False)
+            ),
+            "ready_for_runtime_claim_review": False,
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+        }
+        return report
+    except BaseException as exc:  # pragma: no cover - report persistence guard
+        exception = exc
+        report.update(
+            {
+                "status": "exception",
+                "report_status": "exception",
+                "failure_reason": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        return report
+    finally:
+        before_policy = cuda_math_policy.get("before")
+        if isinstance(before_policy, Mapping):
+            _restore_cuda_math_policy(dict(before_policy))
+        if exception is not None:
+            report.setdefault(
+                "promotion_gate",
+                {
+                    "surface": (
+                        "marulho_language_brain_installed_generation_repair_"
+                        "sweep_gate.v1"
+                    ),
+                    "ready_for_runtime_claim_review": False,
+                    "promotes_runtime_claim": False,
+                    "promotes_generation_quality_claim": False,
+                },
+            )
+        write_json_report_with_readme(output, report)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -934,6 +1443,20 @@ def main() -> int:
         "--disable-stop-when-generation-coherence-available",
         action="store_true",
     )
+    parser.add_argument("--candidate-learning-rate", type=float, action="append", default=[])
+    parser.add_argument(
+        "--candidate-replay-loss-weight",
+        type=float,
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--candidate-max-steps", type=int, action="append", default=[])
+    parser.add_argument(
+        "--candidate-repair-pass-count",
+        type=int,
+        action="append",
+        default=[],
+    )
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=3)
@@ -955,7 +1478,61 @@ def main() -> int:
         if args.prompt_case
         else default_generation_coherence_prompt_cases(source_text)
     )
-    report = build_language_brain_installed_generation_repair_evidence(
+    config = BrainInstalledGenerationRepairEvidenceConfig(
+        sequence_length=int(args.sequence_length),
+        stride=int(args.stride),
+        batch_size=int(args.batch_size),
+        eval_fraction=float(args.eval_fraction),
+        hard_prompt_repeat=max(1, int(args.hard_prompt_repeat)),
+        hard_prompt_context_chars=max(0, int(args.hard_prompt_context_chars)),
+        max_new_batches=int(args.max_new_batches),
+        max_replay_batches=int(args.max_replay_batches),
+        max_old_eval_batches=int(args.max_old_eval_batches),
+        max_new_eval_batches=int(args.max_new_eval_batches),
+        learning_rate=float(args.learning_rate),
+        max_steps=int(args.max_steps),
+        replay_loss_weight=float(args.replay_loss_weight),
+        max_grad_norm=float(args.max_grad_norm),
+        gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
+        dense_adamw_backend=str(args.dense_adamw_backend),
+        forgetting_tolerance=float(args.forgetting_tolerance),
+        replay_retention_tolerance=float(args.replay_retention_tolerance),
+        rollback_on_forgetting=bool(args.rollback_on_forgetting),
+        collect_training_telemetry=bool(args.collect_training_telemetry),
+        repair_pass_count=max(1, int(args.repair_pass_count)),
+        stop_when_generation_coherence_available=not bool(
+            args.disable_stop_when_generation_coherence_available
+        ),
+        candidate_learning_rates=tuple(args.candidate_learning_rate),
+        candidate_replay_loss_weights=tuple(args.candidate_replay_loss_weight),
+        candidate_max_steps=tuple(args.candidate_max_steps),
+        candidate_repair_pass_counts=tuple(args.candidate_repair_pass_count),
+        min_case_pass_rate=float(args.min_case_pass_rate),
+        generation_repetition_penalty=max(
+            1.0,
+            float(args.generation_repetition_penalty),
+        ),
+        generation_no_repeat_ngram_size=max(
+            0,
+            int(args.generation_no_repeat_ngram_size),
+        ),
+        run_post_repair_sustained=bool(args.run_post_repair_sustained),
+        sustained_target_tokens=max(0, int(args.sustained_target_tokens)),
+        sustained_tick_tokens=max(1, int(args.sustained_tick_tokens)),
+        sustained_quantum_tokens=max(1, int(args.sustained_quantum_tokens)),
+        sustained_timeout_seconds=float(args.sustained_timeout_seconds),
+        sustained_prompt=str(args.sustained_prompt),
+        cuda_allow_tf32=bool(args.cuda_allow_tf32),
+        cuda_float32_matmul_precision=str(args.cuda_float32_matmul_precision),
+        seed=int(args.seed),
+        device=str(args.device),
+    )
+    builder = (
+        build_language_brain_installed_generation_repair_sweep
+        if len(_repair_candidate_specs(config)) > 1
+        else build_language_brain_installed_generation_repair_evidence
+    )
+    report = builder(
         output_path=args.output,
         brain_checkpoint_path=args.brain_checkpoint,
         repaired_brain_checkpoint_path=args.repaired_brain_checkpoint,
@@ -963,51 +1540,7 @@ def main() -> int:
         source_path=args.source,
         replay_source_path=args.replay_source,
         prompt_cases=cases,
-        config=BrainInstalledGenerationRepairEvidenceConfig(
-            sequence_length=int(args.sequence_length),
-            stride=int(args.stride),
-            batch_size=int(args.batch_size),
-            eval_fraction=float(args.eval_fraction),
-            hard_prompt_repeat=max(1, int(args.hard_prompt_repeat)),
-            hard_prompt_context_chars=max(0, int(args.hard_prompt_context_chars)),
-            max_new_batches=int(args.max_new_batches),
-            max_replay_batches=int(args.max_replay_batches),
-            max_old_eval_batches=int(args.max_old_eval_batches),
-            max_new_eval_batches=int(args.max_new_eval_batches),
-            learning_rate=float(args.learning_rate),
-            max_steps=int(args.max_steps),
-            replay_loss_weight=float(args.replay_loss_weight),
-            max_grad_norm=float(args.max_grad_norm),
-            gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
-            dense_adamw_backend=str(args.dense_adamw_backend),
-            forgetting_tolerance=float(args.forgetting_tolerance),
-            replay_retention_tolerance=float(args.replay_retention_tolerance),
-            rollback_on_forgetting=bool(args.rollback_on_forgetting),
-            collect_training_telemetry=bool(args.collect_training_telemetry),
-            repair_pass_count=max(1, int(args.repair_pass_count)),
-            stop_when_generation_coherence_available=not bool(
-                args.disable_stop_when_generation_coherence_available
-            ),
-            min_case_pass_rate=float(args.min_case_pass_rate),
-            generation_repetition_penalty=max(
-                1.0,
-                float(args.generation_repetition_penalty),
-            ),
-            generation_no_repeat_ngram_size=max(
-                0,
-                int(args.generation_no_repeat_ngram_size),
-            ),
-            run_post_repair_sustained=bool(args.run_post_repair_sustained),
-            sustained_target_tokens=max(0, int(args.sustained_target_tokens)),
-            sustained_tick_tokens=max(1, int(args.sustained_tick_tokens)),
-            sustained_quantum_tokens=max(1, int(args.sustained_quantum_tokens)),
-            sustained_timeout_seconds=float(args.sustained_timeout_seconds),
-            sustained_prompt=str(args.sustained_prompt),
-            cuda_allow_tf32=bool(args.cuda_allow_tf32),
-            cuda_float32_matmul_precision=str(args.cuda_float32_matmul_precision),
-            seed=int(args.seed),
-            device=str(args.device),
-        ),
+        config=config,
     )
     return 0 if report.get("report_status") == "final" else 1
 

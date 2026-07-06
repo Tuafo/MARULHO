@@ -722,7 +722,15 @@ def _write_brain_installed_structural_plasticity_report(path) -> None:
     )
 
 
-def _write_brain_installed_generation_report(path) -> None:
+def _write_brain_installed_generation_report(
+    path,
+    *,
+    checkpoint_path: str = "reports/language_brain_structural/post-structure-brain.pt",
+    passed_case_count: int = 2,
+    generation_coherence_available: bool = False,
+) -> None:
+    case_count = 4
+    case_pass_rate = float(passed_case_count) / float(case_count)
     path.write_text(
         json.dumps(
             {
@@ -732,18 +740,14 @@ def _write_brain_installed_generation_report(path) -> None:
                 "report_status": "final",
                 "runtime_owner": "MarulhoBrain",
                 "active_language_path": "marulho_lm_head",
-                "brain_checkpoint_path": (
-                    "reports/language_brain_structural/post-structure-brain.pt"
-                ),
+                "brain_checkpoint_path": checkpoint_path,
                 "owned_by_marulho": True,
                 "external_llm_used": False,
                 "loads_external_checkpoint": False,
                 "service_owned_cognition": False,
                 "status_read_mutation": False,
                 "brain_checkpoint": {
-                    "path": (
-                        "reports/language_brain_structural/post-structure-brain.pt"
-                    ),
+                    "path": checkpoint_path,
                     "restore_verified": True,
                     "active_language_path": "marulho_lm_head",
                 },
@@ -756,21 +760,23 @@ def _write_brain_installed_generation_report(path) -> None:
                     "loads_external_checkpoint": False,
                     "status": "passed_generation_coherence_gate",
                     "summary": {
-                        "case_count": 4,
-                        "passed_case_count": 2,
-                        "case_pass_rate": 0.5,
+                        "case_count": case_count,
+                        "passed_case_count": int(passed_case_count),
+                        "case_pass_rate": case_pass_rate,
                     },
                     "promotion_gate": {
-                        "generation_coherence_available": False,
+                        "generation_coherence_available": bool(
+                            generation_coherence_available
+                        ),
                         "grounded_prompt_suite_available": True,
                         "promotes_generation_quality_claim": False,
                         "promotes_runtime_claim": False,
                     },
                 },
                 "generation_summary": {
-                    "case_count": 4,
-                    "passed_case_count": 2,
-                    "case_pass_rate": 0.5,
+                    "case_count": case_count,
+                    "passed_case_count": int(passed_case_count),
+                    "case_pass_rate": case_pass_rate,
                     "mean_prefix_match_chars": 12.5,
                     "mean_prefix_match_fraction": 0.21,
                     "mean_printable_fraction": 1.0,
@@ -785,11 +791,13 @@ def _write_brain_installed_generation_report(path) -> None:
                     "brain_checkpoint_restore_verified": True,
                     "batch_tokenizer_matches_installed_runtime": True,
                     "generation_runs_through_marulho_brain": True,
-                    "generation_coherence_available": False,
+                    "generation_coherence_available": bool(
+                        generation_coherence_available
+                    ),
                     "grounded_prompt_suite_available": True,
-                    "case_count": 4,
-                    "passed_case_count": 2,
-                    "case_pass_rate": 0.5,
+                    "case_count": case_count,
+                    "passed_case_count": int(passed_case_count),
+                    "case_pass_rate": case_pass_rate,
                     "status_read_mutation_absent": True,
                     "external_llm_absent": True,
                     "service_owned_cognition_absent": True,
@@ -1292,6 +1300,53 @@ def test_language_runtime_benchmark_suite_writes_blocked_promotion_report(
     assert (tmp_path / "language-suite-sustained-smoke.json").exists()
     assert (tmp_path / "language-suite-scale-ladder.json").exists()
     assert (tmp_path / "language-suite-checkpoint.pt").exists()
+
+
+def test_language_runtime_benchmark_suite_accepts_brain_generation_alignment(
+    tmp_path,
+) -> None:
+    output = tmp_path / "language-suite-brain-generation.json"
+    checkpoint = "reports/language_brain_generation_repair/selected-brain.pt"
+    sustained = tmp_path / "selected-brain-sustained.json"
+    brain_generation = tmp_path / "selected-brain-generation.json"
+    _write_sustained_report(
+        sustained,
+        token_delta=524288,
+        controlled_decode=True,
+        checkpoint_path=checkpoint,
+    )
+    _write_brain_installed_generation_report(
+        brain_generation,
+        checkpoint_path=checkpoint,
+        passed_case_count=4,
+        generation_coherence_available=True,
+    )
+
+    report = run_language_runtime_benchmark_suite(
+        output_path=output,
+        sustained_target_tokens=524288,
+        sustained_evidence_paths=(sustained,),
+        brain_installed_generation_evidence_paths=(brain_generation,),
+    )
+    categories = {item["name"]: item for item in report["categories"]}
+    generation = categories["generation_coherence"]
+    alignment = generation["evidence"][
+        "brain_installed_generation_long_run_alignment"
+    ]
+
+    assert generation["status"] == "pass"
+    assert generation["missing_evidence"] == []
+    assert generation["evidence"][
+        "brain_installed_generation_satisfies_grounded_coherence"
+    ] is True
+    assert alignment["same_checkpoint_house_scale_available"] is True
+    assert (
+        alignment["same_checkpoint_controlled_decode_house_scale_available"]
+        is True
+    )
+    assert report["promotion_gate"][
+        "generation_controlled_decode_house_scale_aligned"
+    ] is True
 
 
 def test_language_runtime_benchmark_suite_accepts_saved_lm_long_run_reports(

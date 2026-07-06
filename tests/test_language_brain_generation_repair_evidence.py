@@ -8,8 +8,10 @@ from marulho.config.model_config import MarulhoConfig
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_brain_generation_repair_evidence import (
     SURFACE,
+    SWEEP_SURFACE,
     BrainInstalledGenerationRepairEvidenceConfig,
     build_language_brain_installed_generation_repair_evidence,
+    build_language_brain_installed_generation_repair_sweep,
 )
 from marulho.evaluation.language_generation_coherence import (
     LanguageGenerationPromptCase,
@@ -143,6 +145,77 @@ def test_brain_installed_generation_repair_learns_and_rescores(
     assert report["promotion_gate"]["promotes_runtime_claim"] is False
     assert report["promotion_gate"]["promotes_generation_quality_claim"] is False
     assert (tmp_path / "README.md").exists()
+
+
+def test_brain_installed_generation_repair_sweep_selects_candidate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MARULHO_DEVICE", "cpu")
+    checkpoint = _write_installed_brain_checkpoint(tmp_path)
+    output = tmp_path / "brain-installed-generation-repair-sweep.json"
+
+    report = build_language_brain_installed_generation_repair_sweep(
+        output_path=output,
+        brain_checkpoint_path=checkpoint,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="brain",
+                source_text="brain repair evidence keeps learning inside MARULHO.",
+                max_new_tokens=4,
+                min_new_tokens=0,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+                min_printable_fraction=0.0,
+                min_distinct_bigram_fraction=0.0,
+                max_token_run_length=999,
+            ),
+        ),
+        config=BrainInstalledGenerationRepairEvidenceConfig(
+            sequence_length=10,
+            stride=5,
+            batch_size=2,
+            hard_prompt_repeat=2,
+            hard_prompt_context_chars=64,
+            max_new_batches=1,
+            max_replay_batches=1,
+            max_old_eval_batches=1,
+            max_new_eval_batches=1,
+            max_steps=1,
+            learning_rate=1e-3,
+            replay_loss_weight=0.25,
+            candidate_learning_rates=(1e-3, 5e-4),
+            candidate_replay_loss_weights=(0.25, 0.75),
+            candidate_max_steps=(1, 1),
+            candidate_repair_pass_counts=(1, 2),
+            min_case_pass_rate=0.0,
+            run_post_repair_sustained=False,
+            device="cpu",
+        ),
+    )
+    written = json.loads(output.read_text(encoding="utf-8"))
+    selection = report["candidate_selection"]
+    selected = selection["selected_candidate_id"]
+    selected_candidates = [
+        candidate for candidate in selection["candidates"] if candidate["selected"]
+    ]
+
+    assert written["surface"] == SWEEP_SURFACE
+    assert report["report_status"] == "final"
+    assert selection["candidate_count"] == 2
+    assert len(selection["candidates"]) == 2
+    assert len(selected_candidates) == 1
+    assert selected in {"candidate-00", "candidate-01"}
+    assert selection["mutates_parent_checkpoint"] is False
+    assert selection["runs_sustained_runtime_only_for_selected_child"] is True
+    assert Path(selection["selected_repair_report_path"]).exists()
+    assert Path(selection["selected_repaired_brain_checkpoint_path"]).exists()
+    assert report["promotion_gate"]["candidate_count"] == 2
+    assert report["promotion_gate"]["selected_report_final"] is True
+    assert report["promotion_gate"]["promotes_runtime_claim"] is False
+    assert report["promotion_gate"]["promotes_generation_quality_claim"] is False
+    assert (tmp_path / "brain-installed-generation-repair-sweep-candidate-00-repair.json").exists()
+    assert (tmp_path / "brain-installed-generation-repair-sweep-candidate-01-repair.json").exists()
 
 
 def test_brain_installed_generation_repair_blocks_missing_language_runtime(

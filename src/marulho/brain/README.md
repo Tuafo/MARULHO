@@ -127,26 +127,28 @@ after structural mutation. It restores the post-structure `MarulhoBrain`
 checkpoint, checks that status reads do not mutate runtime state, verifies the
 installed tokenizer, and scores grounded prompt continuations through public
 `MarulhoBrain.generate()`. The current CUDA report
-`reports/language_brain_generation/evo-child-quality-repair-installed-post-structure-brain-generation-20260706.json`
+`reports/language_brain_generation/post-structure-brain-hard-prompt-repair-sweep-selected-generation-20260706.json`
 records `generation_runs_through_marulho_brain=true`,
 `status_read_mutation_absent=true`, no external/service-owned cognition, and
-`0/4` grounded prompt cases passed. This proves the installed generation path is
-owned by the brain surface, but it is not a language-quality promotion.
+`4/4` grounded prompt cases passed with mean prefix match `34.0` chars. This
+proves the selected installed generation path is owned by the brain surface and
+passes the automated grounded prompt suite, but it is not a broad
+language-quality promotion.
 `language_brain_generation_repair_evidence.py` verifies the next brain-owned
 quality repair step. It restores an installed brain checkpoint, builds
 hard-prompt replay batches, calls `MarulhoBrain.learn_language_window()`,
 saves/restores a repaired brain checkpoint, and re-scores public
 `MarulhoBrain.generate()`. It can run multiple installed-brain repair passes
-while recording per-pass generation deltas. The current CUDA report
-`reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-multipass-sustained524288-20260706.json`
-continues from the previous repaired `3/4` brain for `3` repair passes,
-records `294912` update tokens at `2477.118` update tokens/sec, improves mean
-prefix match by `4.75` chars with no prompt regressions, restores the repaired
-checkpoint, and sustains `524288/524288` post-repair tokens at `8109.102`
-tokens/sec with zero tracked Triton failures. The prompt suite remains `3/4`,
-so same-checkpoint generation coherence is still blocked. This is
-installed-brain learning and repair evidence, not a broad generation-quality
-promotion.
+and candidate sweeps while recording per-candidate generation deltas. The
+current CUDA report
+`reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sweep-sustained524288-20260706.json`
+selects `candidate-02`, repairs the installed brain from `3/4` to `4/4`,
+records `491520` update tokens at `2510.339` update tokens/sec, improves mean
+prefix match by `10.5` chars with no prompt regressions, restores the repaired
+checkpoint, and sustains `524288/524288` selected post-repair tokens at
+`8123.130` tokens/sec with zero tracked Triton failures. This is
+installed-brain learning and repair evidence, not a broad generation-quality or
+runtime promotion.
 
 The current CUDA sequence-input gate uses the active checkpoint and preserves
 `cuda_graph_route_transition_burst` with backend

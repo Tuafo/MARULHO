@@ -217,26 +217,27 @@ harnesses.
   installed LM tokenizer and non-mutating status reads, then runs the grounded
   prompt suite through public `MarulhoBrain.generate()`. The current CUDA
   report
-  `reports/language_brain_generation/evo-child-quality-repair-installed-post-structure-brain-generation-20260706.json`
-  records brain-owned generation with no external/service-owned cognition, but
-  passes `0/4` grounded cases. Treat it as path ownership and quality
-  instrumentation, not generation-quality promotion.
+  `reports/language_brain_generation/post-structure-brain-hard-prompt-repair-sweep-selected-generation-20260706.json`
+  restores the selected repair-sweep brain checkpoint, records brain-owned
+  generation with no external/service-owned cognition, and passes `4/4`
+  grounded cases with mean prefix match `34.0` chars. Treat it as automated
+  grounded prompt-suite evidence, not broad generation-quality promotion.
 - `language_brain_generation_repair_evidence.py` is the installed-brain
   generation repair runner. It restores a `MarulhoBrain` checkpoint, builds
   hard-prompt replay windows, learns through
   `MarulhoBrain.learn_language_window()`, saves/restores a repaired brain
   checkpoint, then re-scores public `MarulhoBrain.generate()` and can attach a
-  post-repair sustained run. It also supports multiple installed-brain repair
-  passes with per-pass generation deltas and aggregate update throughput. The
+  post-repair sustained run. It supports multiple installed-brain repair
+  passes and candidate sweeps with per-candidate generation deltas, aggregate
+  update throughput, and sustained generation only for the selected child. The
   current CUDA report
-  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-multipass-sustained524288-20260706.json`
-  continues from the previous repaired `3/4` brain for `3` repair passes,
-  records `294912` update tokens at `2477.118` update tokens/sec, improves
-  mean prefix match by `4.75` chars with no prompt regressions, and reaches
-  `524288/524288` post-repair sustained tokens at `8109.102` tokens/sec with
-  zero tracked Triton failures. The prompt suite remains `3/4`, so
-  same-checkpoint generation coherence is still blocked. It is still evidence,
-  not a broad generation-quality claim.
+  `reports/language_brain_generation_repair/post-structure-brain-hard-prompt-repair-sweep-sustained524288-20260706.json`
+  selects `candidate-02`, repairs the installed brain from `3/4` to `4/4`,
+  records `491520` update tokens at `2510.339` update tokens/sec, improves
+  mean prefix match by `10.5` chars with no prompt regressions, and reaches
+  `524288/524288` selected post-repair sustained tokens at `8123.130`
+  tokens/sec with zero tracked Triton failures. It is still evidence, not a
+  broad generation-quality claim.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or
@@ -279,8 +280,9 @@ harnesses.
   `marulho_language_generation_coherence_report.v1` reports for grounded
   prompt-suite coherence. It also ingests accepted
   `marulho_language_brain_installed_generation_evidence.v1` reports for
-  installed-brain generation path evidence without requiring them to promote
-  quality, and accepted
+  installed-brain generation path evidence and can use a valid all-case
+  installed-brain generation report as grounded generation coherence when the
+  same brain checkpoint also has aligned long-run evidence. Accepted
   `marulho_language_brain_installed_generation_repair_evidence.v1` reports for
   installed-brain hard-prompt repair evidence. It also ingests accepted
   `marulho_language_continual_learning_experiment.v1` reports with
