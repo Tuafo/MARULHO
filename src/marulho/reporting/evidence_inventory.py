@@ -695,6 +695,10 @@ def _training_throughput_evidence(
     )
     saved_best = _mapping(saved.get("best_report"))
     summary = _mapping(continual_learning_report.get("learning_summary"))
+    learning_evidence = _mapping(continual_learning_report.get("learning_evidence"))
+    raw_training_accounting = _mapping(
+        learning_evidence.get("training_window_triton_accounting")
+    )
     post_learning = _mapping(
         continual_learning_report.get("post_learning_sustained_window")
     )
@@ -815,7 +819,8 @@ def _training_throughput_evidence(
         },
         "training_window_triton_accounting": dict(
             _mapping(
-                summary.get("training_window_triton_accounting")
+                raw_training_accounting
+                or summary.get("training_window_triton_accounting")
                 or best.get("training_window_triton_accounting")
             )
         ),
@@ -1231,6 +1236,15 @@ def _backend_bottleneck_evidence(
     memory_review = _mapping(memory_slot_training_impact.get("review"))
     latest_memory_report = _mapping(latest_memory_slot_training_impact)
     memory_slots = _mapping(training.get("memory_slots"))
+    training_triton_accounting = _mapping(
+        training.get("training_window_triton_accounting")
+    )
+    training_fallback_calls = _tracked_torch_fallback_calls(
+        training_triton_accounting
+    )
+    training_fallback_kernel_names = _training_window_fallback_kernel_names(
+        training_triton_accounting
+    )
     decisions = []
     if state_cmp:
         decisions.append(
@@ -1327,6 +1341,28 @@ def _backend_bottleneck_evidence(
             training.get("total_window_tokens_per_second")
         ),
         "complete_window_evidence_required_for_default_change": True,
+        "current_training_window_backend_evidence": {
+            "surface": (
+                "marulho_current_language_training_window_backend_evidence.v1"
+            ),
+            "scope": _string_or_none(training_triton_accounting.get("scope")),
+            "tracked_triton_kernel_used_names": _string_list(
+                training_triton_accounting.get("tracked_triton_kernel_used_names")
+            ),
+            "tracked_torch_fallback_calls": int(training_fallback_calls),
+            "tracked_torch_fallback_kernel_names": training_fallback_kernel_names,
+            "tracked_triton_failure_count": _first_int(
+                training_triton_accounting.get("tracked_triton_failure_count")
+            ),
+            "torch_fallbacks_visible_in_current_projection": True,
+            "gpu_training_hot_path_status": (
+                "torch_fallbacks_present"
+                if training_fallback_calls > 0
+                else "no_tracked_torch_fallbacks"
+                if training_triton_accounting
+                else "training_window_accounting_unavailable"
+            ),
+        },
         "memory_slot_training_report_selection": {
             "surface": (
                 "marulho_current_language_memory_slot_training_report_selection.v1"
@@ -1360,6 +1396,24 @@ def _backend_bottleneck_evidence(
         "decision_count": len(decisions),
         "decisions": decisions,
     }
+
+
+def _tracked_torch_fallback_calls(accounting: Mapping[str, Any]) -> int:
+    return int(
+        accounting.get("tracked_torch_fallback_calls")
+        or accounting.get("tracked_torch_fallback_call_count")
+        or 0
+    )
+
+
+def _training_window_fallback_kernel_names(accounting: Mapping[str, Any]) -> list[str]:
+    names: list[str] = []
+    for name, payload in accounting.items():
+        if not isinstance(payload, Mapping):
+            continue
+        if _first_int(payload.get("torch_fallback_calls")):
+            names.append(str(name))
+    return names
 
 
 def _current_checkpoint_evidence(

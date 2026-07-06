@@ -136,6 +136,13 @@ def test_brain_installed_continual_learning_evidence_learns_and_restores(
     assert report["learning_window"]["report"]["mutates_language_model_weights"] is True
     assert report["learning_summary"]["update_token_count"] > 0
     assert report["learning_summary"]["tokens_per_second"] > 0.0
+    learning_accounting = report["learning_summary"][
+        "training_window_triton_accounting"
+    ]
+    assert isinstance(learning_accounting["tracked_torch_fallback_calls"], int)
+    assert learning_accounting["tracked_torch_fallback_call_count"] == (
+        learning_accounting["tracked_torch_fallback_calls"]
+    )
     assert "old_domain_forgetting" in report["learning_evidence"]
     assert "general_replay_retention_delta" in report["learning_evidence"]
     assert report["post_learning_sustained_window"]["success"] is True

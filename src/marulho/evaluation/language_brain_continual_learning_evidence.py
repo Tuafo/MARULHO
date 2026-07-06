@@ -254,6 +254,7 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(evidence.get("training_window_triton_accounting"), Mapping)
         else {}
     )
+    torch_fallback_calls = _tracked_torch_fallback_calls(triton_accounting)
     return {
         "surface": "marulho_brain_installed_continual_learning_summary.v1",
         "brain_surface": learning.get("surface"),
@@ -306,8 +307,9 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
             "tracked_triton_kernel_used_names": list(
                 triton_accounting.get("tracked_triton_kernel_used_names") or []
             ),
+            "tracked_torch_fallback_calls": int(torch_fallback_calls),
             "tracked_torch_fallback_call_count": int(
-                triton_accounting.get("tracked_torch_fallback_call_count", 0) or 0
+                torch_fallback_calls
             ),
             "tracked_triton_failure_count": int(
                 triton_accounting.get("tracked_triton_failure_count", 0) or 0
@@ -315,6 +317,14 @@ def _learning_summary(learning: Mapping[str, Any]) -> dict[str, Any]:
         },
         "rollback_evidence": dict(rollback),
     }
+
+
+def _tracked_torch_fallback_calls(accounting: Mapping[str, Any]) -> int:
+    return int(
+        accounting.get("tracked_torch_fallback_calls")
+        or accounting.get("tracked_torch_fallback_call_count")
+        or 0
+    )
 
 
 def _base_report(

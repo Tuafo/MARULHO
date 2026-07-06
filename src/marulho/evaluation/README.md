@@ -172,7 +172,11 @@ harnesses.
   single aggregate tokens/sec number. The current accounting pair shows RMSNorm
   and PLIF as Triton-active in training, sampled-vocab CE as the maintained
   torch-autograd selected-row path, and memory-slot training as bounded
-  torch-autograd rather than Triton autograd.
+  torch-autograd rather than Triton autograd. Installed-brain continual
+  learning and generation-repair summaries preserve the same measured fallback
+  count under `tracked_torch_fallback_calls` with the legacy singular alias
+  kept only for compatibility, so repair/learning evidence cannot silently
+  report zero fallback work when the update window recorded PyTorch fallbacks.
 - `language_continual_learning_experiment.py` exposes full-window backend
   toggles through `--sampled-vocab-ce-triton-training` and
   `--memory-slots-triton-training`, plus

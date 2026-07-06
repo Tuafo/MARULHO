@@ -125,9 +125,23 @@ def test_brain_installed_generation_repair_learns_and_rescores(
     assert report["status_read_mutation"] is False
     assert report["learning_summary"]["trace_event"] == "language_learn"
     assert report["learning_summary"]["update_token_count"] > 0
+    learning_accounting = report["learning_summary"][
+        "training_window_triton_accounting"
+    ]
+    assert isinstance(learning_accounting["tracked_torch_fallback_calls"], int)
+    assert learning_accounting["tracked_torch_fallback_call_count"] == (
+        learning_accounting["tracked_torch_fallback_calls"]
+    )
     assert report["aggregate_learning_summary"]["repair_pass_count"] == 2
     assert report["aggregate_learning_summary"]["update_token_count"] >= (
         report["learning_summary"]["update_token_count"]
+    )
+    aggregate_accounting = report["aggregate_learning_summary"][
+        "training_window_triton_accounting"
+    ]
+    assert isinstance(aggregate_accounting["tracked_torch_fallback_calls"], int)
+    assert aggregate_accounting["tracked_torch_fallback_call_count"] == (
+        aggregate_accounting["tracked_torch_fallback_calls"]
     )
     assert report["executed_repair_pass_count"] == 2
     assert len(report["repair_passes"]) == 2

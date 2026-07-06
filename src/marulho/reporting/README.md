@@ -37,6 +37,11 @@ but it cannot create a runtime or generation-quality promotion claim by itself.
 It also separates accepted training/inference throughput from backend rejection
 evidence, so a tempting Triton or buffer variant is visible without becoming
 the default until complete-window evidence supports it.
+The backend bottleneck projection includes current training-window Triton
+accounting from the raw installed-learning report when available, including
+tracked PyTorch fallback calls and the per-kernel fallback names. This makes
+remaining sampled-vocab, memory-slot, or other fallback work visible without
+running a benchmark from the service path.
 Memory-slot training impact reports can write partial JSON while long arms are
 still running. The projection exposes the newest partial status, completed arm
 names, and missing arm names, but backend-default decisions use the newest final

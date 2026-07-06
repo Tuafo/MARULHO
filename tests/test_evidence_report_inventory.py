@@ -434,6 +434,29 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                         "tracked_torch_fallback_call_count": 0,
                     },
                 },
+                "learning_evidence": {
+                    "training_window_triton_accounting": {
+                        "surface": (
+                            "marulho_language_continual_training_window_"
+                            "triton_accounting.v1"
+                        ),
+                        "scope": "measured_update_window_only",
+                        "tracked_triton_kernel_used_names": [
+                            "language_rmsnorm_triton",
+                            "language_plif_triton",
+                        ],
+                        "tracked_torch_fallback_calls": 512,
+                        "tracked_triton_failure_count": 0,
+                        "language_sampled_vocab_ce_triton": {
+                            "torch_fallback_calls": 512,
+                            "triton_failure_count": 0,
+                        },
+                        "language_memory_slots_triton": {
+                            "torch_fallback_calls": 0,
+                            "triton_failure_count": 0,
+                        },
+                    },
+                },
                 "learned_brain_checkpoint_path": (
                     "reports/language_brain_continual_learning/learned-brain.pt"
                 ),
@@ -641,6 +664,13 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["training_throughput_evidence"]["post_learning_sustained"][
         "tokens_per_second"
     ] == 8132.27
+    training_accounting = projection["training_throughput_evidence"][
+        "training_window_triton_accounting"
+    ]
+    assert training_accounting["tracked_torch_fallback_calls"] == 512
+    assert training_accounting["language_sampled_vocab_ce_triton"][
+        "torch_fallback_calls"
+    ] == 512
     assert projection["forgetting_replay_evidence"]["forgetting_measured"] is True
     assert projection["forgetting_replay_evidence"]["replay_retention_measured"] is True
     assert projection["active_compute_evidence"]["active_parameters_per_token_estimate"] == 10280
@@ -690,6 +720,16 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert decisions["memory_slot_triton_training_autograd"][
         "per_step_memory_slot_stats_delta"
     ] is False
+    training_backend = projection["backend_bottleneck_evidence"][
+        "current_training_window_backend_evidence"
+    ]
+    assert training_backend["tracked_torch_fallback_calls"] == 512
+    assert training_backend["tracked_torch_fallback_kernel_names"] == [
+        "language_sampled_vocab_ce_triton"
+    ]
+    assert training_backend["gpu_training_hot_path_status"] == (
+        "torch_fallbacks_present"
+    )
     memory_slot_selection = projection["backend_bottleneck_evidence"][
         "memory_slot_training_report_selection"
     ]
