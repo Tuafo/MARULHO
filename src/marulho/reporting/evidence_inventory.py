@@ -18,6 +18,18 @@ LANGUAGE_BRAIN_GENERATION_REPAIR_ARTIFACT = (
 LANGUAGE_BRAIN_GENERATION_REPAIR_SWEEP_ARTIFACT = (
     "marulho_language_brain_installed_generation_repair_sweep"
 )
+LANGUAGE_BRAIN_CONTINUAL_LEARNING_ARTIFACT = (
+    "marulho_language_brain_installed_continual_learning_evidence"
+)
+LANGUAGE_STATE_BLOCK_RUNTIME_IMPACT_ARTIFACT = (
+    "marulho_language_state_block_runtime_impact"
+)
+LANGUAGE_ELIGIBILITY_TRACE_RUNTIME_IMPACT_ARTIFACT = (
+    "marulho_language_eligibility_trace_runtime_impact"
+)
+LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT = (
+    "marulho_language_memory_slot_training_impact"
+)
 
 
 def build_evidence_report_inventory(
@@ -79,10 +91,29 @@ def build_current_language_evidence_projection(
         reports,
         LANGUAGE_BRAIN_GENERATION_REPAIR_SWEEP_ARTIFACT,
     )
+    continual_learning_entry = _latest_report(
+        reports,
+        LANGUAGE_BRAIN_CONTINUAL_LEARNING_ARTIFACT,
+    )
+    state_block_impact_entry = _latest_report(
+        reports,
+        LANGUAGE_STATE_BLOCK_RUNTIME_IMPACT_ARTIFACT,
+    )
+    eligibility_impact_entry = _latest_report(
+        reports,
+        LANGUAGE_ELIGIBILITY_TRACE_RUNTIME_IMPACT_ARTIFACT,
+    )
+    memory_slot_training_impact_entry = _latest_report(
+        reports,
+        LANGUAGE_MEMORY_SLOT_TRAINING_IMPACT_ARTIFACT,
+    )
 
     suite = suite_entry[1] if suite_entry is not None else {}
     gate = _mapping(suite.get("promotion_gate"))
     generation_category = _category(suite, "generation_coherence")
+    continual_learning_category = _category(suite, "continual_learning")
+    forgetting_category = _category(suite, "forgetting")
+    replay_recovery_category = _category(suite, "replay_recovery")
     generation_evidence = _generation_evidence(
         generation_category,
         generation_entry[1] if generation_entry is not None else {},
@@ -99,6 +130,24 @@ def build_current_language_evidence_projection(
         long_run_category,
         repair_sweep_entry[1] if repair_sweep_entry is not None else {},
     )
+    training_evidence = _training_throughput_evidence(
+        continual_learning_category,
+        continual_learning_entry[1] if continual_learning_entry is not None else {},
+    )
+    forgetting_replay_evidence = _forgetting_replay_evidence(
+        forgetting_category,
+        replay_recovery_category,
+        training_evidence,
+    )
+    active_compute_evidence = _active_compute_evidence(_category(suite, "active_compute"))
+    bottleneck_evidence = _backend_bottleneck_evidence(
+        training_evidence,
+        state_block_impact_entry[1] if state_block_impact_entry is not None else {},
+        eligibility_impact_entry[1] if eligibility_impact_entry is not None else {},
+        memory_slot_training_impact_entry[1]
+        if memory_slot_training_impact_entry is not None
+        else {},
+    )
     checkpoint_evidence = _current_checkpoint_evidence(
         generation_evidence,
         repair_evidence,
@@ -113,6 +162,10 @@ def build_current_language_evidence_projection(
         ("installed_generation", generation_entry),
         ("installed_generation_repair", repair_entry),
         ("installed_generation_repair_sweep", repair_sweep_entry),
+        ("installed_continual_learning", continual_learning_entry),
+        ("state_block_runtime_impact", state_block_impact_entry),
+        ("eligibility_trace_runtime_impact", eligibility_impact_entry),
+        ("memory_slot_training_impact", memory_slot_training_impact_entry),
     ]
     source_reports = [
         _source_report_ref(role, entry, root_resolved)
@@ -187,13 +240,18 @@ def build_current_language_evidence_projection(
         "current_checkpoint": checkpoint_evidence,
         "generation_evidence": generation_evidence,
         "repair_evidence": repair_evidence,
+        "training_throughput_evidence": training_evidence,
+        "forgetting_replay_evidence": forgetting_replay_evidence,
         "house_scale_throughput_evidence": throughput_evidence,
+        "active_compute_evidence": active_compute_evidence,
         "gpu_kernel_evidence": gpu_evidence,
+        "backend_bottleneck_evidence": bottleneck_evidence,
         "ownership": {
             "surface": "marulho_current_language_evidence_ownership.v1",
             "runtime_owner": _first_string(
                 repair_evidence.get("runtime_owner"),
                 generation_evidence.get("runtime_owner"),
+                training_evidence.get("runtime_owner"),
                 throughput_evidence.get("runtime_owner"),
             ),
             "service_owner": "thin_brain_adapter",
@@ -566,6 +624,348 @@ def _throughput_evidence(
             report.get("promotes_runtime_claim"),
             False,
         ),
+    }
+
+
+def _training_throughput_evidence(
+    continual_learning_category: Mapping[str, Any],
+    continual_learning_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    category_evidence = _mapping(continual_learning_category.get("evidence"))
+    saved = _mapping(
+        category_evidence.get("brain_installed_continual_learning_evidence")
+    )
+    saved_best = _mapping(saved.get("best_report"))
+    summary = _mapping(continual_learning_report.get("learning_summary"))
+    post_learning = _mapping(
+        continual_learning_report.get("post_learning_sustained_window")
+    )
+    gate = _mapping(continual_learning_report.get("promotion_gate"))
+    memory_slots = _mapping(
+        saved_best.get("memory_slots")
+        if isinstance(saved_best.get("memory_slots"), Mapping)
+        else summary.get("memory_slots")
+    )
+    best = saved_best or summary or continual_learning_report
+    source = (
+        "benchmark_suite.brain_installed_continual_learning_evidence"
+        if saved_best
+        else "saved_brain_installed_continual_learning_report"
+        if continual_learning_report
+        else None
+    )
+    return {
+        "surface": "marulho_current_language_training_throughput_evidence.v1",
+        "available": bool(best),
+        "source": source,
+        "runtime_owner": _first_string(
+            best.get("runtime_owner"),
+            continual_learning_report.get("runtime_owner"),
+        ),
+        "active_language_path": _first_string(
+            best.get("active_language_path"),
+            continual_learning_report.get("active_language_path"),
+        ),
+        "training_surface": _first_string(
+            best.get("training_surface"),
+            summary.get("training_surface"),
+        ),
+        "brain_surface": _first_string(
+            best.get("brain_surface"),
+            summary.get("brain_surface"),
+        ),
+        "learning_status": _first_string(
+            best.get("learning_status"),
+            summary.get("status"),
+        ),
+        "device": _first_string(best.get("device"), summary.get("device")),
+        "update_token_count": _first_int(
+            best.get("update_token_count"),
+            summary.get("update_token_count"),
+            continual_learning_report.get("update_token_count"),
+        ),
+        "house_scale_update_tokens_reached": _first_bool(
+            best.get("house_scale_update_tokens_reached"),
+            gate.get("house_scale_524288_update_tokens_reached"),
+        ),
+        "tokens_per_second": _first_float(
+            best.get("tokens_per_second"),
+            summary.get("tokens_per_second"),
+            continual_learning_report.get("tokens_per_second"),
+        ),
+        "total_window_tokens_per_second": _first_float(
+            best.get("total_window_tokens_per_second"),
+            summary.get("total_window_tokens_per_second"),
+            continual_learning_report.get("total_window_tokens_per_second"),
+        ),
+        "new_domain_loss_delta": _first_float(
+            best.get("new_domain_loss_delta"),
+            summary.get("new_domain_loss_delta"),
+        ),
+        "old_domain_forgetting": _first_float(
+            best.get("old_domain_forgetting"),
+            summary.get("old_domain_forgetting"),
+        ),
+        "general_replay_retention_delta": _first_float(
+            best.get("general_replay_retention_delta"),
+            summary.get("general_replay_retention_delta"),
+        ),
+        "final_parameter_delta_l2": _first_float(
+            best.get("final_parameter_delta_l2"),
+            summary.get("final_parameter_delta_l2"),
+        ),
+        "learned_brain_checkpoint_path": _first_string(
+            best.get("learned_brain_checkpoint_path"),
+            continual_learning_report.get("learned_brain_checkpoint_path"),
+        ),
+        "learned_brain_checkpoint_restore_verified": _first_bool(
+            best.get("learned_brain_checkpoint_restore_verified"),
+            gate.get("learned_brain_checkpoint_restore_verified"),
+            _mapping(continual_learning_report.get("learned_brain_checkpoint")).get(
+                "restore_verified"
+            ),
+        ),
+        "status_read_mutation_absent": _first_bool(
+            best.get("status_read_mutation_absent"),
+            gate.get("status_read_mutation_absent"),
+            continual_learning_report.get("status_read_mutation") is False
+            if "status_read_mutation" in continual_learning_report
+            else None,
+        ),
+        "memory_slots": {
+            "surface": "marulho_current_language_training_memory_slot_evidence.v1",
+            "enabled": _first_bool(
+                memory_slots.get("enabled"),
+                best.get("memory_slots_enabled"),
+            ),
+            "bounded_path": _first_bool(
+                memory_slots.get("bounded_memory_slot_path"),
+                best.get("memory_slot_bounded_path"),
+            ),
+            "candidate_slots_scored": _first_int(
+                memory_slots.get("candidate_slots_scored"),
+                best.get("memory_slot_candidate_slots_scored"),
+            ),
+            "runs_all_slots": _first_bool(
+                memory_slots.get("runs_all_slots"),
+                best.get("memory_slot_runs_all_slots"),
+            ),
+            "retrieval_backend": _first_string(
+                memory_slots.get("memory_slot_retrieval_backend"),
+                best.get("memory_slot_retrieval_backend"),
+            ),
+        },
+        "training_window_triton_accounting": dict(
+            _mapping(
+                summary.get("training_window_triton_accounting")
+                or best.get("training_window_triton_accounting")
+            )
+        ),
+        "post_learning_sustained": {
+            "surface": "marulho_current_language_post_learning_sustained_evidence.v1",
+            "enabled": _first_bool(
+                post_learning.get("enabled"),
+                best.get("post_learning_sustained_enabled"),
+            ),
+            "success": _first_bool(
+                post_learning.get("success"),
+                best.get("post_learning_sustained_success"),
+            ),
+            "target_tokens": _first_int(post_learning.get("target_tokens")),
+            "token_delta": _first_int(
+                post_learning.get("token_delta"),
+                best.get("post_learning_sustained_token_delta"),
+            ),
+            "tokens_per_second": _first_float(
+                post_learning.get("tokens_per_second"),
+                best.get("post_learning_sustained_tokens_per_second"),
+            ),
+            "backend": _first_string(
+                post_learning.get("backend"),
+                best.get("post_learning_sustained_backend"),
+            ),
+            "tracked_triton_kernel_failure_count": _first_int(
+                post_learning.get("tracked_triton_kernel_failure_count")
+            ),
+            "tracked_triton_kernel_used_names": _string_list(
+                post_learning.get("tracked_triton_kernel_used_names")
+                or best.get("post_learning_sustained_triton_kernel_names")
+            ),
+        },
+        "external_llm_used": _first_bool(
+            continual_learning_report.get("external_llm_used"),
+            False,
+        ),
+        "service_owned_cognition": _first_bool(
+            continual_learning_report.get("service_owned_cognition"),
+            False,
+        ),
+        "promotes_runtime_claim": _first_bool(
+            best.get("promotes_runtime_claim"),
+            continual_learning_report.get("promotes_runtime_claim"),
+            gate.get("promotes_runtime_claim"),
+            False,
+        ),
+    }
+
+
+def _forgetting_replay_evidence(
+    forgetting_category: Mapping[str, Any],
+    replay_recovery_category: Mapping[str, Any],
+    training: Mapping[str, Any],
+) -> dict[str, Any]:
+    forgetting = _mapping(forgetting_category.get("evidence"))
+    replay = _mapping(replay_recovery_category.get("evidence"))
+    return {
+        "surface": "marulho_current_language_forgetting_replay_evidence.v1",
+        "forgetting_measured": _first_bool(
+            forgetting.get("brain_installed_forgetting_measured"),
+            training.get("old_domain_forgetting") is not None,
+        ),
+        "old_domain_forgetting": _first_float(
+            forgetting.get("brain_installed_old_domain_forgetting"),
+            training.get("old_domain_forgetting"),
+        ),
+        "old_domain_forgetting_within_tolerance": _bool_or_none(
+            forgetting.get("old_domain_forgetting_within_tolerance")
+        ),
+        "replay_retention_measured": _first_bool(
+            replay.get("brain_installed_replay_retention_measured"),
+            training.get("general_replay_retention_delta") is not None,
+        ),
+        "general_replay_retention_delta": _first_float(
+            replay.get("brain_installed_general_replay_retention_delta"),
+            training.get("general_replay_retention_delta"),
+        ),
+        "general_replay_retention_within_tolerance": _bool_or_none(
+            replay.get("general_replay_retention_within_tolerance")
+        ),
+        "memory_slot_candidate_slots_scored": _first_int(
+            replay.get("brain_installed_memory_slot_candidate_slots_scored"),
+            _mapping(training.get("memory_slots")).get("candidate_slots_scored"),
+        ),
+        "memory_slot_runs_all_slots": _first_bool(
+            replay.get("brain_installed_memory_slot_runs_all_slots"),
+            _mapping(training.get("memory_slots")).get("runs_all_slots"),
+        ),
+    }
+
+
+def _active_compute_evidence(active_compute_category: Mapping[str, Any]) -> dict[str, Any]:
+    evidence = _mapping(active_compute_category.get("evidence"))
+    return {
+        "surface": "marulho_current_language_active_compute_evidence.v1",
+        "available": bool(evidence),
+        "active_expert_count_per_token": _first_int(
+            evidence.get("active_expert_count_per_token")
+        ),
+        "active_parameters_per_token_estimate": _first_int(
+            evidence.get("active_parameters_per_token_estimate")
+        ),
+        "active_parameter_fraction_estimate": _first_float(
+            evidence.get("active_parameter_fraction_estimate")
+        ),
+        "total_parameters": _first_int(evidence.get("total_parameters")),
+        "category_passed": _bool_or_none(active_compute_category.get("passed")),
+    }
+
+
+def _backend_bottleneck_evidence(
+    training: Mapping[str, Any],
+    state_block_impact: Mapping[str, Any],
+    eligibility_impact: Mapping[str, Any],
+    memory_slot_training_impact: Mapping[str, Any],
+) -> dict[str, Any]:
+    state_cmp = _mapping(state_block_impact.get("comparison"))
+    eligibility_cmp = _mapping(eligibility_impact.get("comparison"))
+    memory_cmp = _mapping(memory_slot_training_impact.get("comparison"))
+    memory_slots = _mapping(training.get("memory_slots"))
+    decisions = []
+    if state_cmp:
+        decisions.append(
+            {
+                "surface": "marulho_current_language_backend_decision.v1",
+                "name": "state_block_preallocation",
+                "status": "rejected_as_default",
+                "reason": "complete_forward_ratio_below_current_stacked_path",
+                "baseline_tokens_per_second": _first_float(
+                    state_cmp.get("baseline_tokens_per_second")
+                ),
+                "candidate_tokens_per_second": _first_float(
+                    state_cmp.get("preallocated_tokens_per_second")
+                ),
+                "candidate_vs_baseline_ratio": _first_float(
+                    state_cmp.get("preallocated_vs_baseline_tokens_per_second_ratio")
+                ),
+                "parity_passed": _bool_or_none(state_cmp.get("parity_passed")),
+            }
+        )
+    if eligibility_cmp:
+        decisions.append(
+            {
+                "surface": "marulho_current_language_backend_decision.v1",
+                "name": "deferred_eligibility_trace_scan",
+                "status": "rejected_as_default",
+                "reason": "complete_forward_ratio_below_inline_plif_update",
+                "baseline_tokens_per_second": _first_float(
+                    eligibility_cmp.get("baseline_tokens_per_second")
+                ),
+                "candidate_tokens_per_second": _first_float(
+                    eligibility_cmp.get("deferred_tokens_per_second")
+                ),
+                "candidate_vs_baseline_ratio": _first_float(
+                    eligibility_cmp.get("deferred_vs_baseline_tokens_per_second_ratio")
+                ),
+                "parity_passed": _bool_or_none(eligibility_cmp.get("parity_passed")),
+            }
+        )
+    if memory_cmp:
+        decisions.append(
+            {
+                "surface": "marulho_current_language_backend_decision.v1",
+                "name": "memory_slot_triton_training_autograd",
+                "status": "opt_in_rejection_for_current_default",
+                "reason": (
+                    "isolated optimizer-step Triton can beat bounded torch, but "
+                    "current installed-brain complete-window evidence still uses "
+                    "the measured torch-autograd bounded memory-slot backend"
+                ),
+                "accepted_current_backend": _first_string(
+                    memory_slots.get("retrieval_backend")
+                ),
+                "control_tokens_per_second": _first_float(
+                    memory_cmp.get("control_tokens_per_second")
+                ),
+                "bounded_tokens_per_second": _first_float(
+                    memory_cmp.get("bounded_tokens_per_second")
+                ),
+                "triton_training_tokens_per_second": _first_float(
+                    memory_cmp.get("triton_training_tokens_per_second")
+                ),
+                "triton_training_vs_bounded_ratio": _first_float(
+                    memory_cmp.get("triton_training_vs_bounded_tokens_per_second_ratio")
+                ),
+                "triton_training_vs_control_ratio": _first_float(
+                    memory_cmp.get("triton_training_vs_control_tokens_per_second_ratio")
+                ),
+                "bounded_avoids_all_slot_scan": _bool_or_none(
+                    memory_cmp.get("bounded_avoids_all_slot_scan")
+                ),
+            }
+        )
+    return {
+        "surface": "marulho_current_language_backend_bottleneck_evidence.v1",
+        "read_only_projection": True,
+        "current_training_backend": _first_string(memory_slots.get("retrieval_backend")),
+        "current_training_update_tokens_per_second": _first_float(
+            training.get("tokens_per_second")
+        ),
+        "current_training_total_window_tokens_per_second": _first_float(
+            training.get("total_window_tokens_per_second")
+        ),
+        "complete_window_evidence_required_for_default_change": True,
+        "decision_count": len(decisions),
+        "decisions": decisions,
     }
 
 

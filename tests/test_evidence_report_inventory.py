@@ -67,8 +67,12 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
 ) -> None:
     reports = tmp_path / "reports"
     suite_dir = reports / "language_benchmark_suite"
+    learning_dir = reports / "language_brain_continual_learning"
+    training_dir = reports / "language_training_experiments"
     repair_dir = reports / "language_brain_generation_repair"
     suite_dir.mkdir(parents=True)
+    learning_dir.mkdir(parents=True)
+    training_dir.mkdir(parents=True)
     repair_dir.mkdir(parents=True)
     checkpoint_path = (
         "reports/language_brain_generation_repair/"
@@ -144,6 +148,84 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
                             ]
                         },
                     },
+                    {
+                        "name": "continual_learning",
+                        "passed": True,
+                        "evidence": {
+                            "brain_installed_continual_learning_evidence": {
+                                "best_report": {
+                                    "active_language_path": "marulho_lm_head",
+                                    "runtime_owner": "MarulhoBrain",
+                                    "training_surface": (
+                                        "marulho_language_continual_learning_window.v1"
+                                    ),
+                                    "brain_surface": (
+                                        "marulho_brain_language_learning_window.v1"
+                                    ),
+                                    "device": "cuda:0",
+                                    "learning_status": "accepted_online_update",
+                                    "update_token_count": 524288,
+                                    "house_scale_update_tokens_reached": True,
+                                    "tokens_per_second": 3079.87,
+                                    "total_window_tokens_per_second": 2810.81,
+                                    "new_domain_loss_delta": 4.71,
+                                    "old_domain_forgetting": -4.02,
+                                    "general_replay_retention_delta": -4.0,
+                                    "final_parameter_delta_l2": 26.66,
+                                    "learned_brain_checkpoint_path": (
+                                        "reports/language_brain_continual_learning/"
+                                        "learned-brain.pt"
+                                    ),
+                                    "learned_brain_checkpoint_restore_verified": True,
+                                    "memory_slots_enabled": True,
+                                    "memory_slot_bounded_path": True,
+                                    "memory_slot_candidate_slots_scored": 4194304,
+                                    "memory_slot_runs_all_slots": False,
+                                    "memory_slot_retrieval_backend": (
+                                        "torch_autograd_bounded_memory_slots"
+                                    ),
+                                    "post_learning_sustained_enabled": True,
+                                    "post_learning_sustained_success": True,
+                                    "post_learning_sustained_token_delta": 524288,
+                                    "post_learning_sustained_tokens_per_second": 8132.27,
+                                    "post_learning_sustained_backend": (
+                                        "torch_cuda_graph_burst_decode_controls"
+                                    ),
+                                    "promotes_runtime_claim": False,
+                                }
+                            }
+                        },
+                    },
+                    {
+                        "name": "forgetting",
+                        "passed": True,
+                        "evidence": {
+                            "brain_installed_forgetting_measured": True,
+                            "brain_installed_old_domain_forgetting": -4.02,
+                            "old_domain_forgetting_within_tolerance": True,
+                        },
+                    },
+                    {
+                        "name": "replay_recovery",
+                        "passed": True,
+                        "evidence": {
+                            "brain_installed_replay_retention_measured": True,
+                            "brain_installed_general_replay_retention_delta": -4.0,
+                            "general_replay_retention_within_tolerance": True,
+                            "brain_installed_memory_slot_candidate_slots_scored": 4194304,
+                            "brain_installed_memory_slot_runs_all_slots": False,
+                        },
+                    },
+                    {
+                        "name": "active_compute",
+                        "passed": True,
+                        "evidence": {
+                            "active_expert_count_per_token": 1,
+                            "active_parameters_per_token_estimate": 10280,
+                            "active_parameter_fraction_estimate": 0.697,
+                            "total_parameters": 14744,
+                        },
+                    },
                 ],
             }
         ),
@@ -217,6 +299,122 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
         ),
         encoding="utf-8",
     )
+    (learning_dir / "continual-learning.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_brain_installed_continual_learning_evidence",
+                "surface": "marulho_language_brain_installed_continual_learning_evidence.v1",
+                "active_language_path": "marulho_lm_head",
+                "runtime_owner": "MarulhoBrain",
+                "external_llm_used": False,
+                "service_owned_cognition": False,
+                "status_read_mutation": False,
+                "promotes_runtime_claim": False,
+                "update_token_count": 524288,
+                "tokens_per_second": 3079.87,
+                "total_window_tokens_per_second": 2810.81,
+                "learning_summary": {
+                    "brain_surface": "marulho_brain_language_learning_window.v1",
+                    "training_surface": "marulho_language_continual_learning_window.v1",
+                    "device": "cuda:0",
+                    "status": "accepted_online_update",
+                    "mutates_language_model_weights": True,
+                    "trace_event": "language_learn",
+                    "update_token_count": 524288,
+                    "tokens_per_second": 3079.87,
+                    "total_window_tokens_per_second": 2810.81,
+                    "new_domain_loss_delta": 4.71,
+                    "old_domain_forgetting": -4.02,
+                    "general_replay_retention_delta": -4.0,
+                    "final_parameter_delta_l2": 26.66,
+                    "memory_slots": {
+                        "enabled": True,
+                        "bounded_memory_slot_path": True,
+                        "candidate_slots_scored": 4194304,
+                        "runs_all_slots": False,
+                        "memory_slot_retrieval_backend": (
+                            "torch_autograd_bounded_memory_slots"
+                        ),
+                    },
+                    "training_window_triton_accounting": {
+                        "tracked_triton_failure_count": 0,
+                        "tracked_torch_fallback_call_count": 0,
+                    },
+                },
+                "learned_brain_checkpoint_path": (
+                    "reports/language_brain_continual_learning/learned-brain.pt"
+                ),
+                "learned_brain_checkpoint": {"restore_verified": True},
+                "post_learning_sustained_window": {
+                    "enabled": True,
+                    "success": True,
+                    "target_tokens": 524288,
+                    "token_delta": 524288,
+                    "tokens_per_second": 8132.27,
+                    "backend": "torch_cuda_graph_burst_decode_controls",
+                    "tracked_triton_kernel_failure_count": 0,
+                    "tracked_triton_kernel_used_names": [
+                        "language_rmsnorm_triton",
+                        "language_plif_triton",
+                    ],
+                },
+                "promotion_gate": {
+                    "house_scale_524288_update_tokens_reached": True,
+                    "learned_brain_checkpoint_restore_verified": True,
+                    "status_read_mutation_absent": True,
+                    "promotes_runtime_claim": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (training_dir / "state-block-impact.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_state_block_runtime_impact",
+                "surface": "marulho_language_state_block_runtime_impact.v1",
+                "comparison": {
+                    "baseline_tokens_per_second": 12321.43,
+                    "preallocated_tokens_per_second": 12068.36,
+                    "preallocated_vs_baseline_tokens_per_second_ratio": 0.979,
+                    "parity_passed": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (training_dir / "eligibility-impact.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_eligibility_trace_runtime_impact",
+                "surface": "marulho_language_eligibility_trace_runtime_impact.v1",
+                "comparison": {
+                    "baseline_tokens_per_second": 12760.57,
+                    "deferred_tokens_per_second": 12148.41,
+                    "deferred_vs_baseline_tokens_per_second_ratio": 0.952,
+                    "parity_passed": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (training_dir / "memory-slot-training-impact.json").write_text(
+        json.dumps(
+            {
+                "artifact_kind": "marulho_language_memory_slot_training_impact",
+                "surface": "marulho_language_memory_slot_training_impact.v1",
+                "comparison": {
+                    "control_tokens_per_second": 3171.11,
+                    "bounded_tokens_per_second": 3076.58,
+                    "triton_training_tokens_per_second": 3110.44,
+                    "triton_training_vs_bounded_tokens_per_second_ratio": 1.011,
+                    "triton_training_vs_control_tokens_per_second_ratio": 0.981,
+                    "bounded_avoids_all_slot_scan": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
     projection = build_current_language_evidence_projection(reports)
 
@@ -231,9 +429,29 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert projection["repair_evidence"]["selected_candidate_id"] == "candidate-02"
     assert projection["repair_evidence"]["regressed_prompt_count"] == 0
     assert projection["repair_evidence"]["update_token_count"] == 491520
+    assert projection["training_throughput_evidence"]["update_token_count"] == 524288
+    assert projection["training_throughput_evidence"]["tokens_per_second"] == 3079.87
+    assert projection["training_throughput_evidence"]["device"] == "cuda:0"
+    assert projection["training_throughput_evidence"]["memory_slots"]["runs_all_slots"] is False
+    assert projection["training_throughput_evidence"]["post_learning_sustained"][
+        "tokens_per_second"
+    ] == 8132.27
+    assert projection["forgetting_replay_evidence"]["forgetting_measured"] is True
+    assert projection["forgetting_replay_evidence"]["replay_retention_measured"] is True
+    assert projection["active_compute_evidence"]["active_parameters_per_token_estimate"] == 10280
     assert projection["house_scale_throughput_evidence"]["target_tokens"] == 524288
     assert projection["house_scale_throughput_evidence"]["house_scale_gate_reached"] is True
     assert projection["house_scale_throughput_evidence"]["tokens_per_second"] == 8123.13
     assert projection["gpu_kernel_evidence"]["generation_tracked_failure_count"] == 0
+    decisions = {
+        item["name"]: item for item in projection["backend_bottleneck_evidence"]["decisions"]
+    }
+    assert decisions["state_block_preallocation"]["status"] == "rejected_as_default"
+    assert decisions["deferred_eligibility_trace_scan"][
+        "candidate_vs_baseline_ratio"
+    ] == 0.952
+    assert decisions["memory_slot_triton_training_autograd"][
+        "accepted_current_backend"
+    ] == "torch_autograd_bounded_memory_slots"
     assert projection["current_checkpoint"]["path"] == checkpoint_path
     assert projection["current_checkpoint"]["delete_protected_by_current_evidence"] is True
