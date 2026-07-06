@@ -293,6 +293,28 @@ def _tensor_hash(tensor: torch.Tensor) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _uncollected_language_memory_slots_triton_delta(
+    hidden: torch.Tensor,
+) -> dict[str, Any]:
+    return {
+        "surface": "marulho_language_memory_slots_triton_stats_delta.v1",
+        "triton_available": False,
+        "triton_forward_calls": 0,
+        "triton_autograd_forward_calls": 0,
+        "torch_autograd_backward_calls": 0,
+        "triton_forward_elements": 0,
+        "torch_fallback_calls": 0,
+        "torch_fallback_elements": 0,
+        "triton_failure_count": 0,
+        "last_failure": None,
+        "last_device": str(hidden.device),
+        "last_dtype": str(hidden.dtype),
+        "triton_kernel_used": False,
+        "triton_autograd_used": False,
+        "telemetry_collected": False,
+    }
+
+
 def _split_hash(batches: Sequence[LanguageBatch]) -> str:
     payload = [
         {
@@ -1653,6 +1675,7 @@ class MarulhoLanguageModel(nn.Module):
         state: Mapping[str, torch.Tensor] | None = None,
         *,
         collect_telemetry: bool = True,
+        collect_memory_evidence: bool | None = None,
         assume_no_sleeping_experts: bool = False,
         memory_candidate_ids: torch.Tensor | None = None,
         route_candidate_ids: torch.Tensor | None = None,
@@ -1670,6 +1693,11 @@ class MarulhoLanguageModel(nn.Module):
             hidden,
             runtime_input_ids,
             collect_telemetry=collect_telemetry,
+            collect_evidence=(
+                collect_telemetry
+                if collect_memory_evidence is None
+                else bool(collect_memory_evidence)
+            ),
             candidate_ids=memory_candidate_ids,
         )
         precomputed_route_candidates = route_candidate_ids is not None
@@ -1733,8 +1761,14 @@ class MarulhoLanguageModel(nn.Module):
         input_ids: torch.Tensor,
         *,
         collect_telemetry: bool,
+        collect_evidence: bool | None = None,
         candidate_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
+        collect_evidence = (
+            bool(collect_telemetry)
+            if collect_evidence is None
+            else bool(collect_evidence)
+        )
         slot_count = max(0, int(self.config.memory_slot_count))
         if slot_count <= 0 or self.memory_slots is None:
             return hidden, {
@@ -1796,7 +1830,9 @@ class MarulhoLanguageModel(nn.Module):
                 "precomputed_candidate_ids_used": bool(precomputed_candidate_ids),
             }
         active_count = min(max(1, int(self.config.active_memory_slot_count)), candidate_count)
-        memory_slots_triton_before = language_memory_slots_triton_stats()
+        memory_slots_triton_before = (
+            language_memory_slots_triton_stats() if bool(collect_evidence) else None
+        )
         if not torch.is_grad_enabled():
             flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
             flat_candidate_ids = candidate_ids.reshape(-1, candidate_count)
@@ -1808,14 +1844,20 @@ class MarulhoLanguageModel(nn.Module):
                 active_count,
                 prefer_triton=True,
             ).reshape_as(hidden)
-            memory_slots_triton_delta = language_memory_slots_triton_stats_delta(
-                memory_slots_triton_before,
-                language_memory_slots_triton_stats(),
+            memory_slots_triton_delta = (
+                language_memory_slots_triton_stats_delta(
+                    memory_slots_triton_before,
+                    language_memory_slots_triton_stats(),
+                )
+                if memory_slots_triton_before is not None
+                else _uncollected_language_memory_slots_triton_delta(hidden)
             )
             retrieval_backend = (
                 "triton_no_grad_bounded_memory_slots"
                 if bool(memory_slots_triton_delta.get("triton_kernel_used", False))
                 else "torch_no_grad_bounded_memory_slots"
+                if bool(collect_evidence)
+                else "not_collected_no_grad_bounded_memory_slots"
             )
         else:
             flat_hidden = hidden.reshape(-1, int(self.config.state_dim))
@@ -1828,14 +1870,20 @@ class MarulhoLanguageModel(nn.Module):
                 active_count,
                 prefer_triton=True,
             ).reshape_as(hidden)
-            memory_slots_triton_delta = language_memory_slots_triton_stats_delta(
-                memory_slots_triton_before,
-                language_memory_slots_triton_stats(),
+            memory_slots_triton_delta = (
+                language_memory_slots_triton_stats_delta(
+                    memory_slots_triton_before,
+                    language_memory_slots_triton_stats(),
+                )
+                if memory_slots_triton_before is not None
+                else _uncollected_language_memory_slots_triton_delta(hidden)
             )
             retrieval_backend = (
                 "triton_forward_torch_backward_bounded_memory_slots"
                 if bool(memory_slots_triton_delta.get("triton_autograd_used", False))
                 else "torch_autograd_bounded_memory_slots"
+                if bool(collect_evidence)
+                else "not_collected_autograd_bounded_memory_slots"
             )
         runs_all_slots = candidate_count >= slot_count
         return routed, {
@@ -1859,6 +1907,7 @@ class MarulhoLanguageModel(nn.Module):
             "memory_slot_retrieval_backend": retrieval_backend,
             "memory_slot_triton_stats_delta": memory_slots_triton_delta,
             "collect_telemetry": bool(collect_telemetry),
+            "evidence_collected": bool(collect_evidence),
         }
 
     def _language_route_candidates(
@@ -1919,6 +1968,7 @@ class MarulhoLanguageModel(nn.Module):
         result = self._forward_hidden(
             input_ids,
             collect_telemetry=collect_telemetry,
+            collect_memory_evidence=return_evidence,
             assume_no_sleeping_experts=assume_no_sleeping_experts,
             memory_candidate_ids=memory_candidate_ids,
             route_candidate_ids=route_candidate_ids,

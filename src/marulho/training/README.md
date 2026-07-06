@@ -471,7 +471,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   optimizer steps and then runs a post-window telemetry probe on the final
   training batch. Reports keep loss, route, and memory evidence while recording
   `hot_update_evidence_mode=post_window_telemetry_probe` and
-  `per_step_evidence_dict_build=false`.
+  `per_step_evidence_dict_build=false`. The same hot-window rule now applies
+  to memory-slot Triton stats: measured update steps avoid per-step
+  stats-delta construction, and reports record
+  `memory_slot_hot_update_evidence_mode=training_window_counter_delta_plus_post_window_probe`
+  with `per_step_memory_slot_stats_delta=false`.
 - The 2026-07-05 memory-slot longtrain checkpoint
   `reports/language_training_experiments/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-longtrain-524288-20260705.json`
   keeps the same `524288` model vocab, `1024` sampled rows, horizon-8, TF32,

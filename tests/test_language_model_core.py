@@ -19,6 +19,7 @@ from marulho.training.language_continual_learning import (
     LanguageContinualLearningConfig,
     run_language_continual_learning_window,
 )
+from marulho.training import language_model as language_model_module
 from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
@@ -1554,6 +1555,65 @@ def test_language_structural_plasticity_expands_memory_slots_with_checkpoint(
     assert report["promotion_gate"]["eligible_for_reviewed_growth_promotion"] is False
 
 
+def test_memory_slot_hot_training_skips_per_step_stats_delta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    torch.manual_seed(31)
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(_texts(), tokenizer, sequence_length=8)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=12,
+            state_dim=16,
+            memory_slot_count=4,
+            memory_slot_candidate_count=2,
+            active_memory_slot_count=1,
+        )
+    )
+    calls = 0
+    original = language_model_module.language_memory_slots_triton_stats_delta
+
+    def wrapped(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        language_model_module,
+        "language_memory_slots_triton_stats_delta",
+        wrapped,
+    )
+
+    hot_result = model.next_token_loss(
+        split.train[0].input_ids,
+        split.train[0].target_ids,
+        collect_telemetry=False,
+        return_evidence=False,
+    )
+    hot_result["loss"].backward()
+
+    assert calls == 0
+    assert "telemetry" not in hot_result
+
+    evidence_result = model.next_token_loss(
+        split.train[0].input_ids,
+        split.train[0].target_ids,
+        collect_telemetry=False,
+        return_evidence=True,
+    )
+    memory = evidence_result["telemetry"]["memory"]
+
+    assert calls == 1
+    assert memory["evidence_collected"] is True
+    assert memory["memory_slot_triton_stats_delta"]["surface"] == (
+        "marulho_language_memory_slots_triton_stats_delta.v1"
+    )
+    assert memory["memory_slot_retrieval_backend"] == (
+        "torch_autograd_bounded_memory_slots"
+    )
+
+
 def test_language_checkpoint_evolution_forks_child_without_mutating_parent(tmp_path) -> None:
     torch.manual_seed(29)
     tokenizer = ByteLevelLanguageTokenizer()
@@ -1922,6 +1982,10 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert evidence["gradient_clip_skipped_step_count"] == 2
     assert evidence["metric_readback_mode"] == "deferred_gpu_scalar_aggregation"
     assert evidence["per_step_metric_cpu_sync"] is False
+    assert evidence["memory_slot_hot_update_evidence_mode"] == (
+        "training_window_counter_delta_plus_post_window_probe"
+    )
+    assert evidence["per_step_memory_slot_stats_delta"] is False
     assert evidence["training_window_memory_slot_triton_stats_delta"]["surface"] == (
         "marulho_language_memory_slots_triton_stats_delta.v1"
     )

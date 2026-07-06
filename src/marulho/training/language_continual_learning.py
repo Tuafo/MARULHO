@@ -919,6 +919,10 @@ def run_language_continual_learning_window(
             "per_step_metric_cpu_sync": False,
             "hot_update_evidence_mode": "post_window_telemetry_probe",
             "per_step_evidence_dict_build": False,
+            "memory_slot_hot_update_evidence_mode": (
+                "training_window_counter_delta_plus_post_window_probe"
+            ),
+            "per_step_memory_slot_stats_delta": False,
             "telemetry_probe_outside_measured_window": bool(
                 telemetry_probe_outside_measured_window
             ),
