@@ -58,10 +58,12 @@ class LanguageQualityReplayExperimentConfig:
     learning_rate: float = 8e-4
     replay_loss_weight: float = 0.35
     parameter_anchor_loss_weight: float = 0.0
+    replay_gradient_projection_mode: str = "disabled"
     candidate_learning_rates: tuple[float, ...] = ()
     candidate_replay_loss_weights: tuple[float, ...] = ()
     candidate_max_steps: tuple[int, ...] = ()
     candidate_parameter_anchor_loss_weights: tuple[float, ...] = ()
+    candidate_replay_gradient_projection_modes: tuple[str, ...] = ()
     min_new_loss_improvement: float = 0.0
     forgetting_tolerance: float = 100.0
     replay_retention_tolerance: float = 100.0
@@ -95,6 +97,7 @@ class _ReplayCandidateSpec:
     learning_rate: float
     replay_loss_weight: float
     parameter_anchor_loss_weight: float
+    replay_gradient_projection_mode: str
     max_steps: int
 
 
@@ -161,12 +164,16 @@ def _replay_candidate_specs(
     anchor_weights = tuple(
         float(value) for value in config.candidate_parameter_anchor_loss_weights
     )
+    replay_projection_modes = tuple(
+        str(value) for value in config.candidate_replay_gradient_projection_modes
+    )
     candidate_count = max(
         1,
         len(learning_rates),
         len(replay_weights),
         len(max_steps),
         len(anchor_weights),
+        len(replay_projection_modes),
     )
     return tuple(
         _ReplayCandidateSpec(
@@ -187,6 +194,13 @@ def _replay_candidate_specs(
                     anchor_weights,
                     index,
                     float(config.parameter_anchor_loss_weight),
+                )
+            ),
+            replay_gradient_projection_mode=str(
+                _candidate_value(
+                    replay_projection_modes,
+                    index,
+                    str(config.replay_gradient_projection_mode),
                 )
             ),
             max_steps=int(
@@ -904,6 +918,9 @@ def run_language_quality_replay_experiment(
             parameter_anchor_loss_weight=float(
                 candidate_spec.parameter_anchor_loss_weight
             ),
+            replay_gradient_projection_mode=str(
+                candidate_spec.replay_gradient_projection_mode
+            ),
             forgetting_tolerance=float(cfg.forgetting_tolerance),
             replay_retention_tolerance=float(cfg.replay_retention_tolerance),
             min_new_loss_improvement=float(cfg.min_new_loss_improvement),
@@ -945,6 +962,9 @@ def run_language_quality_replay_experiment(
                 "replay_loss_weight": float(candidate_spec.replay_loss_weight),
                 "parameter_anchor_loss_weight": float(
                     candidate_spec.parameter_anchor_loss_weight
+                ),
+                "replay_gradient_projection_mode": str(
+                    candidate_spec.replay_gradient_projection_mode
                 ),
                 "max_steps": int(candidate_spec.max_steps),
             },
@@ -1027,6 +1047,9 @@ def run_language_quality_replay_experiment(
                 "replay_loss_weight": float(candidate_spec.replay_loss_weight),
                 "parameter_anchor_loss_weight": float(
                     candidate_spec.parameter_anchor_loss_weight
+                ),
+                "replay_gradient_projection_mode": str(
+                    candidate_spec.replay_gradient_projection_mode
                 ),
                 "max_steps": int(candidate_spec.max_steps),
             },
@@ -1413,6 +1436,7 @@ def main() -> int:
     parser.add_argument("--learning-rate", type=float, default=8e-4)
     parser.add_argument("--replay-loss-weight", type=float, default=0.35)
     parser.add_argument("--parameter-anchor-loss-weight", type=float, default=0.0)
+    parser.add_argument("--replay-gradient-projection-mode", default="disabled")
     parser.add_argument("--candidate-learning-rate", type=float, action="append", default=[])
     parser.add_argument(
         "--candidate-replay-loss-weight",
@@ -1424,6 +1448,11 @@ def main() -> int:
     parser.add_argument(
         "--candidate-parameter-anchor-loss-weight",
         type=float,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--candidate-replay-gradient-projection-mode",
         action="append",
         default=[],
     )
@@ -1529,11 +1558,15 @@ def main() -> int:
             learning_rate=args.learning_rate,
             replay_loss_weight=args.replay_loss_weight,
             parameter_anchor_loss_weight=args.parameter_anchor_loss_weight,
+            replay_gradient_projection_mode=args.replay_gradient_projection_mode,
             candidate_learning_rates=tuple(args.candidate_learning_rate),
             candidate_replay_loss_weights=tuple(args.candidate_replay_loss_weight),
             candidate_max_steps=tuple(args.candidate_max_steps),
             candidate_parameter_anchor_loss_weights=tuple(
                 args.candidate_parameter_anchor_loss_weight
+            ),
+            candidate_replay_gradient_projection_modes=tuple(
+                args.candidate_replay_gradient_projection_mode
             ),
             min_new_loss_improvement=args.min_new_loss_improvement,
             forgetting_tolerance=args.forgetting_tolerance,

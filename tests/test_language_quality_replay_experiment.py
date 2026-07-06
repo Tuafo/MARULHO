@@ -564,6 +564,7 @@ def test_language_quality_replay_experiment_selects_from_multiple_child_candidat
             replay_loss_weight=0.25,
             candidate_learning_rates=(1e-3, 5e-4),
             candidate_replay_loss_weights=(0.25, 0.75),
+            candidate_replay_gradient_projection_modes=("disabled", "dense_core"),
             candidate_max_steps=(1, 1),
             gradient_clip_interval=1,
             generation_repetition_penalty=1.0,
@@ -581,6 +582,10 @@ def test_language_quality_replay_experiment_selects_from_multiple_child_candidat
     assert selection["enabled"] is True
     assert selection["candidate_count"] == 2
     assert len(selection["candidates"]) == 2
+    assert [
+        candidate["learning_config"]["replay_gradient_projection_mode"]
+        for candidate in selection["candidates"]
+    ] == ["disabled", "dense_core"]
     assert len(selected_candidates) == 1
     assert all(
         candidate["learning_update_accepted"] for candidate in selection["candidates"]

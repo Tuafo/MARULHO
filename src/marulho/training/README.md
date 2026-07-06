@@ -575,6 +575,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   loss. This is an anti-interference experiment surface; it must be judged by
   trained/heldout prompt coherence and full update-window throughput, not by
   anchor presence alone.
+  `replay_gradient_projection_mode=dense_core` is a second opt-in
+  anti-interference surface. It keeps the sparse vocabulary rows on the normal
+  update path, snapshots dense-core protection gradients from weighted replay
+  plus any anchor penalty, then projects only dense-core update gradients that
+  conflict with that protection direction. The path uses two backward passes
+  per protected replay step, excludes `token_embedding.weight` and
+  `lm_head.weight`, and reports
+  `marulho_language_continual_replay_gradient_projection.v1` with projected
+  parameter counts, conflict-step counts, gradient-dot evidence, projection
+  scale, and extra-backward counts. It is disabled by default until a full
+  update-window quality/speed report proves it is worth the cost.
   The 2026-07-06 `524288` update-token CUDA report
   `reports/language_continual_learning/cuda-sampled-padded-horizon8-tf32-clip8-memory-slots-paired-default-preserved-evalmatched-update524288-20260706.json`
   accepted the online update at `4938.007` update tokens/sec and `4302.285`

@@ -168,6 +168,8 @@ class LanguageContinualLearningConfig:
     replay_loss_weight: float = 0.25
     parameter_anchor_loss_weight: float = 0.0
     parameter_anchor_include_sparse_vocab: bool = False
+    replay_gradient_projection_mode: str = "disabled"
+    replay_gradient_projection_epsilon: float = 1e-12
     max_grad_norm: float = 1.0
     gradient_clip_interval: int = 1
     sparse_vocab_optimizer: bool = True
@@ -927,6 +929,10 @@ def _sparse_vocab_parameter_names(model: MarulhoLanguageModel) -> set[str]:
     return sparse_names
 
 
+def _vocab_readout_parameter_names() -> set[str]:
+    return {"token_embedding.weight", "lm_head.weight"}
+
+
 def _parameter_anchor_terms(
     model: MarulhoLanguageModel,
     snapshot: Mapping[str, torch.Tensor],
@@ -976,6 +982,187 @@ def _parameter_anchor_loss(
         total = total + delta.pow(2).sum()
         element_count += int(parameter.numel())
     return total / float(max(1, element_count))
+
+
+def _replay_gradient_projection_terms(
+    model: MarulhoLanguageModel,
+    *,
+    mode: str,
+) -> tuple[
+    tuple[tuple[str, torch.nn.Parameter], ...],
+    dict[str, Any],
+]:
+    normalized_mode = str(mode or "disabled").strip().lower()
+    disabled_modes = {"", "disabled", "none", "off", "false", "0"}
+    if normalized_mode in disabled_modes:
+        return (
+            tuple(),
+            {
+                "surface": "marulho_language_continual_replay_gradient_projection.v1",
+                "enabled": False,
+                "mode": "disabled",
+                "reason": "replay_gradient_projection_disabled",
+                "projected_parameter_scope": "none",
+                "projected_parameter_count": 0,
+                "projected_element_count": 0,
+                "excluded_parameter_names": [],
+            },
+        )
+    if normalized_mode not in {"dense_core", "dense-core"}:
+        raise ValueError(
+            "replay_gradient_projection_mode must be disabled or dense_core"
+        )
+    vocab_names = _vocab_readout_parameter_names()
+    terms: list[tuple[str, torch.nn.Parameter]] = []
+    excluded_names: list[str] = []
+    element_count = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad or not torch.is_floating_point(parameter):
+            continue
+        if name in vocab_names:
+            excluded_names.append(name)
+            continue
+        terms.append((name, parameter))
+        element_count += int(parameter.numel())
+    return (
+        tuple(terms),
+        {
+            "surface": "marulho_language_continual_replay_gradient_projection.v1",
+            "enabled": bool(terms),
+            "mode": "dense_core",
+            "reason": None if terms else "no_projectable_dense_core_parameters",
+            "projected_parameter_scope": (
+                "dense_core_excluding_token_embedding_and_lm_head"
+            ),
+            "projected_parameter_count": len(terms),
+            "projected_element_count": int(element_count),
+            "excluded_parameter_names": excluded_names,
+        },
+    )
+
+
+def _combine_dense_grads(
+    parameter: torch.nn.Parameter,
+    *grads: torch.Tensor | None,
+) -> torch.Tensor | None:
+    combined: torch.Tensor | None = None
+    for grad in grads:
+        if grad is None or grad.is_sparse:
+            continue
+        dense_grad = grad.detach().to(device=parameter.device, dtype=parameter.dtype)
+        combined = dense_grad if combined is None else combined + dense_grad
+    return combined
+
+
+def _dense_grad_snapshots(
+    parameters: Sequence[torch.nn.Parameter],
+) -> tuple[torch.Tensor | None, ...]:
+    snapshots: list[torch.Tensor | None] = []
+    for parameter in parameters:
+        grad = parameter.grad
+        if grad is None or grad.is_sparse:
+            snapshots.append(None)
+        else:
+            snapshots.append(grad.detach().clone())
+    return tuple(snapshots)
+
+
+def _dense_grad_delta_from_snapshots(
+    parameters: Sequence[torch.nn.Parameter],
+    snapshots: Sequence[torch.Tensor | None],
+) -> tuple[torch.Tensor | None, ...]:
+    deltas: list[torch.Tensor | None] = []
+    for parameter, snapshot in zip(parameters, snapshots):
+        grad = parameter.grad
+        if grad is None or grad.is_sparse:
+            deltas.append(None)
+        elif snapshot is None:
+            deltas.append(grad.detach().clone())
+        else:
+            deltas.append(grad.detach() - snapshot.to(
+                device=grad.device,
+                dtype=grad.dtype,
+            ))
+    return tuple(deltas)
+
+
+def _project_replay_conflicting_dense_grads(
+    terms: Sequence[tuple[str, torch.nn.Parameter]],
+    update_grads: Sequence[torch.Tensor | None],
+    replay_grads: Sequence[torch.Tensor | None],
+    anchor_grads: Sequence[torch.Tensor | None],
+    *,
+    epsilon: float,
+    device: torch.device,
+) -> tuple[list[torch.Tensor | None], dict[str, Any]]:
+    dot = torch.zeros((), device=device, dtype=torch.float32)
+    update_norm_sq = torch.zeros((), device=device, dtype=torch.float32)
+    replay_norm_sq = torch.zeros((), device=device, dtype=torch.float32)
+    active_parameter_count = 0
+    active_element_count = 0
+    dense_pairs: list[tuple[torch.Tensor | None, torch.Tensor | None]] = []
+    for (name, parameter), update_grad, replay_grad in zip(
+        terms,
+        update_grads,
+        replay_grads,
+    ):
+        del name
+        dense_update = (
+            update_grad.detach()
+            if update_grad is not None and not update_grad.is_sparse
+            else None
+        )
+        dense_replay = (
+            replay_grad.detach()
+            if replay_grad is not None and not replay_grad.is_sparse
+            else None
+        )
+        dense_pairs.append((dense_update, dense_replay))
+        if dense_update is None and dense_replay is None:
+            continue
+        active_parameter_count += 1
+        active_element_count += int(parameter.numel())
+        if dense_update is not None:
+            update_float = dense_update.float()
+            update_norm_sq = update_norm_sq + update_float.pow(2).sum()
+        if dense_replay is not None:
+            replay_float = dense_replay.float()
+            replay_norm_sq = replay_norm_sq + replay_float.pow(2).sum()
+        if dense_update is not None and dense_replay is not None:
+            dot = dot + (dense_update.float() * dense_replay.float()).sum()
+    eps = torch.tensor(max(float(epsilon), 0.0), device=device, dtype=torch.float32)
+    can_project = replay_norm_sq > eps
+    conflicting = torch.logical_and(dot < 0.0, can_project)
+    projection_scale = torch.where(
+        conflicting,
+        dot / (replay_norm_sq + eps),
+        torch.zeros((), device=device, dtype=torch.float32),
+    )
+    final_grads: list[torch.Tensor | None] = []
+    for (name, parameter), (update_grad, replay_grad), anchor_grad in zip(
+        terms,
+        dense_pairs,
+        anchor_grads,
+    ):
+        del name
+        projected_update = update_grad
+        if update_grad is not None and replay_grad is not None:
+            projected_update = update_grad - projection_scale.to(
+                device=update_grad.device,
+                dtype=update_grad.dtype,
+            ) * replay_grad.to(device=update_grad.device, dtype=update_grad.dtype)
+        final_grads.append(
+            _combine_dense_grads(parameter, projected_update, replay_grad, anchor_grad)
+        )
+    return final_grads, {
+        "gradient_dot": dot.detach(),
+        "update_gradient_norm": torch.sqrt(update_norm_sq).detach(),
+        "replay_gradient_norm": torch.sqrt(replay_norm_sq).detach(),
+        "projection_scale": projection_scale.detach(),
+        "conflict": conflicting.to(dtype=torch.float32).detach(),
+        "active_parameter_count": int(active_parameter_count),
+        "active_element_count": int(active_element_count),
+    }
 
 
 def _clip_grad_norm_sparse_aware(
@@ -1204,6 +1391,22 @@ def run_language_continual_learning_window(
             "loss_weight": float(cfg.parameter_anchor_loss_weight),
             "reason": None if anchor_terms else "no_anchorable_parameters",
         }
+    projection_terms, replay_gradient_projection = _replay_gradient_projection_terms(
+        model,
+        mode=str(cfg.replay_gradient_projection_mode),
+    )
+    projection_parameters = [parameter for _name, parameter in projection_terms]
+    replay_gradient_projection = {
+        **replay_gradient_projection,
+        "epsilon": float(cfg.replay_gradient_projection_epsilon),
+        "replay_loss_weight": float(cfg.replay_loss_weight),
+        "requires_replay_batch": True,
+        "uses_extra_autograd_grad_passes": False,
+        "uses_extra_backward_passes": bool(projection_terms),
+        "paired_update_replay_forward_preserved": bool(
+            paired_update_replay_fusion_enabled
+        ),
+    }
     stage_profiler = _ContinualUpdateStageProfiler(
         model.device,
         enabled=bool(cfg.profile_update_stages),
@@ -1224,6 +1427,17 @@ def run_language_continual_learning_window(
     replay_loss_count = 0
     parameter_anchor_loss_sum: torch.Tensor | None = None
     parameter_anchor_loss_count = 0
+    replay_projection_gradient_dot_sum: torch.Tensor | None = None
+    replay_projection_min_gradient_dot: torch.Tensor | None = None
+    replay_projection_update_norm_sum: torch.Tensor | None = None
+    replay_projection_replay_norm_sum: torch.Tensor | None = None
+    replay_projection_abs_scale_sum: torch.Tensor | None = None
+    replay_projection_conflict_sum: torch.Tensor | None = None
+    replay_projection_observed_step_count = 0
+    replay_projection_extra_backward_pass_count = 0
+    replay_projection_backward_pass_count = 0
+    replay_projection_active_parameter_count = 0
+    replay_projection_active_element_count = 0
     max_gradient_norm_tensor: torch.Tensor | None = None
     last_loss_evidence: dict[str, Any] = {}
     last_replay_loss_evidence: dict[str, Any] = {}
@@ -1308,6 +1522,7 @@ def run_language_continual_learning_window(
                 if bool(paired_result.get("paired_sampled_vocab_loss_fused", False)):
                     paired_sampled_vocab_loss_fused_step_count += 1
                 loss = paired_result["loss"]
+                update_loss = paired_result["update_loss"]
                 replay_loss = paired_result["replay_loss"]
             else:
                 stage_marker = stage_profiler.start()
@@ -1329,6 +1544,7 @@ def run_language_continual_learning_window(
                 )
                 measured_update_loop_model_loss_calls += 1
                 loss = update_result["loss"]
+                update_loss = update_result["loss"]
                 replay_loss = None
             update_candidate_slots_scored = _precomputed_memory_candidate_slots_scored(
                 batch
@@ -1391,8 +1607,102 @@ def run_language_continual_learning_window(
                     else parameter_anchor_loss_sum + detached_anchor_loss
                 )
                 parameter_anchor_loss_count += 1
+            else:
+                anchor_loss = None
             stage_marker = stage_profiler.start()
-            loss.backward()
+            if projection_terms and replay_batch is not None and replay_loss is not None:
+                projection_marker = stage_profiler.start()
+                protection_loss = float(cfg.replay_loss_weight) * replay_loss
+                if anchor_loss is not None:
+                    protection_loss = (
+                        protection_loss
+                        + float(cfg.parameter_anchor_loss_weight) * anchor_loss
+                    )
+                protection_loss.backward(retain_graph=True)
+                protection_grads = _dense_grad_snapshots(projection_parameters)
+                update_loss.backward()
+                update_grads = _dense_grad_delta_from_snapshots(
+                    projection_parameters,
+                    protection_grads,
+                )
+                replay_projection_extra_backward_pass_count += 1
+                replay_projection_backward_pass_count += 2
+                final_projection_grads, projection_metrics = (
+                    _project_replay_conflicting_dense_grads(
+                        projection_terms,
+                        update_grads,
+                        protection_grads,
+                        tuple(None for _parameter in projection_parameters),
+                        epsilon=float(cfg.replay_gradient_projection_epsilon),
+                        device=model.device,
+                    )
+                )
+                stage_profiler.record_elapsed(
+                    "replay_gradient_projection_two_backward_capture",
+                    optimizer_step_token_count,
+                    projection_marker,
+                )
+                projection_apply_marker = stage_profiler.start()
+                for (_name, parameter), projected_grad in zip(
+                    projection_terms,
+                    final_projection_grads,
+                ):
+                    if projected_grad is not None:
+                        parameter.grad = projected_grad
+                stage_profiler.record_elapsed(
+                    "replay_gradient_projection_apply",
+                    optimizer_step_token_count,
+                    projection_apply_marker,
+                )
+                projection_dot = projection_metrics["gradient_dot"]
+                replay_projection_gradient_dot_sum = (
+                    projection_dot
+                    if replay_projection_gradient_dot_sum is None
+                    else replay_projection_gradient_dot_sum + projection_dot
+                )
+                replay_projection_min_gradient_dot = (
+                    projection_dot
+                    if replay_projection_min_gradient_dot is None
+                    else torch.minimum(
+                        replay_projection_min_gradient_dot,
+                        projection_dot,
+                    )
+                )
+                update_norm = projection_metrics["update_gradient_norm"]
+                replay_norm = projection_metrics["replay_gradient_norm"]
+                abs_scale = projection_metrics["projection_scale"].abs()
+                conflict = projection_metrics["conflict"]
+                replay_projection_update_norm_sum = (
+                    update_norm
+                    if replay_projection_update_norm_sum is None
+                    else replay_projection_update_norm_sum + update_norm
+                )
+                replay_projection_replay_norm_sum = (
+                    replay_norm
+                    if replay_projection_replay_norm_sum is None
+                    else replay_projection_replay_norm_sum + replay_norm
+                )
+                replay_projection_abs_scale_sum = (
+                    abs_scale
+                    if replay_projection_abs_scale_sum is None
+                    else replay_projection_abs_scale_sum + abs_scale
+                )
+                replay_projection_conflict_sum = (
+                    conflict
+                    if replay_projection_conflict_sum is None
+                    else replay_projection_conflict_sum + conflict
+                )
+                replay_projection_observed_step_count += 1
+                replay_projection_active_parameter_count = max(
+                    replay_projection_active_parameter_count,
+                    int(projection_metrics["active_parameter_count"]),
+                )
+                replay_projection_active_element_count = max(
+                    replay_projection_active_element_count,
+                    int(projection_metrics["active_element_count"]),
+                )
+            else:
+                loss.backward()
             stage_profiler.record_elapsed(
                 "backward",
                 optimizer_step_token_count,
@@ -1567,6 +1877,84 @@ def run_language_continual_learning_window(
         "mean_anchor_loss": float(mean_parameter_anchor_loss),
         "anchor_loss_observed_step_count": int(parameter_anchor_loss_count),
     }
+    projection_count = max(1, replay_projection_observed_step_count)
+    mean_projection_dot = (
+        float(
+            (replay_projection_gradient_dot_sum / projection_count)
+            .detach()
+            .cpu()
+            .item()
+        )
+        if replay_projection_gradient_dot_sum is not None
+        else 0.0
+    )
+    min_projection_dot = (
+        float(replay_projection_min_gradient_dot.detach().cpu().item())
+        if replay_projection_min_gradient_dot is not None
+        else 0.0
+    )
+    mean_projection_update_norm = (
+        float(
+            (replay_projection_update_norm_sum / projection_count)
+            .detach()
+            .cpu()
+            .item()
+        )
+        if replay_projection_update_norm_sum is not None
+        else 0.0
+    )
+    mean_projection_replay_norm = (
+        float(
+            (replay_projection_replay_norm_sum / projection_count)
+            .detach()
+            .cpu()
+            .item()
+        )
+        if replay_projection_replay_norm_sum is not None
+        else 0.0
+    )
+    mean_projection_abs_scale = (
+        float(
+            (replay_projection_abs_scale_sum / projection_count)
+            .detach()
+            .cpu()
+            .item()
+        )
+        if replay_projection_abs_scale_sum is not None
+        else 0.0
+    )
+    replay_projection_conflict_step_count = (
+        int(replay_projection_conflict_sum.detach().cpu().item())
+        if replay_projection_conflict_sum is not None
+        else 0
+    )
+    replay_gradient_projection = {
+        **replay_gradient_projection,
+        "observed_step_count": int(replay_projection_observed_step_count),
+        "conflict_step_count": int(replay_projection_conflict_step_count),
+        "non_conflict_step_count": int(
+            max(
+                0,
+                replay_projection_observed_step_count
+                - replay_projection_conflict_step_count,
+            )
+        ),
+        "autograd_grad_pass_count": 0,
+        "extra_backward_pass_count": int(replay_projection_extra_backward_pass_count),
+        "projection_backward_pass_count": int(
+            replay_projection_backward_pass_count
+        ),
+        "active_projected_parameter_count": int(
+            replay_projection_active_parameter_count
+        ),
+        "active_projected_element_count": int(replay_projection_active_element_count),
+        "mean_update_replay_gradient_dot": mean_projection_dot,
+        "min_update_replay_gradient_dot": min_projection_dot,
+        "mean_update_gradient_norm": mean_projection_update_norm,
+        "mean_weighted_replay_gradient_norm": mean_projection_replay_norm,
+        "mean_protection_gradient_norm": mean_projection_replay_norm,
+        "mean_abs_projection_scale": mean_projection_abs_scale,
+    }
     max_gradient_norm = (
         float(max_gradient_norm_tensor.detach().cpu().item())
         if max_gradient_norm_tensor is not None
@@ -1693,6 +2081,7 @@ def run_language_continual_learning_window(
             "memory_slots": memory_slot_evidence,
             "active_compute": active_compute_evidence,
             "parameter_anchor": parameter_anchor,
+            "replay_gradient_projection": replay_gradient_projection,
             "training_window_memory_slot_triton_stats_delta": (
                 training_window_memory_slot_triton_stats_delta
             ),

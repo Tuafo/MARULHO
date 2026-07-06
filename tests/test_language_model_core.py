@@ -1963,6 +1963,14 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
     assert default_anchor["reason"] == "parameter_anchor_loss_weight_zero"
     assert default_anchor["loss_weight"] == 0.0
     assert report["learning_evidence"]["mean_parameter_anchor_loss"] == 0.0
+    default_projection = report["learning_evidence"]["replay_gradient_projection"]
+    assert default_projection["surface"] == (
+        "marulho_language_continual_replay_gradient_projection.v1"
+    )
+    assert default_projection["enabled"] is False
+    assert default_projection["mode"] == "disabled"
+    assert default_projection["reason"] == "replay_gradient_projection_disabled"
+    assert default_projection["observed_step_count"] == 0
     assert report["learning_evidence"]["optimizer_step_count"] == 8
     fusion = report["learning_evidence"]["paired_update_replay_fusion"]
     assert fusion["surface"] == (
@@ -2112,6 +2120,7 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
             max_steps=2,
             replay_loss_weight=0.25,
             parameter_anchor_loss_weight=0.01,
+            replay_gradient_projection_mode="dense_core",
             gradient_clip_interval=2,
             dense_adamw_backend="foreach",
             paired_sampled_vocab_loss=True,
@@ -2144,6 +2153,29 @@ def test_language_continual_learning_supports_sampled_padded_vocab_sparse_update
     assert anchor["anchored_element_count"] > 0
     assert anchor["anchor_loss_observed_step_count"] == 4
     assert evidence["mean_parameter_anchor_loss"] >= 0.0
+    projection = evidence["replay_gradient_projection"]
+    assert projection["surface"] == (
+        "marulho_language_continual_replay_gradient_projection.v1"
+    )
+    assert projection["enabled"] is True
+    assert projection["mode"] == "dense_core"
+    assert projection["projected_parameter_scope"] == (
+        "dense_core_excluding_token_embedding_and_lm_head"
+    )
+    assert set(projection["excluded_parameter_names"]) == {
+        "lm_head.weight",
+        "token_embedding.weight",
+    }
+    assert projection["observed_step_count"] == 4
+    assert projection["uses_extra_autograd_grad_passes"] is False
+    assert projection["uses_extra_backward_passes"] is True
+    assert projection["autograd_grad_pass_count"] == 0
+    assert projection["extra_backward_pass_count"] == 4
+    assert projection["projection_backward_pass_count"] == 8
+    assert projection["active_projected_parameter_count"] > 0
+    assert projection["active_projected_element_count"] > 0
+    assert 0 <= projection["conflict_step_count"] <= projection["observed_step_count"]
+    assert isinstance(projection["mean_update_replay_gradient_dot"], float)
     assert evidence["optimizer_step_count"] == 4
     fusion = evidence["paired_update_replay_fusion"]
     assert fusion["enabled"] is True

@@ -388,7 +388,14 @@ harnesses.
   `marulho_language_continual_parameter_anchor.v1` with sparse
   `token_embedding.weight` and `lm_head.weight` excluded, selects a
   heldout-preserving child, and reaches `524288/524288` at `8388.813`
-  tokens/sec, but trained coherence remains `9/10`. The paired suites
+  tokens/sec, but trained coherence remains `9/10`. The same selected child
+  also has extended sustained evidence at
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-anchor-repair7-selected-child-sustained-8388608-20260706.json`:
+  `8388608/8388608` tokens in `974.306` seconds at `8609.833` tokens/sec on
+  `cuda:0` through `torch_cuda_graph_burst_decode_controls`, with graph burst
+  covering all generated tokens, zero CUDA graph failures, zero tracked Triton
+  failures or fallbacks, active columns `14/16`, and `197888` active parameters
+  per token. The paired suites
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
   and
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-fixed-heldout-repair5-sweep-20260706.json`
@@ -398,6 +405,11 @@ harnesses.
   because no selected child currently has both full trained-prompt coherence and
   full heldout coherence. Treat this as data-backed repair progress plus speed
   evidence, not generation-quality promotion.
+  `language_quality_replay_experiment.py` can now sweep
+  `replay_gradient_projection_mode` per child candidate so future
+  anti-interference runs can compare disabled and dense-core projection without
+  mutating the parent checkpoint. Projection evidence still needs a full
+  quality/speed report before it can replace the faster default update path.
 - `language_scale_ladder.py` defines the MARULHO LM target scale classes and
   writes JSON plus README evidence inventories. It estimates total parameters,
   active parameters per token, routed-column budgets, dense vocab-head cost, and
