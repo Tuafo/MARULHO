@@ -1230,6 +1230,14 @@ def run_language_continual_learning_experiment(
                 report["old_domain_before"].get("metric_readback_mode")
                 == "deferred_gpu_scalar_aggregation"
             ),
+            "records_eval_last_batch_evidence": (
+                report["old_domain_before"].get("evidence_collection_mode")
+                == "last_batch_only"
+                and report["old_domain_before"].get("per_batch_evidence_dict_build")
+                is False
+                and report["new_domain_after"].get("evidence_collection_mode")
+                == "last_batch_only"
+            ),
             "records_comparison_eval_batch_match": bool(
                 report["eval_batch_match_policy"].get("status")
                 == "matched_comparison_eval_batch_counts"

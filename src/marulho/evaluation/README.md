@@ -180,6 +180,12 @@ harnesses.
   They also preserve `batch_device_staging` and
   `measured_update_loop_caller_device_transfer_calls=0` so installed evidence
   shows update batches were staged on the model device before timing.
+- Heldout and replay evaluation keeps the deferred scalar readback boundary but
+  no longer builds loss/memory evidence for every eval batch. Evaluation
+  reports now record `evidence_collection_mode=last_batch_only`,
+  `per_batch_evidence_dict_build=false`, `evidence_probe_batch_tokens`, and
+  `caller_device_transfer_calls`; total heldout loss still aggregates all eval
+  batches on device before one readback.
 - `language_continual_learning_experiment.py` exposes full-window backend
   toggles through `--sampled-vocab-ce-triton-training` and
   `--memory-slots-triton-training`, plus

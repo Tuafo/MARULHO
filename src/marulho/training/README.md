@@ -596,10 +596,12 @@ developmental and consolidation runners, query runners, and long-run evidence.
   positions plus bounded memory and route candidate IDs from `LanguageBatch`,
   so continual before/after heldout and replay evaluations can reuse the same
   sampled-vocab, memory-candidate, and route-candidate contracts as the update
-  loop. It also
-  aggregates heldout loss as a detached device scalar, reads it back once after
-  the evaluation timing stop, records evaluation tokens/sec and sync evidence,
-  and restores the caller's original train/eval mode.
+  loop. It aggregates heldout loss as a detached device scalar across every
+  eval batch, but builds loss/memory evidence only on the final probe batch
+  instead of rebuilding report dictionaries and Triton stat deltas per batch.
+  Reports record `evidence_collection_mode=last_batch_only`,
+  `per_batch_evidence_dict_build=false`, `caller_device_transfer_calls`, and
+  sync evidence, then restore the caller's original train/eval mode.
 - `evaluation/language_continual_learning_experiment.py` is the repeatable
   sampled/padded continual-learning evidence runner for old/new/replay windows.
   It writes JSON plus README reports, applies the CUDA math policy, caps heldout

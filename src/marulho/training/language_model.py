@@ -2434,6 +2434,8 @@ def evaluate_language_model(
         total_loss_tensor: torch.Tensor | None = None
         total_tokens = 0
         last_telemetry: dict[str, Any] = {}
+        caller_device_transfer_calls = 0
+        evidence_probe_batch_tokens = 0
         assume_no_sleeping = (
             model.routed_experts.enabled
             and not bool(
@@ -2441,15 +2443,25 @@ def evaluate_language_model(
             )
         )
         for batch_index, batch in enumerate(batches):
+            collect_batch_evidence = batch_index == len(batches) - 1
+            input_ids = batch.input_ids
+            if input_ids.device != model.device:
+                input_ids = input_ids.to(model.device)
+                caller_device_transfer_calls += 1
+            target_ids = batch.target_ids
+            if target_ids.device != model.device:
+                target_ids = target_ids.to(model.device)
+                caller_device_transfer_calls += 1
             result = model.next_token_loss(
-                batch.input_ids.to(model.device),
-                batch.target_ids.to(model.device),
-                collect_telemetry=batch_index == len(batches) - 1,
+                input_ids,
+                target_ids,
+                collect_telemetry=collect_batch_evidence,
                 assume_no_sleeping_experts=assume_no_sleeping,
                 sampled_vocab_ids=batch.sampled_vocab_ids,
                 sampled_target_positions=batch.sampled_target_positions,
                 memory_candidate_ids=batch.memory_candidate_ids,
                 route_candidate_ids=batch.route_candidate_ids,
+                return_evidence=collect_batch_evidence,
             )
             token_count = int(batch.target_ids.numel())
             detached_weighted_loss = result["loss"].detach() * token_count
@@ -2459,8 +2471,9 @@ def evaluate_language_model(
                 else total_loss_tensor + detached_weighted_loss
             )
             total_tokens += token_count
-            if batch_index == len(batches) - 1:
-                last_telemetry = dict(result["telemetry"])
+            if collect_batch_evidence:
+                evidence_probe_batch_tokens = token_count
+                last_telemetry = dict(result.get("telemetry") or {})
         cuda_synchronized_before_evaluation_stop = False
         if model.device.type == "cuda":
             torch.cuda.synchronize(model.device)
@@ -2489,6 +2502,10 @@ def evaluate_language_model(
             ),
             "metric_readback_mode": "deferred_gpu_scalar_aggregation",
             "per_batch_metric_cpu_sync": False,
+            "evidence_collection_mode": "last_batch_only",
+            "per_batch_evidence_dict_build": False,
+            "evidence_probe_batch_tokens": int(evidence_probe_batch_tokens),
+            "caller_device_transfer_calls": int(caller_device_transfer_calls),
             "cuda_synchronized_before_evaluation_start": bool(
                 cuda_synchronized_before_evaluation_start
             ),

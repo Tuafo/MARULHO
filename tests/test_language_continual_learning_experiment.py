@@ -294,9 +294,14 @@ def test_language_continual_learning_experiment_writes_deferred_eval_report(
         "deferred_gpu_scalar_aggregation"
     )
     assert report["old_domain_before"]["per_batch_metric_cpu_sync"] is False
+    assert report["old_domain_before"]["evidence_collection_mode"] == "last_batch_only"
+    assert report["old_domain_before"]["per_batch_evidence_dict_build"] is False
+    assert report["old_domain_before"]["evidence_probe_batch_tokens"] > 0
+    assert report["old_domain_before"]["caller_device_transfer_calls"] == 0
     assert report["learning_evidence"]["metric_readback_mode"] == (
         "deferred_gpu_scalar_aggregation"
     )
+    assert report["experiment_review"]["records_eval_last_batch_evidence"] is True
     assert report["learning_evidence"]["hot_update_evidence_mode"] == (
         "post_window_telemetry_probe"
     )

@@ -1776,6 +1776,10 @@ def test_language_eval_generation_and_checkpoint_round_trip(tmp_path) -> None:
     assert report["heldout_perplexity"] > 0
     assert report["metric_readback_mode"] == "deferred_gpu_scalar_aggregation"
     assert report["per_batch_metric_cpu_sync"] is False
+    assert report["evidence_collection_mode"] == "last_batch_only"
+    assert report["per_batch_evidence_dict_build"] is False
+    assert report["evidence_probe_batch_tokens"] > 0
+    assert report["caller_device_transfer_calls"] == 0
     assert report["elapsed_seconds"] >= 0.0
     assert report["tokens_per_second"] > 0.0
     assert generation["surface"] == "marulho_language_generation.v1"
@@ -1915,6 +1919,9 @@ def test_language_continual_learning_window_measures_forgetting_and_replay() -> 
             "deferred_gpu_scalar_aggregation"
         )
         assert eval_report["per_batch_metric_cpu_sync"] is False
+        assert eval_report["evidence_collection_mode"] == "last_batch_only"
+        assert eval_report["per_batch_evidence_dict_build"] is False
+        assert eval_report["evidence_probe_batch_tokens"] > 0
         assert eval_report["elapsed_seconds"] >= 0.0
         assert eval_report["tokens_per_second"] > 0.0
     assert "old_domain_forgetting" in report["learning_evidence"]
