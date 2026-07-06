@@ -2519,6 +2519,8 @@ def build_language_model_splits(
     stride: int | None = None,
     batch_size: int = 1,
     device: torch.device | str | None = None,
+    max_train_batches: int | None = None,
+    max_eval_batches: int | None = None,
 ) -> LanguageSplit:
     if sequence_length < 2:
         raise ValueError("sequence_length must be at least 2")
@@ -2551,6 +2553,22 @@ def build_language_model_splits(
         split_index = len(windows) - eval_count
         train_windows = windows[:split_index]
         eval_windows = windows[split_index:]
+    train_window_count_before_limit = len(train_windows)
+    eval_window_count_before_limit = len(eval_windows)
+
+    def _limit_windows(
+        window_rows: Sequence[Sequence[int]],
+        max_batches: int | None,
+    ) -> Sequence[Sequence[int]]:
+        if max_batches is None:
+            return window_rows
+        batch_limit = int(max_batches)
+        if batch_limit <= 0:
+            return window_rows
+        return window_rows[: batch_limit * batch_size]
+
+    train_windows = _limit_windows(train_windows, max_train_batches)
+    eval_windows = _limit_windows(eval_windows, max_eval_batches)
 
     def _pack(window_rows: Sequence[Sequence[int]]) -> tuple[LanguageBatch, ...]:
         packed: list[LanguageBatch] = []
@@ -2583,6 +2601,12 @@ def build_language_model_splits(
         "batch_size": int(batch_size),
         "source_text_count": len(texts),
         "window_count": len(windows),
+        "train_window_count_before_limit": int(train_window_count_before_limit),
+        "eval_window_count_before_limit": int(eval_window_count_before_limit),
+        "max_train_batches": int(max_train_batches) if max_train_batches else None,
+        "max_eval_batches": int(max_eval_batches) if max_eval_batches else None,
+        "train_batch_limit_applied": len(train_windows) < train_window_count_before_limit,
+        "eval_batch_limit_applied": len(eval_windows) < eval_window_count_before_limit,
         "train_window_count": len(train_windows),
         "eval_window_count": len(eval_windows),
         "train_batch_count": len(train_batches),

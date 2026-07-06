@@ -304,11 +304,15 @@ metadata. They should be treated as optional until access, terms, storage, and
 sampling budget are explicit. Do not block the next MARULHO experiment on those
 gates.
 
-Implementation boundary: `StreamingCorpusLoader` now flattens structured
-Hugging Face rows such as role/content `messages`, and accepts comma-separated
-field lists for math and preference rows. Dataset mixing still needs an
-evidence report that records source ratios, row counts, heldout split hashes,
-old/new/replay retention, and generation prompt suites before any quality claim.
+Implementation boundary: `StreamingCorpusLoader` flattens structured Hugging
+Face rows such as role/content `messages`, and accepts comma-separated field
+lists for math and preference rows. `language_hf_curriculum_materializer.py`
+now writes the bounded source-materialization evidence report and local corpus
+for this plan, including paginated row fetches, source ratios, row counts, page
+counts, offsets, corpus hash, source/config/split/license/field provenance, and
+negative runtime-promotion flags. Training quality still needs old/new/replay
+retention and generation prompt-suite evidence after the corpus is consumed by
+an installed-brain learning run.
 
 ## Source Windows To Spike State
 

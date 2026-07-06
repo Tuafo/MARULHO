@@ -303,6 +303,23 @@ harnesses.
   chars, and reaches `524288/524288` selected post-repair controlled sustained
   tokens at `8070.687` tokens/sec with zero tracked Triton failures. It is
   still evidence, not a broad generation-quality claim.
+- `language_hf_curriculum_materializer.py` is the bounded Hugging Face
+  curriculum materializer for moving generation repair beyond local prompt-only
+  corpora. It fetches rows through Dataset Viewer, flattens structured rows
+  through the `data` loader, writes a local corpus plus JSON report, records
+  source/config/split/license/field provenance plus offsets and page counts,
+  paginates larger row requests beyond one Dataset Viewer page, and keeps
+  `external_llm_used=false`, `service_owned_cognition=false`, and
+  `promotes_runtime_claim=false`. The `nvidia-open-repair-v1` preset covers
+  open CC-BY NVIDIA/Nemotron SFT, math, preference, code, and persona-diversity
+  sources; gated Nemotron pretraining corpora remain optional until access and
+  terms are explicit.
+- `language_training_experiment.py` now passes `max_train_batches` and
+  `max_eval_batches` into `build_language_model_splits()` before fixed windows
+  are packed as CPU/CUDA tensors. This keeps larger materialized corpora moving
+  through bounded train/eval evidence windows instead of spending the run on
+  full-corpus eval packing before the measured update begins. Reports carry
+  pre-limit and post-limit split counts so bounded eval is visible.
 - `language_quality_replay_experiment.py` is the checkpoint-backed hard-prompt
   replay runner for fast quality iteration. It loads a parent LM checkpoint,
   builds replay pressure from grounded prompt continuations, can run one or

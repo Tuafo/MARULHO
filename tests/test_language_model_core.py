@@ -108,6 +108,33 @@ def test_language_split_loader_packs_batched_windows() -> None:
     assert split.train[0].target_ids.shape == split.train[0].input_ids.shape
 
 
+def test_language_split_loader_limits_windows_before_packing() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    text = "marulho bounded split evidence keeps large corpora movable. " * 500
+
+    split = build_language_model_splits(
+        [text],
+        tokenizer,
+        sequence_length=8,
+        eval_fraction=0.25,
+        stride=1,
+        batch_size=4,
+        max_train_batches=3,
+        max_eval_batches=2,
+    )
+
+    assert split.report["train_batch_count"] == 3
+    assert split.report["eval_batch_count"] == 2
+    assert split.report["train_window_count"] <= 12
+    assert split.report["eval_window_count"] <= 8
+    assert split.report["train_window_count_before_limit"] > split.report["train_window_count"]
+    assert split.report["eval_window_count_before_limit"] > split.report["eval_window_count"]
+    assert split.report["train_batch_limit_applied"] is True
+    assert split.report["eval_batch_limit_applied"] is True
+    assert split.report["max_train_batches"] == 3
+    assert split.report["max_eval_batches"] == 2
+
+
 def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:
     torch.manual_seed(7)
     tokenizer = ByteLevelLanguageTokenizer()

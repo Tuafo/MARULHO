@@ -53,7 +53,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   online learning, rollback, throughput, and long-run Runtime Evidence gates
   pass. `build_language_model_splits` supports packed fixed-length language
   windows so experiments can run multi-window optimizer steps on CPU or CUDA
-  without changing the model contract.
+  without changing the model contract. Large corpus experiments can cap train
+  and eval batches before tensor packing through `max_train_batches` and
+  `max_eval_batches`; reports preserve pre-limit and post-limit window counts
+  so bounded update/eval windows are explicit instead of silently becoming
+  full-corpus GPU packing work.
 - The current `MarulhoSelectiveSpikingStateBlock` is the Iteration 3 PyTorch
   foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
   current terms, selective recurrent state, eligibility trace cache, adaptive

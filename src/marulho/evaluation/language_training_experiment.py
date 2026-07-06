@@ -66,6 +66,7 @@ class LanguageTrainingExperimentConfig:
     stride: int = 16
     batch_size: int = 8
     max_train_batches: int = 64
+    max_eval_batches: int = 64
     train_epochs: int = 2
     learning_rate: float = 2e-3
     max_grad_norm: float = 1.0
@@ -966,6 +967,8 @@ def run_language_training_experiment(
             stride=int(cfg.stride),
             batch_size=int(cfg.batch_size),
             device=device,
+            max_train_batches=int(cfg.max_train_batches),
+            max_eval_batches=int(cfg.max_eval_batches),
         )
         train_batches = _trim_batches(split.train, limit=int(cfg.max_train_batches))
         model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
@@ -1169,6 +1172,7 @@ def main() -> int:
     parser.add_argument("--stride", type=int, default=16)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-train-batches", type=int, default=64)
+    parser.add_argument("--max-eval-batches", type=int, default=64)
     parser.add_argument("--train-epochs", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
@@ -1204,6 +1208,7 @@ def main() -> int:
         stride=args.stride,
         batch_size=args.batch_size,
         max_train_batches=args.max_train_batches,
+        max_eval_batches=args.max_eval_batches,
         train_epochs=args.train_epochs,
         learning_rate=args.learning_rate,
         max_grad_norm=args.max_grad_norm,
