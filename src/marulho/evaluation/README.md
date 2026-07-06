@@ -126,6 +126,17 @@ harnesses.
   `3074.512` and `2823.885` on the same shape with `512` Triton autograd
   forwards, `512` custom backward calls, and zero fallback. Keep training Triton
   opt-in until a complete continual-window report wins.
+  The current-code 2026-07-06 rerun
+  `reports/language_training_experiments/memory-slot-training-impact-current-hot-evidence-524288-b16-s64-t524288-20260706.json`
+  keeps the same `524288` optimizer-token shape, writes partial JSON after each
+  completed arm, and records `report_status=final` after all three arms. Its
+  measured update steps use `post_window_telemetry_probe` with
+  `per_step_evidence_dict_build=false` and
+  `per_step_memory_slot_stats_delta=false`. It measured disabled memory at
+  `2531.717` train tokens/sec, bounded torch memory at `2523.593` (`0.9968x`
+  control), and opt-in Triton-forward/custom-autograd at `2533.075` (`1.0038x`
+  bounded, `1.0005x` control), while preserving nonzero memory-gate/slot
+  gradients and zero memory-slot fallback calls.
 - `language_continual_learning_experiment.py` now writes
   `marulho_language_continual_memory_slot_architecture_cost.v1` when a
   memory-slot run compares against a no-memory baseline with the same model

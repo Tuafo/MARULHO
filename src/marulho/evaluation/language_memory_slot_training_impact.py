@@ -356,6 +356,7 @@ def _run_training_steps(
             sampled_target_positions=batch.sampled_target_positions,
             memory_candidate_ids=batch.memory_candidate_ids,
             route_candidate_ids=batch.route_candidate_ids,
+            return_evidence=False,
         )
         loss = result["loss"]
         loss.backward()
@@ -520,13 +521,22 @@ def _run_arm(
             language_memory_slots_triton_stats(),
         )
         elapsed = max(0.0, time.perf_counter() - started)
-        telemetry = (
-            last_result.get("telemetry")
-            if isinstance(last_result.get("telemetry"), Mapping)
-            else {}
+        post_window_probe_result = model.next_token_loss(
+            cached_batch.input_ids.to(model.device),
+            cached_batch.target_ids.to(model.device),
+            collect_telemetry=False,
+            assume_no_sleeping_experts=bool(model.routed_experts.enabled),
+            sampled_vocab_ids=cached_batch.sampled_vocab_ids,
+            sampled_target_positions=cached_batch.sampled_target_positions,
+            memory_candidate_ids=cached_batch.memory_candidate_ids,
+            route_candidate_ids=cached_batch.route_candidate_ids,
+            return_evidence=True,
         )
+        telemetry = post_window_probe_result.get("telemetry")
+        if not isinstance(telemetry, Mapping):
+            telemetry = {}
         memory = _memory_summary(telemetry)
-        loss_evidence = dict(last_result.get("loss_evidence", {}))
+        loss_evidence = dict(post_window_probe_result.get("loss_evidence", {}))
         memory_slot_gate_gradient = _gradient_evidence(model.memory_slot_gate)
         memory_slots_gradient = _gradient_evidence(model.memory_slots)
         memory_slot_gate_value_after_training = (
@@ -562,6 +572,10 @@ def _run_arm(
             "training_window_memory_slot_triton_stats_delta": (
                 memory_slots_stats_delta
             ),
+            "hot_update_evidence_mode": "post_window_telemetry_probe",
+            "per_step_evidence_dict_build": False,
+            "per_step_memory_slot_stats_delta": False,
+            "post_window_probe_batch_tokens": int(cached_batch.target_ids.numel()),
             "memory_triton_training_autograd_requested": bool(
                 memory_triton_training_autograd
             ),
@@ -796,6 +810,72 @@ def _comparison(
     }
 
 
+def _write_partial_report(
+    output: Path,
+    *,
+    cfg: MemorySlotTrainingImpactConfig,
+    tokenizer: ByteLevelLanguageTokenizer,
+    split_report: Mapping[str, Any],
+    batch: LanguageBatch,
+    cuda_math_policy: Mapping[str, Any],
+    arms: Mapping[str, Mapping[str, Any]],
+    partial_reason: str,
+) -> None:
+    expected_arm_names = (
+        "memory_slots_disabled_control",
+        "bounded_memory_slots_enabled",
+        "bounded_memory_slots_triton_training_autograd",
+    )
+    completed = [name for name in expected_arm_names if name in arms]
+    missing = [name for name in expected_arm_names if name not in arms]
+    report = {
+        "artifact_kind": ARTIFACT_KIND,
+        "surface": SURFACE,
+        "report_status": "partial",
+        "partial_reason": partial_reason,
+        "output_path": str(output),
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "active_language_path": "marulho_lm_head",
+        "config": asdict(cfg),
+        "cuda_math_policy": dict(cuda_math_policy),
+        "tokenizer": tokenizer.state_dict(),
+        "model_vocab_size": int(cfg.vocab_size),
+        "tokenizer_vocab_size": int(tokenizer.vocab_size),
+        "generation_vocab_size": int(tokenizer.vocab_size),
+        "padded_vocab_rows": int(cfg.vocab_size) - int(tokenizer.vocab_size),
+        "batch": {
+            "sequence_length": int(cfg.sequence_length),
+            "batch_size": int(cfg.batch_size),
+            "tokens_per_optimizer_step": int(batch.target_ids.numel()),
+            "input_device": str(batch.input_ids.device),
+            "target_device": str(batch.target_ids.device),
+        },
+        "split": dict(split_report),
+        "arms": {name: dict(value) for name, value in arms.items()},
+        "completed_arm_names": completed,
+        "missing_arm_names": missing,
+        "review": {
+            "complete_training_step_impact": False,
+            "partial_training_step_impact": True,
+            "hot_update_evidence_mode": "post_window_telemetry_probe",
+            "per_step_evidence_dict_build": False,
+            "per_step_memory_slot_stats_delta": False,
+            "promotes_hot_path": False,
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+        },
+        "promotion_gate": {
+            "training_impact_available": False,
+            "complete_training_step_impact_available": False,
+            "promotes_hot_path": False,
+            "promotes_runtime_claim": False,
+        },
+    }
+    write_json_report_with_readme(output, report)
+
+
 def run_language_memory_slot_training_impact(
     *,
     output_path: str | Path,
@@ -833,6 +913,16 @@ def run_language_memory_slot_training_impact(
             device=device,
             memory_triton_training_autograd=False,
         )
+        _write_partial_report(
+            output,
+            cfg=cfg,
+            tokenizer=tokenizer,
+            split_report=split_report,
+            batch=batch,
+            cuda_math_policy=cuda_math_policy,
+            arms={"memory_slots_disabled_control": control_report},
+            partial_reason="completed_control_arm",
+        )
         bounded_report = _run_arm(
             "bounded_memory_slots_enabled",
             memory_slot_count=int(cfg.memory_slot_count),
@@ -843,6 +933,19 @@ def run_language_memory_slot_training_impact(
             tokenizer=tokenizer,
             device=device,
             memory_triton_training_autograd=False,
+        )
+        _write_partial_report(
+            output,
+            cfg=cfg,
+            tokenizer=tokenizer,
+            split_report=split_report,
+            batch=batch,
+            cuda_math_policy=cuda_math_policy,
+            arms={
+                "memory_slots_disabled_control": control_report,
+                "bounded_memory_slots_enabled": bounded_report,
+            },
+            partial_reason="completed_bounded_memory_arm",
         )
         triton_training_report = _run_arm(
             "bounded_memory_slots_triton_training_autograd",
@@ -859,6 +962,7 @@ def run_language_memory_slot_training_impact(
         report = {
             "artifact_kind": ARTIFACT_KIND,
             "surface": SURFACE,
+            "report_status": "final",
             "output_path": str(output),
             "owned_by_marulho": True,
             "external_llm_used": False,
@@ -892,6 +996,9 @@ def run_language_memory_slot_training_impact(
                 ),
                 "includes_memory_slot_gradient_evidence": True,
                 "not_kernel_microbench_only": True,
+                "hot_update_evidence_mode": "post_window_telemetry_probe",
+                "per_step_evidence_dict_build": False,
+                "per_step_memory_slot_stats_delta": False,
                 "sampled_loss_avoids_full_vocab_logits": bool(
                     comparison["bounded_sampled_vocab_loss_without_full_logits"]
                 ),

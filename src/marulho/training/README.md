@@ -724,6 +724,21 @@ developmental and consolidation runners, query runners, and long-run evidence.
   and the same bounded precomputed candidates. Keep training Triton opt-in
   through `MARULHO_LANGUAGE_MEMORY_SLOTS_TRITON_TRAINING=1` until complete
   continual-window evidence wins.
+  The current-code 2026-07-06 rerun
+  `reports/language_training_experiments/memory-slot-training-impact-current-hot-evidence-524288-b16-s64-t524288-20260706.json`
+  keeps that `524288` optimizer-token shape, writes partial JSON after each
+  completed arm, and records `report_status=final` when all arms finish. Its
+  measured update steps use `hot_update_evidence_mode=post_window_telemetry_probe`,
+  `per_step_evidence_dict_build=false`, and
+  `per_step_memory_slot_stats_delta=false`. Disabled memory reached
+  `2531.717` train tokens/sec; bounded torch memory reached `2523.593`
+  (`0.9968x` control) while scoring only `8192` memory candidates per
+  optimizer step; opt-in Triton-forward/custom-autograd reached `2533.075`
+  (`1.0038x` bounded, `1.0005x` control) with `512` Triton autograd forwards,
+  `512` custom backward calls, zero memory-slot fallback calls, and nonzero
+  memory-gate/slot gradients. This updates the isolated optimizer-step
+  evidence, but the maintained default still follows the full-window
+  continual-learning rejection above.
 - `MarulhoLanguageModel.forward_step` applies the same bounded memory-slot
   retrieval used by batched training before routed experts, so checkpointed
   streaming generation can execute memory slots rather than bypassing them. The

@@ -579,6 +579,12 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
             {
                 "artifact_kind": "marulho_language_memory_slot_training_impact",
                 "surface": "marulho_language_memory_slot_training_impact.v1",
+                "report_status": "final",
+                "review": {
+                    "hot_update_evidence_mode": "post_window_telemetry_probe",
+                    "per_step_evidence_dict_build": False,
+                    "per_step_memory_slot_stats_delta": False,
+                },
                 "comparison": {
                     "control_tokens_per_second": 3171.11,
                     "bounded_tokens_per_second": 3076.58,
@@ -651,5 +657,15 @@ def test_current_language_evidence_projection_tracks_selected_repair_without_run
     assert decisions["memory_slot_triton_training_autograd"][
         "accepted_current_backend"
     ] == "torch_autograd_bounded_memory_slots"
+    assert decisions["memory_slot_triton_training_autograd"]["report_status"] == "final"
+    assert decisions["memory_slot_triton_training_autograd"][
+        "hot_update_evidence_mode"
+    ] == "post_window_telemetry_probe"
+    assert decisions["memory_slot_triton_training_autograd"][
+        "per_step_evidence_dict_build"
+    ] is False
+    assert decisions["memory_slot_triton_training_autograd"][
+        "per_step_memory_slot_stats_delta"
+    ] is False
     assert projection["current_checkpoint"]["path"] == checkpoint_path
     assert projection["current_checkpoint"]["delete_protected_by_current_evidence"] is True

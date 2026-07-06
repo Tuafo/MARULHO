@@ -1196,6 +1196,7 @@ def _backend_bottleneck_evidence(
     state_cmp = _mapping(state_block_impact.get("comparison"))
     eligibility_cmp = _mapping(eligibility_impact.get("comparison"))
     memory_cmp = _mapping(memory_slot_training_impact.get("comparison"))
+    memory_review = _mapping(memory_slot_training_impact.get("review"))
     memory_slots = _mapping(training.get("memory_slots"))
     decisions = []
     if state_cmp:
@@ -1267,6 +1268,18 @@ def _backend_bottleneck_evidence(
                 ),
                 "bounded_avoids_all_slot_scan": _bool_or_none(
                     memory_cmp.get("bounded_avoids_all_slot_scan")
+                ),
+                "report_status": _string_or_none(
+                    memory_slot_training_impact.get("report_status")
+                ),
+                "hot_update_evidence_mode": _string_or_none(
+                    memory_review.get("hot_update_evidence_mode")
+                ),
+                "per_step_evidence_dict_build": _bool_or_none(
+                    memory_review.get("per_step_evidence_dict_build")
+                ),
+                "per_step_memory_slot_stats_delta": _bool_or_none(
+                    memory_review.get("per_step_memory_slot_stats_delta")
                 ),
             }
         )

@@ -35,6 +35,7 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
 
     assert output.exists()
     assert report["surface"] == "marulho_language_memory_slot_training_impact.v1"
+    assert report["report_status"] == "final"
     assert report["owned_by_marulho"] is True
     assert report["external_llm_used"] is False
     assert report["loads_external_checkpoint"] is False
@@ -45,6 +46,11 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
     assert report["review"]["includes_forward_backward_and_optimizer_step"] is True
     assert report["review"]["includes_memory_slot_gradient_evidence"] is True
     assert report["review"]["not_kernel_microbench_only"] is True
+    assert report["review"]["hot_update_evidence_mode"] == (
+        "post_window_telemetry_probe"
+    )
+    assert report["review"]["per_step_evidence_dict_build"] is False
+    assert report["review"]["per_step_memory_slot_stats_delta"] is False
     assert report["review"]["sampled_loss_avoids_full_vocab_logits"] is True
     assert report["review"]["uses_sparse_vocab_optimizer"] is True
     assert report["review"]["uses_precomputed_sampled_vocab_hot_window"] is True
@@ -73,6 +79,10 @@ def test_language_memory_slot_training_impact_reports_full_step(tmp_path) -> Non
     assert bounded["loss_evidence"]["precomputed_target_positions_used"] is True
     assert bounded["loss_evidence"]["lm_head_weight_gradient_sparse"] is True
     assert bounded["loss_evidence"]["token_embedding_gradient_sparse"] is True
+    assert bounded["hot_update_evidence_mode"] == "post_window_telemetry_probe"
+    assert bounded["per_step_evidence_dict_build"] is False
+    assert bounded["per_step_memory_slot_stats_delta"] is False
+    assert bounded["post_window_probe_batch_tokens"] == 16
     assert bounded["memory_enabled"] is True
     assert bounded["total_slots"] == 4
     assert bounded["candidate_slot_count"] == 2
