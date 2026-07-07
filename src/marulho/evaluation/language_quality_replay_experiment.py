@@ -72,6 +72,7 @@ class LanguageQualityReplayExperimentConfig:
     gradient_clip_interval: int = 8
     collect_training_telemetry: bool = False
     heldout_prompt_case_count: int = 4
+    fresh_heldout_prompt_case_count: int = 4
     min_case_pass_rate: float = 1.0
     generation_repetition_penalty: float = 1.15
     generation_no_repeat_ngram_size: int = 3
@@ -340,6 +341,77 @@ def _auto_heldout_prompt_cases(
     )
 
 
+def _fresh_heldout_prompt_cases(
+    source_text: str,
+    *,
+    training_prompt_cases: Sequence[LanguageGenerationPromptCase],
+    heldout_prompt_cases: Sequence[LanguageGenerationPromptCase],
+    limit: int,
+) -> tuple[LanguageGenerationPromptCase, ...]:
+    return auto_source_prompt_cases(
+        source_text,
+        limit=int(limit),
+        exclude_prompt_cases=tuple(training_prompt_cases) + tuple(heldout_prompt_cases),
+    )
+
+
+def _coherence_loss_available(delta: Mapping[str, Any] | None) -> bool:
+    return bool(dict(delta or {}).get("source_continuation_loss_available", False))
+
+
+def _coherence_delta_value(
+    delta: Mapping[str, Any] | None,
+    key: str,
+) -> float:
+    return float(dict(delta or {}).get(key, 0.0) or 0.0)
+
+
+def _coherence_loss_rank_value(
+    delta: Mapping[str, Any] | None,
+    key: str,
+) -> float:
+    if not _coherence_loss_available(delta):
+        return -1.0e9
+    return -_coherence_delta_value(delta, key)
+
+
+def _coherence_loss_regressed(delta: Mapping[str, Any] | None) -> bool:
+    return bool(
+        _coherence_loss_available(delta)
+        and _coherence_delta_value(delta, "mean_source_continuation_loss_delta") > 0.0
+    )
+
+
+def _coherence_perplexity_regressed(delta: Mapping[str, Any] | None) -> bool:
+    return bool(
+        _coherence_loss_available(delta)
+        and _coherence_delta_value(
+            delta,
+            "mean_source_continuation_perplexity_delta",
+        )
+        > 0.0
+    )
+
+
+def _coherence_pass_nonregressed(delta: Mapping[str, Any] | None) -> bool:
+    payload = dict(delta or {})
+    return bool(
+        int(payload.get("regressed_prompt_count", 0) or 0) == 0
+        and int(payload.get("passed_case_count_delta", 0) or 0) >= 0
+        and float(payload.get("case_pass_rate_delta", 0.0) or 0.0) >= 0.0
+    )
+
+
+def _coherence_pass_but_loss_regressed(delta: Mapping[str, Any] | None) -> bool:
+    return bool(
+        _coherence_pass_nonregressed(delta)
+        and (
+            _coherence_loss_regressed(delta)
+            or _coherence_perplexity_regressed(delta)
+        )
+    )
+
+
 def _coherence_delta(
     before: Mapping[str, Any],
     after: Mapping[str, Any],
@@ -374,14 +446,29 @@ def _coherence_delta(
             repaired_prompts.append(prompt)
         if bool(prior.get("passed")) and not bool(case.get("passed")):
             regressed_prompts.append(prompt)
+    passed_case_count_delta = int(after_summary.get("passed_case_count", 0) or 0) - int(
+        before_summary.get("passed_case_count", 0) or 0
+    )
+    case_pass_rate_delta = float(after_summary.get("case_pass_rate", 0.0) or 0.0) - float(
+        before_summary.get("case_pass_rate", 0.0) or 0.0
+    )
+    loss_delta = after_loss - before_loss
+    perplexity_delta = after_perplexity - before_perplexity
+    loss_regressed = bool(
+        before_loss_available and after_loss_available and loss_delta > 0.0
+    )
+    perplexity_regressed = bool(
+        before_loss_available and after_loss_available and perplexity_delta > 0.0
+    )
+    pass_nonregressed = bool(
+        not regressed_prompts
+        and passed_case_count_delta >= 0
+        and case_pass_rate_delta >= 0.0
+    )
     return {
         "surface": "marulho_language_quality_replay_coherence_delta.v1",
-        "passed_case_count_delta": int(
-            after_summary.get("passed_case_count", 0) or 0
-        )
-        - int(before_summary.get("passed_case_count", 0) or 0),
-        "case_pass_rate_delta": float(after_summary.get("case_pass_rate", 0.0) or 0.0)
-        - float(before_summary.get("case_pass_rate", 0.0) or 0.0),
+        "passed_case_count_delta": passed_case_count_delta,
+        "case_pass_rate_delta": case_pass_rate_delta,
         "mean_prefix_match_chars_delta": float(
             after_summary.get("mean_prefix_match_chars", 0.0) or 0.0
         )
@@ -399,14 +486,18 @@ def _coherence_delta(
         ),
         "mean_source_continuation_loss_before": before_loss,
         "mean_source_continuation_loss_after": after_loss,
-        "mean_source_continuation_loss_delta": after_loss - before_loss,
+        "mean_source_continuation_loss_delta": loss_delta,
         "mean_source_continuation_loss_improved": bool(
             before_loss_available and after_loss_available and after_loss < before_loss
         ),
+        "mean_source_continuation_loss_regressed": loss_regressed,
         "mean_source_continuation_perplexity_before": before_perplexity,
         "mean_source_continuation_perplexity_after": after_perplexity,
-        "mean_source_continuation_perplexity_delta": (
-            after_perplexity - before_perplexity
+        "mean_source_continuation_perplexity_delta": perplexity_delta,
+        "mean_source_continuation_perplexity_regressed": perplexity_regressed,
+        "prompt_pass_nonregressed": pass_nonregressed,
+        "prompt_pass_nonregressed_but_loss_regressed": bool(
+            pass_nonregressed and (loss_regressed or perplexity_regressed)
         ),
         "repaired_prompt_count": len(repaired_prompts),
         "repaired_prompts": repaired_prompts,
@@ -422,6 +513,8 @@ def _heldout_generalization_review(
     heldout_before: Mapping[str, Any] | None,
     heldout_after: Mapping[str, Any] | None,
     heldout_delta: Mapping[str, Any] | None,
+    fresh_heldout_after: Mapping[str, Any] | None = None,
+    fresh_heldout_delta: Mapping[str, Any] | None = None,
     sustained_summary: Mapping[str, Any],
 ) -> dict[str, Any]:
     del heldout_before
@@ -434,6 +527,17 @@ def _heldout_generalization_review(
         else {}
     )
     delta = dict(heldout_delta or {})
+    fresh_summary = (
+        dict(fresh_heldout_after.get("summary") or {})
+        if fresh_heldout_after is not None
+        else {}
+    )
+    fresh_gate = (
+        dict(fresh_heldout_after.get("promotion_gate") or {})
+        if fresh_heldout_after is not None
+        else {}
+    )
+    fresh_delta = dict(fresh_heldout_delta or {})
     return {
         "surface": "marulho_language_quality_replay_generalization_review.v1",
         "trained_prompt_coherence_available": bool(
@@ -462,6 +566,32 @@ def _heldout_generalization_review(
         "heldout_mean_prefix_match_chars_delta": float(
             delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0
         ),
+        "heldout_source_continuation_loss_regressed": bool(
+            delta.get("mean_source_continuation_loss_regressed", False)
+        ),
+        "heldout_prompt_pass_nonregressed_but_loss_regressed": bool(
+            delta.get("prompt_pass_nonregressed_but_loss_regressed", False)
+        ),
+        "fresh_heldout_prompt_coherence_recorded": fresh_heldout_after is not None,
+        "fresh_heldout_prompt_coherence_available": bool(
+            fresh_gate.get("generation_coherence_available", False)
+        ),
+        "fresh_heldout_case_count": int(fresh_summary.get("case_count", 0) or 0),
+        "fresh_heldout_passed_case_count": int(
+            fresh_summary.get("passed_case_count", 0) or 0
+        ),
+        "fresh_heldout_case_pass_rate": float(
+            fresh_summary.get("case_pass_rate", 0.0) or 0.0
+        ),
+        "fresh_heldout_regressed_prompt_count": int(
+            fresh_delta.get("regressed_prompt_count", 0) or 0
+        ),
+        "fresh_heldout_source_continuation_loss_regressed": bool(
+            fresh_delta.get("mean_source_continuation_loss_regressed", False)
+        ),
+        "fresh_heldout_prompt_pass_nonregressed_but_loss_regressed": bool(
+            fresh_delta.get("prompt_pass_nonregressed_but_loss_regressed", False)
+        ),
         "same_child_house_scale_sustained_runtime": bool(
             sustained_summary.get("house_scale_524288_available", False)
         ),
@@ -485,6 +615,50 @@ def _heldout_generalization_review(
     }
 
 
+def _candidate_quality_retention_review(
+    *,
+    trained_delta: Mapping[str, Any],
+    heldout_delta: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    trained_suspicious = _coherence_pass_but_loss_regressed(trained_delta)
+    heldout_suspicious = _coherence_pass_but_loss_regressed(heldout_delta)
+    reasons: list[str] = []
+    if trained_suspicious:
+        reasons.append("trained_prompt_pass_nonregressed_but_loss_regressed")
+    if heldout_suspicious:
+        reasons.append("heldout_prompt_pass_nonregressed_but_loss_regressed")
+    return {
+        "surface": "marulho_language_quality_replay_candidate_quality_retention.v1",
+        "suspicious": bool(reasons),
+        "suspicious_reasons": reasons,
+        "trained_prompt_pass_nonregressed_but_loss_regressed": trained_suspicious,
+        "heldout_prompt_pass_nonregressed_but_loss_regressed": heldout_suspicious,
+        "trained_source_continuation_loss_available": _coherence_loss_available(
+            trained_delta
+        ),
+        "heldout_source_continuation_loss_available": _coherence_loss_available(
+            heldout_delta
+        ),
+        "trained_source_continuation_loss_delta": _coherence_delta_value(
+            trained_delta,
+            "mean_source_continuation_loss_delta",
+        ),
+        "heldout_source_continuation_loss_delta": _coherence_delta_value(
+            heldout_delta,
+            "mean_source_continuation_loss_delta",
+        ),
+        "trained_source_continuation_perplexity_delta": _coherence_delta_value(
+            trained_delta,
+            "mean_source_continuation_perplexity_delta",
+        ),
+        "heldout_source_continuation_perplexity_delta": _coherence_delta_value(
+            heldout_delta,
+            "mean_source_continuation_perplexity_delta",
+        ),
+        "promotes_generation_quality_claim": False,
+    }
+
+
 def _candidate_selection_rank(
     *,
     learning_report: Mapping[str, Any],
@@ -499,13 +673,34 @@ def _candidate_selection_rank(
     replay_retention = float(
         learning.get("general_replay_retention_delta", 0.0) or 0.0
     )
+    quality_review = _candidate_quality_retention_review(
+        trained_delta=trained_delta,
+        heldout_delta=heldout_delta,
+    )
     return (
         -float(heldout.get("regressed_prompt_count", 0) or 0),
         float(heldout.get("passed_case_count_delta", 0) or 0),
-        float(heldout.get("mean_prefix_match_chars_delta", 0.0) or 0.0),
         -float(trained_delta.get("regressed_prompt_count", 0) or 0),
         float(trained_delta.get("passed_case_count_delta", 0) or 0),
-        float(trained_delta.get("mean_prefix_match_chars_delta", 0.0) or 0.0),
+        0.0 if bool(quality_review["suspicious"]) else 1.0,
+        1.0 if _coherence_loss_available(heldout_delta) else 0.0,
+        _coherence_loss_rank_value(
+            heldout_delta,
+            "mean_source_continuation_loss_delta",
+        ),
+        _coherence_loss_rank_value(
+            heldout_delta,
+            "mean_source_continuation_perplexity_delta",
+        ),
+        1.0 if _coherence_loss_available(trained_delta) else 0.0,
+        _coherence_loss_rank_value(
+            trained_delta,
+            "mean_source_continuation_loss_delta",
+        ),
+        _coherence_loss_rank_value(
+            trained_delta,
+            "mean_source_continuation_perplexity_delta",
+        ),
         1.0 if accepted_update else 0.0,
         -max(0.0, old_forgetting),
         -max(0.0, replay_retention),
@@ -513,8 +708,50 @@ def _candidate_selection_rank(
     )
 
 
+def _candidate_selection_rank_metrics(
+    rank: Sequence[float],
+) -> dict[str, float]:
+    names = (
+        "heldout_regression_avoidance",
+        "heldout_pass_delta",
+        "trained_regression_avoidance",
+        "trained_pass_delta",
+        "quality_not_suspicious",
+        "heldout_loss_available",
+        "heldout_loss_rank",
+        "heldout_perplexity_rank",
+        "trained_loss_available",
+        "trained_loss_rank",
+        "trained_perplexity_rank",
+        "learning_acceptance",
+        "old_forgetting_rank",
+        "replay_retention_rank",
+        "update_throughput",
+    )
+    return {
+        name: float(rank[index]) if index < len(rank) else 0.0
+        for index, name in enumerate(names)
+    }
+
+
 def _candidate_selection_score(rank: Sequence[float]) -> float:
-    weights = (1_000_000.0, 100_000.0, 1_000.0, 50_000.0, 10_000.0, 100.0, 50.0, 10.0, 10.0, 0.001)
+    weights = (
+        1_000_000_000.0,
+        100_000_000.0,
+        10_000_000.0,
+        1_000_000.0,
+        500_000.0,
+        100_000.0,
+        10_000.0,
+        1_000.0,
+        100_000.0,
+        10_000.0,
+        1_000.0,
+        100.0,
+        10.0,
+        10.0,
+        0.001,
+    )
     return float(sum(float(value) * weight for value, weight in zip(rank, weights)))
 
 
@@ -528,6 +765,10 @@ def _learning_update_accepted(learning_report: Mapping[str, Any]) -> bool:
 def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any]:
     learning_summary = dict(candidate.get("learning_summary") or {})
     selection_rank = [float(value) for value in candidate.get("selection_rank", ())]
+    selection_rank_metrics = dict(candidate.get("selection_rank_metrics") or {})
+    learning_acceptance = float(
+        selection_rank_metrics.get("learning_acceptance", 0.0) or 0.0
+    )
     return {
         "candidate_id": candidate["candidate_id"],
         "candidate_index": int(candidate["candidate_index"]),
@@ -556,10 +797,12 @@ def _candidate_summary_for_report(candidate: Mapping[str, Any]) -> dict[str, Any
         "quality_generalization_review": dict(
             candidate.get("quality_generalization_review") or {}
         ),
-        "selection_rank": selection_rank,
-        "selection_rank_learning_acceptance": (
-            selection_rank[6] if len(selection_rank) > 6 else 0.0
+        "quality_retention_review": dict(
+            candidate.get("quality_retention_review") or {}
         ),
+        "selection_rank": selection_rank,
+        "selection_rank_metrics": selection_rank_metrics,
+        "selection_rank_learning_acceptance": learning_acceptance,
         "selection_score": float(candidate.get("selection_score", 0.0) or 0.0),
     }
 
@@ -931,8 +1174,8 @@ def run_language_quality_replay_experiment(
     selected_tokenizer: ByteLevelLanguageTokenizer | None = None
     disabled_sustained_summary = _disabled_sustained_summary()
     selection_policy = (
-        "prefer_min_heldout_regression_then_heldout_gain_then_trained_gain_"
-        "then_learning_acceptance_then_update_throughput"
+        "prefer_heldout_non_regression_then_trained_repair_then_source_"
+        "continuation_loss_perplexity_then_retention_then_update_throughput"
     )
     for candidate_spec in candidate_specs:
         candidate_model, candidate_tokenizer, _candidate_parent_metadata = (
@@ -1062,6 +1305,11 @@ def run_language_quality_replay_experiment(
             trained_delta=coherence_delta,
             heldout_delta=heldout_coherence_delta,
         )
+        rank_metrics = _candidate_selection_rank_metrics(rank)
+        quality_retention_review = _candidate_quality_retention_review(
+            trained_delta=coherence_delta,
+            heldout_delta=heldout_coherence_delta,
+        )
         learning_evidence = dict(learning_report.get("learning_evidence") or {})
         candidate_report = {
             "candidate_id": candidate_spec.candidate_id,
@@ -1117,7 +1365,9 @@ def run_language_quality_replay_experiment(
             "heldout_generation_coherence_after": heldout_after_coherence,
             "heldout_generation_coherence_delta": heldout_coherence_delta,
             "quality_generalization_review": candidate_generalization_review,
+            "quality_retention_review": quality_retention_review,
             "selection_rank": rank,
+            "selection_rank_metrics": rank_metrics,
             "selection_score": _candidate_selection_score(rank),
         }
         candidate_reports.append(candidate_report)
@@ -1151,6 +1401,63 @@ def run_language_quality_replay_experiment(
     heldout_after_coherence = selected_candidate["heldout_generation_coherence_after"]
     coherence_delta = dict(selected_candidate["generation_coherence_delta"])
     heldout_coherence_delta = selected_candidate["heldout_generation_coherence_delta"]
+    fresh_heldout_cases = _fresh_heldout_prompt_cases(
+        source_text,
+        training_prompt_cases=cases,
+        heldout_prompt_cases=heldout_cases,
+        limit=max(0, int(cfg.fresh_heldout_prompt_case_count)),
+    )
+    fresh_heldout_training_overlaps = _prompt_case_training_overlaps(
+        cases,
+        fresh_heldout_cases,
+    )
+    fresh_heldout_fixed_overlaps = _prompt_case_training_overlaps(
+        heldout_cases,
+        fresh_heldout_cases,
+    )
+    fresh_heldout_before_coherence: dict[str, Any] | None = None
+    fresh_heldout_after_coherence: dict[str, Any] | None = None
+    fresh_heldout_coherence_delta: dict[str, Any] | None = None
+    fresh_heldout_before_coherence_path = output.with_name(
+        f"{output.stem}-parent-fresh-heldout-coherence.json"
+    )
+    fresh_heldout_after_coherence_path = output.with_name(
+        f"{output.stem}-child-fresh-heldout-coherence.json"
+    )
+    if fresh_heldout_cases:
+        fresh_parent_model, fresh_parent_tokenizer, _fresh_parent_metadata = (
+            load_language_model_checkpoint(parent_checkpoint, map_location="cpu")
+        )
+        fresh_parent_model.to(device)
+        try:
+            fresh_heldout_before_coherence = run_language_generation_coherence_report(
+                fresh_parent_model,
+                fresh_parent_tokenizer,
+                prompt_cases=fresh_heldout_cases,
+                min_case_pass_rate=float(cfg.min_case_pass_rate),
+                checkpoint_path=parent_checkpoint,
+                output_path=fresh_heldout_before_coherence_path,
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(
+                    cfg.generation_no_repeat_ngram_size
+                ),
+            )
+        finally:
+            del fresh_parent_model
+        fresh_heldout_after_coherence = run_language_generation_coherence_report(
+            model,
+            tokenizer,
+            prompt_cases=fresh_heldout_cases,
+            min_case_pass_rate=float(cfg.min_case_pass_rate),
+            checkpoint_path=child_checkpoint,
+            output_path=fresh_heldout_after_coherence_path,
+            generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+            generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+        )
+        fresh_heldout_coherence_delta = _coherence_delta(
+            fresh_heldout_before_coherence,
+            fresh_heldout_after_coherence,
+        )
 
     sustained_targets = _sustained_targets(cfg)
     sustained_reports: list[dict[str, Any]] = []
@@ -1215,9 +1522,15 @@ def run_language_quality_replay_experiment(
         heldout_before=heldout_before_coherence,
         heldout_after=heldout_after_coherence,
         heldout_delta=heldout_coherence_delta,
+        fresh_heldout_after=fresh_heldout_after_coherence,
+        fresh_heldout_delta=fresh_heldout_coherence_delta,
         sustained_summary=sustained_summary,
     )
     selected_candidate["quality_generalization_review"] = generalization_review
+    selected_candidate["quality_retention_review"] = _candidate_quality_retention_review(
+        trained_delta=coherence_delta,
+        heldout_delta=heldout_coherence_delta,
+    )
     candidate_selection = {
         "surface": "marulho_language_quality_replay_candidate_selection.v1",
         "enabled": candidate_count > 1,
@@ -1230,8 +1543,14 @@ def run_language_quality_replay_experiment(
         "selected_selection_rank": [
             float(value) for value in selected_candidate.get("selection_rank", ())
         ],
+        "selected_selection_rank_metrics": dict(
+            selected_candidate.get("selection_rank_metrics") or {}
+        ),
         "selected_selection_score": float(
             selected_candidate.get("selection_score", 0.0) or 0.0
+        ),
+        "selected_quality_retention_review": dict(
+            selected_candidate.get("quality_retention_review") or {}
         ),
         "saves_child_checkpoint_per_candidate": True,
         "runs_sustained_runtime_only_for_selected_child": True,
@@ -1241,6 +1560,19 @@ def run_language_quality_replay_experiment(
         ),
         "heldout_training_prompt_overlap_count": len(heldout_training_overlaps),
         "heldout_training_prompt_overlaps": list(heldout_training_overlaps),
+        "fresh_heldout_cases_used_for_replay_training": bool(
+            fresh_heldout_training_overlaps
+        ),
+        "fresh_heldout_training_prompt_overlap_count": len(
+            fresh_heldout_training_overlaps
+        ),
+        "fresh_heldout_training_prompt_overlaps": list(
+            fresh_heldout_training_overlaps
+        ),
+        "fresh_heldout_fixed_prompt_overlap_count": len(
+            fresh_heldout_fixed_overlaps
+        ),
+        "fresh_heldout_fixed_prompt_overlaps": list(fresh_heldout_fixed_overlaps),
         "candidates": [
             _candidate_summary_for_report(candidate)
             for candidate in candidate_reports
@@ -1312,6 +1644,35 @@ def run_language_quality_replay_experiment(
         "heldout_generation_coherence_before": heldout_before_coherence,
         "heldout_generation_coherence_after": heldout_after_coherence,
         "heldout_generation_coherence_delta": heldout_coherence_delta,
+        "fresh_heldout_prompt_suite": {
+            "surface": (
+                "marulho_language_quality_replay_fresh_heldout_prompt_suite.v1"
+            ),
+            "enabled": bool(fresh_heldout_cases),
+            "reason": (
+                None
+                if fresh_heldout_cases
+                else "no_fresh_cases_available_after_training_and_fixed_heldout_exclusions"
+            ),
+            "case_count": len(fresh_heldout_cases),
+            "prompt_cases": [
+                prompt_case_metadata(case) for case in fresh_heldout_cases
+            ],
+            "source": "auto_source_prompt_cases_after_candidate_selection",
+            "built_after_candidate_selection": True,
+            "not_used_for_replay_training": not bool(
+                fresh_heldout_training_overlaps
+            ),
+            "training_prompt_overlap_count": len(fresh_heldout_training_overlaps),
+            "training_prompt_overlaps": list(fresh_heldout_training_overlaps),
+            "fixed_heldout_prompt_overlap_count": len(fresh_heldout_fixed_overlaps),
+            "fixed_heldout_prompt_overlaps": list(fresh_heldout_fixed_overlaps),
+        },
+        "fresh_heldout_generation_coherence_before": (
+            fresh_heldout_before_coherence
+        ),
+        "fresh_heldout_generation_coherence_after": fresh_heldout_after_coherence,
+        "fresh_heldout_generation_coherence_delta": fresh_heldout_coherence_delta,
         "quality_generalization_review": generalization_review,
         "candidate_selection": candidate_selection,
         "sustained_runtime_evidence": sustained_report,
@@ -1338,6 +1699,15 @@ def run_language_quality_replay_experiment(
             ),
             "records_same_child_generation_coherence": True,
             "records_heldout_generation_coherence": bool(heldout_cases),
+            "records_fresh_post_selection_heldout_generation_coherence": bool(
+                fresh_heldout_cases
+            ),
+            "fresh_heldout_generation_coherence_available": bool(
+                generalization_review["fresh_heldout_prompt_coherence_available"]
+            ),
+            "fresh_heldout_generation_regressed_prompt_count": int(
+                generalization_review["fresh_heldout_regressed_prompt_count"]
+            ),
             "records_same_child_sustained_runtime": bool(sustained_reports),
             "runs_sustained_runtime_only_for_selected_child": True,
             "records_multiple_sustained_targets": bool(len(sustained_reports) > 1),
@@ -1492,6 +1862,7 @@ def main() -> int:
     parser.add_argument("--gradient-clip-interval", type=int, default=8)
     parser.add_argument("--collect-training-telemetry", action="store_true")
     parser.add_argument("--heldout-prompt-case-count", type=int, default=4)
+    parser.add_argument("--fresh-heldout-prompt-case-count", type=int, default=4)
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=3)
@@ -1604,6 +1975,10 @@ def main() -> int:
             gradient_clip_interval=max(0, int(args.gradient_clip_interval)),
             collect_training_telemetry=bool(args.collect_training_telemetry),
             heldout_prompt_case_count=max(0, int(args.heldout_prompt_case_count)),
+            fresh_heldout_prompt_case_count=max(
+                0,
+                int(args.fresh_heldout_prompt_case_count),
+            ),
             min_case_pass_rate=args.min_case_pass_rate,
             generation_repetition_penalty=args.generation_repetition_penalty,
             generation_no_repeat_ngram_size=args.generation_no_repeat_ngram_size,

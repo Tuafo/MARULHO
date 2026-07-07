@@ -8,6 +8,9 @@ from marulho.evaluation.language_generation_coherence import LanguageGenerationP
 from marulho.evaluation.language_quality_replay_experiment import (
     SURFACE,
     LanguageQualityReplayExperimentConfig,
+    _candidate_quality_retention_review,
+    _candidate_selection_rank,
+    _candidate_selection_rank_metrics,
     failed_prompt_cases_from_coherence_report,
     prompt_cases_from_coherence_report,
     run_language_quality_replay_experiment,
@@ -233,6 +236,62 @@ def test_failed_prompt_cases_from_coherence_report_imports_only_failures(
     assert cases[0].max_token_run_length == 5
 
 
+def test_candidate_selection_rank_penalizes_passed_loss_regression() -> None:
+    learning_report = {
+        "status": "accepted_online_update",
+        "learning_evidence": {
+            "tokens_per_second": 100.0,
+            "old_domain_forgetting": 0.0,
+            "general_replay_retention_delta": 0.0,
+        },
+    }
+    heldout_delta = {
+        "source_continuation_loss_available": True,
+        "regressed_prompt_count": 0,
+        "passed_case_count_delta": 0,
+        "case_pass_rate_delta": 0.0,
+        "mean_source_continuation_loss_delta": 0.0,
+        "mean_source_continuation_perplexity_delta": 0.0,
+    }
+    better_loss_delta = {
+        "source_continuation_loss_available": True,
+        "regressed_prompt_count": 0,
+        "passed_case_count_delta": 1,
+        "case_pass_rate_delta": 1.0,
+        "mean_source_continuation_loss_delta": -0.1,
+        "mean_source_continuation_perplexity_delta": -0.2,
+    }
+    worse_loss_delta = {
+        **better_loss_delta,
+        "mean_source_continuation_loss_delta": 0.2,
+        "mean_source_continuation_perplexity_delta": 0.4,
+    }
+
+    better_rank = _candidate_selection_rank(
+        learning_report=learning_report,
+        trained_delta=better_loss_delta,
+        heldout_delta=heldout_delta,
+    )
+    worse_rank = _candidate_selection_rank(
+        learning_report=learning_report,
+        trained_delta=worse_loss_delta,
+        heldout_delta=heldout_delta,
+    )
+    better_metrics = _candidate_selection_rank_metrics(better_rank)
+    worse_review = _candidate_quality_retention_review(
+        trained_delta=worse_loss_delta,
+        heldout_delta=heldout_delta,
+    )
+
+    assert better_rank > worse_rank
+    assert better_metrics["trained_loss_rank"] > 0.0
+    assert better_metrics["learning_acceptance"] == 1.0
+    assert worse_review["suspicious"] is True
+    assert worse_review["suspicious_reasons"] == [
+        "trained_prompt_pass_nonregressed_but_loss_regressed"
+    ]
+
+
 def test_language_quality_replay_experiment_writes_child_quality_and_speed_evidence(
     tmp_path,
 ) -> None:
@@ -363,6 +422,8 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert (tmp_path / "quality-replay-child-coherence.json").exists()
     assert (tmp_path / "quality-replay-parent-heldout-coherence.json").exists()
     assert (tmp_path / "quality-replay-child-heldout-coherence.json").exists()
+    assert (tmp_path / "quality-replay-parent-fresh-heldout-coherence.json").exists()
+    assert (tmp_path / "quality-replay-child-fresh-heldout-coherence.json").exists()
     assert (tmp_path / "quality-replay-child-sustained-2.json").exists()
     assert (tmp_path / "quality-replay-child-sustained-3.json").exists()
     assert (tmp_path / "quality-replay-suite.json").exists()
@@ -385,6 +446,17 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     )
     assert report["candidate_selection"]["heldout_training_prompt_overlap_count"] == 0
     assert report["candidate_selection"]["heldout_training_prompt_overlaps"] == []
+    assert (
+        report["candidate_selection"]["fresh_heldout_cases_used_for_replay_training"]
+        is False
+    )
+    assert (
+        report["candidate_selection"]["fresh_heldout_training_prompt_overlap_count"]
+        == 0
+    )
+    assert report["candidate_selection"]["fresh_heldout_training_prompt_overlaps"] == []
+    assert report["candidate_selection"]["fresh_heldout_fixed_prompt_overlap_count"] == 0
+    assert report["candidate_selection"]["fresh_heldout_fixed_prompt_overlaps"] == []
     assert report["candidate_selection"][
         "runs_sustained_runtime_only_for_selected_child"
     ] is True
@@ -396,6 +468,18 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["candidate_selection"]["candidates"][0][
         "selection_rank_learning_acceptance"
     ] == 1.0
+    assert "trained_loss_rank" in report["candidate_selection"][
+        "selected_selection_rank_metrics"
+    ]
+    assert report["candidate_selection"]["candidates"][0][
+        "selection_rank_metrics"
+    ]["learning_acceptance"] == 1.0
+    assert report["candidate_selection"]["candidates"][0][
+        "quality_retention_review"
+    ]["surface"] == "marulho_language_quality_replay_candidate_quality_retention.v1"
+    assert report["candidate_selection"]["selected_quality_retention_review"][
+        "promotes_generation_quality_claim"
+    ] is False
     assert report["generation_coherence_after"]["checkpoint_path"] == str(child)
     assert report["generation_coherence_delta"]["surface"] == (
         "marulho_language_quality_replay_coherence_delta.v1"
@@ -425,12 +509,34 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     assert report["heldout_generation_coherence_delta"][
         "source_continuation_loss_available"
     ] is True
+    assert report["fresh_heldout_prompt_suite"]["enabled"] is True
+    assert report["fresh_heldout_prompt_suite"]["built_after_candidate_selection"] is True
+    assert report["fresh_heldout_prompt_suite"]["case_count"] > 0
+    assert report["fresh_heldout_prompt_suite"]["not_used_for_replay_training"] is True
+    assert report["fresh_heldout_prompt_suite"]["training_prompt_overlap_count"] == 0
+    assert report["fresh_heldout_prompt_suite"]["fixed_heldout_prompt_overlap_count"] == 0
+    assert "source_text" not in report["fresh_heldout_prompt_suite"]["prompt_cases"][0]
+    assert report["fresh_heldout_generation_coherence_before"]["checkpoint_path"] == (
+        str(parent)
+    )
+    assert report["fresh_heldout_generation_coherence_after"]["checkpoint_path"] == (
+        str(child)
+    )
+    assert report["fresh_heldout_generation_coherence_delta"][
+        "source_continuation_loss_available"
+    ] is True
     assert report["quality_generalization_review"]["surface"] == (
         "marulho_language_quality_replay_generalization_review.v1"
     )
     assert report["quality_generalization_review"][
         "heldout_prompt_coherence_recorded"
     ] is True
+    assert report["quality_generalization_review"][
+        "fresh_heldout_prompt_coherence_recorded"
+    ] is True
+    assert report["quality_generalization_review"][
+        "fresh_heldout_case_count"
+    ] == report["fresh_heldout_prompt_suite"]["case_count"]
     assert report["quality_generalization_review"][
         "same_child_controlled_decode_sustained_runtime"
     ] is True
@@ -458,6 +564,9 @@ def test_language_quality_replay_experiment_writes_child_quality_and_speed_evide
     )
     assert report["benchmark_suite_report"]["promotion_gate"][
         "quality_replay_evidence_available"
+    ] is True
+    assert report["experiment_review"][
+        "records_fresh_post_selection_heldout_generation_coherence"
     ] is True
     suite_categories = {
         item["name"]: item for item in report["benchmark_suite_report"]["categories"]

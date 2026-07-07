@@ -361,7 +361,14 @@ harnesses.
   silently train on its own prompt bank. Trained and heldout coherence deltas
   now preserve before/after prompt-continuation loss and perplexity deltas, so a
   child can show whether a pass-rate change came with a better source
-  continuation loss signal.
+  continuation loss signal. Candidate ranking now orders by heldout
+  non-regression, trained repair, prompt-continuation loss/perplexity,
+  old/replay retention, and update throughput. Candidates are marked
+  suspicious when pass rates do not regress but source-continuation loss or
+  perplexity worsens. After selecting a child, the runner builds a fresh
+  heldout prompt bank with both hard-prompt and fixed-heldout exclusions, runs
+  parent/child coherence on that fresh bank, and records overlap counts so the
+  post-selection validation bank cannot be silently used as replay pressure.
 - The current NVIDIA/Nemotron open-curriculum replay report
   `reports/language_quality_replay/nvidia-open-repair-preview-128x-auto-quality-replay-20260706.json`
   starts from the 128x materialized-corpus checkpoint, accepts `1048576`
