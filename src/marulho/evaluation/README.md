@@ -429,6 +429,19 @@ harnesses.
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-failedprompt-train8388608-20260706.json`
   is `ready_for_review` with no missing required categories and still keeps
   `promotes_runtime_claim=false`.
+  The 2026-07-07 loss-aware projection ablation
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-lossaware-projection-ablation-20260707.json`
+  starts from the 8M-trained child and compares disabled replay-gradient
+  projection against dense-core projection on the same prompt bank. The disabled
+  arm is faster (`5888.100` update tokens/sec, `3299.468` total-window tokens/sec)
+  but regresses one trained and one heldout prompt. Dense-core projection avoids
+  those fixed-bank pass regressions and reaches `524288/524288` selected-child
+  controlled sustained decode at `8772.757` tokens/sec, but the new retention
+  review marks it suspicious: trained loss worsens by `0.0701`, heldout loss
+  worsens by `0.0401`, update throughput falls to `3672.864` update tokens/sec,
+  and the fresh post-selection heldout bank regresses one prompt. Treat this as
+  rejection/blocker evidence for projection quality retention, not projection
+  promotion.
   Earlier paired suites
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
   and
