@@ -709,11 +709,15 @@ developmental and consolidation runners, query runners, and long-run evidence.
   Application requires operator approval, writes a baseline checkpoint snapshot,
   applies the candidate topology/config change or checkpointed sleep mask under
   heldout non-regression, and records rollback hashes before accepting the
-  candidate. Route-bank expansion is capped so all-awake runs do not silently
-  become dense/all-column route scans; memory-slot expansion uses bounded
-  token-hash candidate retrieval so added slots do not silently become an
-  all-slot retrieval path; synapse-bundle growth preserves old expert weights
-  and initializes the added hidden rows/columns neutrally.
+  candidate. The standalone experiment now adds a quality-impact review around
+  each transaction: heldout loss/perplexity delta, auto-source prompt
+  coherence and prompt-continuation loss/perplexity deltas, active-compute
+  config deltas, and an explicit sustained-speed-delta gap when no same-child
+  sustained pair was run. Route-bank expansion is capped so all-awake runs do
+  not silently become dense/all-column route scans; memory-slot expansion uses
+  bounded token-hash candidate retrieval so added slots do not silently become
+  an all-slot retrieval path; synapse-bundle growth preserves old expert
+  weights and initializes the added hidden rows/columns neutrally.
 - `evaluation/language_structural_plasticity_experiment.py` writes portable
   JSON plus README evidence for one or more checkpoint-backed structural
   transactions instead of leaving growth/prune proof embedded only in a suite
@@ -725,8 +729,11 @@ developmental and consolidation runners, query runners, and long-run evidence.
   route-bank expansion from `8` to `12` bounded candidates on `16` experts.
   Both reports record non-mutating proposals, operator approval, baseline
   checkpoints, checkpoint restore verification, rollback verification, and
-  heldout non-regression. This is structural transaction evidence, not runtime
-  or generation-quality promotion.
+  heldout non-regression. Current-code reruns also require
+  `all_quality_impacts_recorded=true` and no prompt-continuation loss
+  regression hidden behind unchanged pass-rate before
+  `standalone_structural_evidence_available` can remain true. This is
+  structural transaction evidence, not runtime or generation-quality promotion.
 - `evaluation/language_brain_structural_plasticity_evidence.py` verifies the
   same structural path through an installed learned `MarulhoBrain`. The current
   CUDA report

@@ -801,6 +801,15 @@ harnesses.
   evidence exists, the generation-coherence checkpoint and the selected
   quality-replay child must be the same checkpoint that produced that
   controlled `524288` report.
+- `language_structural_plasticity_experiment.py` now makes standalone
+  structural evidence quality-aware. Each transaction records heldout
+  loss/perplexity delta, pre/post auto-source prompt coherence,
+  prompt-continuation loss/perplexity delta, active-compute config delta, and a
+  sustained-speed-delta placeholder that stays unavailable until a same-child
+  sustained pair is run. Current-code structural evidence can therefore be
+  checkpoint-backed and rollback-verified while still reporting
+  `structural_plasticity_transaction_evidence_incomplete` if prompt pass-rate
+  hides a source-continuation loss regression.
 - Current 2026-07-03 fixed evidence:
   `reports/runtime_evidence_20260703/diagnostic-8192-after-feed-readout-fix.json`
   reached `8192/8192` tokens at `3120.356 tokens/sec`, mean tick

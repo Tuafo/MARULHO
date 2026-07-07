@@ -10,6 +10,10 @@ from typing import Any, Callable, Mapping, Sequence
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.evaluation.language_generation_coherence import (
+    auto_source_prompt_cases,
+    run_language_generation_coherence_report,
+)
 from marulho.evaluation.language_training_experiment import DEFAULT_CORPUS
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_model import (
@@ -20,6 +24,7 @@ from marulho.training.language_model import (
     evaluate_language_model,
     precompute_sampled_vocab_batches,
 )
+from marulho.training.language_model_parameters import estimate_language_model_parameters
 from marulho.training.language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
@@ -62,6 +67,16 @@ class LanguageStructuralPlasticityExperimentConfig:
     eval_fraction: float = 0.2
     max_eval_batches: int = 2
     max_eval_loss_delta: float = 100.0
+    quality_prompt_case_count: int = 2
+    quality_prompt_max_new_tokens: int = 16
+    quality_prompt_min_new_tokens: int = 1
+    quality_prompt_min_prefix_match_chars: int = 1
+    quality_prompt_min_prefix_match_fraction: float = 0.0
+    quality_prompt_min_printable_fraction: float = 0.0
+    quality_prompt_min_distinct_bigram_fraction: float = 0.0
+    quality_prompt_max_token_run_length: int = 64
+    generation_repetition_penalty: float = 1.15
+    generation_no_repeat_ngram_size: int = 2
     seed: int = 20260705
     device: str = "auto"
 
@@ -300,6 +315,12 @@ def _entry_summary(entry: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(transaction.get("rollback_evidence"), Mapping)
         else {}
     )
+    quality_impact = _entry_quality_impact(entry)
+    prompt_quality = (
+        quality_impact.get("prompt_quality")
+        if isinstance(quality_impact.get("prompt_quality"), Mapping)
+        else {}
+    )
     body = proposal.get("proposal") if isinstance(proposal.get("proposal"), Mapping) else {}
     return {
         "proposal_kind": mutation.get("proposal_kind") or body.get("proposal_kind"),
@@ -320,6 +341,210 @@ def _entry_summary(entry: Mapping[str, Any]) -> dict[str, Any]:
         "target_memory_slot_candidate_count": mutation.get(
             "target_memory_slot_candidate_count"
         ),
+        "quality_impact_recorded": bool(
+            quality_impact.get("quality_impact_recorded", False)
+        ),
+        "prompt_coherence_regressed_prompt_count": int(
+            prompt_quality.get("regressed_prompt_count", 0)
+            or 0
+        ),
+        "prompt_pass_nonregressed_but_loss_regressed": bool(
+            prompt_quality.get("prompt_pass_nonregressed_but_loss_regressed", False)
+        ),
+    }
+
+
+def _entry_quality_impact(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    value = entry.get("structural_quality_impact")
+    return value if isinstance(value, Mapping) else {}
+
+
+def _float_value(mapping: Mapping[str, Any], key: str) -> float:
+    try:
+        return float(mapping.get(key, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coherence_prompt_delta(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> dict[str, Any]:
+    before_summary = before.get("summary") if isinstance(before.get("summary"), Mapping) else {}
+    after_summary = after.get("summary") if isinstance(after.get("summary"), Mapping) else {}
+    before_cases = {
+        str(case.get("prompt_text") or ""): case
+        for case in before.get("cases", ())
+        if isinstance(case, Mapping)
+    }
+    repaired: list[str] = []
+    regressed: list[str] = []
+    for case in after.get("cases", ()):
+        if not isinstance(case, Mapping):
+            continue
+        prompt = str(case.get("prompt_text") or "")
+        prior = before_cases.get(prompt)
+        if prior is None:
+            continue
+        if not bool(prior.get("passed")) and bool(case.get("passed")):
+            repaired.append(prompt)
+        if bool(prior.get("passed")) and not bool(case.get("passed")):
+            regressed.append(prompt)
+    loss_available = bool(
+        before_summary.get("source_continuation_loss_available", False)
+        and after_summary.get("source_continuation_loss_available", False)
+    )
+    before_loss = _float_value(before_summary, "mean_source_continuation_loss")
+    after_loss = _float_value(after_summary, "mean_source_continuation_loss")
+    before_perplexity = _float_value(
+        before_summary,
+        "mean_source_continuation_perplexity",
+    )
+    after_perplexity = _float_value(
+        after_summary,
+        "mean_source_continuation_perplexity",
+    )
+    passed_count_delta = int(after_summary.get("passed_case_count", 0) or 0) - int(
+        before_summary.get("passed_case_count", 0) or 0
+    )
+    pass_rate_delta = _float_value(after_summary, "case_pass_rate") - _float_value(
+        before_summary,
+        "case_pass_rate",
+    )
+    loss_delta = float(after_loss - before_loss)
+    perplexity_delta = float(after_perplexity - before_perplexity)
+    pass_nonregressed = bool(
+        not regressed and passed_count_delta >= 0 and pass_rate_delta >= 0.0
+    )
+    loss_regressed = bool(loss_available and loss_delta > 0.0)
+    perplexity_regressed = bool(loss_available and perplexity_delta > 0.0)
+    return {
+        "surface": "marulho_language_structural_prompt_quality_delta.v1",
+        "source_continuation_loss_available": loss_available,
+        "case_count_before": int(before_summary.get("case_count", 0) or 0),
+        "case_count_after": int(after_summary.get("case_count", 0) or 0),
+        "passed_case_count_before": int(
+            before_summary.get("passed_case_count", 0) or 0
+        ),
+        "passed_case_count_after": int(after_summary.get("passed_case_count", 0) or 0),
+        "passed_case_count_delta": int(passed_count_delta),
+        "case_pass_rate_before": _float_value(before_summary, "case_pass_rate"),
+        "case_pass_rate_after": _float_value(after_summary, "case_pass_rate"),
+        "case_pass_rate_delta": float(pass_rate_delta),
+        "mean_source_continuation_loss_before": before_loss,
+        "mean_source_continuation_loss_after": after_loss,
+        "mean_source_continuation_loss_delta": loss_delta,
+        "mean_source_continuation_loss_regressed": loss_regressed,
+        "mean_source_continuation_perplexity_before": before_perplexity,
+        "mean_source_continuation_perplexity_after": after_perplexity,
+        "mean_source_continuation_perplexity_delta": perplexity_delta,
+        "mean_source_continuation_perplexity_regressed": perplexity_regressed,
+        "prompt_pass_nonregressed": pass_nonregressed,
+        "prompt_pass_nonregressed_but_loss_regressed": bool(
+            pass_nonregressed and (loss_regressed or perplexity_regressed)
+        ),
+        "repaired_prompt_count": len(repaired),
+        "repaired_prompts": repaired,
+        "regressed_prompt_count": len(regressed),
+        "regressed_prompts": regressed,
+        "promotes_generation_quality_claim": False,
+    }
+
+
+def _active_compute_delta(
+    source_config: LanguageModelConfig,
+    target_config: LanguageModelConfig,
+) -> dict[str, Any]:
+    before = estimate_language_model_parameters(source_config)
+    after = estimate_language_model_parameters(target_config)
+    return {
+        "surface": "marulho_language_structural_active_compute_delta.v1",
+        "before": before,
+        "after": after,
+        "total_parameters_delta": int(after["total_parameters"])
+        - int(before["total_parameters"]),
+        "active_parameters_per_token_delta": int(
+            after["active_parameters_per_token_estimate"]
+        )
+        - int(before["active_parameters_per_token_estimate"]),
+        "route_candidate_rows_per_token_delta": int(
+            after["route_candidate_rows_scored_per_token"]
+        )
+        - int(before["route_candidate_rows_scored_per_token"]),
+        "memory_slot_count_delta": int(after["memory_slot_count"])
+        - int(before["memory_slot_count"]),
+        "active_memory_slot_count_per_token_delta": int(
+            after["active_memory_slot_count_per_token"]
+        )
+        - int(before["active_memory_slot_count_per_token"]),
+    }
+
+
+def _structural_quality_impact(
+    *,
+    baseline_eval: Mapping[str, Any],
+    candidate_eval: Mapping[str, Any],
+    baseline_coherence: Mapping[str, Any],
+    candidate_coherence: Mapping[str, Any],
+    source_config: LanguageModelConfig,
+    target_config: LanguageModelConfig,
+) -> dict[str, Any]:
+    heldout_loss_before = _float_value(baseline_eval, "heldout_loss")
+    heldout_loss_after = _float_value(candidate_eval, "heldout_loss")
+    heldout_perplexity_before = _float_value(baseline_eval, "heldout_perplexity")
+    heldout_perplexity_after = _float_value(candidate_eval, "heldout_perplexity")
+    prompt_quality = _coherence_prompt_delta(baseline_coherence, candidate_coherence)
+    quality_impact_recorded = bool(
+        baseline_coherence
+        and candidate_coherence
+        and prompt_quality["source_continuation_loss_available"]
+    )
+    return {
+        "surface": "marulho_language_structural_quality_impact.v1",
+        "quality_impact_recorded": quality_impact_recorded,
+        "heldout": {
+            "surface": "marulho_language_structural_heldout_quality_delta.v1",
+            "heldout_loss_before": heldout_loss_before,
+            "heldout_loss_after": heldout_loss_after,
+            "heldout_loss_delta": float(heldout_loss_after - heldout_loss_before),
+            "heldout_perplexity_before": heldout_perplexity_before,
+            "heldout_perplexity_after": heldout_perplexity_after,
+            "heldout_perplexity_delta": float(
+                heldout_perplexity_after - heldout_perplexity_before
+            ),
+            "eval_token_count_before": int(baseline_eval.get("eval_token_count", 0) or 0),
+            "eval_token_count_after": int(candidate_eval.get("eval_token_count", 0) or 0),
+        },
+        "prompt_quality": prompt_quality,
+        "active_compute": _active_compute_delta(source_config, target_config),
+        "sustained_speed_delta": {
+            "surface": "marulho_language_structural_sustained_speed_delta.v1",
+            "available": False,
+            "reason": "standalone_structural_experiment_does_not_run_sustained_pair",
+            "requires_same_child_sustained_before_after": True,
+        },
+        "promotion_gate": {
+            "surface": "marulho_language_structural_quality_impact_gate.v1",
+            "quality_impact_recorded": quality_impact_recorded,
+            "heldout_loss_recorded": True,
+            "heldout_perplexity_recorded": True,
+            "prompt_continuation_loss_recorded": bool(
+                prompt_quality["source_continuation_loss_available"]
+            ),
+            "prompt_coherence_regression_absent": int(
+                prompt_quality["regressed_prompt_count"]
+            )
+            == 0,
+            "prompt_pass_nonregressed_but_loss_regressed": bool(
+                prompt_quality["prompt_pass_nonregressed_but_loss_regressed"]
+            ),
+            "active_compute_delta_recorded": True,
+            "sustained_speed_delta_recorded": False,
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+        },
+        "promotes_runtime_claim": False,
+        "promotes_generation_quality_claim": False,
     }
 
 
@@ -344,6 +569,19 @@ def run_language_structural_plasticity_experiment(
     device = _resolve_device(str(cfg.device))
     tokenizer = ByteLevelLanguageTokenizer()
     corpus, corpus_source = _read_text(corpus_path)
+    prompt_cases = auto_source_prompt_cases(
+        corpus,
+        limit=max(0, int(cfg.quality_prompt_case_count)),
+        max_new_tokens=max(1, int(cfg.quality_prompt_max_new_tokens)),
+        min_new_tokens=max(1, int(cfg.quality_prompt_min_new_tokens)),
+        min_prefix_match_chars=max(0, int(cfg.quality_prompt_min_prefix_match_chars)),
+        min_prefix_match_fraction=float(cfg.quality_prompt_min_prefix_match_fraction),
+        min_printable_fraction=float(cfg.quality_prompt_min_printable_fraction),
+        min_distinct_bigram_fraction=float(
+            cfg.quality_prompt_min_distinct_bigram_fraction
+        ),
+        max_token_run_length=max(1, int(cfg.quality_prompt_max_token_run_length)),
+    )
     entries: list[dict[str, Any]] = []
     split_reports: list[dict[str, Any]] = []
     precompute_reports: list[dict[str, Any]] = []
@@ -360,18 +598,63 @@ def run_language_structural_plasticity_experiment(
             device=device,
         )
         proposal, transaction_config = _PROPOSAL_BUILDERS[proposal_kind](model, cfg)
+        baseline_checkpoint_path = (
+            output.parent
+            / f"{output.stem}-{proposal_kind.replace('_', '-')}-baseline.pt"
+        )
+        baseline_coherence = (
+            run_language_generation_coherence_report(
+                model,
+                tokenizer,
+                prompt_cases=prompt_cases,
+                min_case_pass_rate=0.0,
+                checkpoint_path=baseline_checkpoint_path,
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+            )
+            if prompt_cases
+            else {}
+        )
         candidate, transaction_report = apply_language_structural_plasticity_transaction(
             model,
             proposal,
             eval_batches=eval_batches,
-            checkpoint_path=(
-                output.parent
-                / f"{output.stem}-{proposal_kind.replace('_', '-')}-baseline.pt"
-            ),
+            checkpoint_path=baseline_checkpoint_path,
             operator_approved=True,
             config=transaction_config,
         )
         candidate_eval = evaluate_language_model(candidate, eval_batches)
+        candidate_coherence = (
+            run_language_generation_coherence_report(
+                candidate,
+                tokenizer,
+                prompt_cases=prompt_cases,
+                min_case_pass_rate=0.0,
+                checkpoint_path=baseline_checkpoint_path,
+                generation_repetition_penalty=float(cfg.generation_repetition_penalty),
+                generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
+            )
+            if prompt_cases
+            else {}
+        )
+        transaction_evaluation = (
+            transaction_report.get("evaluation")
+            if isinstance(transaction_report.get("evaluation"), Mapping)
+            else {}
+        )
+        baseline_eval = (
+            transaction_evaluation.get("baseline")
+            if isinstance(transaction_evaluation.get("baseline"), Mapping)
+            else {}
+        )
+        quality_impact = _structural_quality_impact(
+            baseline_eval=baseline_eval,
+            candidate_eval=candidate_eval,
+            baseline_coherence=baseline_coherence,
+            candidate_coherence=candidate_coherence,
+            source_config=model.config,
+            target_config=candidate.config,
+        )
         entries.append(
             {
                 "surface": ENTRY_SURFACE,
@@ -381,6 +664,33 @@ def run_language_structural_plasticity_experiment(
                 "proposal": proposal,
                 "transaction": transaction_report,
                 "candidate_evaluation": candidate_eval,
+                "quality_prompt_suite": {
+                    "surface": (
+                        "marulho_language_structural_quality_prompt_suite.v1"
+                    ),
+                    "enabled": bool(prompt_cases),
+                    "case_count": len(prompt_cases),
+                    "source": "auto_source_prompt_cases",
+                    "built_before_structural_transaction": True,
+                    "not_used_for_mutation": True,
+                    "prompt_cases": [
+                        {
+                            "prompt_text": str(case.prompt_text),
+                            "max_new_tokens": int(case.max_new_tokens),
+                            "min_new_tokens": int(case.min_new_tokens),
+                            "min_prefix_match_chars": int(
+                                case.min_prefix_match_chars
+                            ),
+                            "min_prefix_match_fraction": float(
+                                case.min_prefix_match_fraction
+                            ),
+                        }
+                        for case in prompt_cases
+                    ],
+                },
+                "generation_coherence_before": baseline_coherence,
+                "generation_coherence_after": candidate_coherence,
+                "structural_quality_impact": quality_impact,
             }
         )
         split_reports.append(split_report)
@@ -397,6 +707,9 @@ def run_language_structural_plasticity_experiment(
         and bool(item["checkpoint_restore_verified"])
         and bool(item["rollback_verified"])
         and bool(item["heldout_non_regression"])
+        and bool(item["quality_impact_recorded"])
+        and int(item["prompt_coherence_regressed_prompt_count"]) == 0
+        and not bool(item["prompt_pass_nonregressed_but_loss_regressed"])
         for item in summaries
     )
     report = {
@@ -423,6 +736,14 @@ def run_language_structural_plasticity_experiment(
         "corpus_source": corpus_source,
         "split_reports": split_reports,
         "sampled_vocab_precompute_reports": precompute_reports,
+        "quality_prompt_suite": {
+            "surface": "marulho_language_structural_quality_prompt_suite.v1",
+            "enabled": bool(prompt_cases),
+            "case_count": len(prompt_cases),
+            "source": "auto_source_prompt_cases",
+            "built_before_structural_transaction": True,
+            "not_used_for_mutation": True,
+        },
         "transactions": entries,
         "transaction_summaries": summaries,
         "promotion_gate": {
@@ -439,6 +760,18 @@ def run_language_structural_plasticity_experiment(
             "operator_approval_recorded": all(
                 bool(item["operator_approved"]) for item in summaries
             ),
+            "all_quality_impacts_recorded": all(
+                bool(item["quality_impact_recorded"]) for item in summaries
+            ),
+            "all_prompt_coherence_regression_absent": all(
+                int(item["prompt_coherence_regressed_prompt_count"]) == 0
+                for item in summaries
+            ),
+            "all_prompt_loss_regression_without_pass_regression_absent": all(
+                not bool(item["prompt_pass_nonregressed_but_loss_regressed"])
+                for item in summaries
+            ),
+            "requires_sustained_speed_delta_for_runtime_promotion": True,
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
         },
@@ -477,6 +810,24 @@ def main() -> int:
     parser.add_argument("--eval-fraction", type=float, default=0.2)
     parser.add_argument("--max-eval-batches", type=int, default=2)
     parser.add_argument("--max-eval-loss-delta", type=float, default=100.0)
+    parser.add_argument("--quality-prompt-case-count", type=int, default=2)
+    parser.add_argument("--quality-prompt-max-new-tokens", type=int, default=16)
+    parser.add_argument("--quality-prompt-min-new-tokens", type=int, default=1)
+    parser.add_argument("--quality-prompt-min-prefix-match-chars", type=int, default=1)
+    parser.add_argument(
+        "--quality-prompt-min-prefix-match-fraction",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument("--quality-prompt-min-printable-fraction", type=float, default=0.0)
+    parser.add_argument(
+        "--quality-prompt-min-distinct-bigram-fraction",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument("--quality-prompt-max-token-run-length", type=int, default=64)
+    parser.add_argument("--generation-repetition-penalty", type=float, default=1.15)
+    parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20260705)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
@@ -501,6 +852,28 @@ def main() -> int:
         eval_fraction=float(args.eval_fraction),
         max_eval_batches=max(1, int(args.max_eval_batches)),
         max_eval_loss_delta=float(args.max_eval_loss_delta),
+        quality_prompt_case_count=max(0, int(args.quality_prompt_case_count)),
+        quality_prompt_max_new_tokens=max(1, int(args.quality_prompt_max_new_tokens)),
+        quality_prompt_min_new_tokens=max(1, int(args.quality_prompt_min_new_tokens)),
+        quality_prompt_min_prefix_match_chars=max(
+            0,
+            int(args.quality_prompt_min_prefix_match_chars),
+        ),
+        quality_prompt_min_prefix_match_fraction=float(
+            args.quality_prompt_min_prefix_match_fraction
+        ),
+        quality_prompt_min_printable_fraction=float(
+            args.quality_prompt_min_printable_fraction
+        ),
+        quality_prompt_min_distinct_bigram_fraction=float(
+            args.quality_prompt_min_distinct_bigram_fraction
+        ),
+        quality_prompt_max_token_run_length=max(
+            1,
+            int(args.quality_prompt_max_token_run_length),
+        ),
+        generation_repetition_penalty=max(1.0, float(args.generation_repetition_penalty)),
+        generation_no_repeat_ngram_size=max(0, int(args.generation_no_repeat_ngram_size)),
         seed=int(args.seed),
         device=str(args.device),
     )
