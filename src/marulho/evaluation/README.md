@@ -455,6 +455,23 @@ harnesses.
   because dense-core is slower and not quality-equal-or-better. The bundle is a
   review artifact only; it does not train, mutate checkpoints, or promote
   runtime/generation-quality claims.
+  The follow-up full-bank repair8 sweep
+  `reports/language_quality_replay/nvidia-open-repair-preview-128x-fullbank-repair8-current-sweep-20260707.json`
+  starts from the 8M-trained child, imports the full 10-prompt diagnostic bank
+  as hard-prompt pressure, trains three `8388608`-update-token CUDA children,
+  and selects `candidate-00`. The selected child reaches `5525.887` update
+  tokens/sec, `5262.914` total-window tokens/sec, and same-child
+  `524288/524288` controlled sustained decode at `8655.396` tokens/sec, but
+  the review bundle
+  `reports/language_quality_retention_review/nvidia-open-repair-preview-128x-fullbank-repair8-current-sweep-review-bundle-20260707.json`
+  stays `blocked_quality_retention` with no missing required evidence: trained
+  pass-rate hides a `+0.1372` continuation-loss regression, fixed heldout hides
+  a `+0.1007` loss regression, fresh heldout hides a `+0.0476` loss regression,
+  and the selected candidate is suspicious. Candidate-01 and candidate-02 were
+  faster (`6287.543` and `6345.920` update tokens/sec), but candidate-02
+  regressed three heldout prompts, so the selector still preferred the
+  pass-retaining child. Treat this as current CUDA speed plus blocker evidence,
+  not a generation-quality promotion.
   Example command:
   `python -m marulho.evaluation.language_quality_retention_review_bundle --quality-replay-evidence reports\language_quality_replay\nvidia-open-repair-preview-128x-lossaware-projection-ablation-20260707.json --projection-ablation-evidence reports\language_quality_replay\nvidia-open-repair-preview-128x-lossaware-projection-ablation-20260707.json --output reports\language_quality_retention_review\nvidia-open-repair-preview-128x-lossaware-projection-ablation-review-bundle-20260707.json --base-dir .`
   Earlier paired suites
