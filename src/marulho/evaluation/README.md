@@ -442,6 +442,21 @@ harnesses.
   and the fresh post-selection heldout bank regresses one prompt. Treat this as
   rejection/blocker evidence for projection quality retention, not projection
   promotion.
+  `language_quality_retention_review_bundle.py` aggregates one selected
+  quality-replay child into a same-child review/blocker packet. It checks the
+  selected checkpoint path/SHA, trained/fixed/fresh prompt reports,
+  prompt-continuation loss/perplexity, old/new/replay loss deltas, active
+  compute, prompt-overlap truth, raw continuation samples, and same-child
+  `524288` controlled sustained decode. The current bundle
+  `reports/language_quality_retention_review/nvidia-open-repair-preview-128x-lossaware-projection-ablation-review-bundle-20260707.json`
+  verifies checkpoint continuity and has no missing required evidence, but
+  stays `blocked_quality_retention`: fresh heldout regresses to `4/10`, trained
+  and heldout pass-rates hide loss regressions, and projection is rejected
+  because dense-core is slower and not quality-equal-or-better. The bundle is a
+  review artifact only; it does not train, mutate checkpoints, or promote
+  runtime/generation-quality claims.
+  Example command:
+  `python -m marulho.evaluation.language_quality_retention_review_bundle --quality-replay-evidence reports\language_quality_replay\nvidia-open-repair-preview-128x-lossaware-projection-ablation-20260707.json --projection-ablation-evidence reports\language_quality_replay\nvidia-open-repair-preview-128x-lossaware-projection-ablation-20260707.json --output reports\language_quality_retention_review\nvidia-open-repair-preview-128x-lossaware-projection-ablation-review-bundle-20260707.json --base-dir .`
   Earlier paired suites
   `reports/language_benchmark_suite/language-suite-nvidia-open-repair-preview-128x-prompt-bank-repair4-20260706.json`
   and
