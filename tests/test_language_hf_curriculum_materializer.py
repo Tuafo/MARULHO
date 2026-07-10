@@ -11,6 +11,7 @@ from marulho.evaluation.language_hf_curriculum_materializer import (
     materialize_hf_curriculum,
     materialize_hf_parquet_corpus,
 )
+from marulho.data.language_tokenizer import LANGUAGE_DOCUMENT_SEPARATOR
 
 
 class _Response:
@@ -113,6 +114,8 @@ def test_materialize_hf_curriculum_writes_flattened_corpus_and_report(
     assert report["raw_row_payloads_retained"] is False
     assert report["corpus"]["row_count"] == 2
     assert report["corpus"]["sha256"]
+    assert report["corpus"]["document_separator"] == LANGUAGE_DOCUMENT_SEPARATOR
+    assert LANGUAGE_DOCUMENT_SEPARATOR in corpus_text
     assert len(report["source_reports"]) == 2
     assert all(item["row_hashes"] for item in report["source_reports"])
     assert "user: Explain recurrence." in corpus_text
@@ -387,6 +390,7 @@ def test_materialize_hf_parquet_corpus_streams_text_and_deletes_download(
     assert report["source"]["parquet_row_count"] == 3
     assert report["corpus"]["row_count"] == 2
     assert report["raw_parquet_retained"] is False
+    assert report["corpus"]["document_separator"] == LANGUAGE_DOCUMENT_SEPARATOR
     assert "First story." in text
     assert "Second story." in text
     assert "Third story." not in text

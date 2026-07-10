@@ -10,7 +10,10 @@ import torch
 
 from marulho.brain import MarulhoBrain
 from marulho.config.model_config import MarulhoConfig
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.data.language_tokenizer import (
+    LANGUAGE_DOCUMENT_SEPARATOR,
+    ByteLevelLanguageTokenizer,
+)
 from marulho.service.api import create_app
 from marulho.training.language_model import (
     LanguageModelConfig,
@@ -112,6 +115,17 @@ def test_language_split_reports_text_tokens_without_reencoding() -> None:
     assert (
         split.train[0].input_ids.untyped_storage().data_ptr()
         == split.train[1].input_ids.untyped_storage().data_ptr()
+    )
+
+    explicit_split = build_language_model_splits(
+        (LANGUAGE_DOCUMENT_SEPARATOR.join(("one\n\nparagraph", "two")),),
+        tokenizer,
+        sequence_length=4,
+    )
+    assert explicit_split.report["train_document_count"] == 2
+    assert explicit_split.report["train_explicit_document_separator_count"] == 1
+    assert explicit_split.report["document_boundary_policy"] == (
+        "bos_eos_per_explicit_marulho_record"
     )
 
 

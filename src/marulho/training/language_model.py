@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from marulho.data.language_tokenizer import (
     LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE,
+    LANGUAGE_DOCUMENT_SEPARATOR,
     LanguageTokenizer,
     iter_language_corpus_documents,
     load_language_tokenizer_state,
@@ -408,10 +409,14 @@ def build_language_model_splits(
         source_texts: Sequence[str],
         *,
         label: str,
-    ) -> tuple[torch.Tensor, int, int, int]:
+    ) -> tuple[torch.Tensor, int, int, int, int]:
         token_chunks: list[torch.Tensor] = []
         text_token_count = 0
         document_count = 0
+        explicit_separator_count = sum(
+            str(text).count(LANGUAGE_DOCUMENT_SEPARATOR)
+            for text in source_texts
+        )
         pending_documents: list[str] = []
 
         def _flush_documents() -> None:
@@ -450,13 +455,20 @@ def build_language_model_splits(
                 f"Not enough {label} tokens to build a next-token language split"
             )
         window_count = 1 + (int(token_ids.numel()) - window_length) // step
-        return token_ids, window_count, text_token_count, document_count
+        return (
+            token_ids,
+            window_count,
+            text_token_count,
+            document_count,
+            explicit_separator_count,
+        )
 
     (
         train_token_ids,
         train_source_window_count,
         train_text_token_count,
         train_document_count,
+        train_explicit_separator_count,
     ) = _token_stream(
         texts,
         label="training",
@@ -467,6 +479,7 @@ def build_language_model_splits(
             eval_source_window_count,
             eval_text_token_count,
             eval_document_count,
+            eval_explicit_separator_count,
         ) = _token_stream(
             eval_texts,
             label="evaluation",
@@ -481,6 +494,7 @@ def build_language_model_splits(
         eval_token_ids = train_token_ids
         eval_text_token_count = train_text_token_count
         eval_document_count = train_document_count
+        eval_explicit_separator_count = train_explicit_separator_count
         train_window_count = 1
         eval_window_count = 1
         train_window_offset = 0
@@ -490,6 +504,7 @@ def build_language_model_splits(
     else:
         eval_text_token_count = train_text_token_count
         eval_document_count = train_document_count
+        eval_explicit_separator_count = train_explicit_separator_count
         eval_count = max(
             1,
             min(
@@ -601,7 +616,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v7",
+        "surface": "marulho_transformer_train_eval_split.v8",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -619,7 +634,17 @@ def build_language_model_splits(
         "eval_token_stream_count": int(eval_token_ids.numel()),
         "train_document_count": int(train_document_count),
         "eval_document_count": int(eval_document_count),
-        "document_boundary_policy": "bos_eos_per_blank_line_document",
+        "train_explicit_document_separator_count": int(
+            train_explicit_separator_count
+        ),
+        "eval_explicit_document_separator_count": int(
+            eval_explicit_separator_count
+        ),
+        "document_boundary_policy": (
+            "bos_eos_per_explicit_marulho_record"
+            if train_explicit_separator_count > 0
+            else "bos_eos_per_legacy_blank_line_document"
+        ),
         "split_hash_format": "selected_windows_int64_row_major.v1",
         "storage_device": str(target_device),
         "document_encode_batch_size": LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE,

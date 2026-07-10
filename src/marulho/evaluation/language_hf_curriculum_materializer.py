@@ -16,12 +16,13 @@ from marulho.data.corpus_loader import (
     extract_dataset_row_text,
     huggingface_token_from_env,
 )
+from marulho.data.language_tokenizer import LANGUAGE_DOCUMENT_SEPARATOR
 
 
 ARTIFACT_KIND = "marulho_language_hf_curriculum_materialization"
-SURFACE = "marulho_language_hf_curriculum_materialization.v1"
+SURFACE = "marulho_language_hf_curriculum_materialization.v2"
 PARQUET_ARTIFACT_KIND = "marulho_language_hf_parquet_materialization"
-PARQUET_SURFACE = "marulho_language_hf_parquet_materialization.v1"
+PARQUET_SURFACE = "marulho_language_hf_parquet_materialization.v2"
 DATASET_VIEWER_ROWS_URL = "https://datasets-server.huggingface.co/rows"
 DATASET_VIEWER_FIRST_ROWS_URL = "https://datasets-server.huggingface.co/first-rows"
 
@@ -351,7 +352,7 @@ def materialize_hf_parquet_corpus(
                     text = "" if raw_text is None else str(raw_text).strip()
                     if not text:
                         continue
-                    handle.write("\n\n")
+                    handle.write(LANGUAGE_DOCUMENT_SEPARATOR)
                     handle.write(text)
                     materialized_rows += 1
                     character_count += len(text)
@@ -386,6 +387,7 @@ def materialize_hf_parquet_corpus(
                 "character_count": character_count,
                 "byte_count": corpus_bytes,
                 "sha256": _sha256_file(corpus_output),
+                "document_separator": LANGUAGE_DOCUMENT_SEPARATOR,
             },
             "raw_parquet_retained": False,
             "raw_row_payloads_retained": False,
@@ -524,7 +526,11 @@ def materialize_hf_curriculum(
                     f"### source={source.dataset} config={source.config} "
                     f"split={source.split} role={source.role}"
                 )
-                corpus_sections.append(header + "\n" + "\n\n".join(row_texts))
+                corpus_sections.append(
+                    header
+                    + LANGUAGE_DOCUMENT_SEPARATOR
+                    + LANGUAGE_DOCUMENT_SEPARATOR.join(row_texts)
+                )
             source_reports.append(
                 _source_report(
                     source,
@@ -569,7 +575,7 @@ def materialize_hf_curriculum(
                 requested_source_count=len(sources),
             )
 
-    corpus_text = "\n\n".join(corpus_sections).strip()
+    corpus_text = LANGUAGE_DOCUMENT_SEPARATOR.join(corpus_sections).strip()
     corpus_output.parent.mkdir(parents=True, exist_ok=True)
     corpus_output.write_text(corpus_text + ("\n" if corpus_text else ""), encoding="utf-8")
 
@@ -597,7 +603,7 @@ def materialize_hf_curriculum(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "corpus_output_path": str(corpus_output),
         "corpus": {
-            "surface": "marulho_language_hf_curriculum_corpus.v1",
+            "surface": "marulho_language_hf_curriculum_corpus.v2",
             "path": str(corpus_output),
             "character_count": len(corpus_text),
             "byte_count": len(corpus_text.encode("utf-8")),
@@ -605,6 +611,7 @@ def materialize_hf_curriculum(
             "section_count": len(corpus_sections),
             "source_count": len(materialized_sources),
             "row_count": sum(int(item["materialized_rows"]) for item in source_reports),
+            "document_separator": LANGUAGE_DOCUMENT_SEPARATOR,
         },
         "requested_source_count": len(sources),
         "materialized_source_count": len(materialized_sources),

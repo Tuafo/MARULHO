@@ -5,6 +5,7 @@ import torch
 from marulho.data.language_tokenizer import (
     ByteLevelLanguageTokenizer,
     BytePairLanguageTokenizer,
+    LANGUAGE_DOCUMENT_SEPARATOR,
     iter_language_corpus_chunks,
     iter_language_corpus_documents,
     load_language_tokenizer_state,
@@ -34,6 +35,13 @@ def test_language_corpus_chunks_reconstruct_text_at_document_boundaries() -> Non
         "first document",
         "second document is longer",
         "third",
+    ]
+    explicit = LANGUAGE_DOCUMENT_SEPARATOR.join(
+        ("first paragraph\n\nstill first story", "second story")
+    )
+    assert list(iter_language_corpus_documents((explicit,))) == [
+        "first paragraph\n\nstill first story",
+        "second story",
     ]
 
 

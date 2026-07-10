@@ -16,6 +16,7 @@ from typing import (
 
 BPE_TRAINING_CHUNK_CHARACTERS = 64 * 1024
 LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE = 512
+LANGUAGE_DOCUMENT_SEPARATOR = "\n<|MARULHO_DOCUMENT|>\n"
 
 
 def iter_language_corpus_chunks(
@@ -40,16 +41,21 @@ def iter_language_corpus_chunks(
 def iter_language_corpus_documents(texts: Iterable[str]) -> Iterator[str]:
     for raw_text in texts:
         text = str(raw_text)
+        separator = (
+            LANGUAGE_DOCUMENT_SEPARATOR
+            if LANGUAGE_DOCUMENT_SEPARATOR in text
+            else "\n\n"
+        )
         cursor = 0
         while cursor <= len(text):
-            boundary = text.find("\n\n", cursor)
+            boundary = text.find(separator, cursor)
             end = len(text) if boundary < 0 else boundary
             document = text[cursor:end].strip()
             if document:
                 yield document
             if boundary < 0:
                 break
-            cursor = boundary + 2
+            cursor = boundary + len(separator)
 
 
 @dataclass(frozen=True)
