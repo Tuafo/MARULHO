@@ -532,8 +532,15 @@ def build_language_model_splits(
         batches: list[LanguageBatch] = []
         digest = hashlib.sha256()
         token_offsets = torch.arange(window_length, dtype=torch.long)
-        for offset in range(0, len(relative_window_indices), batch_size):
-            relative_indices = relative_window_indices[offset : offset + batch_size]
+        transfer_window_count = batch_size * 256
+        for chunk_offset in range(
+            0,
+            len(relative_window_indices),
+            transfer_window_count,
+        ):
+            relative_indices = relative_window_indices[
+                chunk_offset : chunk_offset + transfer_window_count
+            ]
             starts = torch.tensor(
                 [window_offset + int(index) for index in relative_indices],
                 dtype=torch.long,
@@ -541,14 +548,32 @@ def build_language_model_splits(
             windows = token_ids[starts.unsqueeze(1) + token_offsets.unsqueeze(0)]
             input_ids = windows[:, :-1].contiguous()
             target_ids = windows[:, 1:].contiguous()
-            digest.update(input_ids.contiguous().numpy().tobytes())
-            digest.update(target_ids.contiguous().numpy().tobytes())
-            batches.append(
-                LanguageBatch(
-                    input_ids=input_ids.to(target_device),
-                    target_ids=target_ids.to(target_device),
+            for batch_offset in range(0, len(relative_indices), batch_size):
+                digest.update(
+                    input_ids[batch_offset : batch_offset + batch_size]
+                    .contiguous()
+                    .numpy()
+                    .tobytes()
                 )
-            )
+                digest.update(
+                    target_ids[batch_offset : batch_offset + batch_size]
+                    .contiguous()
+                    .numpy()
+                    .tobytes()
+                )
+            device_inputs = input_ids.to(target_device)
+            device_targets = target_ids.to(target_device)
+            for batch_offset in range(0, len(relative_indices), batch_size):
+                batches.append(
+                    LanguageBatch(
+                        input_ids=device_inputs[
+                            batch_offset : batch_offset + batch_size
+                        ],
+                        target_ids=device_targets[
+                            batch_offset : batch_offset + batch_size
+                        ],
+                    )
+                )
         return tuple(batches), digest.hexdigest()
 
     train_batches, train_split_hash = _pack(

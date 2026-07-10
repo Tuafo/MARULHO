@@ -19,6 +19,8 @@ bounded per-layer KV state for incremental decoding.
   are computed on CPU before one-way device transfer;
 - exact pre-window text-token counts emitted by the split builder, avoiding a
   second full-corpus tokenizer pass in experiment reports;
+- chunked host-to-device split transfer whose batch views share large tensor
+  storage instead of creating thousands of tiny CUDA allocations;
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 
