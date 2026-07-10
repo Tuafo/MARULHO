@@ -120,6 +120,9 @@ def parse_delta_arm(value: str) -> DeltaFalsificationArm:
         "delta-hybrid": DeltaFalsificationArm(
             "delta-hybrid", "delta", local_attention_every=4
         ),
+        "delta-hybrid-half": DeltaFalsificationArm(
+            "delta-hybrid-half", "delta", local_attention_every=2
+        ),
     }
     if name not in arms:
         raise ValueError(f"Unknown delta falsification arm: {value}")

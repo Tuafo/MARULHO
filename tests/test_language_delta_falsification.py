@@ -22,11 +22,14 @@ def test_delta_arm_parser_and_parameter_matching() -> None:
     hybrid = _build_model(
         parse_delta_arm("delta-hybrid"), vocab_size=8192, config=config
     )
+    hybrid_half = _build_model(
+        parse_delta_arm("delta-hybrid-half"), vocab_size=8192, config=config
+    )
     counts = [
         sum(parameter.numel() for parameter in model.parameters())
-        for model in (transformer, pure, hybrid)
+        for model in (transformer, pure, hybrid, hybrid_half)
     ]
-    assert counts == [20_976_128, 20_978_176, 20_977_664]
+    assert counts == [20_976_128, 20_978_176, 20_977_664, 20_977_152]
 
 
 def test_delta_schedule_is_deterministic_and_source_balanced() -> None:
