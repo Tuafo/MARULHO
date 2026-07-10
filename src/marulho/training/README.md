@@ -16,6 +16,16 @@ matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
 decision.
 
+**`language_delta.py`** — the experimental editable delta-memory language
+model. Each recurrent head owns a fixed matrix state with channel-wise decay,
+key-side erase, value-side write, and gated readout. Erase and write are learned
+independently. The pure arm uses four recurrent mixers; the hybrid replaces
+every fourth mixer with bounded local attention. Both use the same tied BPE
+head, SwiGLU blocks, full-vocabulary loss/generation, tensor-only runtime-state
+serialization, and causal scan/step contract. The matched 8,192-vocabulary
+configurations have 20,978,176 and 20,977,664 parameters versus 20,976,128 for
+the Transformer. They are not installed in `MarulhoBrain`.
+
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
 meaningfully beat temporal-only despite higher state, compute, and memory cost.
@@ -51,7 +61,8 @@ policy, temperature, top-p threshold, and seed.
 used by `MarulhoBrain`.
 
 The active installed language path is `marulho_transformer`; the only accepted
-runtime `state_core` value is `transformer`.
+runtime `state_core` value is `transformer`. Delta runtime state is experimental
+and cannot be loaded through the active checkpoint loader.
 
 ## Checkpoint Contract
 

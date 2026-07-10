@@ -14,6 +14,7 @@ from .language_model import (
 )
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
+from .language_delta import DeltaLanguageConfig, MarulhoDeltaLanguageModel
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
@@ -24,8 +25,10 @@ __all__ = [
     "LanguageModelConfig",
     "LanguageSplit",
     "LanguageRuntimeState",
+    "DeltaLanguageConfig",
     "MarulhoCausalTransformerStateBlock",
     "MarulhoLanguageModel",
+    "MarulhoDeltaLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",
     "PredictiveBootstrap",

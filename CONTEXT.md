@@ -124,7 +124,10 @@ channel-wise decay plus separately learned erase and write gates. Pure recurrent
 and local-attention hybrid variants must share one language/checkpoint contract
 and be matched against the Transformer on parameters, tokens, optimizer,
 hardware, data order, and evaluations. A PyTorch reference establishes causal
-forward/backward truth before fused execution is claimed.
+forward/backward truth before fused execution is claimed. The reference now
+lives in `src/marulho/training/language_delta.py`; both 20.98M-parameter arms
+have full gradient, causal scan/step, generation, and recurrent-state tests but
+no quality result or runtime promotion yet.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

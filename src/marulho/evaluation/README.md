@@ -62,6 +62,15 @@ frozen source-balanced schedule, parameters, optimizer, relation/general
 evaluation, gradient coverage, state bytes, wall time, throughput, and CUDA
 memory. Candidate screens cannot install a runtime model.
 
+**`language_delta_falsification.py`** — compares the fresh 20.98M Transformer,
+pure editable delta-memory, and one-local-attention hybrid on that contract. It
+uses only the active checkpoint tokenizer, never its weights. A content-hashed
+CPU schedule cache owns the selected relation, FineWeb-Edu, Cosmopedia, and
+heldout windows so reruns avoid tokenization cost without changing data order.
+The report includes all-parameter gradient coverage, real heldout loss,
+label-safe candidate and free relation generation, fixed-state bytes, wall
+time, throughput, and peak CUDA allocation. No screening checkpoint is saved.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

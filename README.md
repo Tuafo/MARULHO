@@ -44,9 +44,20 @@ and systems baseline. A completed integrated PMRM experiment did not earn
 continuation: its best recurrent control still lost to the Transformer, and the
 full column/associative/episodic/workspace stack did not beat its simpler
 temporal-only ablation. That implementation is deleted rather than kept as an
-unused compatibility path. The next candidate is an editable recurrent
-fast-weight model with separately learned erase and write operations, tested
-before any structured reasoning or episodic-memory organ is added.
+unused compatibility path. MARULHO now has a correctness-tested editable
+recurrent fast-weight candidate with separately learned erase and write
+operations, plus a variant with one bounded local-attention layer. Neither is
+installed or promoted; matched language evidence decides whether either
+survives before any structured reasoning or episodic-memory organ is added.
+
+The candidate is an independent MARULHO implementation of a public recurrent
+update family, not imported model code. The immediate research basis is
+[Gated DeltaNet-2](https://arxiv.org/abs/2605.22791), whose erase/write
+separation has large-scale language evidence; the matched pure-versus-hybrid
+design follows the trade-offs measured in the July 2026
+[linear-attention comparison](https://arxiv.org/abs/2607.07953). If this branch
+fails locally, [Mamba-3](https://arxiv.org/abs/2603.15569) is the next recurrent
+state hypothesis, not a reason to preserve the current candidate.
 
 ## Current Evidence
 
