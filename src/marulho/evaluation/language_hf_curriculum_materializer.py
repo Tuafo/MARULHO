@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -159,6 +159,10 @@ def _dataset_viewer_get_json(url: str, *, timeout_seconds: float) -> Mapping[str
             except ValueError:
                 delay = 0.0
             time.sleep(max(delay, min(30.0, float(2**attempt))))
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            if attempt >= 6:
+                raise
+            time.sleep(min(30.0, float(2**attempt)))
     raise RuntimeError("Dataset Viewer retry loop exited unexpectedly")
 
 

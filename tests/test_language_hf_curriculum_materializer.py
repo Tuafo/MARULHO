@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
 from marulho.evaluation.language_hf_curriculum_materializer import (
@@ -311,3 +312,45 @@ def test_materialize_hf_curriculum_preserves_rows_before_later_page_failure(
     assert report["source_reports"][0]["status"] == "partial"
     assert report["source_reports"][0]["fetched_rows"] == 100
     assert "rate limited" in report["source_reports"][0]["failure_reason"]
+
+
+def test_materialize_hf_curriculum_retries_transient_connection_reset(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    source = HFCurriculumSource(
+        dataset="HuggingFaceFW/fineweb-edu",
+        config="sample-10BT",
+        split="train",
+        text_field="text",
+        role="base_pretraining",
+        license="odc-by",
+    )
+    attempts = 0
+
+    def _fake_urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise URLError(ConnectionResetError("connection reset"))
+        return _Response({"rows": [{"row": {"text": "Recovered document"}}]})
+
+    monkeypatch.setattr(
+        "marulho.evaluation.language_hf_curriculum_materializer.urlopen",
+        _fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "marulho.evaluation.language_hf_curriculum_materializer.time.sleep",
+        lambda _seconds: None,
+    )
+
+    report = materialize_hf_curriculum(
+        output_path=tmp_path / "fineweb.json",
+        corpus_output_path=tmp_path / "fineweb.txt",
+        sources=(source,),
+        rows_per_source=1,
+    )
+
+    assert attempts == 2
+    assert report["report_status"] == "final"
+    assert report["corpus"]["row_count"] == 1
