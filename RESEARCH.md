@@ -389,6 +389,16 @@ retire the selector/interface before another long language run. If it survives,
 the first material language point is 16M followed directly by 64M; no repeated
 sub-million sweeps.
 
+The first reference now exists. It embeds the complete 20,976,128-parameter
+Transformer and adds 133,124 parameters (0.635%) for four rank-32 specialists,
+a router, and residual scales. A completed 24-token event can affect only the
+following event. Normal execution gathers one specialist rather than evaluating
+all four; telemetry reports 25% active specialist compute. Exact neutrality,
+causal scan/step equality, dense-versus-sparse accounting, and counterfactual
+gradient coverage pass. On one warm RTX 3060 eager diagnostic it sustained 81.1k
+forward/backward tokens/s versus 88.4k for the Transformer. This is machinery
+evidence only; the four-arm real-language comparison is still required.
+
 ## Retired ideas
 
 - SNN or GRU language recurrence as the active language core.

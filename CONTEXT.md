@@ -143,8 +143,12 @@ not a competing half-model in every block. Event specialists must earn writes,
 reads, and residual influence through counterfactual future utility plus an
 explicit compute budget. Inactive specialists must consume no recurrent update
 compute. The first decisive comparison must separate language-stream capacity
-from memory benefit with exact-only, dense-sidecar, and utility-sparse arms. No
-v2 implementation or quality result exists yet.
+from memory benefit with exact-only, dense-sidecar, random-sparse, and
+utility-sparse arms. The first causal PyTorch reference preserves all 20,976,128
+baseline parameters and adds 133,124 sidecar parameters (0.635%). One-of-four
+execution measures 25% specialist activity, scan/step equality passes, and warm
+eager training retained 91.7% of Transformer throughput. No language-quality
+result exists yet.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

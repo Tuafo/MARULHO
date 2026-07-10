@@ -50,7 +50,11 @@ Distributed predictive organism v1 is also retired after its early advantage
 disappeared at 67.11M tokens and unseen semantics failed. The next hypothesis
 keeps the complete exact language stream and adds event memory only as an
 optional, utility-earned sparse residual under a measured compute budget. It is
-specified in `RESEARCH.md`; no v2 implementation or quality result exists yet.
+specified in `RESEARCH.md`. The first reference preserves the complete
+20,976,128-parameter Transformer and adds only 133,124 sidecar parameters. Its
+one-of-four specialist path measures 25% active specialist compute and retained
+91.7% of warm eager Transformer throughput. It has no language-quality result
+yet.
 
 ## Current Evidence
 
@@ -366,6 +370,8 @@ code.
 - `src/marulho/training/language_model.py`: active language model contract.
 - `src/marulho/training/language_transformer.py`: causal Transformer state
   block and streaming KV state.
+- `src/marulho/training/language_sparse_event_memory.py`: experimental v2
+  causal sparse event-memory sidecar and counterfactual utility loss.
 - `src/marulho/data/language_tokenizer.py`: byte and BPE tokenizers.
 - `src/marulho/evaluation/language_training_experiment.py`: maintained
   training/evaluation runner.

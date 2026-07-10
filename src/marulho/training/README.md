@@ -23,11 +23,14 @@ tokens/s versus 110,345, while 99.8% of units remained active. The model,
 checkpoint surface, runner, audit, tests, and rejected checkpoints are deleted;
 no compatibility import remains.
 
-The next candidate is not implemented yet. Its contract is to keep the full
-exact Transformer language stream intact and attach event memory as an optional
-sparse residual. Memory writes, reads, and residual influence must be selected
-by measured future utility under an explicit compute budget. A dense sidecar and
-exact-only arm are required controls.
+**`language_sparse_event_memory.py`** — v2 keeps the full exact Transformer
+stream intact and attaches event memory as a causal residual from one completed
+24-token event to the next. It adds 133,124 parameters to the 20,976,128-parameter
+baseline. Utility and random modes gather one of four rank-32 specialists;
+dense control executes all four. Counterfactual targets measure future-token
+loss reduction minus compute cost. Exact neutrality, scan/step equality, true
+25% specialist execution, dense accounting, and gradient tests pass. It is not
+installed and has no language-quality result.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
