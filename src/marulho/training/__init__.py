@@ -14,14 +14,6 @@ from .language_model import (
 )
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
-from .language_pmrm import (
-    PMRM_EPISODIC_POLICIES,
-    PMRM_FUSION_KINDS,
-    PMRMLanguageConfig,
-    MarulhoPMRMLanguageModel,
-    load_pmrm_language_checkpoint,
-    save_pmrm_language_checkpoint,
-)
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
@@ -34,17 +26,11 @@ __all__ = [
     "LanguageRuntimeState",
     "MarulhoCausalTransformerStateBlock",
     "MarulhoLanguageModel",
-    "MarulhoPMRMLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",
     "PredictiveBootstrap",
-    "PMRM_EPISODIC_POLICIES",
-    "PMRM_FUSION_KINDS",
-    "PMRMLanguageConfig",
     "build_language_model_splits",
     "evaluate_language_model",
     "load_language_model_checkpoint",
-    "load_pmrm_language_checkpoint",
     "save_language_model_checkpoint",
-    "save_pmrm_language_checkpoint",
 ]

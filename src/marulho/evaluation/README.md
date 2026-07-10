@@ -56,13 +56,11 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
-**`language_pmrm_falsification.py`** — initializes a fresh 21M Transformer and
-parameter-matched integrated PMRM arms from the same checkpoint-owned tokenizer,
-then feeds every arm the identical relation/general batch schedule. It reports
-real-language loss, label-safe batched candidate and free relation generation,
-active/total parameters, routes, messages, episodic reads/writes/bytes,
-workspace iterations, wall time, throughput, CUDA memory, and failures. Pilot
-arms are screening evidence and cannot install a runtime model.
+The retired integrated-PMRM runner established the architecture-neutral matched
+experiment contract now used for replacements: same checkpoint-owned tokenizer,
+frozen source-balanced schedule, parameters, optimizer, relation/general
+evaluation, gradient coverage, state bytes, wall time, throughput, and CUDA
+memory. Candidate screens cannot install a runtime model.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
@@ -146,37 +144,29 @@ evidence remains at
 The branch is
 `retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
 
-Neither this run nor the prompt-memory run tested PMRM. A PMRM language test
-requires one internal architecture containing persistent columns, coupled
-temporal and associative state, hidden-state episodic writes/retrieval, and a
-recurrent workspace. That reference model now exists under
-`src/marulho/training/language_pmrm.py`; the active Transformer remains the
-matched baseline until the new model produces quality evidence.
+Those precursor runs did not test integrated PMRM. The complete architecture
+was subsequently built, corrected for equal write budgets and episodic-key
+gradient flow, and evaluated in the final screen below.
 
-The first integrated 269,568-token screen is local at
-`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`:
+The final corrected 269,568-token screen is local at
+`reports/language_scaling/pmrm-integrated-trainable-memory-screening-262k-20260710.json`:
 
 | Arm | General loss | Candidate relation | Exact free | Train tokens/s | Peak GiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Transformer | 7.4972 | 30.5% | 0.0% | 76,519 | 2.41 |
-| PMRM surprise | 7.6460 | 25.0% | 0.0% | 2,997 | 9.45 |
-| PMRM no memory | 7.6999 | 27.7% | 0.0% | 4,070 | 9.04 |
-| PMRM random | 7.6418 | 25.0% | 0.0% | 2,973 | 9.45 |
-| PMRM recency | 7.6387 | 21.5% | 0.0% | 2,999 | 9.45 |
-| PMRM temporal only | 7.6309 | 23.4% | 0.0% | 4,212 | 6.31 |
-| PMRM associative only | 7.7484 | 32.8% | 0.0% | 3,477 | 8.66 |
-| PMRM workspace x1 | 7.6823 | 23.4% | 0.0% | 3,794 | 7.52 |
+| Transformer | 7.4972 | 30.5% | 0.0% | 71,961 | 2.41 |
+| PMRM surprise | 7.6701 | 24.2% | 0.0% | 2,777 | 9.45 |
+| PMRM no memory | 7.6999 | 27.7% | 0.0% | 4,101 | 9.04 |
+| PMRM random | 7.6600 | 21.9% | 0.0% | 2,771 | 9.45 |
+| PMRM recency | 7.6571 | 23.8% | 0.0% | 2,830 | 9.45 |
+| PMRM temporal only | 7.6557 | 18.4% | 0.0% | 3,838 | 5.95 |
 
 The full PMRM used 20,977,792 parameters versus 20,976,128 for the Transformer;
-the shared schedule contained 5 relation, 11 FineWeb-Edu, and 10 Cosmopedia
-steps. At this budget every free score is zero, temporal-only has the best PMRM
-loss, and two workspace iterations beat one. These are routing signals only.
-
-The memory-policy comparison is invalid for H2 because observed permanent writes
-were not matched: 6,404 surprise, 5,647 random, and 10,224 recency. The runner
-now uses one completed 16-event causal block per permanent write for all three
-policies. No screening checkpoint was saved. Branch:
-`repair_equal_write_budget_rerun_pmrm_policy_screen`.
+all full-arm parameters received gradients. Surprise, random, and recency each
+made 576 writes and 13,824 reads. Surprise lost to both naive selectors, and
+recency did not meaningfully beat temporal-only. Every free score is zero, the
+Transformer is materially better and about 26 times faster, and no screening
+checkpoint was saved. The PMRM implementation, runner, and tests are retired.
+Branch: `retire_integrated_pmrm_build_editable_delta_memory_competitor`.
 
 ### Narrow relation fine-tune
 
@@ -332,24 +322,16 @@ Use approximately 5M, 20M, and the largest feasible 60-100M-class model on the
 RTX 3060, several token budgets per size, and repeated seeds where the result
 could change the branch. A two-point curve for one model is insufficient.
 
-### 3. Integrated PMRM competitor
+### 3. Editable recurrent competitor
 
-Build a switchable but single coherent recurrent architecture:
-
-- fixed persistent column pool with explicit dense-router cost and top-k active
-  budget;
-- coupled selective temporal state and editable delta-rule associative state;
-- internal episodic event states with no/full/random/recency/surprise policies
-  under equal byte, read, and write budgets;
-- a weight-shared recurrent workspace with fixed and adaptive iteration counts;
-- one language head, state serialization contract, and compute ledger shared by
-  the full model and every ablation.
-
-Compare the complete model, leave-one-component-out ablations, temporal-only,
-associative-only, and the active Transformer using the same tokenizer, corpora,
-token budgets, parameter/compute accounting, hardware, and evaluation code.
-Synthetic relation cases diagnose the mechanism; real heldout language loss and
-open generation remain mandatory.
+Build one MARULHO-owned recurrent fast-weight state with channel-wise decay and
+separate erase/write control. Compare pure recurrent and small local-attention
+hybrid variants with the active Transformer using the same tokenizer, corpora,
+tokens, parameters, optimizer, hardware, and evaluation code. A PyTorch
+reference must prove causal forward/backward correctness before any fused
+Triton claim. LCWM-style execution-coupled structured memory is a later organ,
+not part of the base token mixer. Synthetic relation cases diagnose mechanisms;
+real heldout language loss and open generation remain mandatory.
 
 ### 4. Continual and sustained validation
 

@@ -22,21 +22,16 @@ this repository. It uses:
 - heldout loss, unseen continuation, checkpoint fidelity, and sustained
   generation as separate measurements.
 
-MARULHO now has one active baseline and one replacement architecture under
-construction:
+MARULHO has one installed language model and one architecture-neutral
+falsification seam for replacement candidates:
 
 ```mermaid
 flowchart LR
     Data["Local text and grounded experience"] --> Tok["Checkpoint-owned BPE"]
-    Tok --> Baseline["Active 21M Transformer baseline"]
-    Tok --> Event["PMRM event encoder - reference candidate"]
-    Event --> Router["Sparse fixed-pool column router"]
-    Router --> Dual["Dual temporal and associative column state"]
-    Dual <--> Episode["Internal surprise-budgeted episodes"]
-    Dual <--> Workspace["Weight-shared recurrent workspace"]
-    Episode <--> Workspace
-    Baseline --> Compare["Matched language, binding, memory, and speed evidence"]
-    Workspace --> Compare
+    Tok --> Baseline["Active 21M Transformer"]
+    Tok --> Candidate["Fresh matched candidate"]
+    Baseline --> Compare["Language, binding, memory, and systems evidence"]
+    Candidate --> Compare
     Compare --> Selected["Evidence-selected language model"]
     Selected --> Output["Unseen language generation"]
     Brain["MarulhoBrain"] --> Selected
@@ -45,14 +40,13 @@ flowchart LR
 ```
 
 Only the Transformer path is installed in `MarulhoBrain`. It remains the quality
-and systems baseline. MARULHO now has a runnable PMRM reference candidate with
-continuous recurrent state, not spikes; fixed persistent columns; selective
-temporal state; editable delta-rule associative state; internal episodic memory;
-sparse relations; and recurrent latent workspace iterations. It has correctness
-tests but no quality evidence yet. Component switches explain the eventual
-result, but a detached memory heuristic does not count as a PMRM test. Grounded
-identity and intervention tasks from LCO can later evaluate whether surviving
-columns represent persistent objects rather than text correlations.
+and systems baseline. A completed integrated PMRM experiment did not earn
+continuation: its best recurrent control still lost to the Transformer, and the
+full column/associative/episodic/workspace stack did not beat its simpler
+temporal-only ablation. That implementation is deleted rather than kept as an
+unused compatibility path. The next candidate is an editable recurrent
+fast-weight model with separately learned erase and write operations, tested
+before any structured reasoning or episodic-memory organ is added.
 
 ## Current Evidence
 
@@ -193,31 +187,22 @@ ranking/generation gap. The 268.8 MB rejected checkpoint and experiment code are
 deleted; the compact report remains at
 `reports/language_scaling/answer-masked-post-training-21m-4096-20260710.json`.
 
-Decision: `retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
-The active checkpoint remains the 251.66M-token Transformer. The next model is a
-coherent PMRM recurrent competitor, evaluated both end-to-end and through
-matched temporal-only, associative-only, memory-policy, routing, and workspace
-ablations. PMRM itself remains untested until that system exists.
+Decision: `retire_integrated_pmrm_build_editable_delta_memory_competitor`.
+The corrected integrated PMRM screen used six fresh matched arms, the same
+checkpoint tokenizer, a hashed 20% relation / 40% FineWeb-Edu / 40% Cosmopedia
+schedule, and 269,568 update tokens. All 20,977,792 parameters in each full
+memory arm received gradients; surprise, random, and recency each made exactly
+576 writes and 13,824 reads. The Transformer reached heldout loss 7.4972 at
+71,961 tokens/s and 2.41 GiB. PMRM losses were 7.6701 surprise, 7.6600 random,
+7.6571 recency, 7.6999 without memory, and 7.6557 temporal-only. Full PMRM used
+about 9.45 GiB and only 2,777-2,830 tokens/s. Every arm remained at 0% strict
+free relation generation.
 
-The first integrated PMRM screen now exists. Eight fresh 20.98M-parameter arms
-shared the checkpoint tokenizer, a hashed 20% relation / 40% FineWeb-Edu / 40%
-Cosmopedia schedule, and 269,568 update tokens. The matched Transformer reached
-loss 7.4972 at 76,519 tokens/s. Full PMRM-surprise reached 7.6460 at 2,997
-tokens/s; temporal-only was the best PMRM loss at 7.6309, associative-only was
-7.7484, and reducing the workspace from two iterations to one regressed loss to
-7.6823. Every arm remained at 0% strict free relation generation, so this is
-screening evidence only. PMRM used 9.45 GiB peak allocated VRAM versus 2.41 GiB
-for the Transformer training arm.
-
-The screen also found an invalid H2 comparison: surprise, random, and recency
-had equal slots/reads but different permanent write counts. Their loss ordering
-therefore cannot select a memory policy. The code now closes this confound with
-one causal permanent write per 16-event block for every policy: surprise keeps
-the highest-error past event, random a reservoir sample, and recency the last.
-The compact exploratory report remains at
-`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`; no
-screening checkpoint was retained. Decision:
-`repair_equal_write_budget_rerun_pmrm_policy_screen`.
+Surprise therefore loses to both naive selectors, and recency improves over no
+memory but not over the simpler temporal-only core by a meaningful margin. The
+full PMRM base-language path is retired; no screening checkpoint was saved. The
+compact final report is
+`reports/language_scaling/pmrm-integrated-trainable-memory-screening-262k-20260710.json`.
 
 ## Research Objective
 
@@ -229,12 +214,14 @@ The priority order is:
 
 1. Keep the 21M Transformer as the reproducible local baseline and active
    checkpoint, not the assumed final architecture.
-2. Build one coherent PMRM v0 with fixed persistent columns, dual temporal and
-   associative state, internal episodic memory, and a recurrent workspace.
-3. Compare the complete model and its in-place ablations against the Transformer
-   on the same tokenizer, data, tokens, parameters, hardware, and evaluations.
-4. Require open relation generation, real-language loss, memory growth, latency,
-   and throughput together; synthetic mechanism wins do not qualify the model.
+2. Build a MARULHO-owned editable recurrent fast-weight candidate with
+   channel-wise decay and separate erase/write control; compare pure recurrent
+   and small local-attention hybrid variants.
+3. Compare every candidate against the Transformer on the same tokenizer, data,
+   tokens, parameters, hardware, optimizer, and evaluations.
+4. Require unseen generation, real-language loss, retrieval/binding, state
+   bytes, latency, and throughput together; synthetic mechanism wins do not
+   qualify the model.
 5. Scale only a surviving architecture across model size, data, and context.
 6. Demonstrate sequential-domain learning with bounded forgetting and exact
    checkpoint/resume state.

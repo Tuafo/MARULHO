@@ -1,9 +1,9 @@
 # Training
 
 This package owns MARULHO model execution, optimization machinery, and
-checkpoint serialization. The installed language runtime remains Transformer-
-only; PMRM is an isolated architecture candidate until matched evidence earns
-promotion.
+checkpoint serialization. The installed language runtime is Transformer-only;
+replacement candidates must use the same causal-language protocol and earn
+promotion through matched evidence.
 
 ## Active Language Modules
 
@@ -12,32 +12,16 @@ state block. It owns RMSNorm, rotary positions, causal attention, SwiGLU, and
 bounded per-layer KV state for incremental decoding.
 
 **`language_protocol.py`** — the shared causal-language model interface used by
-matched evaluations. The Transformer and PMRM are the two adapters at this
-seam; service/runtime installation remains a separate promotion decision.
+matched evaluations. The active Transformer and every replacement candidate
+meet this seam; service/runtime installation remains a separate promotion
+decision.
 
-**`language_pmrm.py`** — the integrated continuous-state PMRM reference model.
-One deep module owns event encoding, honest dense-cost top-k routing into a
-fixed column pool, coupled selective temporal and delta-rule associative state,
-sparse relation messages, hidden episodic memory, a weight-shared recurrent
-workspace, full-vocabulary language loss/generation, runtime-state
-reset/serialization, and an atomic PMRM-only checkpoint. Configuration switches
-produce temporal-only, associative-only, fusion, memory-policy, and workspace
-ablations without parallel implementations. It does not import the grounded
-SNN/column runtime and cannot be installed by `MarulhoBrain`.
-
-The causal column/memory scan remains sequential. The per-event recurrent
-workspace is scratch state, so training flattens all scanned event summaries
-and executes workspace layers in large batched tensors; streaming generation
-uses the same one-event implementation. Surprise writes use the prior column
-prediction, keeping memory causal without serializing the expensive workspace
-through the scan.
-
-Budget-matched surprise, random, and recency policies commit exactly one hidden
-event per completed `episodic_write_interval`. Surprise retains the maximum
-prior-prediction error within the past block, random retains the maximum of a
-deterministic random priority (a reservoir sample), and recency retains the last
-event. The candidate buffer is tensor-only runtime state and is checkpointed;
-it is not readable as episodic memory until the block closes.
+The integrated PMRM reference, runner, and tests were deleted after the final
+corrected screen. Full PMRM remained behind the matched Transformer and did not
+meaningfully beat temporal-only despite higher state, compute, and memory cost.
+Its surprise selector also lost to random and recency under identical write and
+read budgets. New recurrent work starts from an editable fast-weight state with
+separate erase/write control, not from PMRM compatibility code.
 
 **`language_model.py`** — the language model contract. It owns:
 
@@ -67,8 +51,7 @@ policy, temperature, top-p threshold, and seed.
 used by `MarulhoBrain`.
 
 The active installed language path is `marulho_transformer`; the only accepted
-runtime `state_core` value is `transformer`. The experimental PMRM path is
-`marulho_pmrm_v0` and uses a distinct checkpoint surface.
+runtime `state_core` value is `transformer`.
 
 ## Checkpoint Contract
 
@@ -91,10 +74,8 @@ checkpoints are rejected rather than upgraded through compatibility code.
 Checkpoint writes use a temporary file, flush and fsync the payload, then
 atomically replace the target.
 
-`marulho_pmrm_language_checkpoint.v1` follows the same tokenizer/hash and atomic
-write discipline while also allowing exact tensor-only recurrent runtime state.
-The Transformer loader rejects it, so an experimental candidate cannot silently
-replace the active brain model.
+Retired candidate checkpoint surfaces are rejected, so an experiment cannot
+silently replace the active brain model.
 
 ## Runtime Boundaries
 

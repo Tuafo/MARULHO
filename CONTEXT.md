@@ -117,39 +117,21 @@ baseline under the same VRAM, wall-clock, and data budget.
 
 These concepts are hypotheses and must not appear as implemented capabilities.
 
-**Integrated PMRM Candidate** — the next language architecture competitor. It is
-a continuous-state recurrent model, not an SNN and not a Transformer prompt
-extension. Its minimal complete dataflow is event encoding, sparse routing into
-a fixed pool of persistent columns, dual temporal/associative state updates,
-internal episodic write/retrieval, recurrent workspace computation, and a
-language head. The reference implementation lives in
-`src/marulho/training/language_pmrm.py`; it is correctness-tested but remains
-unvalidated until matched end-to-end evidence exists. The matched runner is
-`src/marulho/evaluation/language_pmrm_falsification.py`; it initializes both
-architectures from scratch and reuses only the active checkpoint's tokenizer.
+**Editable Delta-Memory Candidate** — the next base-language competitor. It is
+a fixed-size recurrent fast-weight state, not an SNN, PMRM column stack, or
+prompt extension. Each token reads the state and updates it through
+channel-wise decay plus separately learned erase and write gates. Pure recurrent
+and local-attention hybrid variants must share one language/checkpoint contract
+and be matched against the Transformer on parameters, tokens, optimizer,
+hardware, data order, and evaluations. A PyTorch reference establishes causal
+forward/backward truth before fused execution is claimed.
 
-**Dual-State Column** — one persistent column owns a selective temporal state
-and an editable delta-rule associative matrix. Parallel and both serial fusion
-orders are configuration ablations inside the same implementation. A temporal-
-only or associative-only result is a control, not PMRM validation.
-
-**Internal Episodic Memory** — stores learned event states after prediction,
-using explicit surprise/utility and byte/write/read budgets. A write becomes
-visible only to later events. Compare no memory, full token storage, random,
-recency, surprise, and non-promotable oracle policies. Prepending retrieved text
-is retired and does not implement this concept. Budget-matched policies select
-one permanent memory from each completed 16-event block: highest causal
-prediction error for surprise, a deterministic reservoir sample for random, and
-the final event for recency. Incomplete blocks do not write.
-
-**Recurrent Workspace** — a small set of latent registers repeatedly reads
-active columns and retrieved episodes through weight-shared updates. Every
-iteration, retrieval, route, and relation message counts as compute. Fixed and
-adaptive depth must share the same implementation.
-
-**Persistent Column Pool** — begins with fixed preallocated capacity and a small
-top-k active set. Dense candidate scoring must be reported if used. Physical
-growth, split, merge, or prune is excluded until the fixed-pool model survives.
+**Execution-Coupled Structured Memory** — a possible later reasoning organ,
+inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
+Candidate memories or latent programs should earn selection because executing
+them improves downstream prediction, not merely because an input was locally
+surprising. It is excluded from the base token mixer until the replacement base
+model demonstrates coherent unseen language.
 
 **Continual Language Learning** — sequential domain updates from a
 quality-qualified base checkpoint, with old-domain, new-domain, and replay
@@ -157,9 +139,9 @@ losses measured before and after. The required result is new learning with
 bounded forgetting and restored checkpoint fidelity.
 
 **Structural Plasticity** — changing model or memory structure under a
-checkpointed transaction. It is paused until the fixed-pool PMRM competitor is
-stable and beats a matched fixed-capacity control. No old routed-expert
-expansion path is maintained.
+checkpointed transaction. It is paused until a replacement base model beats its
+matched fixed-capacity control. No old routed-expert expansion path is
+maintained.
 
 ## Grounded Subsystem
 
@@ -390,32 +372,23 @@ replay's 44.9%, despite bounded scalar loss. The rejected checkpoint and
 experiment implementation are deleted; the compact local report is
 `reports/language_scaling/answer-masked-post-training-21m-4096-20260710.json`.
 
-Decision: `retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
+Decision: `retire_integrated_pmrm_build_editable_delta_memory_competitor`.
 
-The active checkpoint remains the 251,658,240-token mixed Transformer. The
-prompt-memory failure is not PMRM evidence: it lacked dual state, persistent
-columns, an internal learned store, and a recurrent workspace. Build the
-coherent PMRM competitor next, preserve the Transformer as its matched baseline,
-and diagnose the integrated result through in-place ablations rather than
-parallel compatibility paths.
+The active checkpoint remains the 251,658,240-token mixed Transformer. The final
+corrected integrated PMRM screen trained six fresh matched arms for 269,568
+identical scheduled tokens. Every full-memory parameter received a gradient;
+surprise, random, and recency each made 576 permanent writes and 13,824 reads.
+The Transformer reached general loss 7.4972 at 71,961 training tokens/s and
+2.41 GiB peak allocated VRAM. PMRM losses were 7.6701 surprise, 7.6600 random,
+7.6571 recency, 7.6999 without memory, and 7.6557 temporal-only. Full PMRM used
+about 9.45 GiB and 2,777-2,830 tokens/s. All arms produced 0% exact free
+relation answers.
 
-The first integrated screen trained eight fresh 20.98M-parameter arms for
-269,568 identical scheduled tokens. The Transformer reached general loss 7.4972
-at 76,519 training tokens/s and 2.41 GiB peak allocated VRAM. Full PMRM-surprise
-reached 7.6460 at 2,997 tokens/s and 9.45 GiB. Temporal-only was the best PMRM
-loss at 7.6309; associative-only reached 7.7484; one workspace iteration reached
-7.6823 versus 7.6460 for two. All arms produced 0% exact free relation answers.
-This is screening, not PMRM support or falsification.
-
-The initial memory-policy rows were confounded: surprise wrote 6,404 permanent
-episodes, random 5,647, and recency 10,224 despite matched slots and reads. The
-report is retained at
-`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`, but its
-policy ordering is non-promotable. No checkpoints were retained. The corrected
-block selector now guarantees equal permanent write counts before the policy
-screen is rerun.
-
-Decision: `repair_equal_write_budget_rerun_pmrm_policy_screen`.
+The experiment refutes surprise as the best selector and provides no useful
+margin for the full PMRM stack over temporal-only. The Transformer remains both
+better and about 26 times faster. No checkpoint was retained; the PMRM model,
+runner, and tests are deleted. The compact local report is
+`reports/language_scaling/pmrm-integrated-trainable-memory-screening-262k-20260710.json`.
 
 ## Retired Language Concepts
 
@@ -435,6 +408,9 @@ The following are not maintained language paths:
 - frozen residual output adapters for relation binding.
 - prompt-text episodic retrieval by prepending selected episodes.
 - answer-masked relation post-training.
+- integrated PMRM fixed columns, dual state, episodic selector, and recurrent
+  workspace as a base-language architecture.
+- token surprise as an assumed memory-utility signal.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -446,12 +422,12 @@ must not present them as active capability.
 3. Pass the 21M TinyStories coherence falsification.
 4. Retire answer-masked post-training after it preserves scalar loss but fails
    strict free relation generation.
-5. Build one integrated PMRM v0: fixed persistent columns, dual temporal and
-   associative state, internal episodic memory, and recurrent workspace.
-6. Use the first integrated screen to expose temporal dominance, workspace
-   benefit, severe systems cost, and unequal memory writes without promoting it.
-7. Rerun surprise, random, and recency with identical causal block write/read
-   budgets; keep the Transformer and temporal-only routing controls.
+5. Retire integrated PMRM after the corrected equal-budget screen shows no
+   base-language advantage and surprise loses to naive selectors.
+6. Build a parameter-matched editable delta-memory recurrence with separate
+   erase/write control; test pure recurrent and local-attention hybrid forms.
+7. Use LCWM-style execution-coupled selection only after a base model survives;
+   do not make typed synthetic machinery the token mixer.
 8. Continue only non-dominated arms through successive halving, then fit the
    first defensible local scaling law only for architectures that
    survive the pilot, using repeated seeds near a branch boundary.
