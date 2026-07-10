@@ -56,6 +56,12 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
+**`language_answer_masked_post_training.py`** — alternates answer-only relation
+loss with ordinary full-token general replay from one MARULHO checkpoint.
+Prompt/padding tokens never contribute relation loss. Reports distinguish
+processed tokens from loss-bearing answer/general tokens and require strict
+free binding plus bounded mixed-language loss.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
