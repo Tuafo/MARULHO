@@ -902,15 +902,25 @@ class MarulhoDistributedLanguageModel(nn.Module):
         *,
         collect_telemetry: bool = True,
         return_evidence: bool = True,
+        counterfactual_probe: bool | None = None,
     ) -> dict[str, Any]:
         targets = target_ids.to(device=self.device, dtype=torch.long)
-        should_probe = bool(
+        probe_eligible = bool(
             self.training
             and float(self.config.utility_loss_weight) > 0.0
-            and float(self.config.counterfactual_rate) > 0.0
             and int(targets.shape[1]) > 1
-            and float(torch.rand(()).item())
-            < float(self.config.counterfactual_rate)
+        )
+        should_probe = bool(
+            probe_eligible
+            and (
+                bool(counterfactual_probe)
+                if counterfactual_probe is not None
+                else (
+                    float(self.config.counterfactual_rate) > 0.0
+                    and float(torch.rand(()).item())
+                    < float(self.config.counterfactual_rate)
+                )
+            )
         )
         result = self._forward_hidden(
             input_ids,

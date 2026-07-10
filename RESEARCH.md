@@ -80,14 +80,19 @@ probes or requested telemetry. Tests require the fast path to preserve loss,
 tensor state, and every parameter gradient on both ordinary and probe steps.
 
 A diagnostic `torch.compile` run is substantially more promising but is not yet
-scientific evidence. The full candidate took about 343 seconds to compile once;
-after warm-up, a synthetic fixed-shape forward/backward loop reached roughly
-104k tokens/s. The BF16 compiled/eager loss difference was about 0.00034. Random
-counterfactual branches can trigger graph breaks or recompilation, and the 4.20M
-result above used eager execution. Before compile can support a quality claim,
-MARULHO must give both arms the same backend, schedule probes explicitly, record
-compile and warm-up cost separately, enforce numerical-parity tolerances, and
-reproduce the matched 4.20M decision.
+scientific quality evidence. The first uncached full candidate took about 343
+seconds to compile once; after warm-up, a synthetic fixed-shape
+forward/backward loop reached roughly 104k tokens/s. A later real-data backend
+smoke compiled one full graph per arm, used an explicit probe schedule, and kept
+probe steps eager. The Transformer compiled in 36.2 seconds and sustained 112.7k
+tokens/s; the organism compiled in 144.8 seconds and sustained 41.4k tokens/s
+across seven compiled steps and one eager probe. Full-model BF16 compiled/eager
+loss deltas were 0.000037 and 0.000155, below the 0.001 rejection tolerance.
+Compile cost, steady training time, and amortized throughput are reported
+separately, and full-graph mode fails rather than silently falling back. The
+4.20M quality result above used eager execution. The matched 4.20M decision must
+still reproduce under the common compiled backend before compile can support a
+quality or scaling claim.
 
 ## What LCO contributes
 

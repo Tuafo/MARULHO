@@ -30,6 +30,11 @@ pass. At 4,199,040 matched update tokens it reached 5.5263 heldout loss versus
 6.0134 for the Transformer and 97.3% versus 75.8% candidate relation ranking.
 Strict free relation generation remained 0% for both. The result earns a durable
 run and unseen-generation audit, not installation or quality promotion.
+`next_token_loss` also accepts an explicit counterfactual-probe decision. The
+falsification runner uses this to keep ordinary fixed-shape steps compilable
+while preserving eager, fully measured utility interventions on a deterministic
+set of steps; the model's default stochastic behavior remains available outside
+that runner.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

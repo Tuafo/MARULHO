@@ -207,6 +207,32 @@ def test_counterfactual_metadata_survives_evidence_suppression() -> None:
         torch.testing.assert_close(parameter.grad, instrumented_parameter.grad)
 
 
+def test_counterfactual_probe_can_be_scheduled_explicitly() -> None:
+    torch.manual_seed(12)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoDistributedLanguageModel(
+        _tiny_config(tokenizer.vocab_size, counterfactual_rate=1.0)
+    ).train()
+    input_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    target_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    ordinary = model.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=False,
+        return_evidence=False,
+        counterfactual_probe=False,
+    )
+    probe = model.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=False,
+        return_evidence=False,
+        counterfactual_probe=True,
+    )
+    assert ordinary["training_aux"]["counterfactual"]["ran"] is False
+    assert probe["training_aux"]["counterfactual"]["ran"] is True
+
+
 def test_distributed_generation_is_owned_and_stateful() -> None:
     torch.manual_seed(11)
     tokenizer = ByteLevelLanguageTokenizer()

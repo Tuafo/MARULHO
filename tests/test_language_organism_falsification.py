@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from marulho.evaluation.language_organism_falsification import (
+    build_counterfactual_probe_schedule,
     build_matched_schedule,
     organism_falsification_decision,
     sample_corpus_ranges,
@@ -45,6 +46,22 @@ def test_organism_schedule_is_reproducible_and_source_balanced() -> None:
     assert sum(kind == "relation" for kind, _index in first) == 4
     assert sum(kind == "general_0" for kind, _index in first) == 8
     assert sum(kind == "general_1" for kind, _index in first) == 8
+
+
+def test_counterfactual_probe_schedule_is_exact_and_reproducible() -> None:
+    first = build_counterfactual_probe_schedule(
+        step_count=405, rate=0.125, seed=19
+    )
+    second = build_counterfactual_probe_schedule(
+        step_count=405, rate=0.125, seed=19
+    )
+    changed = build_counterfactual_probe_schedule(
+        step_count=405, rate=0.125, seed=20
+    )
+    assert first == second
+    assert first != changed
+    assert len(first) == 405
+    assert sum(first) == round(405 * 0.125)
 
 
 def _decision_row(

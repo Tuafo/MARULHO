@@ -82,6 +82,14 @@ Transformer and 97.3% versus 75.8% candidate relation ranking. Both arms scored
 0% on strict free relation generation. The organism sustained 20,422 training
 tokens/s versus 83,743 and used 4.22 GiB versus 2.41 GiB peak allocation. This is
 an early quality win that must survive the durable budget and unseen semantics.
+The v2 runner can execute ordinary fixed-shape steps through one strict Inductor
+full graph per arm. It chooses an exact deterministic counterfactual-probe
+schedule before training and executes those occasional organism steps eagerly,
+so Python branching cannot create hidden graph variants. Reports separate
+compile time, steady throughput, amortized throughput, and compiled/eager warm-up
+loss parity. A real-data smoke passed with one eager probe and no retained cache
+or smoke report; the matched 4.20M result must be reproduced before compiled
+execution is used for durable evidence.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove

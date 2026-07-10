@@ -142,7 +142,10 @@ loss versus 6.0134 for the Transformer and 97.3% versus 75.8% candidate relation
 ranking. Both arms remained at 0% strict free relation generation. The organism
 used 4.22 GiB versus 2.41 GiB and sustained 20,422 versus 83,743 training
 tokens/s. This earns durable falsification and unseen-generation review, not a
-capability claim.
+capability claim. The matched runner now has a strict compiled backend with one
+fixed full graph per arm, an explicit eager probe schedule, separate compile and
+steady timings, and a compiled/eager loss-drift rejection check. That backend
+has passed a real-data smoke but has not yet reproduced the 4.20M quality result.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

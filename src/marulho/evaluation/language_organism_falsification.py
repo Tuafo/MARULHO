@@ -46,7 +46,7 @@ from marulho.training.language_organism import (
 )
 
 
-SURFACE = "marulho_organism_falsification.v1"
+SURFACE = "marulho_organism_falsification.v2"
 ARTIFACT_KIND = "marulho_organism_falsification"
 CACHE_SURFACE = "marulho_bounded_frozen_language_schedule.v1"
 
@@ -83,6 +83,8 @@ class OrganismFalsificationConfig:
     sample_range_count: int = 16
     save_candidate_checkpoint: bool = False
     keep_schedule_cache: bool = False
+    execution_backend: str = "eager"
+    compile_loss_tolerance: float = 1.0e-3
 
 
 def _sha256_file(path: Path) -> str:
@@ -229,6 +231,26 @@ def build_matched_schedule(
 def _schedule_hash(schedule: Sequence[tuple[str, int]]) -> str:
     encoded = json.dumps(list(schedule), separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def build_counterfactual_probe_schedule(
+    *, step_count: int, rate: float, seed: int
+) -> tuple[bool, ...]:
+    """Choose an exact, reproducible number of probe steps independently of training."""
+    steps = max(1, int(step_count))
+    fraction = min(1.0, max(0.0, float(rate)))
+    probe_count = min(steps, max(0, int(round(steps * fraction))))
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    selected = set(
+        int(index)
+        for index in torch.randperm(steps, generator=generator)[:probe_count].tolist()
+    )
+    return tuple(index in selected for index in range(steps))
+
+
+def _probe_schedule_hash(schedule: Sequence[bool]) -> str:
+    encoded = json.dumps([bool(value) for value in schedule], separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _pack_batches(batches: Sequence[LanguageBatch]) -> list[dict[str, torch.Tensor]]:
@@ -528,6 +550,34 @@ def _state_bytes(state: Mapping[str, torch.Tensor]) -> int:
     )
 
 
+def _ordinary_loss_function(name: str, model):
+    if name == "organism":
+        def ordinary_loss(
+            input_ids: torch.Tensor, target_ids: torch.Tensor
+        ) -> torch.Tensor:
+            return model.next_token_loss(
+                input_ids,
+                target_ids,
+                collect_telemetry=False,
+                return_evidence=False,
+                counterfactual_probe=False,
+            )["loss"]
+
+        return ordinary_loss
+
+    def ordinary_loss(
+        input_ids: torch.Tensor, target_ids: torch.Tensor
+    ) -> torch.Tensor:
+        return model.next_token_loss(
+            input_ids,
+            target_ids,
+            collect_telemetry=False,
+            return_evidence=False,
+        )["loss"]
+
+    return ordinary_loss
+
+
 def _run_arm(
     name: str,
     *,
@@ -537,6 +587,7 @@ def _run_arm(
     general_eval_batches: Sequence[LanguageBatch],
     relation_cases: Sequence[RelationCase],
     schedule: Sequence[tuple[str, int]],
+    counterfactual_probe_schedule: Sequence[bool],
     output_path: Path,
     config: OrganismFalsificationConfig,
     device: torch.device,
@@ -558,6 +609,8 @@ def _run_arm(
     optimizer, fused_optimizer = _optimizer(model, training_config)
     general_before = evaluate_language_model(model, general_eval_batches)
     total_steps = len(schedule)
+    if len(counterfactual_probe_schedule) != total_steps:
+        raise ValueError("Counterfactual probe schedule must match training schedule")
     warmup_steps = int(round(total_steps * config.warmup_fraction))
     losses: list[torch.Tensor] = []
     gradient_norms: list[torch.Tensor] = []
@@ -566,11 +619,63 @@ def _run_arm(
     processed_tokens = 0
     relation_tokens = 0
     general_tokens = 0
+    ordinary_loss = _ordinary_loss_function(name, model)
+    training_loss = ordinary_loss
+    compile_seconds = 0.0
+    compile_loss_delta: float | None = None
+    compile_loss_reference: float | None = None
+    compile_loss_observed: float | None = None
+    model.train()
+    if config.execution_backend == "inductor":
+        first_kind, first_batch_index = schedule[0]
+        if first_kind == "relation":
+            warmup_cpu_batch = relation_batches[first_batch_index]
+        else:
+            first_source_index = int(first_kind.rsplit("_", 1)[1])
+            warmup_cpu_batch = general_batches[first_source_index][first_batch_index]
+        warmup_batch = warmup_cpu_batch.to(device)
+        cpu_rng_state = torch.get_rng_state()
+        cuda_rng_state = (
+            torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+        )
+        with torch.no_grad(), _precision_context(device, config.precision):
+            eager_reference = ordinary_loss(
+                warmup_batch.input_ids, warmup_batch.target_ids
+            )
+        compiled_loss = torch.compile(
+            ordinary_loss,
+            backend="inductor",
+            fullgraph=True,
+            dynamic=False,
+        )
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        compile_started = time.perf_counter()
+        with _precision_context(device, config.precision):
+            compiled_reference = compiled_loss(
+                warmup_batch.input_ids, warmup_batch.target_ids
+            )
+        compiled_reference.backward()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        compile_seconds = time.perf_counter() - compile_started
+        compile_loss_reference = float(eager_reference.detach().float().cpu())
+        compile_loss_observed = float(compiled_reference.detach().float().cpu())
+        compile_loss_delta = abs(compile_loss_observed - compile_loss_reference)
+        optimizer.zero_grad(set_to_none=True)
+        torch.set_rng_state(cpu_rng_state)
+        if cuda_rng_state is not None:
+            torch.cuda.set_rng_state_all(cuda_rng_state)
+        if compile_loss_delta > float(config.compile_loss_tolerance):
+            raise RuntimeError(
+                "Compiled/eager warm-up loss drift exceeds tolerance: "
+                f"{compile_loss_delta:.8f} > {config.compile_loss_tolerance:.8f}"
+            )
+        training_loss = compiled_loss
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
     started = time.perf_counter()
-    model.train()
     for step_index, (kind, batch_index) in enumerate(schedule):
         if kind == "relation":
             cpu_batch = relation_batches[batch_index]
@@ -588,14 +693,22 @@ def _run_arm(
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
         optimizer.zero_grad(set_to_none=True)
+        is_counterfactual_probe = bool(
+            name == "organism" and counterfactual_probe_schedule[step_index]
+        )
         with _precision_context(device, config.precision):
-            loss_result = model.next_token_loss(
-                batch.input_ids,
-                batch.target_ids,
-                collect_telemetry=False,
-                return_evidence=False,
-            )
-            loss = loss_result["loss"]
+            if is_counterfactual_probe:
+                loss_result = model.next_token_loss(
+                    batch.input_ids,
+                    batch.target_ids,
+                    collect_telemetry=False,
+                    return_evidence=False,
+                    counterfactual_probe=True,
+                )
+                loss = loss_result["loss"]
+            else:
+                loss_result = {}
+                loss = training_loss(batch.input_ids, batch.target_ids)
         loss.backward()
         gradient_norm = torch.nn.utils.clip_grad_norm_(
             model.parameters(), config.gradient_clip
@@ -656,6 +769,13 @@ def _run_arm(
                 "schedule": list(schedule),
                 "schedule_hash": _schedule_hash(schedule),
                 "schedule_cursor": total_steps,
+                "counterfactual_probe_schedule": [
+                    bool(value) for value in counterfactual_probe_schedule
+                ],
+                "counterfactual_probe_schedule_hash": _probe_schedule_hash(
+                    counterfactual_probe_schedule
+                ),
+                "execution_backend": config.execution_backend,
             },
         }
         save_distributed_language_checkpoint(
@@ -694,7 +814,49 @@ def _run_arm(
             "maximum_gradient_norm": float(gradient_tensor.max().cpu()),
             "elapsed_seconds": elapsed,
             "tokens_per_second": processed_tokens / max(elapsed, 1.0e-9),
+            "amortized_tokens_per_second_including_compile": processed_tokens
+            / max(elapsed + compile_seconds, 1.0e-9),
             "peak_cuda_memory_bytes": peak_memory,
+        },
+        "execution": {
+            "requested_backend": config.execution_backend,
+            "effective_backend": config.execution_backend,
+            "ordinary_step_backend": (
+                "torch_compile_inductor_fullgraph"
+                if config.execution_backend == "inductor"
+                else "pytorch_eager"
+            ),
+            "counterfactual_probe_backend": (
+                "pytorch_eager" if name == "organism" else "not_applicable"
+            ),
+            "compile_fullgraph": config.execution_backend == "inductor",
+            "compile_dynamic_shapes": False,
+            "compile_seconds": compile_seconds,
+            "compile_included_in_training_elapsed": False,
+            "end_to_end_training_seconds": elapsed + compile_seconds,
+            "warmup_loss_parity": {
+                "performed": config.execution_backend == "inductor",
+                "eager_loss": compile_loss_reference,
+                "compiled_loss": compile_loss_observed,
+                "absolute_delta": compile_loss_delta,
+                "tolerance": config.compile_loss_tolerance,
+                "passed": (
+                    compile_loss_delta <= config.compile_loss_tolerance
+                    if compile_loss_delta is not None
+                    else None
+                ),
+            },
+            "ordinary_step_count": total_steps
+            - (
+                sum(bool(value) for value in counterfactual_probe_schedule)
+                if name == "organism"
+                else 0
+            ),
+            "eager_probe_step_count": (
+                sum(bool(value) for value in counterfactual_probe_schedule)
+                if name == "organism"
+                else 0
+            ),
         },
         "utility_credit": {
             "counterfactual_probe_count": len(utility_targets),
@@ -772,6 +934,12 @@ def run_organism_falsification(
     output = Path(output_path)
     if not train_paths or not eval_paths:
         raise ValueError("General train and evaluation corpora are required")
+    if config.execution_backend not in {"eager", "inductor"}:
+        raise ValueError("execution_backend must be 'eager' or 'inductor'")
+    if float(config.compile_loss_tolerance) <= 0.0:
+        raise ValueError("compile_loss_tolerance must be positive")
+    if config.execution_backend == "inductor" and not hasattr(torch, "compile"):
+        raise RuntimeError("Requested inductor backend requires torch.compile")
     resolved_device = _resolve_device(device)
     print("[organism] loading checkpoint-owned tokenizer", flush=True)
     tokenizer, checkpoint_metadata = _load_tokenizer_checkpoint(checkpoint)
@@ -804,6 +972,11 @@ def run_organism_falsification(
     )
     general_eval_batches = _unpack_batches(frozen["general_eval_batches"])
     schedule = tuple((str(kind), int(index)) for kind, index in frozen["schedule"])
+    counterfactual_probe_schedule = build_counterfactual_probe_schedule(
+        step_count=len(schedule),
+        rate=config.organism_counterfactual_rate,
+        seed=config.model_seed + 91_337,
+    )
     cache_sha256 = _sha256_file(cache_path)
     cache_size_bytes = cache_path.stat().st_size
     print(
@@ -824,6 +997,7 @@ def run_organism_falsification(
                 general_eval_batches=general_eval_batches,
                 relation_cases=cases,
                 schedule=schedule,
+                counterfactual_probe_schedule=counterfactual_probe_schedule,
                 output_path=output,
                 config=config,
                 device=resolved_device,
@@ -866,6 +1040,19 @@ def run_organism_falsification(
                 organism["training"]["tokens_per_second"]
             )
             / max(float(transformer["training"]["tokens_per_second"]), 1.0e-9),
+            "amortized_training_throughput_ratio_vs_transformer": float(
+                organism["training"][
+                    "amortized_tokens_per_second_including_compile"
+                ]
+            )
+            / max(
+                float(
+                    transformer["training"][
+                        "amortized_tokens_per_second_including_compile"
+                    ]
+                ),
+                1.0e-9,
+            ),
             "general_loss_margin_vs_transformer": float(
                 organism["general_holdout"]["after"]["heldout_loss"]
             )
@@ -914,6 +1101,13 @@ def run_organism_falsification(
                 kind.startswith("general_") for kind, _ in schedule
             ),
             "identical_schedule_for_every_arm": True,
+            "counterfactual_probe_schedule_hash": _probe_schedule_hash(
+                counterfactual_probe_schedule
+            ),
+            "counterfactual_probe_step_count": sum(
+                bool(value) for value in counterfactual_probe_schedule
+            ),
+            "counterfactual_probe_schedule_is_explicit": True,
             "cache_path": str(cache_path),
             "cache_sha256": cache_sha256,
             "cache_size_bytes": cache_size_bytes,
@@ -983,6 +1177,11 @@ def main() -> int:
     parser.add_argument("--model-seed", type=int)
     parser.add_argument("--save-candidate-checkpoint", action="store_true")
     parser.add_argument("--keep-schedule-cache", action="store_true")
+    parser.add_argument(
+        "--execution-backend",
+        choices=("eager", "inductor"),
+        default="eager",
+    )
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     run_organism_falsification(
@@ -1016,6 +1215,7 @@ def main() -> int:
             ),
             save_candidate_checkpoint=bool(args.save_candidate_checkpoint),
             keep_schedule_cache=bool(args.keep_schedule_cache),
+            execution_backend=str(args.execution_backend),
         ),
         schedule_cache_path=args.schedule_cache,
         device=str(args.device),
