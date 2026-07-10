@@ -81,6 +81,11 @@ one word with it.
    but it still cannot reliably compose causal, narrative, abstract, physical,
    or procedural continuations outside the source prompts. Durable predictive
    advantage and general language capability are separate results.
+10. The 64M falsification confirmed the crossover. Organism v1 reached 3.8949
+    loss versus 3.8924, 31.6% strict free relation versus 32.0%, and only 33,963
+    tokens/s versus 110,345. Its early advantage was a low-data inductive bias,
+    not a scalable replacement. Dense event computation is retired from the
+    base token mixer.
 
 ## Provisional scaling diagnosis
 
@@ -92,23 +97,20 @@ these two straight lines predicts a crossover near 24.4M tokens.
 
 This is deliberately not called a scaling law: two points cannot establish
 curvature or asymptotic behavior, and each budget used a fresh frozen schedule.
-It is a sharp experimental prediction. A fresh 64M matched run is large enough
-to distinguish three useful outcomes:
-
-- the margin reverses, falsifying this organism as the scalable base mixer;
-- loss ties but free relation remains higher, motivating a memory-specialist
-  role rather than full Transformer replacement;
-- both loss and free generation remain better, justifying a jump toward the
-  251M-token class and another source-absent audit.
+The 64M experiment resolved that prediction: the losses tied within 0.0025, free
+relation also tied within 0.4 percentage points, and organism throughput fell to
+30.8% of the baseline. This falsifies v1 as the scalable base mixer. It does not
+falsify a sparse memory specialist that leaves the exact stream intact, because
+v1 never tested that interface: its population consumed about 60% of every
+block's mix and almost every unit remained active.
 
 ## Current systems opportunity
 
-The eager organism is launch-bound rather than arithmetic-bound: a profiled
+V1's eager implementation was launch-bound rather than arithmetic-bound: a profiled
 training step spent about 737 ms in CPU/dispatch work versus 181 ms of CUDA
 kernel time, across hundreds of small matrix, multiply, copy, and batch-matrix
-operations. Auxiliary tensors are now materialized only for counterfactual
-probes or requested telemetry. Tests require the fast path to preserve loss,
-tensor state, and every parameter gradient on both ordinary and probe steps.
+operations. Its optimized path materialized auxiliary tensors only for probes
+or requested telemetry and had parity tests for loss, state, and every gradient.
 
 A diagnostic `torch.compile` run is substantially more promising but is not yet
 scientific quality evidence. The first uncached full candidate took about 343
@@ -124,8 +126,10 @@ separately, and full-graph mode fails rather than silently falling back. The
 matched 4.20M compiled reproduction retained the loss conclusion: 5.5257 versus
 6.0113, within 0.0007 and 0.0021 of the eager results. Organism steady throughput
 rose from 20.4k to 50.3k tokens/s; compile-amortized throughput was 45.8k versus
-105.2k for the Transformer. This admits the backend for the durable experiment,
-not a quality or scaling claim by itself.
+105.2k for the Transformer. At 64M the candidate fell to 34.0k versus 110.3k,
+showing that compile fixed dispatch overhead but could not fix dense event-path
+cost. The v1 runner is retired; strict full-graph parity and separate
+compile/steady/amortized timing remain requirements for v2.
 
 ## What LCO contributes
 
@@ -235,9 +239,9 @@ has a language-specific purpose.
   memory claim must test later recall, paraphrase, conflict replacement,
   locality, retention, and downstream use after support context is removed.
 
-## New architecture hypothesis: a distributed predictive organism
+## Retired architecture hypothesis: distributed predictive organism v1
 
-The working hypothesis is a single end-to-end language system made from many
+V1 tested a single end-to-end language system made from many
 small predictive units and several memory timescales. No single unit contains
 the meaning. Meaning is the coordinated pattern of unit states, exact memories,
 messages, disagreements, and actions.
@@ -329,7 +333,7 @@ compute cost. LCWM-like typed path execution and LCO-like causal interventions
 can later become specialist units in this deliberative phase. They are not the
 base token mixer and are not enabled before coherent language exists.
 
-## Why this could be genuinely new
+## Why v1 was worth testing
 
 Every ingredient has ancestors. The proposed research contribution is their
 coupling:
@@ -344,36 +348,46 @@ coupling:
 This is a hypothesis of novelty, not a novelty claim. A broader literature and
 prior-art review is required before publication language.
 
-## First decisive experiment
+## V1 decisive evidence and retirement
 
-Build one vectorized reference architecture at roughly 21M parameters with:
+The vectorized 20,971,120-parameter reference passed causal, gradient,
+counterfactual, generation, checkpoint, and compiled/eager parity tests. It beat
+the matched Transformer at 4.20M and 16.79M tokens. It then failed all twelve
+source-absent semantic continuations and tied/lost the matched 67.11M point while
+using 4.22 GiB and about three times more training time. This satisfies the
+predeclared radical-redesign condition. Code and rejected checkpoints are
+deleted; compact reports retain the curve.
 
-- parallel bounded attention and multi-rate predictive units in every block;
-- a learned mixer;
-- a small latent episodic store;
-- delayed counterfactual utility targets for unit output and memory writes;
-- the existing strict language/checkpoint protocol.
+## V2 hypothesis: full exact stream plus utility-earned sparse event memory
 
-Compare it with a fresh matched Transformer using one frozen data schedule. The
-experiment must include:
+V1 made the exact path and event population compete for the same per-layer
+capacity. Its smaller feed-forward path and always-active population helped
+early learning but became an asymptotic tax. V2 changes the ownership boundary:
 
-- real heldout loss curves at early and durable token budgets;
-- exact and free relation/conflict replacement;
-- unseen multi-sentence generation with human semantic review;
-- prompt-absence verification;
-- every-parameter gradient coverage;
-- fixed and dynamic state bytes;
-- training and generation throughput;
-- checkpoint/resume equality;
-- ablations for exact workspace, utility credit, and episodic memory.
+1. **Exact stream remains whole.** Start from the complete matched Transformer
+   block, including its full feed-forward capacity. Event memory cannot replace
+   the normal token path.
+2. **Sidecar is residual and initially neutral.** One or two event-memory
+   sidecars read event summaries and may add a bounded low-rank residual. Their
+   output scale begins at zero, so the exact-only model is embedded in v2.
+3. **Activation is genuinely sparse.** A fixed event budget selects top-utility
+   events and specialists before recurrent updates. Unselected specialists do
+   not execute; telemetry must measure actual skipped FLOPs, not small gates.
+4. **Utility pays a compute price.** The target is future-loss reduction minus
+   an explicit compute/write cost. A gate near 0.5 is a failure, not a useful
+   soft mixture.
+5. **Memory is tested as a specialist, not a universal mixer.** The first run
+   compares exact-only, dense sidecar, random-budget sidecar, and utility-sparse
+   sidecar. This separates extra parameters, extra compute, and selection value.
+6. **Parameter and compute fairness are both reported.** The primary arm may use
+   a small parameter overhead to preserve the exact stream, but must also face a
+   parameter-matched control. Claims state which budget is being compared.
 
-The architecture is killed or radically redesigned if it repeats delta v1:
-an early loss win that disappears at a durable budget, poor free recall, failed
-unseen semantics, or sequential execution so slow that scaling is implausible.
-
-If the base model survives, the next experiment is sequential-domain learning
-with conflict updates, bounded forgetting, replay consolidation, and exact
-restore. Structural growth and grounded causal units follow only after that.
+The kill criterion is fast: if utility selection does not beat random under the
+same activation/write budget, or if the neutral sidecar harms exact-only loss,
+retire the selector/interface before another long language run. If it survives,
+the first material language point is 16M followed directly by 64M; no repeated
+sub-million sweeps.
 
 ## Retired ideas
 
@@ -382,6 +396,7 @@ restore. Structural growth and grounded causal units follow only after that.
 - Prompt-text episodic retrieval as memory.
 - Raw token surprise as assumed write utility.
 - Delta-memory v1 as the next scalable core.
+- Dense distributed-organism v1 as the base token mixer.
 - Multiple-choice or loss improvement as proof of memory.
 - Biological vocabulary without a measurable computational role.
 

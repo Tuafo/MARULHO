@@ -68,38 +68,14 @@ Their code and rejected checkpoint are deleted after the 16.78M-token result;
 compact local reports retain the measured loss, relation, generation, state,
 throughput, and CUDA evidence.
 
-**`language_organism_falsification.py`** — compares one fresh matched Transformer
-with the distributed predictive-organism candidate. It deterministically samples
-newline-aligned ranges spread across every source corpus, packs only the batches
-the frozen schedule needs, and deletes its temporary cache after the report by
-default. Both arms share tokenizer, selected windows, order, tokens, optimizer,
-hardware, relation/general evaluation, and model seed. The report additionally
-records counterfactual utility targets, exact/population mixing, unit activity,
-episodic writes/usage, runtime-state bytes, throughput, peak CUDA allocation,
-gradient coverage, and the anti-promotion boundary. At 4,199,040 matched update
-tokens, the strict compiled reproduction reached 5.5257 organism heldout loss
-versus 6.0113 for the Transformer and 98.4% versus 72.7% candidate relation
-ranking. Both arms scored 0% on strict free relation generation. The organism
-sustained 50,264 steady and 45,758 compile-amortized tokens/s versus 124,073 and
-105,193. This early quality win must survive the durable budget and unseen
-semantics.
-The v2 runner can execute ordinary fixed-shape steps through one strict Inductor
-full graph per arm. It chooses an exact deterministic counterfactual-probe
-schedule before training and executes those occasional organism steps eagerly,
-so Python branching cannot create hidden graph variants. Reports separate
-compile time, steady throughput, amortized throughput, and compiled/eager warm-up
-loss parity. The matched compiled 4.20M run reproduced the eager loss conclusion,
-executed 354 compiled ordinary steps plus 51 eager probes, and deleted its 70.4
-MB schedule cache. Compiled execution is therefore admitted for durable
-evidence.
+### Retired distributed predictive-organism v1
 
-### Distributed predictive-organism finalist
-
-The current matched reports are local at:
+The compact matched reports are local at:
 
 - `reports/language_scaling/distributed-organism-finalist-4m-20260710.json`;
 - `reports/language_scaling/distributed-organism-compiled-finalist-4m-20260710.json`;
-- `reports/language_scaling/distributed-organism-compiled-durable-16m-20260710.json`.
+- `reports/language_scaling/distributed-organism-compiled-durable-16m-20260710.json`;
+- `reports/language_scaling/distributed-organism-compiled-scaling-64m-20260710.json`.
 
 At 16,785,792 fresh matched update tokens, the organism reached 4.5101 heldout
 loss versus 4.6130, 96.9% candidate relation ranking versus 91.8%, and 28.1%
@@ -117,16 +93,17 @@ sampled continuations failed semantic review. The explicit review is
 `reports/language_scaling/distributed-organism-unseen-generation-16m-20260710-review.md`.
 Branch: `no_promotion_scale_to_64m_and_retest_loss_slope`.
 
+At 67,112,064 tokens the Transformer/organism losses were 3.8924/3.8949,
+candidate relation was 98.0%/89.8%, strict free relation was 32.0%/31.6%, and
+steady throughput was 110,345/33,963 tokens/s. V1's early advantage was gone,
+99.8% of units remained active, and the population still received 60.6% of the
+mix. The implementation, falsification runner, source-absence audit, tests,
+schedule caches, and rejected checkpoints are deleted. Branch:
+`retire_organism_v1_design_sparse_event_memory_v2`.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
-
-**`language_organism_generation_audit.py`** — strictly loads a distributed
-organism checkpoint, stream-searches every declared source for exact prompt
-absence, and records greedy plus seeded nucleus continuations for causal,
-narrative, abstract, state-update, physical, and procedural prompts. Review
-questions are metrics-only and never enter generation. Surface metrics cannot
-promote coherence; a human semantic decision is required.
 
 **`language_sustained_runtime_evidence.py`** — measures exact-token
 Transformer generation from a checkpoint, including elapsed time, throughput,

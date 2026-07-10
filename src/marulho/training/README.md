@@ -16,34 +16,18 @@ matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
 decision.
 
-**`language_organism.py`** — the experimental distributed predictive candidate.
-Every block sends the same normalized input to bounded exact attention and a
-population of small recurrent units in parallel. Units communicate through two
-shared workspace slots; each layer also owns a bounded latent episodic store.
-Exact proposals run per token while persistent unit/episode state updates after
-each causal 24-token event chunk, avoiding a token-by-token GPU recurrence.
-Unit and episodic write gates receive delayed counterfactual future-loss targets
-on sampled training steps. The 8,192-vocabulary matched configuration has
-20,971,120 parameters versus 20,976,128 for the Transformer. Causal scan/step,
-all-gradient, counterfactual-credit, generation, and populated checkpoint tests
-pass. At 4,199,040 matched update tokens its compiled reproduction reached
-5.5257 heldout loss versus 6.0113 for the Transformer and 98.4% versus 72.7%
-candidate relation ranking.
-Strict free relation generation remained 0% for both. The result earns a durable
-run and unseen-generation audit, not installation or quality promotion. At the
-fresh 16,785,792-token durable comparison, the candidate retained the advantage:
-4.5101 loss versus 4.6130, 96.9% versus 91.8% candidate relation ranking, and
-28.1% versus 12.5% strict free relation generation. It now requires a
-source-absent semantic-generation audit before any promotion. That audit failed
-all causal, narrative, abstract, conflict-update, physical, and procedural
-continuations, so the checkpoint is not quality-promoted. The next experiment
-is a fresh matched 64M run because the organism's loss advantage narrowed from
-0.4857 at 4M to 0.1029 at 16M.
-`next_token_loss` also accepts an explicit counterfactual-probe decision. The
-falsification runner uses this to keep ordinary fixed-shape steps compilable
-while preserving eager, fully measured utility interventions on a deterministic
-set of steps; the model's default stochastic behavior remains available outside
-that runner.
+Distributed predictive organism v1 is retired. It beat the matched Transformer
+at 4.20M and 16.79M tokens, but failed source-absent semantic generation and lost
+both loss and free-relation advantages at 67.11M. Its final throughput was 33,963
+tokens/s versus 110,345, while 99.8% of units remained active. The model,
+checkpoint surface, runner, audit, tests, and rejected checkpoints are deleted;
+no compatibility import remains.
+
+The next candidate is not implemented yet. Its contract is to keep the full
+exact Transformer language stream intact and attach event memory as an optional
+sparse residual. Memory writes, reads, and residual influence must be selected
+by measured future utility under an explicit compute budget. A dense sidecar and
+exact-only arm are required controls.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

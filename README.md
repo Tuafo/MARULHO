@@ -46,13 +46,11 @@ deleted from the live tree. PMRM lost at its first corrected budget. Delta v1
 learned faster early, but lost that advantage at a durable budget and failed
 unseen semantic generation.
 
-The next hypothesis is broader than another sequence mixer: a distributed
-predictive system with parallel exact and recurrent state, bounded episodic
-memory, multiple learning timescales, and routing trained by counterfactual
-future usefulness. The first correctness-tested reference is implemented at
-20,971,120 parameters, within 0.024% of the baseline. It is specified as a
-falsifiable research direction in `RESEARCH.md`; it is not installed capability
-or language-quality evidence.
+Distributed predictive organism v1 is also retired after its early advantage
+disappeared at 67.11M tokens and unseen semantics failed. The next hypothesis
+keeps the complete exact language stream and adds event memory only as an
+optional, utility-earned sparse residual under a measured compute budget. It is
+specified in `RESEARCH.md`; no v2 implementation or quality result exists yet.
 
 ## Current Evidence
 
@@ -297,6 +295,23 @@ to 0.103. A two-point log-linear extrapolation would cross near 24M tokens, but
 two fresh schedules are not a scaling law. Decision:
 `no_promotion_scale_to_64m_and_retest_loss_slope`.
 
+The decisive 67.11M-token run confirmed the crossover:
+
+| Metric | Transformer | Organism v1 |
+| --- | ---: | ---: |
+| Heldout loss | 3.8924 | 3.8949 |
+| Candidate relation | 98.0% | 89.8% |
+| Exact free relation | 32.0% | 31.6% |
+| Steady training tokens/s | 110,345 | 33,963 |
+| Amortized tokens/s including compile | 109,306 | 33,834 |
+| Peak allocated VRAM | 1.44 GiB | 4.22 GiB |
+
+V1 lost both quality advantages and retained only 30.8% of Transformer
+throughput. Its population path still owned 60.6% of the learned mix and 99.8%
+of units remained active, so it never produced sparse specialization. The v1
+implementation, runners, tests, and rejected checkpoints are deleted. Compact
+reports remain. Decision: `retire_organism_v1_design_sparse_event_memory_v2`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -307,9 +322,9 @@ The priority order is:
 
 1. Keep the 21M Transformer as the reproducible local baseline and active
    checkpoint, not the assumed final architecture.
-2. Build a MARULHO-owned distributed predictive candidate with parallel exact
-   and bounded recurrent paths, a small episodic organ, multiple learning
-   timescales, and counterfactual future-utility credit.
+2. Build a MARULHO-owned v2 that preserves full exact-stream capacity and adds
+   event memory only as a utility-earned sparse residual with a measured compute
+   budget.
 3. Compare every candidate against the Transformer on the same tokenizer, data,
    tokens, parameters, hardware, optimizer, and evaluations.
 4. Require unseen generation, real-language loss, retrieval/binding, state
@@ -351,13 +366,9 @@ code.
 - `src/marulho/training/language_model.py`: active language model contract.
 - `src/marulho/training/language_transformer.py`: causal Transformer state
   block and streaming KV state.
-- `src/marulho/training/language_organism.py`: experimental parallel predictive
-  units, episodic state, counterfactual utility, generation, and checkpointing.
 - `src/marulho/data/language_tokenizer.py`: byte and BPE tokenizers.
 - `src/marulho/evaluation/language_training_experiment.py`: maintained
   training/evaluation runner.
-- `src/marulho/evaluation/language_organism_falsification.py`: matched fresh
-  Transformer/organism training with bounded corpus sampling and utility evidence.
 - `src/marulho/evaluation/language_scaling_experiment.py`: matched local
   model-size/token-budget curves and provisional scaling-law fit.
 - `src/marulho/evaluation/language_generation_coherence.py`: unseen

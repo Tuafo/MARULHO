@@ -125,29 +125,26 @@ failed unseen semantic generation, and trained about ten times slower. Its
 implementation, runner, tests, rejected checkpoint, and schedule caches are
 deleted; compact reports and git history retain the evidence.
 
-**Distributed Predictive Organism Candidate** — the next base-language
-hypothesis. Exact recent retrieval, bounded recurrent predictive state, episodic
-latent memory, and slow weights operate at different timescales. Small predictive
-units receive the same input in parallel and communicate through a bounded
-workspace. Delayed counterfactual utility targets train unit output, memory
-writes, and compute allocation by their effect on future language or behavior,
-not by raw surprise, similarity, or traffic balance. `RESEARCH.md` is the living
-hypothesis notebook. The first 20,971,120-parameter PyTorch reference lives in
-`src/marulho/training/language_organism.py`. It has causal scan/step equality,
-full finite gradient coverage, bounded tensor-only state, counterfactual credit,
-generation, and strict checkpoint tests. Exact paths operate per token; unit and
-episodic state update causally every 24 tokens. It is not installed or
-quality-promoted. Its strict compiled 4,199,040-token reproduction reached
-5.5257 heldout loss versus 6.0113 for the Transformer and 98.4% versus 72.7%
-candidate relation ranking. Both arms remained at 0% strict free relation
-generation. The organism sustained 50,264 steady tokens/s versus 124,073 and
-45,758 amortized tokens/s versus 105,193 after compile cost. This earns durable
-falsification and unseen-generation review, not a capability claim. The matched
-runner has a strict compiled backend with one
-fixed full graph per arm, an explicit eager probe schedule, separate compile and
-steady timings, and a compiled/eager loss-drift rejection check. The result
-reproduces the eager loss conclusion while more than doubling organism
-throughput, so compiled execution is admitted for the durable comparison.
+**Retired Distributed Predictive Organism v1** — a tested parallel exact,
+recurrent-unit, workspace, and episodic-memory base model. It beat the matched
+Transformer at 4.20M and 16.79M tokens, but failed source-absent semantic
+generation. At 67.11M tokens its advantage disappeared: organism/Transformer
+loss was 3.8949/3.8924, strict free relation was 31.6%/32.0%, and steady
+throughput was 33,963/110,345 tokens/s. The learned mixer still sent 60.6% of
+traffic through the population path and 99.8% of units remained active. V1 did
+not learn sparse specialization; it paid event-memory cost everywhere while
+reducing exact-stream capacity. Its implementation, runner, audit, tests, and
+rejected checkpoints are deleted. Compact reports and `RESEARCH.md` retain the
+evidence.
+
+**Sparse Event-Memory v2 Hypothesis** — the next replacement must preserve a
+full-strength exact language stream and make event memory an optional residual,
+not a competing half-model in every block. Event specialists must earn writes,
+reads, and residual influence through counterfactual future utility plus an
+explicit compute budget. Inactive specialists must consume no recurrent update
+compute. The first decisive comparison must separate language-stream capacity
+from memory benefit with exact-only, dense-sidecar, and utility-sparse arms. No
+v2 implementation or quality result exists yet.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -476,6 +473,19 @@ different schedule realizations.
 
 Decision: `no_promotion_scale_to_64m_and_retest_loss_slope`.
 
+At 67,112,064 fresh matched update tokens, the predicted crossover occurred.
+The Transformer reached 3.8924 heldout loss, 98.0% candidate relation ranking,
+32.0% strict free relation generation, and 110,345 steady tokens/s. Organism v1
+reached 3.8949, 89.8%, 31.6%, and 33,963 tokens/s. Its loss margin was +0.0025,
+free margin -0.4 percentage points, and throughput only 30.8% of the baseline.
+The population still received 60.6% of the learned mix, 99.8% of units were
+active, and utility gates remained near 0.55-0.58 despite 809 explicit probes.
+The 640.0 MB schedule cache and both 16M/64M rejected checkpoints were deleted;
+compact reports retain the evidence. The 64M report is
+`reports/language_scaling/distributed-organism-compiled-scaling-64m-20260710.json`.
+
+Decision: `retire_organism_v1_design_sparse_event_memory_v2`.
+
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568
 identical scheduled tokens. Every full-memory parameter received a gradient;
@@ -514,6 +524,7 @@ The following are not maintained language paths:
   workspace as a base-language architecture.
 - token surprise as an assumed memory-utility signal.
 - editable delta-memory v1 as a base-language architecture.
+- distributed predictive organism v1 as a base-language architecture.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -529,13 +540,16 @@ must not present them as active capability.
    base-language advantage and surprise loses to naive selectors.
 6. Scale the 2-delta/2-attention hybrid after its early win, then retire it when
    the win reverses at 16.78M and unseen semantic generation fails.
-7. Build one parallel, multi-timescale distributed predictive candidate whose
-   unit, write, and compute routing is trained from counterfactual future utility.
-8. Use LCWM-style execution-coupled selection only after a base model survives;
+7. Build and scale one parallel, multi-timescale distributed predictive
+   candidate, then retire it when the loss/free advantage disappears at 64M and
+   dense event computation remains about three times slower.
+8. Preserve full exact-stream capacity in v2 and require event-memory residuals
+   to earn sparse activation from counterfactual utility and a compute budget.
+9. Use LCWM-style execution-coupled selection only after a base model survives;
    do not make typed synthetic machinery the token mixer.
-9. Continue only non-dominated arms through successive halving, then fit the
+10. Continue only non-dominated arms through successive halving, then fit the
    first defensible local scaling law only for architectures that
    survive the pilot, using repeated seeds near a branch boundary.
-10. Rebuild continual learning, exact resume, and retention measurement.
-11. Re-establish sustained 524,288-token generation from the same checkpoint.
-12. Add grounded causal experiments, then scale, redesign, or retire.
+11. Rebuild continual learning, exact resume, and retention measurement.
+12. Re-establish sustained 524,288-token generation from the same checkpoint.
+13. Add grounded causal experiments, then scale, redesign, or retire.
