@@ -36,10 +36,14 @@ audio, event-camera style input, and multimodal streams.
 - Semantic encoder construction is offline/deterministic by default. GloVe
   bucket initialization is an explicit `semantic_initialize_from_glove=True`
   setup step because it may touch cache, downloader, PCA, and ridge-solve work.
-- The byte-level language tokenizer is the first Iteration 2 tokenizer
-  foundation. It owns UTF-8 byte ids, BOS/EOS/PAD/UNK/checkpoint/replay marker
-  ids, encode/decode determinism, tokenizer hash, and checkpoint state. It does
-  not load an external language model or generation stack.
+- Language tokenizers share one checkpoint-owned contract. The deterministic
+  `ByteLevelLanguageTokenizer` remains the no-training baseline. The current
+  quality branch can instead train `BytePairLanguageTokenizer` directly on the
+  experiment corpus, using a byte-level alphabet so arbitrary UTF-8 remains
+  lossless. Its complete learned BPE JSON, special-token layout, vocabulary
+  hash, and normalization policy are embedded in the model checkpoint. The
+  Rust `tokenizers` package is an execution dependency only: MARULHO loads no
+  external tokenizer or language-model checkpoint.
 - Hugging Face text sources may expose structured rows instead of a single
   `text` column. `StreamingCorpusLoader` flattens role/content `messages` rows
   and accepts comma-separated `text_field` values such as

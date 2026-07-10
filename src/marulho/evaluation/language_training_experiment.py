@@ -14,7 +14,11 @@ from marulho.core.language_plif_triton import (
     language_plif_triton_stats,
     language_plif_triton_stats_delta,
 )
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.data.language_tokenizer import (
+    ByteLevelLanguageTokenizer,
+    BytePairLanguageTokenizer,
+    LanguageTokenizer,
+)
 from marulho.evaluation.language_sustained_runtime_evidence import (
     run_language_sustained_runtime_evidence,
 )
@@ -47,6 +51,9 @@ DEFAULT_CORPUS = (
 
 @dataclass(frozen=True)
 class LanguageTrainingExperimentConfig:
+    tokenizer_kind: str = "byte"
+    tokenizer_vocab_size: int = 4096
+    tokenizer_min_frequency: int = 2
     model_vocab_size: int = 0
     sampled_vocab_size: int = 0
     sparse_vocab_optimizer: bool = True
@@ -105,7 +112,7 @@ def _read_corpus(corpus_path: str | Path | None) -> str:
 
 
 def _model_config(
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     config: LanguageTrainingExperimentConfig,
 ) -> LanguageModelConfig:
     model_vocab_size = (
@@ -144,6 +151,22 @@ def _model_config(
         active_memory_slot_count=max(1, int(config.active_memory_slot_count)),
         memory_slot_init_std=float(config.memory_slot_init_std),
     )
+
+
+def _build_tokenizer(
+    corpus: str,
+    config: LanguageTrainingExperimentConfig,
+) -> LanguageTokenizer:
+    kind = str(config.tokenizer_kind).strip().lower()
+    if kind == "byte":
+        return ByteLevelLanguageTokenizer()
+    if kind == "bpe":
+        return BytePairLanguageTokenizer.train(
+            [corpus],
+            vocab_size=max(512, int(config.tokenizer_vocab_size)),
+            min_frequency=max(1, int(config.tokenizer_min_frequency)),
+        )
+    raise ValueError("tokenizer_kind must be 'byte' or 'bpe'")
 
 
 def _trim_batches(
@@ -537,7 +560,7 @@ def _source_continuation_review(
 
 def _decoded_generation(
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     *,
     prompt: str,
     max_new_tokens: int,
@@ -991,8 +1014,8 @@ def run_language_training_experiment(
     cfg = config or LanguageTrainingExperimentConfig()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    tokenizer = ByteLevelLanguageTokenizer()
     corpus = _read_corpus(corpus_path)
+    tokenizer = _build_tokenizer(corpus, cfg)
     device = _resolve_device(str(cfg.device))
     cuda_math_policy = _apply_cuda_math_policy(device, cfg)
     try:
@@ -1085,6 +1108,19 @@ def run_language_training_experiment(
             "parameter_inventory": _parameter_inventory(model),
             "model_vocab_size": int(model.config.vocab_size),
             "tokenizer_vocab_size": int(tokenizer.vocab_size),
+            "tokenizer": {
+                "surface": tokenizer.state_dict().get("surface"),
+                "vocabulary_hash": tokenizer.vocabulary_hash(),
+                "vocab_size": int(tokenizer.vocab_size),
+                "corpus_token_count": len(
+                    tokenizer.encode(corpus, add_bos=False, add_eos=False)
+                ),
+                "corpus_utf8_byte_count": len(corpus.encode("utf-8")),
+                "vocabulary_trained_by_marulho": bool(
+                    tokenizer.state_dict().get("vocabulary_trained_by_marulho", False)
+                ),
+                "loads_external_checkpoint": False,
+            },
             "generation_vocab_size": int(model.generation_vocab_size),
             "padded_vocab_rows": max(
                 0,
@@ -1194,6 +1230,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--prompt", action="append", default=[])
+    parser.add_argument("--tokenizer-kind", choices=("byte", "bpe"), default="byte")
+    parser.add_argument("--tokenizer-vocab-size", type=int, default=4096)
+    parser.add_argument("--tokenizer-min-frequency", type=int, default=2)
     parser.add_argument("--model-vocab-size", type=int, default=0)
     parser.add_argument("--sampled-vocab-size", type=int, default=0)
     parser.add_argument("--disable-sparse-vocab-optimizer", action="store_true")
@@ -1241,6 +1280,9 @@ def main() -> int:
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     config = LanguageTrainingExperimentConfig(
+        tokenizer_kind=args.tokenizer_kind,
+        tokenizer_vocab_size=max(512, int(args.tokenizer_vocab_size)),
+        tokenizer_min_frequency=max(1, int(args.tokenizer_min_frequency)),
         model_vocab_size=args.model_vocab_size,
         sampled_vocab_size=args.sampled_vocab_size,
         sparse_vocab_optimizer=not bool(args.disable_sparse_vocab_optimizer),

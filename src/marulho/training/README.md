@@ -60,6 +60,10 @@ developmental and consolidation runners, query runners, and long-run evidence.
   earliest windows. Reports preserve pre-limit/post-limit counts, selected
   source-index bounds, and full-span truth so bounded work does not silently
   become prefix-only learning.
+- Base-language experiments can select the deterministic byte tokenizer or a
+  corpus-trained byte-level BPE tokenizer. Both satisfy the same checkpoint
+  contract; BPE checkpoints carry the complete MARULHO-trained vocabulary and
+  do not depend on a remote tokenizer artifact at restore time.
 - `LanguageModelConfig.state_core` is the breaking-change seam for base-model
   falsification. `selective_spiking`, `selective_continuous`, and `gru` share
   tokenizer, embedding, routed-expert, LM-head, checkpoint, generation, and

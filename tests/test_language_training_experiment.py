@@ -108,6 +108,59 @@ def test_language_training_experiment_trains_generates_and_streams(tmp_path) -> 
     assert (tmp_path / "README.md").exists()
 
 
+def test_language_training_experiment_trains_checkpoint_owned_bpe(tmp_path) -> None:
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text(
+        (
+            "MARULHO learns compact subword language from local evidence. "
+            "Checkpointed vocabulary remains local and reversible.\n"
+        )
+        * 64,
+        encoding="utf-8",
+    )
+    output = tmp_path / "language-bpe.json"
+
+    report = run_language_training_experiment(
+        output_path=output,
+        corpus_path=corpus,
+        prompts=("MARULHO learns",),
+        config=LanguageTrainingExperimentConfig(
+            tokenizer_kind="bpe",
+            tokenizer_vocab_size=512,
+            embedding_dim=12,
+            state_dim=16,
+            state_core="gru",
+            expert_count=0,
+            active_expert_count=1,
+            route_candidate_count=0,
+            expert_hidden_dim=0,
+            sequence_length=12,
+            stride=6,
+            batch_size=2,
+            max_train_batches=2,
+            max_eval_batches=2,
+            train_epochs=1,
+            generation_tokens=2,
+            sustained_target_tokens=2,
+            sustained_tick_tokens=1,
+            sustained_quantum_tokens=1,
+            sustained_timeout_seconds=30.0,
+            device="cpu",
+        ),
+    )
+
+    assert report["tokenizer"]["surface"] == (
+        "marulho_byte_pair_language_tokenizer.v1"
+    )
+    assert report["tokenizer"]["vocabulary_trained_by_marulho"] is True
+    assert report["tokenizer"]["loads_external_checkpoint"] is False
+    assert report["tokenizer"]["corpus_token_count"] < (
+        report["tokenizer"]["corpus_utf8_byte_count"]
+    )
+    assert report["model_vocab_size"] == report["tokenizer_vocab_size"]
+    assert report["external_llm_used"] is False
+
+
 def test_language_training_experiment_supports_sampled_padded_vocab(tmp_path) -> None:
     output = tmp_path / "language-sampled-padded.json"
 

@@ -14,6 +14,7 @@ dependencies = [
     "uvicorn[standard]",
     "datasets",
     "httpx",
+    "tokenizers>=0.20,<1",
 ]
 
 [project.optional-dependencies]

@@ -50,7 +50,10 @@ from marulho.core.language_sampled_vocab_ce_triton import (
     language_sampled_vocab_cross_entropy,
     language_sampled_vocab_cross_entropy_pair,
 )
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
+)
 
 
 LANGUAGE_STATE_CORE_KINDS = (
@@ -2912,7 +2915,7 @@ class MarulhoLanguageModel(nn.Module):
 
 def build_language_model_splits(
     texts: Sequence[str],
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     *,
     sequence_length: int,
     eval_fraction: float = 0.2,
@@ -3167,7 +3170,7 @@ def evaluate_language_model(
 
 def language_model_checkpoint_payload(
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     vocab_policy = _validate_language_checkpoint_vocab_policy(
@@ -3195,7 +3198,7 @@ def language_model_checkpoint_payload(
 
 def _validate_language_checkpoint_vocab_policy(
     config: LanguageModelConfig,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
 ) -> dict[str, Any]:
     model_vocab_size = int(config.vocab_size)
     tokenizer_vocab_size = int(tokenizer.vocab_size)
@@ -3251,7 +3254,7 @@ def load_language_model_state(
 def save_language_model_checkpoint(
     path: str | Path,
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     output_path = Path(path)
@@ -3274,10 +3277,10 @@ def load_language_model_checkpoint(
     path: str | Path,
     *,
     map_location: str | torch.device | None = None,
-) -> tuple[MarulhoLanguageModel, ByteLevelLanguageTokenizer, dict[str, Any]]:
+) -> tuple[MarulhoLanguageModel, LanguageTokenizer, dict[str, Any]]:
     checkpoint_path = Path(path)
     payload = torch.load(checkpoint_path, map_location=map_location or "cpu")
-    tokenizer = ByteLevelLanguageTokenizer.load_state_dict(payload["tokenizer"])
+    tokenizer = load_language_tokenizer_state(payload["tokenizer"])
     config = LanguageModelConfig(**dict(payload["config"]))
     _validate_language_checkpoint_vocab_policy(config, tokenizer)
     model = MarulhoLanguageModel(config)
