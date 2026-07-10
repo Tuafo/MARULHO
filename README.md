@@ -80,6 +80,19 @@ synthetic textbooks/stories plus deduplicated educational web data. The current
 artifact is local at
 `reports/language_scaling/tinystories-21m-50m-diagnostic-20260710.json`.
 
+The first structured-general ablation used 100,000 explicit records from the
+official [SmolLM-Corpus Cosmopedia v2](https://huggingface.co/datasets/HuggingFaceTB/smollm-corpus)
+and the same 21M model. Heldout loss improved from 3.7038 at 16.78M updates to
+3.2881 at 33.55M and 3.1318 at 50.33M. The final point covered only 0.82 of the
+selected training stream, so the model is not saturated. However, all six
+unseen continuations reached the 192-token cap and lost prompt state: objects
+vanished, `cache` changed meaning, and causal explanations drifted into generic
+textbook prose. This checkpoint is not general-language qualified. The branch
+is to continue the same weights on new document-disjoint structured data with
+a tokenizer-disjoint holdout, then decide from the longer curve whether to
+scale data/model size or add memory/grounding machinery. The local artifact is
+`reports/language_scaling/cosmopedia-v2-21m-50m-20260710.json`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -91,8 +104,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Scale a curated explicit-record general curriculum and test entity/causal
-   consistency.
+3. Continue the curated explicit-record general curriculum on new documents
+   and test entity/causal consistency against a strict holdout.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

@@ -49,6 +49,32 @@ curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
+The 2026-07-10 first Cosmopedia v2 structured-general ablation is stored
+locally at:
+
+`reports/language_scaling/cosmopedia-v2-21m-50m-20260710.json`
+
+| Update tokens | Selected epochs | Heldout loss | Perplexity | Train tokens/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 16,777,216 | 0.27 | 3.7038 | 40.60 | 61,823 |
+| 33,554,432 | 0.55 | 3.2881 | 26.79 | 63,338 |
+| 50,331,648 | 0.82 | 3.1318 | 22.91 | 63,906 |
+
+The source owns 100,000 explicit general-structured-prose records and
+84,770,600 BPE tokens. No selected update was repeated. All six unseen prompts
+produced grammatical long-form text, but none emitted EOS before 192 tokens and
+all lost entity, property, or causal state. This is not a general-language
+quality promotion. The scientific branch is
+`continue_21m_on_new_disjoint_structured_documents`; the generic single-arm
+artifact string remains `continue_data_scaling_at_selected_model_size`.
+
+The next continuation must train on new records and evaluate a separate shard
+that did not participate in checkpoint-tokenizer training. The internal tail
+holdout in this first ablation is adequate for the within-run curve, not for a
+final cross-document qualification claim.
+
+### Restricted coherence diagnostic
+
 The 2026-07-10 explicit-record coherence diagnostic is stored locally at:
 
 `reports/language_scaling/tinystories-21m-50m-diagnostic-20260710.json`
@@ -71,11 +97,11 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-### 1. General quality scale run
+### 1. General quality continuation
 
-Train the 21M model with a provenance-recorded mixture of structured synthetic
-textbooks/stories and educational web text. Every source must use explicit
-document records. Record:
+Continue the 21M model on new provenance-recorded structured synthetic
+textbooks/stories, then introduce educational web text as an explicit ablation.
+Every source must use explicit document records. Record:
 
 - heldout loss at multiple token budgets;
 - training and evaluation token counts;

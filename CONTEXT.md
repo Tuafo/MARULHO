@@ -219,6 +219,24 @@ TinyStories is a restricted diagnostic and does not qualify general language.
 The next run must mix structured synthetic textbooks/stories with explicit-
 record educational web data, then evaluate the original general prompts.
 
+The first structured-general ablation used 100,000 explicit Cosmopedia v2
+records (84,770,600 BPE tokens). At 16,777,216 / 33,554,432 / 50,331,648 update
+tokens, heldout loss was 3.7038 / 3.2881 / 3.1318. The final point was 0.82 of
+the selected training stream with no repeated selected updates. Grammatical
+form improved, but all six unseen continuations hit the 192-token cap and lost
+entity, property, or causal state. `cache` became unrelated games or fabric;
+the coin/cup relation disappeared. The checkpoint therefore does not promote
+general-language quality.
+
+Decision: `continue_21m_on_new_disjoint_structured_documents`.
+
+Interpretation: the improving curve at less than one selected epoch does not
+justify retiring the Transformer or promoting the checkpoint. Continue the
+same weights on new Cosmopedia records, evaluate against a separate shard that
+never trained the checkpoint tokenizer, and preserve fresh-versus-repeated
+token accounting. If the longer curve flattens without state consistency,
+scale/redesign from that evidence rather than from prose fluency alone.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -243,8 +261,9 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Scale a curated explicit-record general-language curriculum at 21M and test
-   entity, property, role, and causal consistency on unseen prompts.
+4. Continue the curated explicit-record general-language curriculum at 21M on
+   new documents and test entity, property, role, and causal consistency on a
+   tokenizer-disjoint holdout.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.
