@@ -575,7 +575,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v4",
+        "surface": "marulho_transformer_train_eval_split.v5",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -592,6 +592,7 @@ def build_language_model_splits(
         "eval_text_token_count": int(eval_text_token_count),
         "eval_token_stream_count": int(eval_token_ids.numel()),
         "split_hash_format": "selected_windows_int64_row_major.v1",
+        "storage_device": str(target_device),
         "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,
@@ -623,13 +624,14 @@ def evaluate_language_model(
     started = time.perf_counter()
     try:
         for batch in batches:
+            device_batch = batch.to(model.device)
             result = model.next_token_loss(
-                batch.input_ids,
-                batch.target_ids,
+                device_batch.input_ids,
+                device_batch.target_ids,
                 collect_telemetry=False,
                 return_evidence=False,
             )
-            count = int(batch.target_ids.numel())
+            count = int(device_batch.target_ids.numel())
             losses.append(result["loss"].detach() * count)
             token_count += count
         if model.device.type == "cuda":
@@ -637,11 +639,12 @@ def evaluate_language_model(
         elapsed = max(time.perf_counter() - started, 1.0e-9)
         mean_loss = float((torch.stack(losses).sum() / max(1, token_count)).cpu().item())
         return {
-            "surface": "marulho_transformer_heldout_evaluation.v2",
+            "surface": "marulho_transformer_heldout_evaluation.v3",
             "heldout_loss": mean_loss,
             "heldout_perplexity": float(math.exp(min(mean_loss, 20.0))),
             "token_count": token_count,
             "batch_count": len(batches),
+            "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
             "tokens_per_second": float(token_count) / elapsed,
             "external_llm_used": False,
             "owned_by_marulho": True,

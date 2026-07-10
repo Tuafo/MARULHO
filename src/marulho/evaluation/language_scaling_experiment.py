@@ -346,6 +346,7 @@ def _run_arm(
                 order_cursor = 0
             batch: LanguageBatch = split.train[order[order_cursor]]
             order_cursor += 1
+            device_batch = batch.to(device)
             lr = _learning_rate(
                 step,
                 total_steps=total_steps,
@@ -361,8 +362,8 @@ def _run_arm(
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(device, config.precision):
                 result = model.next_token_loss(
-                    batch.input_ids,
-                    batch.target_ids,
+                    device_batch.input_ids,
+                    device_batch.target_ids,
                     collect_telemetry=False,
                     return_evidence=False,
                 )
@@ -383,7 +384,7 @@ def _run_arm(
                 optimizer.step()
             loss_scalars.append(loss.detach().float())
             gradient_scalars.append(gradient_norm.detach().float())
-            update_tokens += int(batch.target_ids.numel())
+            update_tokens += int(device_batch.target_ids.numel())
             step += 1
 
         if device.type == "cuda":
@@ -474,6 +475,7 @@ def _run_arm(
             "warmup_steps": warmup_steps,
             "total_planned_steps": total_steps,
             "per_step_host_metric_readback": False,
+            "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
         },
         "eval_before": eval_before,
         "curve": curve,
@@ -563,7 +565,7 @@ def run_language_scaling_experiment(
         eval_fraction=float(cfg.eval_fraction),
         stride=int(cfg.stride),
         batch_size=int(cfg.batch_size),
-        device=device,
+        device="cpu",
         max_train_batches=int(cfg.max_train_batches),
         max_eval_batches=int(cfg.max_eval_batches),
         window_selection="stratified",

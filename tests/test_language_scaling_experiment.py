@@ -191,6 +191,7 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     assert report["failed_arm_count"] == 0
     assert report["external_llm_used"] is False
     assert report["split"]["split_strategy"] == "explicit_text_sets"
+    assert report["split"]["storage_device"] == "cpu"
     assert report["corpus"]["source_count"] == 2
     assert report["corpus"]["sources"][0]["path"] == str(corpus)
     assert report["corpus"]["sources"][1]["path"] == str(second_corpus)

@@ -202,6 +202,7 @@ def _train(
     step = 0
     for _epoch in range(epochs):
         for batch in batches:
+            device_batch = batch.to(model.device)
             lr = _learning_rate(
                 step,
                 total_steps=total_steps,
@@ -214,8 +215,8 @@ def _train(
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(model.device, config.precision):
                 result = model.next_token_loss(
-                    batch.input_ids,
-                    batch.target_ids,
+                    device_batch.input_ids,
+                    device_batch.target_ids,
                     collect_telemetry=False,
                     return_evidence=False,
                 )
@@ -236,7 +237,7 @@ def _train(
                 optimizer.step()
             losses.append(loss.detach().float())
             gradient_norms.append(gradient_norm.detach().float())
-            token_count += int(batch.target_ids.numel())
+            token_count += int(device_batch.target_ids.numel())
             step += 1
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
@@ -252,10 +253,11 @@ def _train(
         else 0.0
     )
     return {
-        "surface": "marulho_transformer_training_update.v2",
+        "surface": "marulho_transformer_training_update.v3",
         "optimizer": "AdamW",
         "fused_optimizer": fused,
         "precision": str(config.precision),
+        "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
         "train_epochs": epochs,
         "optimizer_step_count": total_steps,
         "warmup_steps": warmup_steps,
@@ -362,7 +364,7 @@ def run_language_training_experiment(
             eval_fraction=0.20,
             stride=int(cfg.stride),
             batch_size=int(cfg.batch_size),
-            device=device,
+            device="cpu",
             max_train_batches=int(cfg.max_train_batches),
             max_eval_batches=int(cfg.max_eval_batches),
             window_selection=str(cfg.window_selection),

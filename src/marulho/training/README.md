@@ -23,6 +23,8 @@ bounded per-layer KV state for incremental decoding.
   storage instead of creating thousands of tiny CUDA allocations;
 - a versioned row-major selected-window hash that is independent of batch and
   transfer chunk boundaries;
+- CPU-owned immutable split tensors with only the active batch transferred to
+  the model device during training or evaluation;
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 
