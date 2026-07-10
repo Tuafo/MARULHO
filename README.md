@@ -281,6 +281,8 @@ code.
 ## Repository Map
 
 - `CONTEXT.md`: current domain language and research decisions.
+- `RESEARCH.md`: living architecture notebook, research connections, hypotheses,
+  and falsifiers; it does not override current evidence.
 - `src/marulho/brain`: brain-owned runtime and Transformer installation.
 - `src/marulho/training/language_model.py`: active language model contract.
 - `src/marulho/training/language_transformer.py`: causal Transformer state
