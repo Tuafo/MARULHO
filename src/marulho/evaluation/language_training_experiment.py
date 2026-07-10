@@ -190,11 +190,12 @@ def _train(
     warmup_steps = int(round(total_steps * max(0.0, float(config.warmup_fraction))))
     use_scaler = model.device.type == "cuda" and str(config.precision).lower() == "float16"
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
-    losses: list[float] = []
+    losses: list[torch.Tensor] = []
+    gradient_norms: list[torch.Tensor] = []
     token_count = 0
-    gradient_norm_max = 0.0
     model.train()
     if model.device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(model.device)
         torch.cuda.synchronize(model.device)
     started = time.perf_counter()
     step = 0
@@ -232,16 +233,23 @@ def _train(
                 scaler.update()
             else:
                 optimizer.step()
-            losses.append(float(loss.detach().float().cpu().item()))
-            gradient_norm_max = max(
-                gradient_norm_max,
-                float(gradient_norm.detach().float().cpu().item()),
-            )
+            losses.append(loss.detach().float())
+            gradient_norms.append(gradient_norm.detach().float())
             token_count += int(batch.target_ids.numel())
             step += 1
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
     elapsed = max(time.perf_counter() - started, 1.0e-9)
+    loss_values = (
+        torch.stack(losses).cpu().tolist()
+        if losses
+        else []
+    )
+    gradient_norm_max = (
+        float(torch.stack(gradient_norms).max().cpu().item())
+        if gradient_norms
+        else 0.0
+    )
     return {
         "surface": "marulho_transformer_training_update.v2",
         "optimizer": "AdamW",
@@ -256,12 +264,22 @@ def _train(
         "token_count": token_count,
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed,
-        "loss_start": losses[0] if losses else None,
-        "loss_end": losses[-1] if losses else None,
-        "mean_loss_first_8": sum(losses[:8]) / max(1, len(losses[:8])),
-        "mean_loss_last_8": sum(losses[-8:]) / max(1, len(losses[-8:])),
+        "loss_start": loss_values[0] if loss_values else None,
+        "loss_end": loss_values[-1] if loss_values else None,
+        "mean_loss_first_8": (
+            sum(loss_values[:8]) / max(1, len(loss_values[:8]))
+        ),
+        "mean_loss_last_8": (
+            sum(loss_values[-8:]) / max(1, len(loss_values[-8:]))
+        ),
         "max_gradient_norm": gradient_norm_max,
-        "loss_record_count": len(losses),
+        "loss_record_count": len(loss_values),
+        "per_step_host_metric_readback": False,
+        "peak_cuda_memory_bytes": (
+            int(torch.cuda.max_memory_allocated(model.device))
+            if model.device.type == "cuda"
+            else 0
+        ),
         "external_llm_used": False,
     }
 

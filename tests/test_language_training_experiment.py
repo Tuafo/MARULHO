@@ -55,6 +55,8 @@ def test_transformer_training_experiment_trains_and_restores(tmp_path) -> None:
     assert report["training"]["token_count"] == 64
     assert report["training"]["optimizer"] == "AdamW"
     assert report["training"]["loss_record_count"] == 2
+    assert report["training"]["per_step_host_metric_readback"] is False
+    assert report["training"]["peak_cuda_memory_bytes"] == 0
     assert report["eval_before"]["heldout_loss"] > 0.0
     assert report["eval_after"]["heldout_loss"] > 0.0
     assert report["tokenizer"]["vocabulary_trained_by_marulho"] is True
