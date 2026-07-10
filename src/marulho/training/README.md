@@ -28,6 +28,11 @@ bounded per-layer KV state for incremental decoding.
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 
+Generation supports greedy argmax and seeded temperature/top-p nucleus
+sampling over the full checkpoint vocabulary. Both use the bounded per-layer
+KV state and the same repetition controls; every result reports its exact
+policy, temperature, top-p threshold, and seed.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

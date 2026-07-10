@@ -129,6 +129,31 @@ def test_transformer_checkpoint_restores_tied_weights_and_generation(tmp_path) -
     generated = restored.generate(prompt, max_new_tokens=4, eos_id=tokenizer.eos_id)
     assert generated["new_token_count"] >= 1
     assert generated["external_llm_used"] is False
+    assert generated["generation_decode"]["decode_strategy"] == "greedy_argmax"
+
+    sampled_first = restored.generate(
+        prompt,
+        max_new_tokens=8,
+        eos_id=tokenizer.eos_id,
+        temperature=0.8,
+        top_p=0.9,
+        seed=23,
+    )
+    sampled_second = restored.generate(
+        prompt,
+        max_new_tokens=8,
+        eos_id=tokenizer.eos_id,
+        temperature=0.8,
+        top_p=0.9,
+        seed=23,
+    )
+    assert torch.equal(
+        sampled_first["generated_ids"],
+        sampled_second["generated_ids"],
+    )
+    assert sampled_first["generation_decode"]["decode_strategy"] == "nucleus_sampling"
+    assert sampled_first["generation_decode"]["top_p_applied"] is True
+    assert sampled_first["generation_decode"]["sampling_seed"] == 23
 
 
 def test_rejected_recurrent_language_config_is_not_accepted() -> None:

@@ -195,15 +195,25 @@ class MarulhoLanguageModel(nn.Module):
         *,
         repetition_penalty: float = 1.0,
         no_repeat_ngram_size: int = 0,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        seed: int | None = None,
     ) -> dict[str, Any]:
+        sampling = float(temperature) > 0.0
         return {
-            "surface": "marulho_transformer_decode_policy.v2",
-            "decode_strategy": "greedy_argmax",
+            "surface": "marulho_transformer_decode_policy.v3",
+            "decode_strategy": (
+                "nucleus_sampling" if sampling else "greedy_argmax"
+            ),
             "model_vocab_size": int(self.config.vocab_size),
             "generation_vocab_size": int(self.config.vocab_size),
             "full_model_vocab_logits_materialized": True,
             "repetition_penalty": max(1.0, float(repetition_penalty)),
             "no_repeat_ngram_size": max(0, int(no_repeat_ngram_size)),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "sampling_seed": None if seed is None else int(seed),
+            "top_p_applied": bool(sampling and float(top_p) < 1.0),
             "kv_cache": "bounded_per_layer",
             "external_llm_used": False,
         }
@@ -323,7 +333,21 @@ class MarulhoLanguageModel(nn.Module):
         eos_id: int | None = None,
         repetition_penalty: float = 1.0,
         no_repeat_ngram_size: int = 0,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        seed: int | None = None,
     ) -> dict[str, Any]:
+        temperature = float(temperature)
+        top_p = float(top_p)
+        if not math.isfinite(temperature) or temperature < 0.0:
+            raise ValueError("temperature must be finite and non-negative")
+        if not math.isfinite(top_p) or not 0.0 < top_p <= 1.0:
+            raise ValueError("top_p must be finite and in (0, 1]")
+        sample = temperature > 0.0
+        sampling_generator = None
+        if sample and seed is not None:
+            sampling_generator = torch.Generator(device=self.device)
+            sampling_generator.manual_seed(int(seed))
         was_training = bool(self.training)
         self.eval()
         try:
@@ -353,7 +377,42 @@ class MarulhoLanguageModel(nn.Module):
                 repetition_count += control["repetition_penalty_adjusted_token_count"]
                 banned_count += control["no_repeat_ngram_banned_token_count"]
                 fallback_count += control["decode_control_fallback_count"]
-                next_id = torch.argmax(controlled, dim=-1, keepdim=True)
+                if sample:
+                    probabilities = torch.softmax(
+                        controlled / temperature,
+                        dim=-1,
+                    )
+                    if top_p < 1.0:
+                        sorted_probabilities, sorted_indices = torch.sort(
+                            probabilities,
+                            dim=-1,
+                            descending=True,
+                        )
+                        cumulative = torch.cumsum(sorted_probabilities, dim=-1)
+                        remove = cumulative > top_p
+                        remove[..., 1:] = remove[..., :-1].clone()
+                        remove[..., 0] = False
+                        sorted_probabilities = sorted_probabilities.masked_fill(
+                            remove,
+                            0.0,
+                        )
+                        sorted_probabilities = sorted_probabilities / (
+                            sorted_probabilities.sum(dim=-1, keepdim=True)
+                        ).clamp_min(torch.finfo(sorted_probabilities.dtype).tiny)
+                        sampled_rank = torch.multinomial(
+                            sorted_probabilities,
+                            1,
+                            generator=sampling_generator,
+                        )
+                        next_id = sorted_indices.gather(-1, sampled_rank)
+                    else:
+                        next_id = torch.multinomial(
+                            probabilities,
+                            1,
+                            generator=sampling_generator,
+                        )
+                else:
+                    next_id = torch.argmax(controlled, dim=-1, keepdim=True)
                 generated = torch.cat((generated, next_id), dim=1)
                 new_token_count += 1
                 if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
@@ -362,7 +421,7 @@ class MarulhoLanguageModel(nn.Module):
                 state = result["state"]
                 next_logits = result["logits"][:, -1]
             return {
-                "surface": "marulho_transformer_generation.v2",
+                "surface": "marulho_transformer_generation.v3",
                 "generated_ids": generated,
                 "new_token_count": int(new_token_count),
                 "state": state,
@@ -372,6 +431,9 @@ class MarulhoLanguageModel(nn.Module):
                 "generation_decode": self.generation_decode_policy(
                     repetition_penalty=repetition_penalty,
                     no_repeat_ngram_size=no_repeat_ngram_size,
+                    temperature=temperature,
+                    top_p=top_p,
+                    seed=seed,
                 ),
                 "decode_control_totals": {
                     "repetition_penalty_adjusted_token_count": repetition_count,

@@ -36,6 +36,12 @@ explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
 promote quality.
 
+**`language_decode_comparison.py`** — compares greedy argmax with deterministic
+temperature/top-p sampling from the exact same checkpoint and prompts. It
+records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
+improvement is an ablation result, never a substitute for heldout quality or
+human review.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
