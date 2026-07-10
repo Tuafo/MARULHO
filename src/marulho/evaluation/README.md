@@ -51,6 +51,11 @@ silently trade away general language. Repeated `--replay-corpus` sources test
 whether a budgeted general-data mixture preserves both capabilities before
 parameter isolation or episodic memory is introduced.
 
+**`language_relation_binding_audit.py`** — reruns both candidate-likelihood and
+strict greedy free-answer metrics for any checkpoint against a frozen relation
+case artifact. This catches cases where multiple-choice ranking improves while
+open generation still loses the relation.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

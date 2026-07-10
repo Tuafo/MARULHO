@@ -10,6 +10,7 @@ import json
 import math
 from pathlib import Path
 import random
+import re
 from typing import Any, Sequence
 
 import torch
@@ -53,6 +54,10 @@ def _heldout_signature(signature: str) -> bool:
 
 def _signature(kind: str, *parts: str) -> str:
     return "|".join((str(kind), *(str(part) for part in parts)))
+
+
+def _normalized_answer(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", str(text).casefold()))
 
 
 def _shuffled_candidates(
@@ -326,6 +331,27 @@ def evaluate_relation_binding_cases(
             range(len(candidate_losses)),
             key=candidate_losses.__getitem__,
         )
+        prompt_tensor = torch.tensor(
+            prompt_ids,
+            dtype=torch.long,
+            device=model.device,
+        )
+        generation = model.generate(
+            prompt_tensor,
+            max_new_tokens=32,
+            eos_id=tokenizer.eos_id,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=3,
+        )
+        generated_ids = [
+            int(value)
+            for value in generation["generated_ids"][0].detach().cpu().tolist()
+        ]
+        continuation = tokenizer.decode(generated_ids[len(prompt_ids) :])
+        expected_answer = case.candidates[int(case.correct_index)]
+        generation_exact = _normalized_answer(expected_answer) in _normalized_answer(
+            continuation
+        )
         rows.append(
             {
                 "case_id": case.case_id,
@@ -334,10 +360,22 @@ def evaluate_relation_binding_cases(
                 "predicted_index": int(predicted_index),
                 "correct": bool(predicted_index == int(case.correct_index)),
                 "label_used_for_prediction": False,
+                "generation_continuation": continuation,
+                "generation_exact_answer_match": bool(generation_exact),
+                "label_used_for_generation": False,
             }
         )
     kind_accuracy = {
         kind: sum(row["correct"] for row in rows if row["kind"] == kind)
+        / max(1, sum(row["kind"] == kind for row in rows))
+        for kind in KINDS
+    }
+    generation_kind_accuracy = {
+        kind: sum(
+            row["generation_exact_answer_match"]
+            for row in rows
+            if row["kind"] == kind
+        )
         / max(1, sum(row["kind"] == kind for row in rows))
         for kind in KINDS
     }
@@ -346,6 +384,11 @@ def evaluate_relation_binding_cases(
         "case_count": len(rows),
         "accuracy": sum(row["correct"] for row in rows) / max(1, len(rows)),
         "kind_accuracy": kind_accuracy,
+        "generation_exact_accuracy": sum(
+            row["generation_exact_answer_match"] for row in rows
+        )
+        / max(1, len(rows)),
+        "generation_kind_accuracy": generation_kind_accuracy,
         "prediction_uses_correct_index": False,
         "correct_index_metrics_only": True,
         "rows": rows,
@@ -358,10 +401,25 @@ def relation_binding_branch_decision(
     accuracy_after: float,
     general_loss_delta: float,
     replay_enabled: bool = False,
+    generation_accuracy_after: float | None = None,
 ) -> str:
     relation_gain = float(accuracy_after) - float(accuracy_before)
     if replay_enabled:
-        if float(accuracy_after) >= 0.75 and float(general_loss_delta) <= 0.15:
+        if (
+            float(accuracy_after) >= 0.75
+            and float(general_loss_delta) <= 0.15
+            and generation_accuracy_after is not None
+            and float(generation_accuracy_after) < 0.60
+        ):
+            return "replay_improves_candidate_ranking_not_free_binding"
+        if (
+            float(accuracy_after) >= 0.75
+            and float(general_loss_delta) <= 0.15
+            and (
+                generation_accuracy_after is None
+                or float(generation_accuracy_after) >= 0.60
+            )
+        ):
             return "replay_preserves_language_and_relations"
         if relation_gain >= 0.25 and float(general_loss_delta) > 0.15:
             return "replay_insufficient_test_parameter_isolation_or_episodic_memory"
@@ -478,6 +536,7 @@ def run_relation_binding_falsification(
         accuracy_after=float(after["accuracy"]),
         general_loss_delta=general_loss_delta,
         replay_enabled=bool(replay_corpus_paths),
+        generation_accuracy_after=float(after["generation_exact_accuracy"]),
     )
     report = {
         "artifact_kind": ARTIFACT_KIND,

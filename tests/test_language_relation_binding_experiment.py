@@ -59,6 +59,8 @@ def test_relation_prediction_scores_candidates_without_reading_label(
     assert report["prediction_uses_correct_index"] is False
     assert report["correct_index_metrics_only"] is True
     assert all(row["label_used_for_prediction"] is False for row in report["rows"])
+    assert all(row["label_used_for_generation"] is False for row in report["rows"])
+    assert 0.0 <= report["generation_exact_accuracy"] <= 1.0
 
 
 def test_relation_branch_prioritizes_catastrophic_forgetting() -> None:
@@ -75,10 +77,19 @@ def test_relation_replay_requires_both_accuracy_and_retention() -> None:
         accuracy_after=0.82,
         general_loss_delta=0.08,
         replay_enabled=True,
+        generation_accuracy_after=0.80,
     ) == "replay_preserves_language_and_relations"
     assert relation_binding_branch_decision(
         accuracy_before=0.48,
         accuracy_after=0.84,
         general_loss_delta=0.70,
         replay_enabled=True,
+        generation_accuracy_after=0.80,
     ) == "replay_insufficient_test_parameter_isolation_or_episodic_memory"
+    assert relation_binding_branch_decision(
+        accuracy_before=0.48,
+        accuracy_after=0.98,
+        general_loss_delta=0.0,
+        replay_enabled=True,
+        generation_accuracy_after=0.10,
+    ) == "replay_improves_candidate_ranking_not_free_binding"
