@@ -44,6 +44,10 @@ The active language path is `marulho_transformer`; the only accepted
 - tokenizer vocabulary hash;
 - metadata and ownership flags.
 
+The scaling experiment stores optional training-continuation metadata inside
+this atomic payload: optimizer/scaler state, cumulative token/step counts, RNG
+state, and batch position. Inference loading does not depend on those fields.
+
 The tokenizer vocabulary must exactly match the model vocabulary. Legacy
 recurrent, routed, spiking, sampled-vocabulary, and padded-vocabulary
 checkpoints are rejected rather than upgraded through compatibility code.

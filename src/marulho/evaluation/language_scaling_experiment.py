@@ -8,7 +8,7 @@ import hashlib
 import math
 from pathlib import Path
 import time
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -33,11 +33,12 @@ from marulho.training.language_model import (
     MarulhoLanguageModel,
     build_language_model_splits,
     evaluate_language_model,
+    load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v7"
+SURFACE = "marulho_transformer_scaling_experiment.v8"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -92,6 +93,7 @@ class LanguageScalingExperimentConfig:
     cuda_allow_tf32: bool = True
     retain_best_checkpoint_only: bool = True
     device: str = "auto"
+    resume_checkpoint_path: str | None = None
 
 
 def _seed_everything(seed: int) -> None:
@@ -279,6 +281,33 @@ def _next_batch_order(
     return torch.randperm(int(batch_count), generator=generator).tolist()
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _prior_training_progress(metadata: Mapping[str, Any]) -> tuple[int, int]:
+    cumulative_tokens = metadata.get("cumulative_update_tokens")
+    cumulative_steps = metadata.get("cumulative_optimizer_steps")
+    curve = metadata.get("curve")
+    if isinstance(curve, Sequence) and curve and isinstance(curve[-1], Mapping):
+        final = curve[-1]
+        if cumulative_tokens is None:
+            cumulative_tokens = final.get(
+                "cumulative_update_tokens",
+                final.get("update_tokens", 0),
+            )
+        if cumulative_steps is None:
+            cumulative_steps = final.get(
+                "cumulative_optimizer_steps",
+                final.get("optimizer_steps", 0),
+            )
+    return int(cumulative_tokens or 0), int(cumulative_steps or 0)
+
+
 def _arm_token_budgets(
     arm: ScalingArmConfig,
     config: LanguageScalingExperimentConfig,
@@ -305,12 +334,34 @@ def _run_arm(
     output: Path,
     config: LanguageScalingExperimentConfig,
     device: torch.device,
+    initial_model: MarulhoLanguageModel | None = None,
+    resume_metadata: Mapping[str, Any] | None = None,
+    resume_checkpoint_path: Path | None = None,
 ) -> dict[str, Any]:
     _seed_everything(config.seed)
     arm_config = _arm_training_config(arm, config)
-    model = MarulhoLanguageModel(_model_config(tokenizer, arm_config)).to(device)
+    expected_model_config = _model_config(tokenizer, arm_config)
+    if initial_model is None:
+        model = MarulhoLanguageModel(expected_model_config).to(device)
+    else:
+        if asdict(initial_model.config) != asdict(expected_model_config):
+            raise ValueError(
+                "Resume checkpoint model config does not match the selected arm"
+            )
+        model = initial_model.to(device)
     parameter_inventory = _parameter_inventory(model)
     optimizer, fused = _optimizer(model, arm_config)
+    checkpoint_metadata = dict(resume_metadata or {})
+    prior_update_tokens, prior_optimizer_steps = _prior_training_progress(
+        checkpoint_metadata
+    )
+    training_state = checkpoint_metadata.get("training_state")
+    optimizer_state_restored = False
+    if isinstance(training_state, Mapping) and isinstance(
+        training_state.get("optimizer_state"), Mapping
+    ):
+        optimizer.load_state_dict(dict(training_state["optimizer_state"]))
+        optimizer_state_restored = True
     budgets = _arm_token_budgets(arm, config)
     nominal_batch_tokens = max(
         1,
@@ -323,10 +374,36 @@ def _run_arm(
     warmup_steps = int(round(total_steps * max(0.0, config.warmup_fraction)))
     use_scaler = device.type == "cuda" and config.precision.lower() == "float16"
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    if (
+        optimizer_state_restored
+        and isinstance(training_state, Mapping)
+        and isinstance(training_state.get("scaler_state"), Mapping)
+    ):
+        scaler.load_state_dict(dict(training_state["scaler_state"]))
     generator = torch.Generator(device="cpu")
     generator.manual_seed(int(config.seed))
     order = _next_batch_order(len(split.train), generator=generator)
     order_cursor = 0
+    batch_order_state_restored = False
+    if (
+        optimizer_state_restored
+        and isinstance(training_state, Mapping)
+        and str(training_state.get("split_train_hash", ""))
+        == str(split.report["train_split_hash"])
+        and isinstance(training_state.get("generator_state"), torch.Tensor)
+        and isinstance(training_state.get("batch_order"), Sequence)
+    ):
+        restored_order = [int(index) for index in training_state["batch_order"]]
+        restored_cursor = int(training_state.get("batch_order_cursor", 0))
+        if (
+            len(restored_order) == len(split.train)
+            and all(0 <= index < len(split.train) for index in restored_order)
+            and 0 <= restored_cursor <= len(restored_order)
+        ):
+            generator.set_state(training_state["generator_state"].cpu())
+            order = restored_order
+            order_cursor = restored_cursor
+            batch_order_state_restored = True
     update_tokens = 0
     step = 0
     curve: list[dict[str, Any]] = []
@@ -410,6 +487,10 @@ def _run_arm(
                 "token_budget_multiplier": float(arm.token_budget_multiplier),
                 "budget_basis": str(config.budget_basis),
                 "update_tokens": int(update_tokens),
+                "prior_update_tokens": int(prior_update_tokens),
+                "cumulative_update_tokens": int(
+                    prior_update_tokens + update_tokens
+                ),
                 "unique_selected_update_tokens": min(
                     int(update_tokens),
                     int(selected_train_tokens_per_epoch),
@@ -421,6 +502,10 @@ def _run_arm(
                 "selected_train_token_epochs": float(update_tokens)
                 / max(1, selected_train_tokens_per_epoch),
                 "optimizer_steps": int(step),
+                "prior_optimizer_steps": int(prior_optimizer_steps),
+                "cumulative_optimizer_steps": int(
+                    prior_optimizer_steps + step
+                ),
                 "heldout_loss": float(evaluation["heldout_loss"]),
                 "heldout_perplexity": float(evaluation["heldout_perplexity"]),
                 "eval_token_count": int(evaluation["token_count"]),
@@ -462,6 +547,21 @@ def _run_arm(
             "arm": asdict(arm),
             "curve": curve,
             "split": split.report,
+            "resume_checkpoint_path": (
+                None
+                if resume_checkpoint_path is None
+                else str(resume_checkpoint_path)
+            ),
+            "cumulative_update_tokens": int(prior_update_tokens + update_tokens),
+            "cumulative_optimizer_steps": int(prior_optimizer_steps + step),
+            "training_state": {
+                "optimizer_state": optimizer.state_dict(),
+                "scaler_state": scaler.state_dict(),
+                "generator_state": generator.get_state(),
+                "batch_order": order,
+                "batch_order_cursor": int(order_cursor),
+                "split_train_hash": str(split.report["train_split_hash"]),
+            },
         },
     )
     return {
@@ -478,6 +578,22 @@ def _run_arm(
             "total_planned_steps": total_steps,
             "per_step_host_metric_readback": False,
             "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
+            "state_restored": bool(optimizer_state_restored),
+            "batch_order_state_restored": bool(batch_order_state_restored),
+            "schedule_policy": "new_phase_cosine",
+        },
+        "continuation": {
+            "resume_checkpoint_path": (
+                None
+                if resume_checkpoint_path is None
+                else str(resume_checkpoint_path)
+            ),
+            "prior_update_tokens": int(prior_update_tokens),
+            "prior_optimizer_steps": int(prior_optimizer_steps),
+            "optimizer_state_restored": bool(optimizer_state_restored),
+            "batch_order_state_restored": bool(batch_order_state_restored),
+            "cumulative_update_tokens": int(prior_update_tokens + update_tokens),
+            "cumulative_optimizer_steps": int(prior_optimizer_steps + step),
         },
         "eval_before": eval_before,
         "curve": curve,
@@ -535,6 +651,13 @@ def run_language_scaling_experiment(
         raise ValueError(
             "empirical_wall_clock requires different per-arm token budget multipliers"
         )
+    resume_checkpoint = (
+        None
+        if cfg.resume_checkpoint_path is None
+        else Path(cfg.resume_checkpoint_path)
+    )
+    if resume_checkpoint is not None and len(cfg.arms) != 1:
+        raise ValueError("Checkpoint continuation requires exactly one scaling arm")
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     source_paths = tuple(Path(path) for path in corpus_paths)
@@ -558,7 +681,15 @@ def run_language_scaling_experiment(
         tokenizer_vocab_size=int(cfg.tokenizer_vocab_size),
         tokenizer_min_frequency=int(cfg.tokenizer_min_frequency),
     )
-    tokenizer = _build_tokenizer(corpora, tokenizer_config)
+    resumed_model: MarulhoLanguageModel | None = None
+    resume_metadata: dict[str, Any] = {}
+    if resume_checkpoint is None:
+        tokenizer = _build_tokenizer(corpora, tokenizer_config)
+    else:
+        resumed_model, tokenizer, resume_metadata = load_language_model_checkpoint(
+            resume_checkpoint,
+            map_location="cpu",
+        )
     split = build_language_model_splits(
         corpora,
         tokenizer,
@@ -585,7 +716,7 @@ def run_language_scaling_experiment(
     arms: list[dict[str, Any]] = []
     started = time.perf_counter()
     try:
-        for arm in cfg.arms:
+        for arm_index, arm in enumerate(cfg.arms):
             try:
                 arms.append(
                     _run_arm(
@@ -596,6 +727,13 @@ def run_language_scaling_experiment(
                         output=output,
                         config=cfg,
                         device=device,
+                        initial_model=(
+                            resumed_model
+                            if resume_checkpoint is not None and arm_index == 0
+                            else None
+                        ),
+                        resume_metadata=resume_metadata,
+                        resume_checkpoint_path=resume_checkpoint,
                     )
                 )
             except RuntimeError as exc:
@@ -734,6 +872,21 @@ def run_language_scaling_experiment(
         "owned_by_marulho": True,
         "external_llm_used": False,
         "loads_external_checkpoint": False,
+        "continuation": {
+            "enabled": resume_checkpoint is not None,
+            "checkpoint_path": (
+                None if resume_checkpoint is None else str(resume_checkpoint)
+            ),
+            "checkpoint_sha256": (
+                None
+                if resume_checkpoint is None
+                else _sha256_file(resume_checkpoint)
+            ),
+            "checkpoint_owned_by_marulho": resume_checkpoint is not None,
+            "optimizer_state_available": isinstance(
+                resume_metadata.get("training_state"), Mapping
+            ),
+        },
         "device": str(device),
         "config": {
             **asdict(cfg),
@@ -743,7 +896,7 @@ def run_language_scaling_experiment(
             "sources": [
                 {
                     "path": str(path),
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "sha256": _sha256_file(path),
                     "utf8_bytes": len(corpus.encode("utf-8")),
                     "row_provenance_report_expected": str(
                         path.with_suffix(".json")
@@ -760,7 +913,7 @@ def run_language_scaling_experiment(
             "explicit_eval_sha256": (
                 None
                 if eval_corpus_file is None
-                else hashlib.sha256(eval_corpus_file.read_bytes()).hexdigest()
+                else _sha256_file(eval_corpus_file)
             ),
             "explicit_eval_utf8_bytes": (
                 0
@@ -773,6 +926,11 @@ def run_language_scaling_experiment(
             "vocab_size": int(tokenizer.vocab_size),
             "vocabulary_hash": tokenizer.vocabulary_hash(),
             "vocabulary_trained_by_marulho": True,
+            "source": (
+                "checkpoint_owned"
+                if resume_checkpoint is not None
+                else "trained_from_current_corpus"
+            ),
             "training_chunk_characters": BPE_TRAINING_CHUNK_CHARACTERS,
         },
         "split": split.report,
@@ -882,6 +1040,7 @@ def main() -> int:
     parser.add_argument("--generation-tokens", type=int, default=96)
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--resume-checkpoint", type=Path, default=None)
     parser.add_argument("--retain-all-checkpoints", action="store_true")
     args = parser.parse_args()
     config = LanguageScalingExperimentConfig(
@@ -902,6 +1061,11 @@ def main() -> int:
         seed=int(args.seed),
         retain_best_checkpoint_only=not bool(args.retain_all_checkpoints),
         device=str(args.device),
+        resume_checkpoint_path=(
+            None
+            if args.resume_checkpoint is None
+            else str(args.resume_checkpoint)
+        ),
     )
     report = run_language_scaling_experiment(
         output_path=args.output,

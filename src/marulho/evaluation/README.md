@@ -23,6 +23,12 @@ cannot be mislabeled as scaling-law grids. Repeated `--corpus` arguments train
 one tokenizer and split over multiple provenance-recorded corpus shards. A
 single arm is a maintained data-scaling curve and emits
 `continue_data_scaling_at_selected_model_size`, not a fictitious size winner.
+`--resume-checkpoint` continues exactly one MARULHO-owned arm with the
+checkpoint tokenizer. Scaling checkpoints persist AdamW/scaler state,
+cumulative updates, RNG state, and batch position; a pre-state checkpoint may
+continue with fresh optimizer state, which the report marks explicitly. Each
+continuation is a new cosine schedule phase. Corpus and checkpoint SHA-256
+hashes are streamed rather than loaded into one large byte allocation.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

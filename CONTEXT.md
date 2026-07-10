@@ -63,6 +63,11 @@ hash are stored with the checkpoint. Production experiments use BPE.
 **Transformer Language Checkpoint v2** — an atomic payload containing the exact
 model configuration, model tensors, tokenizer state, tokenizer hash, and
 metadata. Legacy recurrent/SNN language checkpoints are intentionally rejected.
+Scaling checkpoints additionally persist optimizer/scaler state, cumulative
+update counts, RNG state, and batch position in metadata so the maintained
+runner can continue one MARULHO-owned arm without rebuilding its tokenizer.
+Older v2 checkpoints that predate this state may continue with a fresh
+optimizer only when the evidence report says so explicitly.
 
 **Full-Vocabulary Next-Token Learning** — standard causal cross-entropy over the
 checkpoint vocabulary. Sampled or padded vocabulary shortcuts are retired until

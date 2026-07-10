@@ -12,6 +12,7 @@ from marulho.evaluation.language_scaling_experiment import (
     fit_language_scaling_law,
     run_language_scaling_experiment,
 )
+from marulho.training.language_model import load_language_model_checkpoint
 
 
 def test_scaling_law_requires_a_real_grid() -> None:
@@ -209,3 +210,60 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     assert len(deleted) == 1
     assert Path(retained[0]["checkpoint_path"]).is_file()
     assert not Path(deleted[0]["checkpoint_path"]).exists()
+
+
+def test_scaling_experiment_resumes_owned_training_state(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus.txt"
+    eval_corpus = tmp_path / "eval.txt"
+    corpus.write_text("Fresh training documents remain local. " * 64, encoding="utf-8")
+    eval_corpus.write_text("A disjoint evaluation document. " * 32, encoding="utf-8")
+    arm = ScalingArmConfig("selected", 16, 1, 4, mlp_ratio=2.0)
+    base_config = LanguageScalingExperimentConfig(
+        tokenizer_vocab_size=512,
+        sequence_length=8,
+        stride=8,
+        batch_size=2,
+        max_train_batches=4,
+        max_eval_batches=2,
+        token_budgets=(16,),
+        arms=(arm,),
+        transformer_context_length=16,
+        learning_rate=1.0e-3,
+        precision="float32",
+        generation_tokens=1,
+        device="cpu",
+    )
+    first = run_language_scaling_experiment(
+        output_path=tmp_path / "first.json",
+        corpus_paths=(corpus,),
+        eval_corpus_path=eval_corpus,
+        prompts=("Absent prompt",),
+        config=base_config,
+    )
+    first_checkpoint = Path(first["selection"]["selected_checkpoint"])
+
+    second = run_language_scaling_experiment(
+        output_path=tmp_path / "second.json",
+        corpus_paths=(corpus,),
+        eval_corpus_path=eval_corpus,
+        prompts=("Another absent prompt",),
+        config=LanguageScalingExperimentConfig(
+            **{
+                **base_config.__dict__,
+                "resume_checkpoint_path": str(first_checkpoint),
+            }
+        ),
+    )
+
+    assert second["continuation"]["enabled"] is True
+    assert second["continuation"]["checkpoint_owned_by_marulho"] is True
+    assert second["tokenizer"]["source"] == "checkpoint_owned"
+    resumed = second["arms"][0]
+    assert resumed["optimizer"]["state_restored"] is True
+    assert resumed["optimizer"]["batch_order_state_restored"] is True
+    assert resumed["continuation"]["prior_update_tokens"] == 16
+    assert resumed["continuation"]["cumulative_update_tokens"] == 32
+    second_checkpoint = Path(second["selection"]["selected_checkpoint"])
+    _, _, metadata = load_language_model_checkpoint(second_checkpoint)
+    assert metadata["cumulative_update_tokens"] == 32
+    assert "optimizer_state" in metadata["training_state"]
