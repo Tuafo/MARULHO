@@ -56,12 +56,6 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
-**`language_answer_masked_post_training.py`** — alternates answer-only relation
-loss with ordinary full-token general replay from one MARULHO checkpoint.
-Prompt/padding tokens never contribute relation loss. Reports distinguish
-processed tokens from loss-bearing answer/general tokens and require strict
-free binding plus bounded mixed-language loss.
-
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
@@ -119,6 +113,36 @@ and 3.9% for the non-promotable oracle. Surprise also slowed throughput from
 retrieved text is the rejected interface—not evidence against all learned
 episodic memory. The branch is
 `retire_prompt_memory_build_answer_masked_post_training`.
+
+Answer-masked relation post-training was then falsified and removed. The run
+restored exact optimizer state from the active checkpoint and alternated 2,048
+answer-only relation steps with 2,048 ordinary general replay steps:
+
+| Metric | Active checkpoint | Answer-masked candidate |
+| --- | ---: | ---: |
+| Candidate relation accuracy | 47.7% | 87.1% |
+| Exact free relation accuracy | 0.0% | 19.5% |
+| Free container persistence | 0.0% | 1.6% |
+| Free ownership transfer | 0.0% | 26.6% |
+| Free property persistence | 0.0% | 7.8% |
+| Free event order | 0.0% | 42.2% |
+| Mixed-language loss | 3.2534 | 3.2684 |
+
+The 4,096-step BF16 loop processed 10,621,968 tokens, applied loss to 8,688,968
+tokens, took 312.4 seconds including milestone evaluation, and peaked at
+1,258,403,840 allocated CUDA bytes. Scalar retention held, but exact free
+generation missed the 60% criterion and underperformed full replay's 44.9%.
+The candidate checkpoint and single-purpose runner are deleted; the local
+evidence remains at
+`reports/language_scaling/answer-masked-post-training-21m-4096-20260710.json`.
+The branch is
+`retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
+
+Neither this run nor the prompt-memory run tested PMRM. A PMRM language test
+requires one internal architecture containing persistent columns, coupled
+temporal and associative state, hidden-state episodic writes/retrieval, and a
+recurrent workspace. The active Transformer remains the matched baseline while
+that competitor is built.
 
 ### Narrow relation fine-tune
 
@@ -274,19 +298,24 @@ Use approximately 5M, 20M, and the largest feasible 60-100M-class model on the
 RTX 3060, several token budgets per size, and repeated seeds where the result
 could change the branch. A two-point curve for one model is insufficient.
 
-### 3. Adaptive memory
+### 3. Integrated PMRM competitor
 
-Only after base-language qualification, compare surprise-selected episodic
-memory with:
+Build a switchable but single coherent recurrent architecture:
 
-- no external memory;
-- full recent KV history;
-- random retained episodes;
-- simple recency;
-- equal storage and retrieval compute.
+- fixed persistent column pool with explicit dense-router cost and top-k active
+  budget;
+- coupled selective temporal state and editable delta-rule associative state;
+- internal episodic event states with no/full/random/recency/surprise policies
+  under equal byte, read, and write budgets;
+- a weight-shared recurrent workspace with fixed and adaptive iteration counts;
+- one language head, state serialization contract, and compute ledger shared by
+  the full model and every ablation.
 
-Fast associative weights are a later ablation, not bundled into the first
-memory test.
+Compare the complete model, leave-one-component-out ablations, temporal-only,
+associative-only, and the active Transformer using the same tokenizer, corpora,
+token budgets, parameter/compute accounting, hardware, and evaluation code.
+Synthetic relation cases diagnose the mechanism; real heldout language loss and
+open generation remain mandatory.
 
 ### 4. Continual and sustained validation
 

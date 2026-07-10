@@ -117,13 +117,33 @@ baseline under the same VRAM, wall-clock, and data budget.
 
 These concepts are hypotheses and must not appear as implemented capabilities.
 
-**Adaptive Episodic Memory** — the first post-quality PMRM-inspired experiment.
-Store a bounded subset of surprising episodes and retrieve them for relevant
-continuations. Compare against no memory, full KV history, random memory, and
-simple recency under equal storage and compute.
+**Integrated PMRM Candidate** — the next language architecture competitor. It is
+a continuous-state recurrent model, not an SNN and not a Transformer prompt
+extension. Its minimal complete dataflow is event encoding, sparse routing into
+a fixed pool of persistent columns, dual temporal/associative state updates,
+internal episodic write/retrieval, recurrent workspace computation, and a
+language head. This is unimplemented and unvalidated until the end-to-end path
+runs.
 
-**Fast Associative Weights** — a later delta-rule memory candidate. Test only
-after episodic selection earns its complexity.
+**Dual-State Column** — one persistent column owns a selective temporal state
+and an editable delta-rule associative matrix. Parallel and both serial fusion
+orders are configuration ablations inside the same implementation. A temporal-
+only or associative-only result is a control, not PMRM validation.
+
+**Internal Episodic Memory** — stores learned event states after prediction,
+using explicit surprise/utility and byte/write/read budgets. A write becomes
+visible only to later events. Compare no memory, full token storage, random,
+recency, surprise, and non-promotable oracle policies. Prepending retrieved text
+is retired and does not implement this concept.
+
+**Recurrent Workspace** — a small set of latent registers repeatedly reads
+active columns and retrieved episodes through weight-shared updates. Every
+iteration, retrieval, route, and relation message counts as compute. Fixed and
+adaptive depth must share the same implementation.
+
+**Persistent Column Pool** — begins with fixed preallocated capacity and a small
+top-k active set. Dense candidate scoring must be reported if used. Physical
+growth, split, merge, or prune is excluded until the fixed-pool model survives.
 
 **Continual Language Learning** — sequential domain updates from a
 quality-qualified base checkpoint, with old-domain, new-domain, and replay
@@ -131,9 +151,9 @@ losses measured before and after. The required result is new learning with
 bounded forgetting and restored checkpoint fidelity.
 
 **Structural Plasticity** — changing model or memory structure under a
-checkpointed transaction. It is paused for language until a simpler fixed
-Transformer plus memory demonstrates quality. No old routed-expert expansion
-path is maintained.
+checkpointed transaction. It is paused until the fixed-pool PMRM competitor is
+stable and beats a matched fixed-capacity control. No old routed-expert
+expansion path is maintained.
 
 ## Grounded Subsystem
 
@@ -335,10 +355,9 @@ Decision: `retire_output_adapter_test_selective_episodic_binding`.
 
 The adapter architecture, CLI, tests, and local candidates are retired rather
 than carried as compatibility debris. The active base remains the
-251,658,240-token mixed checkpoint. Next implement PMRM-inspired selective
-episodic writes/retrieval and compare surprise, random, and recency policies at
-equal slot/byte/read/write budgets. Measure strict free binding, general loss,
-memory growth, retrieval latency, and throughput together.
+251,658,240-token mixed checkpoint. This decision led to the subsequent prompt-
+memory comparison of surprise, random, and recency policies under equal slot,
+byte, read, and write budgets.
 
 The first prompt-level PMRM-inspired memory interface was falsified and removed.
 With eight distractors and two stored/read episodes, exact free accuracy was
@@ -351,11 +370,28 @@ not falsify learned hidden-state episodic memory in general.
 Decision: `retire_prompt_memory_build_answer_masked_post_training`.
 
 The replay model's 98% candidate ranking versus 44.9% free generation indicates
-an objective/interface gap. Next train from the active base with loss masked to
-relation answer tokens while interleaving ordinary general replay. Require
-strict free binding plus bounded mixed-language loss. Only if masked
-post-training fails should MARULHO pay the complexity cost of learned
-hidden-state episodic memory.
+an objective/interface gap. The answer-masked test restored exact AdamW state
+from the active checkpoint and alternated 2,048 relation-answer updates with
+2,048 ordinary general-language updates. It processed 10,621,968 tokens, of
+which 8,688,968 bore loss, in 312.4 seconds including milestone evaluation at
+1,258,403,840 peak allocated CUDA bytes.
+
+Mixed heldout loss moved from 3.2534 to 3.2684, candidate accuracy from 47.7% to
+87.1%, and strict free accuracy from 0% to 19.5%. Free container, ownership,
+property, and event-order accuracy reached 1.6%, 26.6%, 7.8%, and 42.2%. This
+misses the preregistered 60% free-answer threshold and underperforms full
+replay's 44.9%, despite bounded scalar loss. The rejected checkpoint and
+experiment implementation are deleted; the compact local report is
+`reports/language_scaling/answer-masked-post-training-21m-4096-20260710.json`.
+
+Decision: `retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
+
+The active checkpoint remains the 251,658,240-token mixed Transformer. The
+prompt-memory failure is not PMRM evidence: it lacked dual state, persistent
+columns, an internal learned store, and a recurrent workspace. Build the
+coherent PMRM competitor next, preserve the Transformer as its matched baseline,
+and diagnose the integrated result through in-place ablations rather than
+parallel compatibility paths.
 
 ## Retired Language Concepts
 
@@ -374,6 +410,7 @@ The following are not maintained language paths:
 - old SNN language readout ledgers as a generation architecture;
 - frozen residual output adapters for relation binding.
 - prompt-text episodic retrieval by prepending selected episodes.
+- answer-masked relation post-training.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -383,12 +420,14 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Test answer-masked relation post-training with general replay, requiring
-   strict free binding and bounded general-language loss.
-5. Fit the first defensible local size/data scaling law with at least three
-   model sizes and repeated seeds near a branch boundary.
-6. If quality qualifies, test surprise-selected episodic memory.
-7. Rebuild continual learning and retention measurement.
-8. Re-establish sustained 524,288-token generation from the same checkpoint.
-9. Add grounded causal experiments.
-10. Scale, redesign, or retire each mechanism from evidence.
+4. Retire answer-masked post-training after it preserves scalar loss but fails
+   strict free relation generation.
+5. Build one integrated PMRM v0: fixed persistent columns, dual temporal and
+   associative state, internal episodic memory, and recurrent workspace.
+6. Run the complete model and matched in-place ablations against the active
+   Transformer on relation generation, real-language loss, memory, and speed.
+7. Fit the first defensible local scaling law only for architectures that
+   survive the pilot, using repeated seeds near a branch boundary.
+8. Rebuild continual learning, exact resume, and retention measurement.
+9. Re-establish sustained 524,288-token generation from the same checkpoint.
+10. Add grounded causal experiments, then scale, redesign, or retire.

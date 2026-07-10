@@ -22,28 +22,36 @@ this repository. It uses:
 - heldout loss, unseen continuation, checkpoint fidelity, and sustained
   generation as separate measurements.
 
-MARULHO's system shape is:
+MARULHO now has one active baseline and one replacement architecture under
+construction:
 
 ```mermaid
 flowchart LR
     Data["Local text and grounded experience"] --> Tok["Checkpoint-owned BPE"]
-    Tok --> Cortex["MARULHO Transformer language cortex"]
-    Cortex --> Output["Unseen language generation"]
-    Cortex <--> Memory["Experimental adaptive memory"]
-    Grounding["Objects, actions, sensors, interventions"] <--> Memory
-    Brain["MarulhoBrain"] --> Cortex
+    Tok --> Baseline["Active 21M Transformer baseline"]
+    Tok --> Event["PMRM event encoder - under construction"]
+    Event --> Router["Sparse fixed-pool column router"]
+    Router --> Dual["Dual temporal and associative column state"]
+    Dual <--> Episode["Internal surprise-budgeted episodes"]
+    Dual <--> Workspace["Weight-shared recurrent workspace"]
+    Episode <--> Workspace
+    Baseline --> Compare["Matched language, binding, memory, and speed evidence"]
+    Workspace --> Compare
+    Compare --> Selected["Evidence-selected language model"]
+    Selected --> Output["Unseen language generation"]
+    Brain["MarulhoBrain"] --> Selected
     Brain --> Checkpoint["Atomic checkpoint and rollback"]
-    Brain --> Evidence["Loss, coherence, retention, compute"]
     Service["Thin /brain API"] --> Brain
 ```
 
-The Transformer is the fluent cortex, not the whole long-term answer. Once the
-base model produces coherent unseen multi-sentence text, the next architectural
-candidate is adaptive memory inspired by the PMRM research idea: surprise-
-selected episodic memory first, then fast associative updates if the simpler
-memory wins. Grounded identity and causal-object experiments from the related
-LCO research can later test whether this system learns persistent objects and
-interventions rather than text correlations alone.
+Only the Transformer path is runnable today. It remains the quality and systems
+baseline while MARULHO builds a coherent PMRM competitor: continuous recurrent
+state, not spikes; fixed persistent columns; selective temporal state; editable
+delta-rule associative state; internal episodic memory; sparse relations; and
+adaptive latent workspace iterations. Component switches exist to explain the
+result, but a detached memory heuristic does not count as a PMRM test. Grounded
+identity and intervention tasks from LCO can later evaluate whether surviving
+columns represent persistent objects rather than text correlations.
 
 ## Current Evidence
 
@@ -157,12 +165,10 @@ accuracy. Rank 128 trained 131,072 parameters and reached 84.4% / 2.3% despite
 ~151k training tokens/s, ~681 MiB peak allocated VRAM, and only +0.0227 mixed
 loss regression. More rank did not translate latent ranking into free binding.
 
-Decision: `retire_output_adapter_test_selective_episodic_binding`. The next
-architecture is PMRM-inspired selective episodic memory: compare
-surprise-selected writes with budget-matched random and recency controls,
-measure exact retrieval/free relation output, memory growth, latency, and
-general-language retention. The failed adapter code and checkpoints are not
-maintained.
+Decision: `retire_output_adapter_test_selective_episodic_binding`. This led to
+the subsequent prompt-memory comparison of surprise-selected, random, and
+recency retrieval under equal budgets. The failed adapter code and checkpoints
+are not maintained.
 
 The first PMRM-inspired prompt-memory interface was also falsified and deleted.
 Under eight distractors and a two-slot budget, exact free accuracy fell from
@@ -171,12 +177,26 @@ retrieval reached 11.7% and the non-promotable oracle only 3.9%; surprise also
 reduced throughput from 3.52 to 2.33 cases/s. The failure is therefore the
 “retrieve text and prepend it” interface, not merely surprise selection.
 
-Decision: `retire_prompt_memory_build_answer_masked_post_training`. The replay
-model already ranks candidates at 98% but emits exact free answers at 44.9%.
-Next give answer tokens direct masked loss while interleaving ordinary
-next-token replay. This tests whether post-training can expose latent knowledge
-without generic forgetting before MARULHO invests in learned hidden-state
-memory.
+Decision: `retire_prompt_memory_build_answer_masked_post_training`. This result
+falsifies prompt-text retrieval only. It did not implement or test the integrated
+PMRM architecture.
+
+Answer-masked post-training has now also been run and retired. Starting from the
+active checkpoint with exact AdamW state, 4,096 BF16 updates alternated 50%
+answer-only relation batches with 50% ordinary general-language replay. Mixed
+heldout loss changed only from 3.2534 to 3.2684, while candidate accuracy rose
+from 47.7% to 87.1%. Strict free answers reached just 19.5%: container 1.6%,
+ownership 26.6%, property 7.8%, and event order 42.2%. This is below the 60%
+criterion and below full replay's 44.9%, so the objective does not close the
+ranking/generation gap. The 268.8 MB rejected checkpoint and experiment code are
+deleted; the compact report remains at
+`reports/language_scaling/answer-masked-post-training-21m-4096-20260710.json`.
+
+Decision: `retire_answer_masked_post_training_build_integrated_pmrm_competitor`.
+The active checkpoint remains the 251.66M-token Transformer. The next model is a
+coherent PMRM recurrent competitor, evaluated both end-to-end and through
+matched temporal-only, associative-only, memory-policy, routing, and workspace
+ablations. PMRM itself remains untested until that system exists.
 
 ## Research Objective
 
@@ -186,19 +206,21 @@ frontier model's parameter count on consumer hardware.
 
 The priority order is:
 
-1. Produce coherent unseen multi-sentence language and a reliable heldout
-   quality curve.
-2. Preserve the coherence-qualified 21M recipe.
-3. Test answer-masked relation post-training with general replay, requiring
-   strict free binding and bounded general loss together.
-4. Measure a local scaling law across model size, data, and compute instead of
-   extrapolating from one small run.
-5. Add adaptive episodic memory only after the base language checkpoint
-   qualifies.
-6. Demonstrate sequential-domain learning with bounded forgetting.
-7. Restore checkpoint fidelity, measured active compute, and a 524,288-token
-   sustained run from that same quality-qualified checkpoint.
-8. Test grounded object identity, action binding, and intervention transfer.
+1. Keep the 21M Transformer as the reproducible local baseline and active
+   checkpoint, not the assumed final architecture.
+2. Build one coherent PMRM v0 with fixed persistent columns, dual temporal and
+   associative state, internal episodic memory, and a recurrent workspace.
+3. Compare the complete model and its in-place ablations against the Transformer
+   on the same tokenizer, data, tokens, parameters, hardware, and evaluations.
+4. Require open relation generation, real-language loss, memory growth, latency,
+   and throughput together; synthetic mechanism wins do not qualify the model.
+5. Scale only a surviving architecture across model size, data, and context.
+6. Demonstrate sequential-domain learning with bounded forgetting and exact
+   checkpoint/resume state.
+7. Re-establish measured active compute and a 524,288-token sustained run from
+   the same quality-qualified checkpoint.
+8. Test grounded object identity, action binding, and intervention transfer
+   before structural growth or a Transformer-replacement claim.
 
 The initial scaling model is the standard decomposition
 `L(N,D) = E + A/N^alpha + B/D^beta`, measured locally over multiple parameter
