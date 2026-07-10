@@ -68,12 +68,7 @@ class MarulhoBrainRuntimeFacade:
 
 
 class MarulhoBrainServiceManager:
-    """Active FastAPI composition root over MarulhoBrain.
-
-    This replaces the old service-owned runtime root for the maintained HTTP/UI
-    surface. Legacy Terminus modules can remain importable for historical tests
-    and offline tools, but create_app() should not construct them.
-    """
+    """FastAPI composition root over the single MarulhoBrain runtime."""
 
     def __init__(
         self,

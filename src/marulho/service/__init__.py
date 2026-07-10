@@ -1,40 +1,12 @@
-"""MARULHO Service layer -- thin REST/UI adapter over MarulhoBrain.
-
-Module structure:
-- brain_manager.py: active MarulhoBrain HTTP/UI composition root
-- runtime_state.py: Shared dirty-state, revision, and brain event container
-- runtime_evidence.py: Sanitized traces, feedback summaries, and evidence exports
-- feedback_applier.py: Operator feedback normalization and application
-- action_executor.py: Digital action execution, audit summaries, and action assist
-- delayed_consequence.py: Long-horizon consequence record state machines
-- persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
-- reporting.py: Grounding-probe evaluation helper
-- replay_runtime.py: SNN replay artifact, permit, and sleep-plasticity review helpers
-- interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
-- operator_interaction.py: Query/feed/respond/acquire operator interaction flow helpers
-- living_status.py: Living-loop and policy-actuator read-only status helpers
-- runtime_config.py: Operator runtime/source configuration normalization with explicit priority callbacks
-- runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
-- runtime_sources.py: Runtime source streams, live-remote wrapping, and caches with explicit dependencies
-- sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
-- source_focus.py: Text-source focus and semantic scoring with explicit dependencies
-- autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
-- status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- terminus_presets.py: Quick-start preset configurations
-- terminus_hf_sources.py: Recommended Hugging Face runtime sources
-- terminus_sensory.py: Real Hugging Face multimodal stream adapters
-- terminus_autonomy.py: Autonomy focus, provider curriculum, and shortlist helpers
-- api.py: FastAPI /brain route definitions, including read-only saved report inventory
-- api_schemas.py: Active checkpoint request/response models for the /brain API adapter
-- server.py: CLI entry point (uvicorn launcher)
-"""
+"""Thin HTTP/UI adapter over MarulhoBrain."""
 
 from .brain_manager import MarulhoBrainServiceManager
 
 
 def create_app(*args, **kwargs):
     from .api import create_app as _create_app
+
     return _create_app(*args, **kwargs)
 
 
-__all__ = ["create_app", "MarulhoBrainServiceManager"]
+__all__ = ["MarulhoBrainServiceManager", "create_app"]
