@@ -387,6 +387,8 @@ def test_materialize_hf_parquet_corpus_streams_text_and_deletes_download(
 
     text = corpus.read_text(encoding="utf-8")
     assert report["surface"] == PARQUET_SURFACE
+    assert report["source"]["parquet_access_mode"] == "full_download"
+    assert report["source"]["role"] == "language_curriculum"
     assert report["source"]["parquet_row_count"] == 3
     assert report["corpus"]["row_count"] == 2
     assert report["raw_parquet_retained"] is False
@@ -394,4 +396,60 @@ def test_materialize_hf_parquet_corpus_streams_text_and_deletes_download(
     assert "First story." in text
     assert "Second story." in text
     assert "Third story." not in text
+    assert not corpus.with_suffix(".source.parquet").exists()
+
+
+def test_materialize_hf_parquet_corpus_range_reads_limited_http_source(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    source = tmp_path / "remote.parquet"
+    pq.write_table(
+        pa.table({"text": ["Alpha.", "Beta.", "Gamma."]}),
+        source,
+        row_group_size=1,
+    )
+
+    class _RemoteOpen:
+        def open(self):
+            return source.open("rb")
+
+    monkeypatch.setattr(
+        "fsspec.open",
+        lambda *_args, **_kwargs: _RemoteOpen(),
+    )
+    monkeypatch.setattr(
+        "marulho.evaluation.language_hf_curriculum_materializer._http_file_identity",
+        lambda *_args, **_kwargs: (source.stat().st_size, "source-etag"),
+    )
+    monkeypatch.setattr(
+        "marulho.evaluation.language_hf_curriculum_materializer._download_file",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("limited HTTP parquet must not be fully downloaded")
+        ),
+    )
+
+    corpus = tmp_path / "range.txt"
+    report = materialize_hf_parquet_corpus(
+        output_path=tmp_path / "range.json",
+        corpus_output_path=corpus,
+        dataset="example/general-prose",
+        config="default",
+        split="train",
+        parquet_url="https://example.test/remote.parquet",
+        text_field="text",
+        role="general_structured_prose",
+        license="test-license",
+        max_rows=2,
+    )
+
+    assert report["source"]["parquet_access_mode"] == "remote_range"
+    assert report["source"]["parquet_etag"] == "source-etag"
+    assert report["source"]["parquet_sha256"] == ""
+    assert report["source"]["role"] == "general_structured_prose"
+    assert report["corpus"]["row_count"] == 2
+    assert "role=general_structured_prose" in corpus.read_text(encoding="utf-8")
     assert not corpus.with_suffix(".source.parquet").exists()

@@ -9,7 +9,7 @@ from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from marulho.data.corpus_loader import (
@@ -22,7 +22,7 @@ from marulho.data.language_tokenizer import LANGUAGE_DOCUMENT_SEPARATOR
 ARTIFACT_KIND = "marulho_language_hf_curriculum_materialization"
 SURFACE = "marulho_language_hf_curriculum_materialization.v2"
 PARQUET_ARTIFACT_KIND = "marulho_language_hf_parquet_materialization"
-PARQUET_SURFACE = "marulho_language_hf_parquet_materialization.v2"
+PARQUET_SURFACE = "marulho_language_hf_parquet_materialization.v3"
 DATASET_VIEWER_ROWS_URL = "https://datasets-server.huggingface.co/rows"
 DATASET_VIEWER_FIRST_ROWS_URL = "https://datasets-server.huggingface.co/first-rows"
 
@@ -295,6 +295,29 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _http_headers() -> dict[str, str]:
+    headers = {"User-Agent": "MARULHO/1.0 language-curriculum-materializer"}
+    token = huggingface_token_from_env()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _http_file_identity(
+    url: str,
+    *,
+    timeout_seconds: float,
+) -> tuple[int, str]:
+    request = Request(str(url), headers=_http_headers(), method="HEAD")
+    try:
+        with urlopen(request, timeout=float(timeout_seconds)) as response:
+            byte_count = int(response.headers.get("Content-Length") or 0)
+            etag = str(response.headers.get("ETag") or "").strip('"')
+            return byte_count, etag
+    except (HTTPError, URLError, TimeoutError, ConnectionError, ValueError):
+        return 0, ""
+
+
 def materialize_hf_parquet_corpus(
     *,
     output_path: str | Path,
@@ -305,6 +328,7 @@ def materialize_hf_parquet_corpus(
     parquet_url: str,
     license: str,
     text_field: str = "text",
+    role: str = "language_curriculum",
     max_rows: int = 0,
     timeout_seconds: float = 120.0,
 ) -> dict[str, Any]:
@@ -317,18 +341,42 @@ def materialize_hf_parquet_corpus(
     requested_limit = max(0, int(max_rows))
     downloaded_bytes = 0
     downloaded_sha256 = ""
+    parquet_etag = ""
+    parquet_access_mode = "full_download"
     parquet_row_count = 0
     parquet_row_group_count = 0
     materialized_rows = 0
     character_count = 0
     parquet = None
+    remote_handle = None
     try:
-        downloaded_bytes, downloaded_sha256 = _download_file(
-            parquet_url,
-            downloaded,
-            timeout_seconds=float(timeout_seconds),
-        )
-        parquet = pq.ParquetFile(downloaded)
+        scheme = urlparse(str(parquet_url)).scheme.lower()
+        use_remote_ranges = requested_limit > 0 and scheme in {"http", "https"}
+        if use_remote_ranges:
+            import fsspec
+
+            downloaded_bytes, parquet_etag = _http_file_identity(
+                parquet_url,
+                timeout_seconds=float(timeout_seconds),
+            )
+            remote_handle = fsspec.open(
+                parquet_url,
+                "rb",
+                block_size=8 * 1024 * 1024,
+                cache_type="readahead",
+                headers=_http_headers(),
+            ).open()
+            if downloaded_bytes <= 0:
+                downloaded_bytes = int(getattr(remote_handle, "size", 0) or 0)
+            parquet_access_mode = "remote_range"
+            parquet = pq.ParquetFile(remote_handle)
+        else:
+            downloaded_bytes, downloaded_sha256 = _download_file(
+                parquet_url,
+                downloaded,
+                timeout_seconds=float(timeout_seconds),
+            )
+            parquet = pq.ParquetFile(downloaded)
         if text_field not in parquet.schema.names:
             raise ValueError(
                 f"Parquet text field {text_field!r} is absent from {parquet.schema.names}"
@@ -338,7 +386,7 @@ def materialize_hf_parquet_corpus(
         corpus_output.parent.mkdir(parents=True, exist_ok=True)
         header = (
             f"### source={dataset} config={config} split={split} "
-            "role=coherence_diagnostic"
+            f"role={role}"
         )
         with partial_corpus.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(header)
@@ -373,10 +421,13 @@ def materialize_hf_parquet_corpus(
                 "config": str(config),
                 "split": str(split),
                 "text_field": str(text_field),
+                "role": str(role),
                 "license": str(license),
                 "parquet_url": str(parquet_url),
                 "parquet_bytes": downloaded_bytes,
                 "parquet_sha256": downloaded_sha256,
+                "parquet_etag": parquet_etag,
+                "parquet_access_mode": parquet_access_mode,
                 "parquet_row_count": parquet_row_count,
                 "parquet_row_group_count": parquet_row_group_count,
             },
@@ -398,7 +449,7 @@ def materialize_hf_parquet_corpus(
             "promotes_runtime_claim": False,
             "promotes_generation_quality_claim": False,
             "claim_boundary": (
-                "coherence_diagnostic_corpus_materialization; not a general "
+                "language_curriculum_corpus_materialization; not a general "
                 "language, runtime, or quality-promotion claim"
             ),
         }
@@ -407,6 +458,8 @@ def materialize_hf_parquet_corpus(
     finally:
         if parquet is not None:
             parquet.close(force=True)
+        if remote_handle is not None:
+            remote_handle.close()
         if downloaded.exists():
             downloaded.unlink()
         if partial_corpus.exists():
@@ -677,6 +730,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--parquet-config", default="default")
     parser.add_argument("--parquet-split", default=None)
     parser.add_argument("--parquet-text-field", default="text")
+    parser.add_argument("--parquet-role", default="language_curriculum")
     parser.add_argument("--parquet-license", default=None)
     parser.add_argument("--parquet-max-rows", type=int, default=0)
     parser.add_argument(
@@ -700,6 +754,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             split=str(args.parquet_split),
             parquet_url=str(args.parquet_url),
             text_field=str(args.parquet_text_field),
+            role=str(args.parquet_role),
             license=str(args.parquet_license),
             max_rows=max(0, int(args.parquet_max_rows)),
             timeout_seconds=float(args.timeout_seconds),

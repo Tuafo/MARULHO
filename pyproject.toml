@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "marulho"
 version = "0.4.0"
-description = "MARULHO spiking cognitive runtime"
+description = "MARULHO-owned continual language model research runtime"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
@@ -13,6 +13,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "datasets",
+    "fsspec",
     "httpx",
     "tokenizers>=0.20,<1",
 ]

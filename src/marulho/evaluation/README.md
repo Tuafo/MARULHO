@@ -41,8 +41,11 @@ language quality.
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
 materialized corpus is data evidence, not learned capability. For large public
-shards it can stream an official parquet text column, hash the download and
-corpus, then delete the temporary parquet after conversion.
+shards it range-reads only the row groups needed by a bounded experiment and
+records the source size/ETag plus the exact corpus hash. Full-shard requests
+retain the stronger full-download SHA-256 path. Temporary parquet files are
+always deleted after conversion, and each explicit document carries its actual
+curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
