@@ -42,23 +42,22 @@ materialized corpus is data evidence, not learned capability.
 
 ## Current Branch Decision
 
-The 2026-07-10 disjoint-holdout FineWeb-Edu scale run is stored locally at:
+The 2026-07-10 empirical wall-clock FineWeb-Edu comparison is stored locally at:
 
-`reports/language_scaling/fineweb-edu-19m-vs-60m-16m-20260710.json`
+`reports/language_scaling/fineweb-edu-wallclock-21m-vs-63m-20260710.json`
 
-| Model | Update tokens | Heldout loss | Train tokens/s | Peak VRAM |
-| --- | ---: | ---: | ---: | ---: |
-| 20,976,128 | 4,194,304 | 5.6115 | 70,624 | 1.44 GiB |
-| 20,976,128 | 16,777,216 | 4.7018 | 72,210 | 1.44 GiB |
-| 62,924,544 | 4,194,304 | 5.5344 | 29,388 | 2.71 GiB |
-| 62,924,544 | 16,777,216 | 4.6177 | 29,490 | 2.71 GiB |
+| Model | Update tokens | Repeated | Heldout loss | Train time | Train tokens/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 20,976,128 | 20,541,440 | 0 | 4.4234 | 283.6 s | 72,435 |
+| 20,976,128 | 41,083,648 | 13,901,824 | 4.0942 | 565.9 s | 72,598 |
+| 62,924,544 | 8,388,608 | 0 | 5.0050 | 280.3 s | 29,924 |
+| 62,924,544 | 16,777,216 | 0 | 4.6129 | 560.8 s | 29,914 |
 
-The 62.9M arm wins at equal tokens by 0.0841 loss. The 21.0M arm is about 2.45
-times faster, while scaling data across the measured range improves the 62.9M
-arm by 0.9167 loss. The data gain is 10.89 times the equal-token size gain. The
-artifact branch is `scale_data_at_selected_model_size`; the next experiment
-must compare the sizes at equal wall-clock or approximate training compute
-before declaring a local compute optimum.
+The final timed budgets differ by only 0.9 percent. The 21M arm wins by 0.5187
+heldout loss at equal local training time, and its 283.6-second point already
+beats the 63M arm's 560.8-second result. The explicit branch is
+`scale_data_at_compute_optimal_smaller_model`. Because token budgets differ,
+the harness correctly refuses to fit a size/data scaling law from this grid.
 
 The result does not promote language quality. General data removed the earlier
 single-domain template collapse, but all four unseen continuations remain
@@ -67,16 +66,11 @@ continuation is the active blocker.
 
 ## Next Evidence Program
 
-### 1. Compute-normalized size decision
+### 1. Quality scale run
 
-Compare the 21.0M and 62.9M models under the same RTX 3060 wall-clock or
-approximate training FLOPs, using the same tokenizer, unique-token stream,
-disjoint holdout, and prompt set. Equal-token comparisons alone over-reward the
-larger, slower model for the local-compute objective.
-
-### 2. Quality scale run
-
-Train the compute-optimal Transformer with the maintained BPE tokenizer and
+Train the 21M compute-optimal Transformer with more unique general-language
+data and the maintained BPE tokenizer. Avoid interpreting repeated-corpus gain
+as unique-data scaling. Record:
 record:
 
 - heldout loss at multiple token budgets;
@@ -86,7 +80,7 @@ record:
 - exact checkpoint hash and restoration;
 - observed CUDA throughput and peak memory.
 
-### 3. Local scaling grid
+### 2. Local scaling grid
 
 Fit, rather than assume:
 
@@ -96,7 +90,7 @@ Use approximately 5M, 20M, and the largest feasible 60-100M-class model on the
 RTX 3060, several token budgets per size, and repeated seeds where the result
 could change the branch. A two-point curve for one model is insufficient.
 
-### 4. Adaptive memory
+### 3. Adaptive memory
 
 Only after base-language qualification, compare surprise-selected episodic
 memory with:
@@ -110,7 +104,7 @@ memory with:
 Fast associative weights are a later ablation, not bundled into the first
 memory test.
 
-### 5. Continual and sustained validation
+### 4. Continual and sustained validation
 
 From the same quality-qualified checkpoint:
 

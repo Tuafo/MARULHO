@@ -174,34 +174,35 @@ direct measurements.
 
 ## Current Evidence State
 
-The first general-corpus scale run dated 2026-07-10 trained fresh 20,976,128-
-and 62,924,544-parameter Transformers on a MARULHO-owned 8,192-token BPE over
-21,459,997 FineWeb-Edu training tokens. Evaluation used a separate later-offset
-2,000-document corpus, not a tail split from the training file.
+The compute-normalized general-corpus run dated 2026-07-10 trained fresh
+20,976,128- and 62,924,544-parameter Transformers with the same MARULHO-owned
+8,192-token BPE, two provenance-recorded FineWeb-Edu shards, later-offset
+2,000-document holdout, optimizer, prompts, and seed. Per-arm token budgets used
+the 2.4487 throughput ratio observed in the preceding equal-token experiment.
 
-| Model | Update tokens | Heldout loss | Perplexity | Train tokens/s |
-| --- | ---: | ---: | ---: | ---: |
-| 20,976,128 | 4,194,304 | 5.6115 | 273.56 | 70,624 |
-| 20,976,128 | 8,388,608 | 5.0759 | 160.11 | 71,587 |
-| 20,976,128 | 16,777,216 | 4.7018 | 110.15 | 72,210 |
-| 62,924,544 | 4,194,304 | 5.5344 | 253.27 | 29,388 |
-| 62,924,544 | 8,388,608 | 5.0236 | 151.96 | 29,321 |
-| 62,924,544 | 16,777,216 | 4.6177 | 101.26 | 29,490 |
+| Model | Update tokens | Unique | Repeated | Heldout loss | Train time | Tokens/s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20,976,128 | 10,272,768 | 10,272,768 | 0 | 4.8623 | 141.6 s | 72,563 |
+| 20,976,128 | 20,541,440 | 20,541,440 | 0 | 4.4234 | 283.6 s | 72,435 |
+| 20,976,128 | 41,083,648 | 27,181,824 | 13,901,824 | 4.0942 | 565.9 s | 72,598 |
+| 62,924,544 | 4,194,304 | 4,194,304 | 0 | 5.5085 | 140.3 s | 29,895 |
+| 62,924,544 | 8,388,608 | 8,388,608 | 0 | 5.0050 | 280.3 s | 29,924 |
+| 62,924,544 | 16,777,216 | 16,777,216 | 0 | 4.6129 | 560.8 s | 29,914 |
 
-The larger model is best at equal tokens, but its final advantage is only
-0.0841 loss while the smaller model trains about 2.45 times faster. Increasing
-data from 4.2M to 16.8M tokens improves the larger model by 0.9167 loss, 10.89
-times the equal-token size gain.
+Final synchronized training times differ by only 0.9 percent. The smaller
+model wins by 0.5187 heldout loss at the same local training time; even its
+20.5M-token point beats the larger model's full-time result in about half the
+time. The unequal-token grid is intentionally not fitted as a scaling law.
 
-Decision: `scale_data_at_selected_model_size`, with a compute-normalized size
-comparison required before treating 62.9M parameters as locally optimal.
+Decision: `scale_data_at_compute_optimal_smaller_model`.
 
-Interpretation: diverse general text removed the earlier competitive-
-programming mode collapse, but the continuations remain repetitive,
-contradictory, and weakly conditioned on their prompts. Language quality is
-still blocked. Continual learning, adaptive memory, structural plasticity, and
-the 524,288-token sustained gate must be rebuilt from a later
-quality-qualified checkpoint.
+Interpretation: 21M parameters is the current RTX 3060 compute-optimal size in
+the measured range. Diverse general text and more updates improve prose shape,
+but continuations remain repetitive, sometimes malformed, and weakly
+conditioned on their prompts. Language quality is still blocked. The immediate
+work is more unique clean data at 21M, not a larger dense model. Continual
+learning, adaptive memory, structural plasticity, and the 524,288-token gate
+remain downstream of a quality-qualified checkpoint.
 
 ## Retired Language Concepts
 
@@ -225,8 +226,8 @@ must not present them as active capability.
 ## Decision Order
 
 1. Clean and validate the Transformer-only runtime.
-2. Compare model sizes at equal RTX 3060 wall-clock or training compute.
-3. Scale clean general-language data at the compute-optimal size until the
+2. Select 21M as the current compute-optimal size from equal-time evidence.
+3. Scale unique clean general-language data at 21M until the
    quality curve bends or unseen text qualifies.
 4. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.

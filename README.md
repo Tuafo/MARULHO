@@ -47,27 +47,27 @@ interventions rather than text correlations alone.
 
 ## Current Evidence
 
-The 2026-07-10 general-corpus run trained fresh 21M- and 63M-parameter models
-with an 8,192-token MARULHO BPE. Training used 21.46M encoded FineWeb-Edu
-tokens; evaluation used a disjoint later-offset 2,000-document corpus.
+The 2026-07-10 compute-normalized run trained fresh 21M- and 63M-parameter
+models with the same 8,192-token MARULHO BPE, two FineWeb-Edu training shards,
+disjoint later-offset holdout, optimizer, prompts, and seed.
 
-| Parameters | Update tokens | Heldout loss | Train tokens/s |
-| ---: | ---: | ---: | ---: |
-| 20,976,128 | 4,194,304 | 5.6115 | 70,624 |
-| 20,976,128 | 16,777,216 | 4.7018 | 72,210 |
-| 62,924,544 | 4,194,304 | 5.5344 | 29,388 |
-| 62,924,544 | 16,777,216 | 4.6177 | 29,490 |
+| Parameters | Update tokens | Heldout loss | Train time | Train tokens/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 20,976,128 | 20,541,440 | 4.4234 | 283.6 s | 72,435 |
+| 20,976,128 | 41,083,648 | 4.0942 | 565.9 s | 72,598 |
+| 62,924,544 | 8,388,608 | 5.0050 | 280.3 s | 29,924 |
+| 62,924,544 | 16,777,216 | 4.6129 | 560.8 s | 29,914 |
 
-The 63M model wins at equal tokens, but only by 0.0841 loss while running about
-2.45 times slower. Adding data produced 10.89 times more loss improvement than
-adding parameters over this range. Diverse data eliminated the earlier
-competitive-programming template collapse, but generation is still repetitive
-and weakly prompt-conditioned. This is not a quality promotion.
+Final training times differ by only 0.9 percent. The 21M model wins by 0.5187
+heldout loss at the same RTX 3060 time, and its half-time result already beats
+the 63M model's full-time loss. The current branch is therefore to scale data
+at 21M, not to grow the dense model.
 
-The next decision is compute-normalized: determine whether the faster 21M model
-can beat the 63M model when both receive the same RTX 3060 time or approximate
-training compute. The evidence artifact is local at
-`reports/language_scaling/fineweb-edu-19m-vs-60m-16m-20260710.json`.
+This is still not a quality promotion. Prose structure improved, but unseen
+continuations remain repetitive, sometimes malformed, and weakly tied to their
+prompts. The next run needs more unique clean data so repeated-corpus learning
+cannot be mistaken for scaling. The evidence artifact is local at
+`reports/language_scaling/fineweb-edu-wallclock-21m-vs-63m-20260710.json`.
 
 ## Research Objective
 
@@ -79,8 +79,7 @@ The priority order is:
 
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
-2. Select model size by equal local wall-clock or training compute, then scale
-   clean data at that size.
+2. Scale unique clean data at the current 21M local-compute optimum.
 3. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 4. Add adaptive episodic memory only after the base language checkpoint
