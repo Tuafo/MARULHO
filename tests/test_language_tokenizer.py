@@ -6,6 +6,7 @@ from marulho.data.language_tokenizer import (
     ByteLevelLanguageTokenizer,
     BytePairLanguageTokenizer,
     iter_language_corpus_chunks,
+    iter_language_corpus_documents,
     load_language_tokenizer_state,
 )
 from marulho.training.language_model import (
@@ -29,6 +30,11 @@ def test_language_corpus_chunks_reconstruct_text_at_document_boundaries() -> Non
     assert "".join(chunks) == text
     assert len(chunks) >= 2
     assert max(len(chunk) for chunk in chunks) <= 24
+    assert list(iter_language_corpus_documents((text,))) == [
+        "first document",
+        "second document is longer",
+        "third",
+    ]
 
 
 def test_marulho_bpe_tokenizer_is_lossless_compressed_and_checkpoint_owned() -> None:
@@ -51,6 +57,10 @@ def test_marulho_bpe_tokenizer_is_lossless_compressed_and_checkpoint_owned() -> 
     assert restored.vocabulary_hash() == tokenizer.vocabulary_hash()
     assert restored.encode(CORPUS) == tokenizer.encode(CORPUS)
     assert restored.decode(restored.encode(CORPUS)) == CORPUS
+    assert tokenizer.encode_batch(("MARULHO learns", "Café data")) == [
+        tokenizer.encode("MARULHO learns"),
+        tokenizer.encode("Café data"),
+    ]
 
 
 def test_language_checkpoint_round_trips_bpe_tokenizer(tmp_path) -> None:

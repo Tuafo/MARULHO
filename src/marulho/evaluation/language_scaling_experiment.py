@@ -37,7 +37,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v5"
+SURFACE = "marulho_transformer_scaling_experiment.v6"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (

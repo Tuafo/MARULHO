@@ -15,7 +15,7 @@ from typing import (
 
 
 BPE_TRAINING_CHUNK_CHARACTERS = 64 * 1024
-LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS = 1024 * 1024
+LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE = 512
 
 
 def iter_language_corpus_chunks(
@@ -35,6 +35,21 @@ def iter_language_corpus_chunks(
                     end = boundary + 2
             yield text[cursor:end]
             cursor = end
+
+
+def iter_language_corpus_documents(texts: Iterable[str]) -> Iterator[str]:
+    for raw_text in texts:
+        text = str(raw_text)
+        cursor = 0
+        while cursor <= len(text):
+            boundary = text.find("\n\n", cursor)
+            end = len(text) if boundary < 0 else boundary
+            document = text[cursor:end].strip()
+            if document:
+                yield document
+            if boundary < 0:
+                break
+            cursor = boundary + 2
 
 
 @dataclass(frozen=True)
@@ -119,6 +134,18 @@ class ByteLevelLanguageTokenizer:
         if add_eos:
             token_ids.append(self.eos_id)
         return token_ids
+
+    def encode_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> list[list[int]]:
+        return [
+            self.encode(text, add_bos=add_bos, add_eos=add_eos)
+            for text in texts
+        ]
 
     def decode(
         self,
@@ -240,6 +267,14 @@ class LanguageTokenizer(Protocol):
         add_bos: bool = True,
         add_eos: bool = True,
     ) -> list[int]: ...
+
+    def encode_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> list[list[int]]: ...
 
     def decode(
         self,
@@ -388,6 +423,27 @@ class BytePairLanguageTokenizer:
         if add_eos:
             token_ids.append(self.eos_id)
         return token_ids
+
+    def encode_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> list[list[int]]:
+        encoded = self._tokenizer.encode_batch(
+            [str(text) for text in texts],
+            add_special_tokens=False,
+        )
+        rows: list[list[int]] = []
+        for item in encoded:
+            token_ids = [int(token_id) for token_id in item.ids]
+            if add_bos:
+                token_ids.insert(0, self.bos_id)
+            if add_eos:
+                token_ids.append(self.eos_id)
+            rows.append(token_ids)
+        return rows
 
     def decode(
         self,

@@ -47,6 +47,9 @@ audio, event-camera style input, and multimodal streams.
 - BPE training and source encoding consume bounded text chunks, preferring
   blank-line document boundaries and preserving the exact concatenated source.
   Corpus size must not become one monolithic Rust tokenizer allocation.
+- Language splits treat blank-line-delimited corpus documents as independent
+  sequences with their own BOS/EOS markers. One materialized file is not one
+  unbounded document.
 - Hugging Face text sources may expose structured rows instead of a single
   `text` column. `StreamingCorpusLoader` flattens role/content `messages` rows
   and accepts comma-separated `text_field` values such as

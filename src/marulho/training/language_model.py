@@ -17,9 +17,9 @@ from torch import nn
 import torch.nn.functional as F
 
 from marulho.data.language_tokenizer import (
-    LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS,
+    LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE,
     LanguageTokenizer,
-    iter_language_corpus_chunks,
+    iter_language_corpus_documents,
     load_language_tokenizer_state,
 )
 from marulho.training.language_transformer import MarulhoCausalTransformerStateBlock
@@ -408,33 +408,36 @@ def build_language_model_splits(
         source_texts: Sequence[str],
         *,
         label: str,
-    ) -> tuple[torch.Tensor, int, int]:
+    ) -> tuple[torch.Tensor, int, int, int]:
         token_chunks: list[torch.Tensor] = []
         text_token_count = 0
-        for text in source_texts:
-            chunks = iter(
-                iter_language_corpus_chunks(
-                    (str(text),),
-                    max_characters=LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS,
-                )
+        document_count = 0
+        pending_documents: list[str] = []
+
+        def _flush_documents() -> None:
+            nonlocal document_count, text_token_count
+            if not pending_documents:
+                return
+            rows = tokenizer.encode_batch(
+                pending_documents,
+                add_bos=True,
+                add_eos=True,
             )
-            current = next(chunks, None)
-            first = True
-            while current is not None:
-                following = next(chunks, None)
-                encoded = tokenizer.encode(
-                    current,
-                    add_bos=first,
-                    add_eos=following is None,
-                )
-                special_count = int(first) + int(following is None)
-                text_token_count += max(0, len(encoded) - special_count)
-                token_chunks.append(
-                    torch.tensor(encoded, dtype=torch.long, device="cpu")
-                )
-                del encoded
-                current = following
-                first = False
+            packed_ids: list[int] = []
+            for encoded in rows:
+                text_token_count += max(0, len(encoded) - 2)
+                packed_ids.extend(encoded)
+            token_chunks.append(
+                torch.tensor(packed_ids, dtype=torch.long, device="cpu")
+            )
+            document_count += len(rows)
+            pending_documents.clear()
+
+        for document in iter_language_corpus_documents(source_texts):
+            pending_documents.append(document)
+            if len(pending_documents) >= LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE:
+                _flush_documents()
+        _flush_documents()
         if not token_chunks:
             raise ValueError(f"No {label} texts were provided")
         token_ids = (
@@ -447,12 +450,13 @@ def build_language_model_splits(
                 f"Not enough {label} tokens to build a next-token language split"
             )
         window_count = 1 + (int(token_ids.numel()) - window_length) // step
-        return token_ids, window_count, text_token_count
+        return token_ids, window_count, text_token_count, document_count
 
     (
         train_token_ids,
         train_source_window_count,
         train_text_token_count,
+        train_document_count,
     ) = _token_stream(
         texts,
         label="training",
@@ -462,6 +466,7 @@ def build_language_model_splits(
             eval_token_ids,
             eval_source_window_count,
             eval_text_token_count,
+            eval_document_count,
         ) = _token_stream(
             eval_texts,
             label="evaluation",
@@ -475,6 +480,7 @@ def build_language_model_splits(
     elif train_source_window_count == 1:
         eval_token_ids = train_token_ids
         eval_text_token_count = train_text_token_count
+        eval_document_count = train_document_count
         train_window_count = 1
         eval_window_count = 1
         train_window_offset = 0
@@ -483,6 +489,7 @@ def build_language_model_splits(
         split_strategy = "shared_single_window"
     else:
         eval_text_token_count = train_text_token_count
+        eval_document_count = train_document_count
         eval_count = max(
             1,
             min(
@@ -594,7 +601,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v6",
+        "surface": "marulho_transformer_train_eval_split.v7",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -610,11 +617,12 @@ def build_language_model_splits(
         "train_token_stream_count": int(train_token_ids.numel()),
         "eval_text_token_count": int(eval_text_token_count),
         "eval_token_stream_count": int(eval_token_ids.numel()),
+        "train_document_count": int(train_document_count),
+        "eval_document_count": int(eval_document_count),
+        "document_boundary_policy": "bos_eos_per_blank_line_document",
         "split_hash_format": "selected_windows_int64_row_major.v1",
         "storage_device": str(target_device),
-        "source_encoding_chunk_characters": (
-            LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS
-        ),
+        "document_encode_batch_size": LANGUAGE_DOCUMENT_ENCODE_BATCH_SIZE,
         "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,
