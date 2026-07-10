@@ -114,6 +114,13 @@ ordinary steps and 202 eager probes, passed compiled/eager loss parity at a
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
 
+**`language_organism_generation_audit.py`** — strictly loads a distributed
+organism checkpoint, stream-searches every declared source for exact prompt
+absence, and records greedy plus seeded nucleus continuations for causal,
+narrative, abstract, state-update, physical, and procedural prompts. Review
+questions are metrics-only and never enter generation. Surface metrics cannot
+promote coherence; a human semantic decision is required.
+
 **`language_sustained_runtime_evidence.py`** — measures exact-token
 Transformer generation from a checkpoint, including elapsed time, throughput,
 bounded KV configuration, and checkpoint hash. Sustained speed does not promote
