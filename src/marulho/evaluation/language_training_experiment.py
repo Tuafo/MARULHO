@@ -52,6 +52,8 @@ class LanguageTrainingExperimentConfig:
     sparse_vocab_optimizer: bool = True
     embedding_dim: int = 32
     state_dim: int = 64
+    state_core: str = "selective_spiking"
+    state_layers: int = 1
     expert_count: int = 8
     active_expert_count: int = 2
     route_candidate_count: int = 4
@@ -67,6 +69,7 @@ class LanguageTrainingExperimentConfig:
     batch_size: int = 8
     max_train_batches: int = 64
     max_eval_batches: int = 64
+    window_selection: str = "stratified"
     train_epochs: int = 2
     learning_rate: float = 2e-3
     max_grad_norm: float = 1.0
@@ -120,6 +123,8 @@ def _model_config(
         vocab_size=model_vocab_size,
         embedding_dim=int(config.embedding_dim),
         state_dim=int(config.state_dim),
+        state_core=str(config.state_core),
+        state_layers=max(1, int(config.state_layers)),
         adaptive_timestep_budget=int(config.adaptive_timestep_budget),
         recurrent_gradient_horizon=max(0, int(config.recurrent_gradient_horizon)),
         expert_count=int(config.expert_count),
@@ -356,6 +361,38 @@ class _TrainingStageProfiler:
 
 def _all_trainable_parameters(model: MarulhoLanguageModel) -> list[torch.nn.Parameter]:
     return [parameter for parameter in model.parameters() if parameter.requires_grad]
+
+
+def _parameter_inventory(model: MarulhoLanguageModel) -> dict[str, Any]:
+    def count(module: torch.nn.Module) -> int:
+        return sum(int(parameter.numel()) for parameter in module.parameters())
+
+    total = count(model)
+    trainable = sum(
+        int(parameter.numel())
+        for parameter in model.parameters()
+        if parameter.requires_grad
+    )
+    state_core = count(model.state_block)
+    routed_experts = count(model.routed_experts)
+    token_embedding = count(model.token_embedding)
+    lm_head = count(model.lm_head)
+    memory = sum(
+        int(parameter.numel())
+        for name, parameter in model.named_parameters()
+        if name.startswith("memory_slot")
+    )
+    return {
+        "surface": "marulho_language_model_parameter_inventory.v1",
+        "state_core": str(model.config.state_core),
+        "total_parameters": int(total),
+        "trainable_parameters": int(trainable),
+        "state_core_parameters": int(state_core),
+        "routed_expert_parameters": int(routed_experts),
+        "token_embedding_parameters": int(token_embedding),
+        "lm_head_parameters": int(lm_head),
+        "memory_parameters": int(memory),
+    }
 
 
 def _optimizer_policy(
@@ -969,6 +1006,7 @@ def run_language_training_experiment(
             device=device,
             max_train_batches=int(cfg.max_train_batches),
             max_eval_batches=int(cfg.max_eval_batches),
+            window_selection=str(cfg.window_selection),
         )
         train_batches = _trim_batches(split.train, limit=int(cfg.max_train_batches))
         model = MarulhoLanguageModel(_model_config(tokenizer, cfg)).to(device)
@@ -1043,6 +1081,8 @@ def run_language_training_experiment(
             "external_llm_used": False,
             "loads_external_checkpoint": False,
             "active_language_path": model.config.active_language_path,
+            "state_core": str(model.config.state_core),
+            "parameter_inventory": _parameter_inventory(model),
             "model_vocab_size": int(model.config.vocab_size),
             "tokenizer_vocab_size": int(tokenizer.vocab_size),
             "generation_vocab_size": int(model.generation_vocab_size),
@@ -1159,6 +1199,12 @@ def main() -> int:
     parser.add_argument("--disable-sparse-vocab-optimizer", action="store_true")
     parser.add_argument("--embedding-dim", type=int, default=32)
     parser.add_argument("--state-dim", type=int, default=64)
+    parser.add_argument(
+        "--state-core",
+        choices=("selective_spiking", "selective_continuous", "gru"),
+        default="selective_spiking",
+    )
+    parser.add_argument("--state-layers", type=int, default=1)
     parser.add_argument("--expert-count", type=int, default=8)
     parser.add_argument("--active-expert-count", type=int, default=2)
     parser.add_argument("--route-candidate-count", type=int, default=4)
@@ -1173,6 +1219,11 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-train-batches", type=int, default=64)
     parser.add_argument("--max-eval-batches", type=int, default=64)
+    parser.add_argument(
+        "--window-selection",
+        choices=("stratified", "prefix"),
+        default="stratified",
+    )
     parser.add_argument("--train-epochs", type=int, default=2)
     parser.add_argument("--learning-rate", type=float, default=2e-3)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
@@ -1195,6 +1246,8 @@ def main() -> int:
         sparse_vocab_optimizer=not bool(args.disable_sparse_vocab_optimizer),
         embedding_dim=args.embedding_dim,
         state_dim=args.state_dim,
+        state_core=args.state_core,
+        state_layers=max(1, int(args.state_layers)),
         expert_count=args.expert_count,
         active_expert_count=args.active_expert_count,
         route_candidate_count=args.route_candidate_count,
@@ -1209,6 +1262,7 @@ def main() -> int:
         batch_size=args.batch_size,
         max_train_batches=args.max_train_batches,
         max_eval_batches=args.max_eval_batches,
+        window_selection=args.window_selection,
         train_epochs=args.train_epochs,
         learning_rate=args.learning_rate,
         max_grad_norm=args.max_grad_norm,

@@ -55,9 +55,19 @@ developmental and consolidation runners, query runners, and long-run evidence.
   windows so experiments can run multi-window optimizer steps on CPU or CUDA
   without changing the model contract. Large corpus experiments can cap train
   and eval batches before tensor packing through `max_train_batches` and
-  `max_eval_batches`; reports preserve pre-limit and post-limit window counts
-  so bounded update/eval windows are explicit instead of silently becoming
-  full-corpus GPU packing work.
+  `max_eval_batches`; bounded windows now default to deterministic stratified
+  selection across the complete train/eval spans instead of truncating to the
+  earliest windows. Reports preserve pre-limit/post-limit counts, selected
+  source-index bounds, and full-span truth so bounded work does not silently
+  become prefix-only learning.
+- `LanguageModelConfig.state_core` is the breaking-change seam for base-model
+  falsification. `selective_spiking`, `selective_continuous`, and `gru` share
+  tokenizer, embedding, routed-expert, LM-head, checkpoint, generation, and
+  sustained-runtime contracts. They are competing architectures, not permanent
+  compatibility promises; parameter inventories make core and routing cost
+  visible before a branch is selected. The GRU core also supports checkpointed
+  `state_layers > 1`; non-GRU reference cores remain single-layer until they
+  earn further scaling work.
 - The current `MarulhoSelectiveSpikingStateBlock` is the Iteration 3 PyTorch
   foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
   current terms, selective recurrent state, eligibility trace cache, adaptive

@@ -53,11 +53,20 @@ from marulho.core.language_sampled_vocab_ce_triton import (
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 
 
+LANGUAGE_STATE_CORE_KINDS = (
+    "selective_spiking",
+    "selective_continuous",
+    "gru",
+)
+
+
 @dataclass(frozen=True)
 class LanguageModelConfig:
     vocab_size: int
     embedding_dim: int = 64
     state_dim: int = 128
+    state_core: str = "selective_spiking"
+    state_layers: int = 1
     spike_slope: float = 5.0
     adaptive_timestep_budget: int = 1
     expert_count: int = 0
@@ -963,6 +972,394 @@ class MarulhoSelectiveSpikingStateBlock(nn.Module):
         )
 
 
+class MarulhoSelectiveContinuousStateBlock(nn.Module):
+    """Continuous selective recurrence used to falsify spike-specific benefit."""
+
+    surface = "marulho_selective_continuous_state_block.v1"
+
+    def __init__(
+        self,
+        input_dim: int,
+        state_dim: int,
+        *,
+        recurrent_gradient_horizon: int = 0,
+    ) -> None:
+        super().__init__()
+        self.input_dim = int(input_dim)
+        self.state_dim = int(state_dim)
+        self.recurrent_gradient_horizon = max(0, int(recurrent_gradient_horizon))
+        self.input_norm = RMSNorm(self.input_dim)
+        self.select_proj = nn.Linear(self.input_dim, self.state_dim * 3)
+        self.input_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.recurrent_proj = nn.Linear(self.state_dim, self.state_dim, bias=False)
+        self.residual_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.state_output_proj = nn.Linear(self.state_dim, self.state_dim)
+        self.output_norm = RMSNorm(self.state_dim)
+
+    def initial_state(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> dict[str, torch.Tensor]:
+        return {
+            "selective_state": torch.zeros(
+                batch_size,
+                self.state_dim,
+                device=device,
+                dtype=dtype,
+            )
+        }
+
+    def _advance(
+        self,
+        token_input: torch.Tensor,
+        selective_state: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        normalized = self.input_norm(token_input)
+        decay_logits, input_logits, output_logits = self.select_proj(normalized).chunk(
+            3,
+            dim=-1,
+        )
+        decay = torch.sigmoid(decay_logits)
+        input_gate = torch.sigmoid(input_logits)
+        output_gate = torch.sigmoid(output_logits)
+        proposal = torch.tanh(
+            self.input_proj(normalized) + self.recurrent_proj(selective_state)
+        )
+        next_state = decay * selective_state + input_gate * proposal
+        mixed_state = output_gate * next_state
+        hidden = self.output_norm(
+            self.residual_proj(normalized) + self.state_output_proj(mixed_state)
+        )
+        return hidden, next_state
+
+    def _telemetry(
+        self,
+        *,
+        device: torch.device,
+        time_steps: int,
+        truncated_bptt_boundary_count: int,
+        collected: bool,
+    ) -> dict[str, Any]:
+        return {
+            "surface": self.surface,
+            "state_core": "selective_continuous",
+            "telemetry_collected": bool(collected),
+            "spike_telemetry_available": False,
+            "spike_rate": 0.0,
+            "dead_neuron_fraction": 0.0,
+            "over_firing_fraction": 0.0,
+            "adaptive_timestep_budget": 1,
+            "adaptive_step_count": int(time_steps),
+            "state_dim": self.state_dim,
+            "time_steps": int(time_steps),
+            "normalization": "rmsnorm",
+            "plif_state": "not_applicable_continuous_selective_state",
+            "state_cache_keys": ["selective_state"],
+            "input_dependent_state_gates": True,
+            "surrogate_gradient": "not_applicable",
+            "state_block_projection_mode": "continuous_selective_recurrent_loop",
+            "recurrent_gradient_horizon": int(self.recurrent_gradient_horizon),
+            "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
+            "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
+            "gradient_horizon_policy": (
+                "bounded_recurrent_state_detach"
+                if truncated_bptt_boundary_count > 0
+                else "full_sequence_bptt"
+            ),
+            "plif_forward_backend": "not_applicable_continuous_recurrence",
+            "device": str(device),
+        }
+
+    def step(
+        self,
+        token_input: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
+        if token_input.ndim != 2:
+            raise ValueError("Continuous language state step expects [batch, input_dim]")
+        current = (
+            self.initial_state(
+                int(token_input.shape[0]),
+                device=token_input.device,
+                dtype=token_input.dtype,
+            )["selective_state"]
+            if state is None
+            else state["selective_state"].to(
+                device=token_input.device,
+                dtype=token_input.dtype,
+            )
+        )
+        hidden, next_state = self._advance(token_input, current)
+        return (
+            hidden,
+            {"selective_state": next_state},
+            self._telemetry(
+                device=token_input.device,
+                time_steps=1,
+                truncated_bptt_boundary_count=0,
+                collected=collect_telemetry,
+            ),
+        )
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
+        if inputs.ndim != 3:
+            raise ValueError("Continuous language state block expects [batch, time, input_dim]")
+        batch_size, time_steps, _ = inputs.shape
+        current = (
+            self.initial_state(
+                int(batch_size),
+                device=inputs.device,
+                dtype=inputs.dtype,
+            )["selective_state"]
+            if state is None
+            else state["selective_state"].to(device=inputs.device, dtype=inputs.dtype)
+        )
+        outputs: list[torch.Tensor] = []
+        boundary_count = 0
+        horizon = int(self.recurrent_gradient_horizon)
+        for index in range(int(time_steps)):
+            hidden, current = self._advance(inputs[:, index], current)
+            outputs.append(hidden)
+            if horizon > 0 and (index + 1) < int(time_steps) and (index + 1) % horizon == 0:
+                current = current.detach()
+                boundary_count += 1
+        hidden_sequence = (
+            torch.stack(outputs, dim=1)
+            if outputs
+            else inputs.new_zeros((int(batch_size), 0, self.state_dim))
+        )
+        return (
+            hidden_sequence,
+            {"selective_state": current},
+            self._telemetry(
+                device=inputs.device,
+                time_steps=int(time_steps),
+                truncated_bptt_boundary_count=boundary_count,
+                collected=collect_telemetry,
+            ),
+        )
+
+
+class MarulhoGRUStateBlock(nn.Module):
+    """Strong dense recurrent baseline under the MARULHO-owned LM contract."""
+
+    surface = "marulho_gru_state_block.v1"
+
+    def __init__(
+        self,
+        input_dim: int,
+        state_dim: int,
+        *,
+        state_layers: int = 1,
+        recurrent_gradient_horizon: int = 0,
+    ) -> None:
+        super().__init__()
+        self.input_dim = int(input_dim)
+        self.state_dim = int(state_dim)
+        self.state_layers = max(1, int(state_layers))
+        self.recurrent_gradient_horizon = max(0, int(recurrent_gradient_horizon))
+        self.input_norm = RMSNorm(self.input_dim)
+        self.gru = nn.GRU(
+            self.input_dim,
+            self.state_dim,
+            num_layers=self.state_layers,
+            batch_first=True,
+        )
+        self.residual_proj = nn.Linear(self.input_dim, self.state_dim)
+        self.state_output_proj = nn.Linear(self.state_dim, self.state_dim)
+        self.output_norm = RMSNorm(self.state_dim)
+
+    def initial_state(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> dict[str, torch.Tensor]:
+        return {
+            "hidden": torch.zeros(
+                self.state_layers,
+                batch_size,
+                self.state_dim,
+                device=device,
+                dtype=dtype,
+            )
+        }
+
+    def _telemetry(
+        self,
+        *,
+        device: torch.device,
+        time_steps: int,
+        truncated_bptt_boundary_count: int,
+        collected: bool,
+    ) -> dict[str, Any]:
+        return {
+            "surface": self.surface,
+            "state_core": "gru",
+            "telemetry_collected": bool(collected),
+            "spike_telemetry_available": False,
+            "spike_rate": 0.0,
+            "dead_neuron_fraction": 0.0,
+            "over_firing_fraction": 0.0,
+            "adaptive_timestep_budget": 1,
+            "adaptive_step_count": int(time_steps),
+            "state_dim": self.state_dim,
+            "state_layers": self.state_layers,
+            "time_steps": int(time_steps),
+            "normalization": "rmsnorm",
+            "plif_state": "not_applicable_gru",
+            "state_cache_keys": ["hidden"],
+            "input_dependent_state_gates": True,
+            "surrogate_gradient": "not_applicable",
+            "state_block_projection_mode": "torch_gru_sequence",
+            "recurrent_gradient_horizon": int(self.recurrent_gradient_horizon),
+            "truncated_bptt_applied": bool(truncated_bptt_boundary_count > 0),
+            "truncated_bptt_boundary_count": int(truncated_bptt_boundary_count),
+            "gradient_horizon_policy": (
+                "bounded_recurrent_state_detach"
+                if truncated_bptt_boundary_count > 0
+                else "full_sequence_bptt"
+            ),
+            "plif_forward_backend": "not_applicable_gru",
+            "device": str(device),
+        }
+
+    def step(
+        self,
+        token_input: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
+        if token_input.ndim != 2:
+            raise ValueError("GRU language state step expects [batch, input_dim]")
+        current = (
+            self.initial_state(
+                int(token_input.shape[0]),
+                device=token_input.device,
+                dtype=token_input.dtype,
+            )["hidden"]
+            if state is None
+            else state["hidden"].to(device=token_input.device, dtype=token_input.dtype)
+        )
+        if current.ndim == 2:
+            current = current.unsqueeze(0)
+        normalized = self.input_norm(token_input)
+        sequence, next_hidden = self.gru(normalized.unsqueeze(1), current)
+        recurrent = sequence[:, 0]
+        hidden = self.output_norm(
+            self.residual_proj(normalized) + self.state_output_proj(recurrent)
+        )
+        return (
+            hidden,
+            {"hidden": next_hidden},
+            self._telemetry(
+                device=token_input.device,
+                time_steps=1,
+                truncated_bptt_boundary_count=0,
+                collected=collect_telemetry,
+            ),
+        )
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
+        if inputs.ndim != 3:
+            raise ValueError("GRU language state block expects [batch, time, input_dim]")
+        batch_size, time_steps, _ = inputs.shape
+        current = (
+            self.initial_state(
+                int(batch_size),
+                device=inputs.device,
+                dtype=inputs.dtype,
+            )["hidden"]
+            if state is None
+            else state["hidden"].to(device=inputs.device, dtype=inputs.dtype)
+        )
+        if current.ndim == 2:
+            current = current.unsqueeze(0)
+        normalized = self.input_norm(inputs)
+        horizon = int(self.recurrent_gradient_horizon)
+        boundary_count = 0
+        chunks: list[torch.Tensor] = []
+        if int(time_steps) > 0:
+            chunk_width = int(time_steps) if horizon <= 0 else horizon
+            for start in range(0, int(time_steps), max(1, chunk_width)):
+                stop = min(int(time_steps), start + max(1, chunk_width))
+                output, next_hidden = self.gru(
+                    normalized[:, start:stop],
+                    current,
+                )
+                chunks.append(output)
+                current = next_hidden
+                if stop < int(time_steps) and horizon > 0:
+                    current = current.detach()
+                    boundary_count += 1
+        recurrent = (
+            torch.cat(chunks, dim=1)
+            if chunks
+            else inputs.new_zeros((int(batch_size), 0, self.state_dim))
+        )
+        hidden = self.output_norm(
+            self.residual_proj(normalized) + self.state_output_proj(recurrent)
+        )
+        return (
+            hidden,
+            {"hidden": current},
+            self._telemetry(
+                device=inputs.device,
+                time_steps=int(time_steps),
+                truncated_bptt_boundary_count=boundary_count,
+                collected=collect_telemetry,
+            ),
+        )
+
+
+def build_language_state_block(config: LanguageModelConfig) -> nn.Module:
+    kind = str(config.state_core).strip().lower()
+    if kind == "selective_spiking":
+        return MarulhoSelectiveSpikingStateBlock(
+            config.embedding_dim,
+            config.state_dim,
+            spike_slope=config.spike_slope,
+            adaptive_timestep_budget=config.adaptive_timestep_budget,
+            recurrent_gradient_horizon=config.recurrent_gradient_horizon,
+        )
+    if kind == "selective_continuous":
+        return MarulhoSelectiveContinuousStateBlock(
+            config.embedding_dim,
+            config.state_dim,
+            recurrent_gradient_horizon=config.recurrent_gradient_horizon,
+        )
+    if kind == "gru":
+        return MarulhoGRUStateBlock(
+            config.embedding_dim,
+            config.state_dim,
+            state_layers=config.state_layers,
+            recurrent_gradient_horizon=config.recurrent_gradient_horizon,
+        )
+    raise ValueError(
+        f"Unsupported language state core {config.state_core!r}; "
+        f"expected one of {LANGUAGE_STATE_CORE_KINDS}"
+    )
+
+
 class RoutedLanguageExpertLayer(nn.Module):
     """Sparse routed expert layer for MARULHO LM hidden states."""
 
@@ -1558,19 +1955,22 @@ class MarulhoLanguageModel(nn.Module):
             raise ValueError("memory_slot_init_std must be finite")
         if float(config.memory_slot_init_std) < 0.0:
             raise ValueError("memory_slot_init_std must be non-negative")
+        if str(config.state_core).strip().lower() not in LANGUAGE_STATE_CORE_KINDS:
+            raise ValueError(
+                f"state_core must be one of {LANGUAGE_STATE_CORE_KINDS}, "
+                f"got {config.state_core!r}"
+            )
+        if int(config.state_layers) < 1:
+            raise ValueError("state_layers must be at least one")
+        if str(config.state_core).strip().lower() != "gru" and int(config.state_layers) != 1:
+            raise ValueError("state_layers greater than one currently requires state_core='gru'")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
             config.embedding_dim,
             sparse=bool(config.sparse_token_embedding_gradients),
         )
-        self.state_block = MarulhoSelectiveSpikingStateBlock(
-            config.embedding_dim,
-            config.state_dim,
-            spike_slope=config.spike_slope,
-            adaptive_timestep_budget=config.adaptive_timestep_budget,
-            recurrent_gradient_horizon=config.recurrent_gradient_horizon,
-        )
+        self.state_block = build_language_state_block(config)
         self.routed_experts = RoutedLanguageExpertLayer(
             config.state_dim,
             expert_count=config.expert_count,
@@ -2521,6 +2921,7 @@ def build_language_model_splits(
     device: torch.device | str | None = None,
     max_train_batches: int | None = None,
     max_eval_batches: int | None = None,
+    window_selection: str = "stratified",
 ) -> LanguageSplit:
     if sequence_length < 2:
         raise ValueError("sequence_length must be at least 2")
@@ -2542,6 +2943,9 @@ def build_language_model_splits(
     if not windows:
         raise ValueError("No language windows were produced")
     target_device = torch.device(device) if device is not None else torch.device("cpu")
+    selection_policy = str(window_selection).strip().lower()
+    if selection_policy not in {"stratified", "prefix"}:
+        raise ValueError("window_selection must be 'stratified' or 'prefix'")
     if len(windows) == 1:
         train_windows = windows
         eval_windows = windows
@@ -2559,16 +2963,50 @@ def build_language_model_splits(
     def _limit_windows(
         window_rows: Sequence[Sequence[int]],
         max_batches: int | None,
-    ) -> Sequence[Sequence[int]]:
+    ) -> tuple[Sequence[Sequence[int]], dict[str, Any]]:
+        source_count = len(window_rows)
         if max_batches is None:
-            return window_rows
+            return window_rows, {
+                "source_window_count": source_count,
+                "selected_window_count": source_count,
+                "first_selected_index": 0 if source_count else None,
+                "last_selected_index": source_count - 1 if source_count else None,
+                "spans_full_source_window": bool(source_count),
+            }
         batch_limit = int(max_batches)
         if batch_limit <= 0:
-            return window_rows
-        return window_rows[: batch_limit * batch_size]
+            return window_rows, {
+                "source_window_count": source_count,
+                "selected_window_count": source_count,
+                "first_selected_index": 0 if source_count else None,
+                "last_selected_index": source_count - 1 if source_count else None,
+                "spans_full_source_window": bool(source_count),
+            }
+        selected_count = min(source_count, batch_limit * batch_size)
+        if selected_count >= source_count:
+            indices = list(range(source_count))
+        elif selection_policy == "prefix":
+            indices = list(range(selected_count))
+        elif selected_count == 1:
+            indices = [source_count // 2]
+        else:
+            indices = [
+                round(index * (source_count - 1) / float(selected_count - 1))
+                for index in range(selected_count)
+            ]
+        selected = [window_rows[index] for index in indices]
+        return selected, {
+            "source_window_count": source_count,
+            "selected_window_count": len(selected),
+            "first_selected_index": indices[0] if indices else None,
+            "last_selected_index": indices[-1] if indices else None,
+            "spans_full_source_window": bool(
+                indices and indices[0] == 0 and indices[-1] == source_count - 1
+            ),
+        }
 
-    train_windows = _limit_windows(train_windows, max_train_batches)
-    eval_windows = _limit_windows(eval_windows, max_eval_batches)
+    train_windows, train_selection = _limit_windows(train_windows, max_train_batches)
+    eval_windows, eval_selection = _limit_windows(eval_windows, max_eval_batches)
 
     def _pack(window_rows: Sequence[Sequence[int]]) -> tuple[LanguageBatch, ...]:
         packed: list[LanguageBatch] = []
@@ -2605,6 +3043,9 @@ def build_language_model_splits(
         "eval_window_count_before_limit": int(eval_window_count_before_limit),
         "max_train_batches": int(max_train_batches) if max_train_batches else None,
         "max_eval_batches": int(max_eval_batches) if max_eval_batches else None,
+        "window_selection": selection_policy,
+        "train_window_selection": train_selection,
+        "eval_window_selection": eval_selection,
         "train_batch_limit_applied": len(train_windows) < train_window_count_before_limit,
         "eval_batch_limit_applied": len(eval_windows) < eval_window_count_before_limit,
         "train_window_count": len(train_windows),

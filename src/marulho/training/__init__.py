@@ -19,10 +19,13 @@ from .language_checkpoint_evolution import (
     run_language_checkpoint_evolution,
 )
 from .language_model import (
+    LANGUAGE_STATE_CORE_KINDS,
     LanguageBatch,
     LanguageModelConfig,
     LanguageSplit,
+    MarulhoGRUStateBlock,
     MarulhoLanguageModel,
+    MarulhoSelectiveContinuousStateBlock,
     MarulhoSelectiveSpikingStateBlock,
     RoutedLanguageExpertLayer,
     build_language_model_splits,
@@ -44,14 +47,17 @@ from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
 __all__ = [
+    "LANGUAGE_STATE_CORE_KINDS",
     "LanguageBatch",
     "LanguageCheckpointEvolutionConfig",
     "LanguageContinualLearningConfig",
     "LanguageModelConfig",
     "LanguageSplit",
     "LanguageStructuralPlasticityConfig",
+    "MarulhoGRUStateBlock",
     "MarulhoLanguageModel",
     "MarulhoModel",
+    "MarulhoSelectiveContinuousStateBlock",
     "MarulhoSelectiveSpikingStateBlock",
     "MarulhoTrainer",
     "PredictiveBootstrap",

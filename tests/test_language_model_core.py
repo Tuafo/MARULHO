@@ -46,6 +46,52 @@ from marulho.training.language_structural_plasticity import (
 )
 
 
+@pytest.mark.parametrize("state_core", ("selective_continuous", "gru"))
+def test_language_model_supports_breaking_state_core_baselines(
+    tmp_path: Path,
+    state_core: str,
+) -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=8,
+            state_dim=12,
+            state_core=state_core,
+            state_layers=2 if state_core == "gru" else 1,
+            recurrent_gradient_horizon=2,
+            expert_count=2,
+            active_expert_count=1,
+            route_candidate_count=2,
+            expert_hidden_dim=16,
+        )
+    )
+    input_ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+
+    result = model(input_ids)
+    streamed = model.forward_step(input_ids[:, 0])
+
+    assert result["logits"].shape == (1, 4, tokenizer.vocab_size)
+    assert result["telemetry"]["state_core"] == state_core
+    assert result["telemetry"].get("state_layers", 1) == (
+        2 if state_core == "gru" else 1
+    )
+    assert result["telemetry"]["external_llm_used"] is False
+    assert result["telemetry"]["truncated_bptt_boundary_count"] == 1
+    assert streamed["logits"].shape == (1, 1, tokenizer.vocab_size)
+    result["logits"].sum().backward()
+    assert all(
+        parameter.grad is not None
+        for parameter in model.state_block.parameters()
+        if parameter.requires_grad
+    )
+    checkpoint = tmp_path / f"{state_core}.pt"
+    save_language_model_checkpoint(checkpoint, model, tokenizer)
+    restored, restored_tokenizer, _metadata = load_language_model_checkpoint(checkpoint)
+    assert restored.config.state_core == state_core
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+
+
 def _texts() -> list[str]:
     return [
         "marulho routes spike state into language evidence. " * 8,
@@ -133,6 +179,9 @@ def test_language_split_loader_limits_windows_before_packing() -> None:
     assert split.report["eval_batch_limit_applied"] is True
     assert split.report["max_train_batches"] == 3
     assert split.report["max_eval_batches"] == 2
+    assert split.report["window_selection"] == "stratified"
+    assert split.report["train_window_selection"]["spans_full_source_window"] is True
+    assert split.report["eval_window_selection"]["spans_full_source_window"] is True
 
 
 def test_language_model_loss_and_spiking_telemetry_are_trainable() -> None:

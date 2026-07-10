@@ -364,6 +364,27 @@ The block may run as PyTorch CPU/CUDA for correctness tests. Promotion requires 
 CUDA/Triton/native graph path with parity, fallback-before-mutation, and
 complete-runtime impact evidence.
 
+### Falsification Baselines
+
+The selective-spiking block is a hypothesis, not a permanent compatibility
+boundary. `LanguageModelConfig.state_core` also supports continuous selective
+recurrence and a dense GRU baseline under the same MARULHO-owned tokenizer,
+experts, LM head, checkpoint, and generation contracts. The architecture
+bakeoff additionally disables routing on the spiking core to isolate whether
+sparse experts help or destabilize base learning. Shared data, seeds, token
+budgets, heldout prompts, and parameter inventories make the comparison
+reviewable. If a baseline wins sustained heldout-loss curves and unseen
+generation, the next branch replaces or hybridizes the current core before
+continual learning and structural plasticity resume.
+
+The 2026-07-09 full-span comparison selected dense GRU and rejected routing in
+the base language learner. The current scale branch therefore uses
+checkpointed multi-layer GRU recurrence, the real tokenizer vocabulary, and
+stratified corpus windows. Spikes, routed experts, continual repair, and
+structural mutation are downstream research modules until the base checkpoint
+generates coherent unseen text. This is an evidence-driven branch, not a claim
+that dense GRU is the final MARULHO architecture.
+
 ## Surrogate Gradient
 
 The forward spike uses a hard threshold. The backward path uses a bounded

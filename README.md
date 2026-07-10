@@ -88,6 +88,16 @@ CUDA claims require observed backend/device/failure-counter evidence, not config
 
 ## Current Validation
 
+The current base-language research branch changed on 2026-07-09. A matched,
+full-span CUDA bakeoff selected a dense multi-layer GRU core over both routed
+and dense selective-spiking variants, removed routed experts from the base
+learner, and replaced prefix-only bounded corpus truncation with stratified
+coverage. The first `891270`-parameter scale checkpoint trained `16777216`
+tokens at `59123.148` tokens/sec and reached heldout loss `2.2101`, but diverse
+generation remains garbled and `0/4`; this is a redesign/scale branch, not a
+generation-quality promotion. Continual repair and structural plasticity are
+paused until the base checkpoint demonstrates coherent unseen language.
+
 Latest local validation snapshot, 2026-07-03 on a RTX3060:
 
 - `python -m compileall -q src tests`: passed.
