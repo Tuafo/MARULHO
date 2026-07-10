@@ -555,10 +555,6 @@ def run_language_scaling_experiment(
         tokenizer_min_frequency=int(cfg.tokenizer_min_frequency),
     )
     tokenizer = _build_tokenizer(corpora, tokenizer_config)
-    corpus_token_count = sum(
-        len(tokenizer.encode(corpus, add_bos=False, add_eos=False))
-        for corpus in corpora
-    )
     split = build_language_model_splits(
         corpora,
         tokenizer,
@@ -572,6 +568,7 @@ def run_language_scaling_experiment(
         max_eval_batches=int(cfg.max_eval_batches),
         window_selection="stratified",
     )
+    corpus_token_count = int(split.report["train_text_token_count"])
     prompt_rows = [
         {
             "prompt": str(prompt),

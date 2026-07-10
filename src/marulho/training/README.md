@@ -17,6 +17,8 @@ bounded per-layer KV state for incremental decoding.
 - greedy generation with repetition and no-repeat controls;
 - tensor-indexed stratified fixed-window train/eval splits whose contract hashes
   are computed on CPU before one-way device transfer;
+- exact pre-window text-token counts emitted by the split builder, avoiding a
+  second full-corpus tokenizer pass in experiment reports;
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 

@@ -406,10 +406,12 @@ def build_language_model_splits(
         source_texts: Sequence[str],
         *,
         label: str,
-    ) -> tuple[torch.Tensor, int]:
+    ) -> tuple[torch.Tensor, int, int]:
         token_chunks: list[torch.Tensor] = []
+        text_token_count = 0
         for text in source_texts:
             encoded = tokenizer.encode(str(text), add_bos=True, add_eos=True)
+            text_token_count += max(0, len(encoded) - 2)
             token_chunks.append(
                 torch.tensor(encoded, dtype=torch.long, device="cpu")
             )
@@ -426,14 +428,22 @@ def build_language_model_splits(
                 f"Not enough {label} tokens to build a next-token language split"
             )
         window_count = 1 + (int(token_ids.numel()) - window_length) // step
-        return token_ids, window_count
+        return token_ids, window_count, text_token_count
 
-    train_token_ids, train_source_window_count = _token_stream(
+    (
+        train_token_ids,
+        train_source_window_count,
+        train_text_token_count,
+    ) = _token_stream(
         texts,
         label="training",
     )
     if eval_texts is not None:
-        eval_token_ids, eval_source_window_count = _token_stream(
+        (
+            eval_token_ids,
+            eval_source_window_count,
+            eval_text_token_count,
+        ) = _token_stream(
             eval_texts,
             label="evaluation",
         )
@@ -445,6 +455,7 @@ def build_language_model_splits(
         split_strategy = "explicit_text_sets"
     elif train_source_window_count == 1:
         eval_token_ids = train_token_ids
+        eval_text_token_count = train_text_token_count
         train_window_count = 1
         eval_window_count = 1
         train_window_offset = 0
@@ -452,6 +463,7 @@ def build_language_model_splits(
         window_count = 1
         split_strategy = "shared_single_window"
     else:
+        eval_text_token_count = train_text_token_count
         eval_count = max(
             1,
             min(
@@ -550,7 +562,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v2",
+        "surface": "marulho_transformer_train_eval_split.v3",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -562,6 +574,10 @@ def build_language_model_splits(
         ),
         "split_strategy": split_strategy,
         "explicit_eval_texts": eval_texts is not None,
+        "train_text_token_count": int(train_text_token_count),
+        "train_token_stream_count": int(train_token_ids.numel()),
+        "eval_text_token_count": int(eval_text_token_count),
+        "eval_token_stream_count": int(eval_token_ids.numel()),
         "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,

@@ -76,6 +76,29 @@ def _language_model_fixture() -> tuple[
     return model, tokenizer, report
 
 
+def test_language_split_reports_text_tokens_without_reencoding() -> None:
+    texts = ("first source", "second source")
+    tokenizer = ByteLevelLanguageTokenizer()
+    split = build_language_model_splits(
+        texts,
+        tokenizer,
+        eval_texts=("held out",),
+        sequence_length=4,
+    )
+
+    expected_train_tokens = sum(
+        len(tokenizer.encode(text, add_bos=False, add_eos=False))
+        for text in texts
+    )
+    expected_eval_tokens = len(
+        tokenizer.encode("held out", add_bos=False, add_eos=False)
+    )
+    assert split.report["train_text_token_count"] == expected_train_tokens
+    assert split.report["train_token_stream_count"] == expected_train_tokens + 4
+    assert split.report["eval_text_token_count"] == expected_eval_tokens
+    assert split.report["eval_token_stream_count"] == expected_eval_tokens + 2
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
