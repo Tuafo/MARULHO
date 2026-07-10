@@ -380,14 +380,6 @@ class MarulhoLanguageModel(nn.Module):
             self.train(was_training)
 
 
-def _split_hash(batches: Sequence[LanguageBatch]) -> str:
-    digest = hashlib.sha256()
-    for batch in batches:
-        digest.update(batch.input_ids.detach().cpu().contiguous().numpy().tobytes())
-        digest.update(batch.target_ids.detach().cpu().contiguous().numpy().tobytes())
-    return digest.hexdigest()
-
-
 def build_language_model_splits(
     texts: Sequence[str],
     tokenizer: LanguageTokenizer,
@@ -485,28 +477,33 @@ def build_language_model_splits(
     eval_selected, eval_selection = _limit(eval_windows, max_eval_batches)
     target_device = torch.device(device or "cpu")
 
-    def _pack(rows: Sequence[Sequence[int]]) -> tuple[LanguageBatch, ...]:
+    def _pack(
+        rows: Sequence[Sequence[int]],
+    ) -> tuple[tuple[LanguageBatch, ...], str]:
         batches: list[LanguageBatch] = []
+        digest = hashlib.sha256()
         for offset in range(0, len(rows), batch_size):
             chunk = rows[offset : offset + batch_size]
+            input_ids = torch.tensor(
+                [row[:-1] for row in chunk],
+                dtype=torch.long,
+            )
+            target_ids = torch.tensor(
+                [row[1:] for row in chunk],
+                dtype=torch.long,
+            )
+            digest.update(input_ids.contiguous().numpy().tobytes())
+            digest.update(target_ids.contiguous().numpy().tobytes())
             batches.append(
                 LanguageBatch(
-                    input_ids=torch.tensor(
-                        [row[:-1] for row in chunk],
-                        dtype=torch.long,
-                        device=target_device,
-                    ),
-                    target_ids=torch.tensor(
-                        [row[1:] for row in chunk],
-                        dtype=torch.long,
-                        device=target_device,
-                    ),
+                    input_ids=input_ids.to(target_device),
+                    target_ids=target_ids.to(target_device),
                 )
             )
-        return tuple(batches)
+        return tuple(batches), digest.hexdigest()
 
-    train_batches = _pack(train_selected)
-    eval_batches = _pack(eval_selected)
+    train_batches, train_split_hash = _pack(train_selected)
+    eval_batches, eval_split_hash = _pack(eval_selected)
     report = {
         "surface": "marulho_transformer_train_eval_split.v2",
         "owned_by_marulho": True,
@@ -531,8 +528,8 @@ def build_language_model_splits(
         "train_batch_count": len(train_batches),
         "eval_batch_count": len(eval_batches),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
-        "train_split_hash": _split_hash(train_batches),
-        "eval_split_hash": _split_hash(eval_batches),
+        "train_split_hash": train_split_hash,
+        "eval_split_hash": eval_split_hash,
     }
     return LanguageSplit(train=train_batches, eval=eval_batches, report=report)
 
