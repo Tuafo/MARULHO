@@ -56,6 +56,11 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
+The relation runner's `--output-adapter-rank` mode upgrades a rank-zero
+checkpoint with a zero-initialized residual adapter and freezes the base. It
+uses a fresh adapter-only optimizer while retaining the base model/tokenizer
+exactly, making parameter isolation directly comparable to full-weight replay.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

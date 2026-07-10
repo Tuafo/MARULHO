@@ -42,6 +42,8 @@ class LanguageModelConfig:
     transformer_mlp_ratio: float = 4.0
     transformer_dropout: float = 0.0
     tie_embeddings: bool = True
+    output_adapter_rank: int = 0
+    output_adapter_scale: float = 1.0
     active_language_path: str = "marulho_transformer"
 
 
@@ -90,6 +92,12 @@ def _validate_config(config: LanguageModelConfig) -> None:
         raise ValueError("transformer_dropout must be in [0, 1)")
     if bool(config.tie_embeddings) and int(config.embedding_dim) != int(config.state_dim):
         raise ValueError("tie_embeddings requires embedding_dim == state_dim")
+    if int(config.output_adapter_rank) < 0:
+        raise ValueError("output_adapter_rank must be non-negative")
+    if not math.isfinite(float(config.output_adapter_scale)):
+        raise ValueError("output_adapter_scale must be finite")
+    if float(config.output_adapter_scale) < 0.0:
+        raise ValueError("output_adapter_scale must be non-negative")
 
 
 def _valid_generated_tokens(token_ids: torch.Tensor, *, vocab_size: int) -> torch.Tensor:
@@ -156,7 +164,7 @@ def _apply_decode_controls(
 class MarulhoLanguageModel(nn.Module):
     """MARULHO-owned decoder-only Transformer language model."""
 
-    surface = "marulho_transformer_language_model.v2"
+    surface = "marulho_transformer_language_model.v3"
 
     def __init__(self, config: LanguageModelConfig) -> None:
         super().__init__()
@@ -173,6 +181,17 @@ class MarulhoLanguageModel(nn.Module):
             dropout=config.transformer_dropout,
         )
         self.lm_head = nn.Linear(config.state_dim, config.vocab_size, bias=False)
+        adapter_rank = int(config.output_adapter_rank)
+        self.output_adapter_down = (
+            nn.Linear(config.state_dim, adapter_rank, bias=False)
+            if adapter_rank > 0
+            else None
+        )
+        self.output_adapter_up = (
+            nn.Linear(adapter_rank, config.state_dim, bias=False)
+            if adapter_rank > 0
+            else None
+        )
         if bool(config.tie_embeddings):
             self.lm_head.weight = self.token_embedding.weight
         for module in self.modules():
@@ -181,6 +200,8 @@ class MarulhoLanguageModel(nn.Module):
                 bias = getattr(module, "bias", None)
                 if isinstance(bias, torch.Tensor):
                     nn.init.zeros_(bias)
+        if self.output_adapter_up is not None:
+            nn.init.zeros_(self.output_adapter_up.weight)
 
     @property
     def device(self) -> torch.device:
@@ -189,6 +210,14 @@ class MarulhoLanguageModel(nn.Module):
     @property
     def generation_vocab_size(self) -> int:
         return int(self.config.vocab_size)
+
+    def _adapt_hidden(self, hidden: torch.Tensor) -> torch.Tensor:
+        if self.output_adapter_down is None or self.output_adapter_up is None:
+            return hidden
+        adapted = self.output_adapter_up(
+            F.silu(self.output_adapter_down(hidden))
+        )
+        return hidden + float(self.config.output_adapter_scale) * adapted
 
     def generation_decode_policy(
         self,
@@ -239,6 +268,7 @@ class MarulhoLanguageModel(nn.Module):
             "external_llm_used": False,
             "owned_by_marulho": True,
             "vocab_size": int(self.config.vocab_size),
+            "output_adapter_rank": int(self.config.output_adapter_rank),
         }
         return {"hidden": hidden, "state": next_state, "telemetry": telemetry}
 
@@ -257,7 +287,7 @@ class MarulhoLanguageModel(nn.Module):
             collect_telemetry=collect_telemetry,
         )
         return {
-            "logits": self.lm_head(result["hidden"]),
+            "logits": self.lm_head(self._adapt_hidden(result["hidden"])),
             "state": result["state"],
             "telemetry": result["telemetry"],
         }
@@ -284,7 +314,7 @@ class MarulhoLanguageModel(nn.Module):
             collect_telemetry=collect_telemetry,
         )
         return {
-            "logits": self.lm_head(hidden).unsqueeze(1),
+            "logits": self.lm_head(self._adapt_hidden(hidden)).unsqueeze(1),
             "state": next_state,
             "telemetry": {
                 **transformer,
@@ -292,6 +322,7 @@ class MarulhoLanguageModel(nn.Module):
                 "external_llm_used": False,
                 "owned_by_marulho": True,
                 "vocab_size": int(self.config.vocab_size),
+                "output_adapter_rank": int(self.config.output_adapter_rank),
             },
         }
 
