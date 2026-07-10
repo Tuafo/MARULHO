@@ -76,6 +76,30 @@ one word with it.
    This is the first durable positive replacement result, but source-absent
    semantic generation still decides whether it represents usable language
    capability rather than a stronger corpus/task fit.
+9. That source-absent audit failed all twelve continuations. The model can now
+   learn the matched distribution better and freely answer more relation cases,
+   but it still cannot reliably compose causal, narrative, abstract, physical,
+   or procedural continuations outside the source prompts. Durable predictive
+   advantage and general language capability are separate results.
+
+## Provisional scaling diagnosis
+
+The 4.20M and 16.79M fresh matched points imply different local slopes against
+log update tokens. Transformer loss fell from 6.0113 to 4.6130, about -1.009 per
+natural-log token unit. Organism loss fell from 5.5257 to 4.5101, about -0.733.
+The organism remains ahead, but its margin shrank from 0.4857 to 0.1029. Extending
+these two straight lines predicts a crossover near 24.4M tokens.
+
+This is deliberately not called a scaling law: two points cannot establish
+curvature or asymptotic behavior, and each budget used a fresh frozen schedule.
+It is a sharp experimental prediction. A fresh 64M matched run is large enough
+to distinguish three useful outcomes:
+
+- the margin reverses, falsifying this organism as the scalable base mixer;
+- loss ties but free relation remains higher, motivating a memory-specialist
+  role rather than full Transformer replacement;
+- both loss and free generation remain better, justifying a jump toward the
+  251M-token class and another source-absent audit.
 
 ## Current systems opportunity
 

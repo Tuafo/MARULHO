@@ -458,6 +458,24 @@ The compact report is
 
 Decision: `test_organism_unseen_generation_before_any_promotion`.
 
+The source-absent audit verified all six prompts absent from the five declared
+corpora, then rejected every greedy and seeded nucleus continuation on semantic
+review. Failures included relation-template contamination, invented concepts,
+irrelevant causal/procedural text, truncation, and conflict reversion from the
+glass jar to the wooden drawer. The report and explicit review are
+`reports/language_scaling/distributed-organism-unseen-generation-16m-20260710.json`
+and
+`reports/language_scaling/distributed-organism-unseen-generation-16m-20260710-review.md`.
+
+The matched curve also does not yet justify blind scaling. From 4.20M to 16.79M
+tokens, Transformer loss improved by 1.3983 while organism loss improved by
+1.0155, shrinking the organism margin from 0.4857 to 0.1029. A crude two-point
+log-linear fit crosses near 24.4M tokens. This extrapolation is a falsification
+target, not a claimed scaling law, because the points are fresh runs with
+different schedule realizations.
+
+Decision: `no_promotion_scale_to_64m_and_retest_loss_slope`.
+
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568
 identical scheduled tokens. Every full-memory parameter received a gradient;

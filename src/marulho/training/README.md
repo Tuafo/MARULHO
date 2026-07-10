@@ -34,7 +34,11 @@ run and unseen-generation audit, not installation or quality promotion. At the
 fresh 16,785,792-token durable comparison, the candidate retained the advantage:
 4.5101 loss versus 4.6130, 96.9% versus 91.8% candidate relation ranking, and
 28.1% versus 12.5% strict free relation generation. It now requires a
-source-absent semantic-generation audit before any promotion.
+source-absent semantic-generation audit before any promotion. That audit failed
+all causal, narrative, abstract, conflict-update, physical, and procedural
+continuations, so the checkpoint is not quality-promoted. The next experiment
+is a fresh matched 64M run because the organism's loss advantage narrowed from
+0.4857 at 4M to 0.1029 at 16M.
 `next_token_loss` also accepts an explicit counterfactual-probe decision. The
 falsification runner uses this to keep ordinary fixed-shape steps compilable
 while preserving eager, fully measured utility interventions on a deterministic

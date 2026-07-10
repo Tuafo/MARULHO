@@ -283,6 +283,20 @@ replacement candidate to retain a heldout advantage at the durable budget and
 also beat the matched Transformer on strict free relation generation. Decision:
 `test_organism_unseen_generation_before_any_promotion`.
 
+The required source-absent audit then rejected unseen semantic capability. All
+six prompts were exactly absent from the five declared corpora, but both greedy
+and seeded nucleus continuations failed causal, narrative, abstract,
+state-update, physical, and procedural review. The conflict prompt either
+truncated or incorrectly returned the silver key to the drawer; other prompts
+drifted into broken tutorials, relation-benchmark fragments, or unrelated
+sentences. Surface fluency does not override these failures.
+
+The 4M→16M loss slope is also a warning. Transformer loss improved by 1.398,
+while organism loss improved by 1.016; the organism margin narrowed from 0.486
+to 0.103. A two-point log-linear extrapolation would cross near 24M tokens, but
+two fresh schedules are not a scaling law. Decision:
+`no_promotion_scale_to_64m_and_retest_loss_slope`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional

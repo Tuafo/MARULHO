@@ -110,6 +110,13 @@ ordinary steps and 202 eager probes, passed compiled/eager loss parity at a
 0.00012 delta, and deleted its 272.2 MB schedule cache. Branch:
 `test_organism_unseen_generation_before_any_promotion`.
 
+The subsequent source-absent report is
+`reports/language_scaling/distributed-organism-unseen-generation-16m-20260710.json`.
+All six prompts were absent from all declared sources, but all twelve greedy and
+sampled continuations failed semantic review. The explicit review is
+`reports/language_scaling/distributed-organism-unseen-generation-16m-20260710-review.md`.
+Branch: `no_promotion_scale_to_64m_and_retest_loss_slope`.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
