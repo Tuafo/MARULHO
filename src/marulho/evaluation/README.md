@@ -40,7 +40,9 @@ language quality.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
-materialized corpus is data evidence, not learned capability.
+materialized corpus is data evidence, not learned capability. For large public
+shards it can stream an official parquet text column, hash the download and
+corpus, then delete the temporary parquet after conversion.
 
 ## Current Branch Decision
 

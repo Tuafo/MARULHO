@@ -6,8 +6,10 @@ from urllib.parse import parse_qs, urlparse
 
 from marulho.evaluation.language_hf_curriculum_materializer import (
     HFCurriculumSource,
+    PARQUET_SURFACE,
     SURFACE,
     materialize_hf_curriculum,
+    materialize_hf_parquet_corpus,
 )
 
 
@@ -354,3 +356,38 @@ def test_materialize_hf_curriculum_retries_transient_connection_reset(
     assert attempts == 2
     assert report["report_status"] == "final"
     assert report["corpus"]["row_count"] == 1
+
+
+def test_materialize_hf_parquet_corpus_streams_text_and_deletes_download(
+    tmp_path,
+) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    source = tmp_path / "source.parquet"
+    pq.write_table(
+        pa.table({"text": ["First story.", "Second story.", "Third story."]}),
+        source,
+    )
+    corpus = tmp_path / "stories.txt"
+    report = materialize_hf_parquet_corpus(
+        output_path=tmp_path / "stories.json",
+        corpus_output_path=corpus,
+        dataset="roneneldan/TinyStories",
+        config="default",
+        split="train",
+        parquet_url=source.resolve().as_uri(),
+        text_field="text",
+        license="cdla-sharing-1.0",
+        max_rows=2,
+    )
+
+    text = corpus.read_text(encoding="utf-8")
+    assert report["surface"] == PARQUET_SURFACE
+    assert report["source"]["parquet_row_count"] == 3
+    assert report["corpus"]["row_count"] == 2
+    assert report["raw_parquet_retained"] is False
+    assert "First story." in text
+    assert "Second story." in text
+    assert "Third story." not in text
+    assert not corpus.with_suffix(".source.parquet").exists()

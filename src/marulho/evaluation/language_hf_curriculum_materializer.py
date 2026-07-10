@@ -20,6 +20,8 @@ from marulho.data.corpus_loader import (
 
 ARTIFACT_KIND = "marulho_language_hf_curriculum_materialization"
 SURFACE = "marulho_language_hf_curriculum_materialization.v1"
+PARQUET_ARTIFACT_KIND = "marulho_language_hf_parquet_materialization"
+PARQUET_SURFACE = "marulho_language_hf_parquet_materialization.v1"
 DATASET_VIEWER_ROWS_URL = "https://datasets-server.huggingface.co/rows"
 DATASET_VIEWER_FIRST_ROWS_URL = "https://datasets-server.huggingface.co/first-rows"
 
@@ -237,6 +239,176 @@ def _source_report(
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _download_file(
+    url: str,
+    destination: Path,
+    *,
+    timeout_seconds: float,
+) -> tuple[int, str]:
+    partial = destination.with_suffix(destination.suffix + ".partial")
+    headers = {"User-Agent": "MARULHO/1.0 language-curriculum-materializer"}
+    token = huggingface_token_from_env()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(str(url), headers=headers)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(7):
+        try:
+            digest = hashlib.sha256()
+            byte_count = 0
+            with urlopen(request, timeout=float(timeout_seconds)) as response:
+                with partial.open("wb") as handle:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        digest.update(chunk)
+                        byte_count += len(chunk)
+            partial.replace(destination)
+            return byte_count, digest.hexdigest()
+        except HTTPError as exc:
+            retryable = int(exc.code) == 429 or 500 <= int(exc.code) < 600
+            if not retryable or attempt >= 6:
+                if partial.exists():
+                    partial.unlink()
+                raise
+        except (URLError, TimeoutError, ConnectionError):
+            if attempt >= 6:
+                if partial.exists():
+                    partial.unlink()
+                raise
+        if partial.exists():
+            partial.unlink()
+        time.sleep(min(30.0, float(2**attempt)))
+    raise RuntimeError("Parquet download retry loop exited unexpectedly")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def materialize_hf_parquet_corpus(
+    *,
+    output_path: str | Path,
+    corpus_output_path: str | Path,
+    dataset: str,
+    config: str,
+    split: str,
+    parquet_url: str,
+    license: str,
+    text_field: str = "text",
+    max_rows: int = 0,
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    import pyarrow.parquet as pq
+
+    output = Path(output_path)
+    corpus_output = Path(corpus_output_path)
+    downloaded = corpus_output.with_suffix(".source.parquet")
+    partial_corpus = corpus_output.with_suffix(corpus_output.suffix + ".partial")
+    requested_limit = max(0, int(max_rows))
+    downloaded_bytes = 0
+    downloaded_sha256 = ""
+    parquet_row_count = 0
+    parquet_row_group_count = 0
+    materialized_rows = 0
+    character_count = 0
+    parquet = None
+    try:
+        downloaded_bytes, downloaded_sha256 = _download_file(
+            parquet_url,
+            downloaded,
+            timeout_seconds=float(timeout_seconds),
+        )
+        parquet = pq.ParquetFile(downloaded)
+        if text_field not in parquet.schema.names:
+            raise ValueError(
+                f"Parquet text field {text_field!r} is absent from {parquet.schema.names}"
+            )
+        parquet_row_count = int(parquet.metadata.num_rows)
+        parquet_row_group_count = int(parquet.metadata.num_row_groups)
+        corpus_output.parent.mkdir(parents=True, exist_ok=True)
+        header = (
+            f"### source={dataset} config={config} split={split} "
+            "role=coherence_diagnostic"
+        )
+        with partial_corpus.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(header)
+            for batch in parquet.iter_batches(
+                batch_size=2048,
+                columns=[text_field],
+            ):
+                for raw_text in batch.column(0).to_pylist():
+                    if requested_limit and materialized_rows >= requested_limit:
+                        break
+                    text = "" if raw_text is None else str(raw_text).strip()
+                    if not text:
+                        continue
+                    handle.write("\n\n")
+                    handle.write(text)
+                    materialized_rows += 1
+                    character_count += len(text)
+                if requested_limit and materialized_rows >= requested_limit:
+                    break
+            handle.write("\n")
+        partial_corpus.replace(corpus_output)
+        parquet.close(force=True)
+        parquet = None
+        corpus_bytes = int(corpus_output.stat().st_size)
+        report = {
+            "artifact_kind": PARQUET_ARTIFACT_KIND,
+            "surface": PARQUET_SURFACE,
+            "status": "materialized_parquet_corpus",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source": {
+                "dataset": str(dataset),
+                "config": str(config),
+                "split": str(split),
+                "text_field": str(text_field),
+                "license": str(license),
+                "parquet_url": str(parquet_url),
+                "parquet_bytes": downloaded_bytes,
+                "parquet_sha256": downloaded_sha256,
+                "parquet_row_count": parquet_row_count,
+                "parquet_row_group_count": parquet_row_group_count,
+            },
+            "corpus": {
+                "path": str(corpus_output),
+                "row_count": materialized_rows,
+                "requested_max_rows": requested_limit,
+                "character_count": character_count,
+                "byte_count": corpus_bytes,
+                "sha256": _sha256_file(corpus_output),
+            },
+            "raw_parquet_retained": False,
+            "raw_row_payloads_retained": False,
+            "reports_not_run_by_service": True,
+            "mutates_runtime_state": False,
+            "external_llm_used": False,
+            "service_owned_cognition": False,
+            "promotes_runtime_claim": False,
+            "promotes_generation_quality_claim": False,
+            "claim_boundary": (
+                "coherence_diagnostic_corpus_materialization; not a general "
+                "language, runtime, or quality-promotion claim"
+            ),
+        }
+        _write_json(output, report)
+        return report
+    finally:
+        if parquet is not None:
+            parquet.close(force=True)
+        if downloaded.exists():
+            downloaded.unlink()
+        if partial_corpus.exists():
+            partial_corpus.unlink()
 
 
 def _write_partial_report(
@@ -493,11 +665,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--row-page-size", type=int, default=100)
     parser.add_argument("--request-interval-seconds", type=float, default=0.0)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
+    parser.add_argument("--parquet-url", default=None)
+    parser.add_argument("--parquet-dataset", default=None)
+    parser.add_argument("--parquet-config", default="default")
+    parser.add_argument("--parquet-split", default=None)
+    parser.add_argument("--parquet-text-field", default="text")
+    parser.add_argument("--parquet-license", default=None)
+    parser.add_argument("--parquet-max-rows", type=int, default=0)
     parser.add_argument(
         "--no-partial-after-each-source",
         action="store_true",
     )
     args = parser.parse_args(argv)
+    if args.parquet_url:
+        if not args.corpus_output:
+            parser.error("--parquet-url requires --corpus-output")
+        if not args.parquet_dataset or not args.parquet_split or not args.parquet_license:
+            parser.error(
+                "--parquet-url requires --parquet-dataset, --parquet-split, "
+                "and --parquet-license"
+            )
+        materialize_hf_parquet_corpus(
+            output_path=args.output,
+            corpus_output_path=args.corpus_output,
+            dataset=str(args.parquet_dataset),
+            config=str(args.parquet_config),
+            split=str(args.parquet_split),
+            parquet_url=str(args.parquet_url),
+            text_field=str(args.parquet_text_field),
+            license=str(args.parquet_license),
+            max_rows=max(0, int(args.parquet_max_rows)),
+            timeout_seconds=float(args.timeout_seconds),
+        )
+        return 0
     sources = (
         tuple(_source_from_cli(item) for item in args.source)
         if args.source
