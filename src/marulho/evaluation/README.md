@@ -42,6 +42,13 @@ records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
 improvement is an ablation result, never a substitute for heldout quality or
 human review.
 
+**`language_relation_binding_experiment.py`** — continues one checkpoint on a
+procedural entity/event curriculum and evaluates compositionally held-out
+container, ownership, property, and event-order cases. Predictions rank every
+candidate by continuation loss before the correct index is used for metrics.
+The same mixed-language holdouts measure retention, so relation gains cannot
+silently trade away general language.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
