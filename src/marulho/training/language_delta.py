@@ -4,18 +4,28 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import math
+import os
+from pathlib import Path
 from typing import Any, Mapping
+from uuid import uuid4
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
+)
 from marulho.training.language_model import _apply_decode_controls
 from marulho.training.language_protocol import LanguageRuntimeState
 from marulho.training.language_transformer import (
     MarulhoCausalSelfAttention,
     TransformerRMSNorm,
 )
+
+
+DELTA_CHECKPOINT_SURFACE = "marulho_delta_language_checkpoint.v1"
 
 
 @dataclass(frozen=True)
@@ -533,3 +543,100 @@ def delta_parameter_inventory(config: DeltaLanguageConfig) -> dict[str, int]:
         - int(model.token_embedding.weight.numel()),
         "config": asdict(config),
     }
+
+
+def delta_language_checkpoint_payload(
+    model: MarulhoDeltaLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+    *,
+    runtime_state: Mapping[str, torch.Tensor] | None = None,
+) -> dict[str, Any]:
+    if int(model.config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError(
+            "Delta checkpoint vocab must match its checkpoint-owned tokenizer"
+        )
+    return {
+        "artifact_kind": "marulho_delta_language_checkpoint",
+        "surface": DELTA_CHECKPOINT_SURFACE,
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "active_language_path": model.config.active_language_path,
+        "config": asdict(model.config),
+        "model_state": {
+            key: value.detach().cpu() for key, value in model.state_dict().items()
+        },
+        "runtime_state": (
+            None if runtime_state is None else model.serialize_state(runtime_state)
+        ),
+        "tokenizer": tokenizer.state_dict(),
+        "tokenizer_hash": tokenizer.vocabulary_hash(),
+        "metadata": dict(metadata or {}),
+    }
+
+
+def save_delta_language_checkpoint(
+    path: str | Path,
+    model: MarulhoDeltaLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+    *,
+    runtime_state: Mapping[str, torch.Tensor] | None = None,
+) -> Path:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = delta_language_checkpoint_payload(
+        model,
+        tokenizer,
+        metadata,
+        runtime_state=runtime_state,
+    )
+    temporary = output.with_name(f".{output.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
+def load_delta_language_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device | None = None,
+) -> tuple[
+    MarulhoDeltaLanguageModel,
+    LanguageTokenizer,
+    dict[str, Any],
+    dict[str, torch.Tensor] | None,
+]:
+    payload = torch.load(
+        Path(path), map_location=map_location or "cpu", weights_only=False
+    )
+    if payload.get("surface") != DELTA_CHECKPOINT_SURFACE:
+        raise ValueError("Rejected non-delta language checkpoint")
+    tokenizer = load_language_tokenizer_state(payload["tokenizer"])
+    config = DeltaLanguageConfig(**dict(payload["config"]))
+    if int(config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("Delta checkpoint tokenizer/config vocabulary mismatch")
+    if str(payload.get("tokenizer_hash")) != tokenizer.vocabulary_hash():
+        raise ValueError("Delta checkpoint tokenizer hash mismatch")
+    model = MarulhoDeltaLanguageModel(config)
+    model.load_state_dict(dict(payload["model_state"]), strict=True)
+    serialized = payload.get("runtime_state")
+    runtime_state = (
+        None
+        if serialized is None
+        else model.load_state(dict(serialized))
+    )
+    return (
+        model,
+        tokenizer,
+        dict(payload.get("metadata") or {}),
+        runtime_state,
+    )

@@ -14,7 +14,12 @@ from .language_model import (
 )
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
-from .language_delta import DeltaLanguageConfig, MarulhoDeltaLanguageModel
+from .language_delta import (
+    DeltaLanguageConfig,
+    MarulhoDeltaLanguageModel,
+    load_delta_language_checkpoint,
+    save_delta_language_checkpoint,
+)
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
@@ -35,5 +40,7 @@ __all__ = [
     "build_language_model_splits",
     "evaluate_language_model",
     "load_language_model_checkpoint",
+    "load_delta_language_checkpoint",
     "save_language_model_checkpoint",
+    "save_delta_language_checkpoint",
 ]

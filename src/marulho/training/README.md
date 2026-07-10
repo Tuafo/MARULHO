@@ -24,7 +24,8 @@ every fourth mixer with bounded local attention. Both use the same tied BPE
 head, SwiGLU blocks, full-vocabulary loss/generation, tensor-only runtime-state
 serialization, and causal scan/step contract. The matched 8,192-vocabulary
 configurations have 20,978,176 and 20,977,664 parameters versus 20,976,128 for
-the Transformer. They are not installed in `MarulhoBrain`.
+the Transformer. The surviving 2/2 hybrid has 20,977,152 parameters. They are
+not installed in `MarulhoBrain`.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
@@ -87,6 +88,14 @@ atomically replace the target.
 
 Retired candidate checkpoint surfaces are rejected, so an experiment cannot
 silently replace the active brain model.
+
+`marulho_delta_language_checkpoint.v1` is a separate strict surface. It owns
+the exact delta configuration, tied model tensors, checkpoint tokenizer/hash,
+metadata, and optional tensor-only recurrent/KV runtime state. Experiment
+metadata can additionally carry exact AdamW, RNG, schedule, cursor, cumulative
+token, and optimizer-step state. Writes use the same temporary-file, flush,
+fsync, and atomic-replace discipline. The active Transformer loader rejects the
+surface.
 
 ## Runtime Boundaries
 

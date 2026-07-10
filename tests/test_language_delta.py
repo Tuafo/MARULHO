@@ -3,10 +3,14 @@ from __future__ import annotations
 import pytest
 import torch
 
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_delta import (
     DeltaLanguageConfig,
     MarulhoDeltaLanguageModel,
+    load_delta_language_checkpoint,
+    save_delta_language_checkpoint,
 )
+from marulho.training.language_model import load_language_model_checkpoint
 from marulho.training.language_protocol import CausalLanguageModel
 
 
@@ -136,3 +140,41 @@ def test_delta_implements_shared_language_protocol_and_batched_generation() -> N
     assert result["generated_ids"].shape == (2, 6)
     assert result["new_token_count"] == 3
     assert result["external_llm_used"] is False
+
+
+def test_delta_checkpoint_preserves_weights_tokenizer_metadata_and_state(
+    tmp_path,
+) -> None:
+    torch.manual_seed(29)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoDeltaLanguageModel(
+        _config(vocab_size=tokenizer.vocab_size, local_attention_every=2)
+    ).eval()
+    first = model(
+        torch.tensor([[tokenizer.bos_id, 7, 8, 9]]), collect_telemetry=False
+    )
+    path = save_delta_language_checkpoint(
+        tmp_path / "delta.pt",
+        model,
+        tokenizer,
+        metadata={"cumulative_update_tokens": 1234},
+        runtime_state=first["state"],
+    )
+    with pytest.raises(ValueError, match="legacy language checkpoint"):
+        load_language_model_checkpoint(path)
+
+    restored, restored_tokenizer, metadata, restored_state = (
+        load_delta_language_checkpoint(path)
+    )
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+    assert metadata == {"cumulative_update_tokens": 1234}
+    assert restored_state is not None
+    assert restored.lm_head.weight is restored.token_embedding.weight
+    expected = model.forward_step(
+        torch.tensor([10]), first["state"], collect_telemetry=False
+    )
+    actual = restored.forward_step(
+        torch.tensor([10]), restored_state, collect_telemetry=False
+    )
+    torch.testing.assert_close(expected["logits"], actual["logits"])
+    _assert_state_close(expected["state"], actual["state"])

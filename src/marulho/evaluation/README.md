@@ -69,7 +69,8 @@ CPU schedule cache owns the selected relation, FineWeb-Edu, Cosmopedia, and
 heldout windows so reruns avoid tokenization cost without changing data order.
 The report includes all-parameter gradient coverage, real heldout loss,
 label-safe candidate and free relation generation, fixed-state bytes, wall
-time, throughput, and peak CUDA allocation. No screening checkpoint is saved.
+time, throughput, and peak CUDA allocation. Checkpoints are omitted by default;
+an explicit finalist flag writes strict model/tokenizer/optimizer/RNG state.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
@@ -176,6 +177,25 @@ recency did not meaningfully beat temporal-only. Every free score is zero, the
 Transformer is materially better and about 26 times faster, and no screening
 checkpoint was saved. The PMRM implementation, runner, and tests are retired.
 Branch: `retire_integrated_pmrm_build_editable_delta_memory_competitor`.
+
+### Editable delta-memory finalist
+
+The matched delta reports are local at:
+
+- `reports/language_scaling/delta-editable-screening-262k-20260710.json`;
+- `reports/language_scaling/delta-editable-half-screening-262k-20260710.json`;
+- `reports/language_scaling/delta-editable-half-screening-1m-20260710.json`;
+- `reports/language_scaling/delta-editable-half-finalist-4m-20260710.json`.
+
+Pure delta memory was dominated at 262k tokens (8.0018 loss), while adding one
+local-attention layer reached 7.6833. The 2-delta/2-attention hybrid reached
+7.5461 versus Transformer 7.4972 at 269,568 tokens, then 6.9042 versus 7.0625 at
+1,057,536 and 5.6966 versus 5.9962 at 4,199,040. The last candidate relation
+scores were 90.6% versus 73.8%; exact free scores were only 0.8% versus 0%.
+Every hybrid parameter received a gradient, the parameter delta was 0.0049%,
+and peak allocated VRAM was 3.90 GiB. The unfused reference sustained 8,021
+tokens/s versus 82,960 for the Transformer. Branch:
+`scale_delta-hybrid-half_and_test_unseen_generation`.
 
 ### Narrow relation fine-tune
 

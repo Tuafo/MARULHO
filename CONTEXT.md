@@ -377,6 +377,23 @@ experiment implementation are deleted; the compact local report is
 
 Decision: `retire_integrated_pmrm_build_editable_delta_memory_competitor`.
 
+The replacement screen compared pure editable delta memory and local-attention
+hybrids with the same 20.98M Transformer. Pure recurrence reached 8.0018 loss at
+269,568 tokens; one attention layer improved it to 7.6833; two attention and two
+delta layers reached 7.5461 versus Transformer 7.4972. The 2/2 hybrid then
+crossed the baseline: 6.9042 versus 7.0625 at 1,057,536 tokens, and 5.6966
+versus 5.9962 at 4,199,040 tokens. Its candidate relation accuracy at the last
+point was 90.6% versus 73.8%, while strict free generation remained only 0.8%
+versus 0%.
+
+The 2/2 hybrid has 20,977,152 parameters and complete gradient coverage. Its
+unfused PyTorch reference is about ten times slower than the Transformer, so it
+earns durable scaling and unseen-generation testing, not runtime installation
+or a replacement claim. The compact finalist report is
+`reports/language_scaling/delta-editable-half-finalist-4m-20260710.json`.
+
+Decision: `scale_delta-hybrid-half_and_test_unseen_generation`.
+
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568
 identical scheduled tokens. Every full-memory parameter received a gradient;
@@ -427,8 +444,8 @@ must not present them as active capability.
    strict free relation generation.
 5. Retire integrated PMRM after the corrected equal-budget screen shows no
    base-language advantage and surprise loses to naive selectors.
-6. Build a parameter-matched editable delta-memory recurrence with separate
-   erase/write control; test pure recurrent and local-attention hybrid forms.
+6. Keep only the 2-delta/2-attention hybrid after it beats the Transformer at
+   1.06M and 4.20M tokens; add durable checkpointing and test unseen generation.
 7. Use LCWM-style execution-coupled selection only after a base model survives;
    do not make typed synthetic machinery the token mixer.
 8. Continue only non-dominated arms through successive halving, then fit the

@@ -215,6 +215,24 @@ full PMRM base-language path is retired; no screening checkpoint was saved. The
 compact final report is
 `reports/language_scaling/pmrm-integrated-trainable-memory-screening-262k-20260710.json`.
 
+The editable delta-memory replacement has now produced the first matched
+base-language win. Pure recurrence was rejected at 262k tokens (loss 8.0018),
+and the 3-delta/1-attention hybrid remained dominated (7.6833). The
+2-delta/2-attention hybrid survived and its loss advantage grew with data:
+
+| Update tokens | Transformer loss | 2/2 hybrid loss | Hybrid margin |
+| ---: | ---: | ---: | ---: |
+| 269,568 | 7.4972 | 7.5461 | +0.0489 |
+| 1,057,536 | 7.0625 | 6.9042 | -0.1583 |
+| 4,199,040 | 5.9962 | 5.6966 | -0.2996 |
+
+At 4.20M tokens, candidate relation accuracy was 90.6% for the hybrid versus
+73.8% for the Transformer; strict free accuracy was still only 0.8% versus 0%.
+The hybrid used 20,977,152 parameters, all with gradients, and about 8,021
+training tokens/s versus 82,960 for the Transformer. This is a promising local
+learning-curve result, not coherent-language or systems promotion. Decision:
+`scale_delta-hybrid-half_and_test_unseen_generation`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional

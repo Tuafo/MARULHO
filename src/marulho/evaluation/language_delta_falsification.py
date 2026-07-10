@@ -33,6 +33,7 @@ from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_delta import (
     DeltaLanguageConfig,
     MarulhoDeltaLanguageModel,
+    save_delta_language_checkpoint,
 )
 from marulho.training.language_model import (
     LanguageBatch,
@@ -40,6 +41,7 @@ from marulho.training.language_model import (
     MarulhoLanguageModel,
     build_language_model_splits,
     evaluate_language_model,
+    save_language_model_checkpoint,
 )
 
 
@@ -77,6 +79,7 @@ class DeltaFalsificationConfig:
     delta_memory_heads: int = 8
     delta_memory_head_dim: int = 32
     delta_mlp_dim: int = 2048
+    save_checkpoints: bool = False
 
 
 def _sha256_file(path: Path) -> str:
@@ -451,6 +454,7 @@ def _run_arm(
     general_eval_batches: Sequence[LanguageBatch],
     relation_cases: Sequence[RelationCase],
     schedule: Sequence[tuple[str, int]],
+    output_path: Path,
     config: DeltaFalsificationConfig,
     device: torch.device,
 ) -> dict[str, Any]:
@@ -539,6 +543,37 @@ def _run_arm(
         telemetry = model.forward(
             sample.input_ids, collect_telemetry=True
         )["telemetry"]
+    checkpoint_path: Path | None = None
+    if config.save_checkpoints:
+        checkpoint_path = output_path.with_name(
+            f"{output_path.stem}-{arm.name}-checkpoint.pt"
+        )
+        metadata = {
+            "delta_falsification_report": str(output_path),
+            "arm": asdict(arm),
+            "cumulative_update_tokens": processed_tokens,
+            "optimizer_steps": total_steps,
+            "training_state": {
+                "optimizer_state": optimizer.state_dict(),
+                "torch_rng_state": torch.get_rng_state(),
+                "cuda_rng_state": (
+                    torch.cuda.get_rng_state_all()
+                    if torch.cuda.is_available()
+                    else None
+                ),
+                "schedule": list(schedule),
+                "schedule_hash": _schedule_hash(schedule),
+                "schedule_cursor": total_steps,
+            },
+        }
+        if arm.architecture == "transformer":
+            save_language_model_checkpoint(
+                checkpoint_path, model, tokenizer, metadata=metadata
+            )
+        else:
+            save_delta_language_checkpoint(
+                checkpoint_path, model, tokenizer, metadata=metadata
+            )
     loss_tensor = torch.stack(losses)
     gradient_tensor = torch.stack(gradient_norms)
     return {
@@ -582,7 +617,17 @@ def _run_arm(
         },
         "relation": relation,
         "runtime_telemetry": telemetry,
-        "checkpoint": None,
+        "checkpoint": (
+            None
+            if checkpoint_path is None
+            else {
+                "path": str(checkpoint_path),
+                "sha256": _sha256_file(checkpoint_path),
+                "size_bytes": checkpoint_path.stat().st_size,
+                "optimizer_state_available": True,
+                "rng_state_available": True,
+            }
+        ),
     }
 
 
@@ -671,6 +716,7 @@ def run_delta_falsification(
                 general_eval_batches=general_eval_batches,
                 relation_cases=cases,
                 schedule=schedule,
+                output_path=output,
                 config=config,
                 device=resolved_device,
             )
@@ -841,6 +887,7 @@ def main() -> int:
     parser.add_argument("--relation-eval-batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=3.0e-4)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--save-checkpoints", action="store_true")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     arm_names = args.arm or ["transformer", "delta", "delta-hybrid"]
@@ -860,6 +907,7 @@ def main() -> int:
             relation_eval_batch_size=max(1, int(args.relation_eval_batch_size)),
             learning_rate=float(args.learning_rate),
             seed=int(args.seed),
+            save_checkpoints=bool(args.save_checkpoints),
         ),
         schedule_cache_path=args.schedule_cache,
         device=str(args.device),
