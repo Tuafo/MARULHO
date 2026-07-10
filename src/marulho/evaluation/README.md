@@ -14,7 +14,8 @@ checkpoint/report output.
 **`language_scaling_experiment.py`** — trains a matched model-size grid over
 shared token budgets, records heldout curves, throughput, peak VRAM, unseen
 generations, OOM failures, and a provisional fitted `L(N,D)` law. It retains
-only the best checkpoint by default.
+only the best checkpoint by default. An optional explicit evaluation corpus
+keeps later-offset holdout documents entirely outside training.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

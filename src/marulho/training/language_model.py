@@ -392,6 +392,7 @@ def build_language_model_splits(
     texts: Sequence[str],
     tokenizer: LanguageTokenizer,
     *,
+    eval_texts: Sequence[str] | None = None,
     sequence_length: int,
     eval_fraction: float = 0.2,
     stride: int | None = None,
@@ -404,26 +405,46 @@ def build_language_model_splits(
     if int(sequence_length) < 2:
         raise ValueError("sequence_length must be at least two")
     batch_size = max(1, int(batch_size))
-    token_ids: list[int] = []
-    for text in texts:
-        token_ids.extend(tokenizer.encode(str(text), add_bos=True, add_eos=True))
     window_length = int(sequence_length) + 1
-    if len(token_ids) < window_length:
-        raise ValueError("Not enough tokens to build a next-token language split")
     step = int(stride or sequence_length)
     if step <= 0:
         raise ValueError("stride must be positive")
-    windows = [
-        token_ids[offset : offset + window_length]
-        for offset in range(0, len(token_ids) - window_length + 1, step)
-    ]
-    if len(windows) == 1:
-        train_windows = windows
-        eval_windows = windows
+
+    def _windows(source_texts: Sequence[str], *, label: str) -> list[list[int]]:
+        token_ids: list[int] = []
+        for text in source_texts:
+            token_ids.extend(
+                tokenizer.encode(str(text), add_bos=True, add_eos=True)
+            )
+        if len(token_ids) < window_length:
+            raise ValueError(
+                f"Not enough {label} tokens to build a next-token language split"
+            )
+        return [
+            token_ids[offset : offset + window_length]
+            for offset in range(0, len(token_ids) - window_length + 1, step)
+        ]
+
+    train_source_windows = _windows(texts, label="training")
+    if eval_texts is not None:
+        train_windows = train_source_windows
+        eval_windows = _windows(eval_texts, label="evaluation")
+        windows = [*train_windows, *eval_windows]
+        split_strategy = "explicit_text_sets"
+    elif len(train_source_windows) == 1:
+        train_windows = train_source_windows
+        eval_windows = train_source_windows
+        windows = train_source_windows
+        split_strategy = "shared_single_window"
     else:
-        eval_count = max(1, min(len(windows) - 1, math.ceil(len(windows) * eval_fraction)))
+        windows = train_source_windows
+        eval_count = max(
+            1,
+            min(len(windows) - 1, math.ceil(len(windows) * eval_fraction)),
+        )
         train_windows = windows[:-eval_count]
         eval_windows = windows[-eval_count:]
+        split_strategy = "contiguous_tail_fraction"
     selection = str(window_selection).strip().lower()
     if selection not in {"stratified", "prefix"}:
         raise ValueError("window_selection must be 'stratified' or 'prefix'")
@@ -494,6 +515,11 @@ def build_language_model_splits(
         "stride": step,
         "batch_size": batch_size,
         "source_text_count": len(texts),
+        "eval_source_text_count": (
+            0 if eval_texts is None else len(eval_texts)
+        ),
+        "split_strategy": split_strategy,
+        "explicit_eval_texts": eval_texts is not None,
         "window_count": len(windows),
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,

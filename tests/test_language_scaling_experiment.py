@@ -58,6 +58,7 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     tmp_path: Path,
 ) -> None:
     corpus = tmp_path / "corpus.txt"
+    eval_corpus = tmp_path / "eval.txt"
     corpus.write_text(
         (
             "A local language model predicts unseen continuations. "
@@ -66,10 +67,19 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
         * 128,
         encoding="utf-8",
     )
+    eval_corpus.write_text(
+        (
+            "A separate holdout contains different language. "
+            "Training must never consume these windows.\n"
+        )
+        * 32,
+        encoding="utf-8",
+    )
     output = tmp_path / "scaling.json"
     report = run_language_scaling_experiment(
         output_path=output,
         corpus_path=corpus,
+        eval_corpus_path=eval_corpus,
         prompts=("This prompt is absent",),
         config=LanguageScalingExperimentConfig(
             tokenizer_vocab_size=512,
@@ -98,6 +108,8 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     assert report["completed_arm_count"] == 2
     assert report["failed_arm_count"] == 0
     assert report["external_llm_used"] is False
+    assert report["split"]["split_strategy"] == "explicit_text_sets"
+    assert report["corpus"]["explicit_eval_path"] == str(eval_corpus)
     assert report["prompts"][0]["exact_prompt_absent_from_corpus"] is True
     assert report["scaling_law"]["available"] is False
     assert report["quality_boundary"]["promotes_generation_quality_claim"] is False

@@ -466,6 +466,7 @@ def run_language_scaling_experiment(
     *,
     output_path: str | Path,
     corpus_path: str | Path,
+    eval_corpus_path: str | Path | None = None,
     prompts: Sequence[str] = DEFAULT_PROMPTS,
     config: LanguageScalingExperimentConfig | None = None,
 ) -> dict[str, Any]:
@@ -474,6 +475,12 @@ def run_language_scaling_experiment(
     output.parent.mkdir(parents=True, exist_ok=True)
     corpus_path = Path(corpus_path)
     corpus = _read_corpus(corpus_path)
+    eval_corpus_file = (
+        None if eval_corpus_path is None else Path(eval_corpus_path)
+    )
+    eval_corpus = (
+        None if eval_corpus_file is None else _read_corpus(eval_corpus_file)
+    )
     device = _resolve_device(cfg.device)
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     previous_matmul_precision = torch.get_float32_matmul_precision()
@@ -492,6 +499,7 @@ def run_language_scaling_experiment(
     split = build_language_model_splits(
         [corpus],
         tokenizer,
+        eval_texts=None if eval_corpus is None else [eval_corpus],
         sequence_length=int(cfg.sequence_length),
         eval_fraction=float(cfg.eval_fraction),
         stride=int(cfg.stride),
@@ -588,6 +596,32 @@ def run_language_scaling_experiment(
     )
     largest_completed = completed_by_size[-1]
     best_is_largest = best["name"] == largest_completed["name"]
+    smallest_completed = completed_by_size[0]
+    final_size_loss_gain = (
+        float(smallest_completed["final_heldout_loss"])
+        - float(largest_completed["final_heldout_loss"])
+    )
+    largest_curve = list(largest_completed["curve"])
+    largest_data_loss_gain = (
+        float(largest_curve[0]["heldout_loss"])
+        - float(largest_curve[-1]["heldout_loss"])
+        if len(largest_curve) >= 2
+        else 0.0
+    )
+    data_to_size_gain_ratio = (
+        largest_data_loss_gain / max(final_size_loss_gain, 1.0e-9)
+        if final_size_loss_gain > 0.0
+        else None
+    )
+    if best_is_largest and size_quality_monotonic:
+        branch_decision = (
+            "scale_data_at_selected_model_size"
+            if data_to_size_gain_ratio is not None
+            and data_to_size_gain_ratio >= 2.0
+            else "scale_transformer_data_and_model"
+        )
+    else:
+        branch_decision = "redesign_scaling_recipe_before_larger_run"
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
@@ -607,6 +641,19 @@ def run_language_scaling_experiment(
             "bpe_tokens": corpus_token_count,
             "row_provenance_report_expected": str(
                 corpus_path.with_suffix(".json")
+            ),
+            "explicit_eval_path": (
+                None if eval_corpus_file is None else str(eval_corpus_file)
+            ),
+            "explicit_eval_sha256": (
+                None
+                if eval_corpus_file is None
+                else hashlib.sha256(eval_corpus_file.read_bytes()).hexdigest()
+            ),
+            "explicit_eval_utf8_bytes": (
+                0
+                if eval_corpus is None
+                else len(eval_corpus.encode("utf-8"))
             ),
         },
         "tokenizer": {
@@ -629,11 +676,12 @@ def run_language_scaling_experiment(
             "size_quality_monotonic": size_quality_monotonic,
         },
         "scaling_law": scaling_law,
-        "branch_decision": (
-            "scale_transformer_data_and_model"
-            if best_is_largest and size_quality_monotonic
-            else "redesign_scaling_recipe_before_larger_run"
-        ),
+        "effect_sizes": {
+            "smallest_to_largest_final_heldout_loss_gain": final_size_loss_gain,
+            "largest_arm_first_to_final_data_loss_gain": largest_data_loss_gain,
+            "data_to_size_gain_ratio": data_to_size_gain_ratio,
+        },
+        "branch_decision": branch_decision,
         "quality_boundary": {
             "coherent_unseen_multisentence_generation_manually_verified": False,
             "promotes_generation_quality_claim": False,
@@ -665,6 +713,7 @@ def _parse_arm(value: str) -> ScalingArmConfig:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, required=True)
+    parser.add_argument("--eval-corpus", type=Path, default=None)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arm", action="append", type=_parse_arm, default=[])
     parser.add_argument("--token-budget", action="append", type=int, default=[])
@@ -708,6 +757,7 @@ def main() -> int:
     report = run_language_scaling_experiment(
         output_path=args.output,
         corpus_path=args.corpus,
+        eval_corpus_path=args.eval_corpus,
         prompts=tuple(args.prompt) or DEFAULT_PROMPTS,
         config=config,
     )
