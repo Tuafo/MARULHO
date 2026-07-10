@@ -106,17 +106,15 @@ harnesses.
   move toward GRU, or retire the recurrent language base for the Transformer.
   Heldout loss is primary; throughput and prompt pass counts cannot select the
   winner.
-  The corrected 2026-07-09 full-span report
-  `reports/language_architecture_bakeoff/nvidia-open-stratified-dense-bakeoff-20260709.json`
-  selects dense GRU over dense spiking at the `2097152`-token point (`2.4209`
-  versus `2.5259` heldout loss; `93519.719` versus `1988.129` update
-  tokens/sec). The follow-up two-layer scale report
-  `reports/language_architecture_bakeoff/nvidia-open-gru-scale2-20260709.json`
-  trains `16777216` tokens on an `891270`-parameter model, reaches heldout loss
-  `2.2101` / perplexity `9.1168`, and sustains `131072/131072` decode tokens at
-  `30455.404` tokens/sec. Controlled diverse generation is less repetitive but
-  still garbled and `0/4`, so the branch is `redesign_toward_gru_remove_routing`
-  while generation quality remains unpromoted.
+  The 2026-07-09 dense-GRU selection was an intermediate result that removed
+  routing and spikes. The matched BPE CUDA pilot
+  `reports/language_architecture_bakeoff/nvidia-open-bpe-transformer-pilot-20260710.json`
+  supersedes it: at `4194304` update tokens, Transformer heldout loss is
+  `6.0762` versus GRU `6.6979`, and Transformer training throughput is
+  `38269.498` versus `18590.293` tokens/sec. Transformer diverse generation is
+  still `0/4`, but it produces partially grammatical multi-sentence fragments;
+  the branch is `retire_recurrent_language_base_scale_transformer`, with no
+  generation-quality promotion.
 - `language_state_block_runtime_impact.py` measures complete no-grad LM forward
   impact for state-block sequence-buffer experiments. The current
   `524288` model-vocab batch-16/seq-64 report rejects no-grad mixed-state

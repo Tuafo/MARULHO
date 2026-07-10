@@ -88,15 +88,18 @@ CUDA claims require observed backend/device/failure-counter evidence, not config
 
 ## Current Validation
 
-The current base-language research branch changed on 2026-07-09. A matched,
-full-span CUDA bakeoff selected a dense multi-layer GRU core over both routed
-and dense selective-spiking variants, removed routed experts from the base
-learner, and replaced prefix-only bounded corpus truncation with stratified
-coverage. The first `891270`-parameter scale checkpoint trained `16777216`
-tokens at `59123.148` tokens/sec and reached heldout loss `2.2101`, but diverse
-generation remains garbled and `0/4`; this is a redesign/scale branch, not a
-generation-quality promotion. Continual repair and structural plasticity are
-paused until the base checkpoint demonstrates coherent unseen language.
+The current base-language branch is the MARULHO-owned causal Transformer with a
+checkpoint-owned BPE vocabulary. The 2026-07-10 matched BPE CUDA pilot
+`reports/language_architecture_bakeoff/nvidia-open-bpe-transformer-pilot-20260710.json`
+retired the recurrent language base: at `4194304` update tokens the
+`5249280`-parameter Transformer reached heldout loss `6.0762` at `38269.498`
+tokens/sec, versus the `3812352`-parameter dense GRU at loss `6.6979` and
+`18590.293` tokens/sec. Diverse unseen generation remains `0/4`, but the
+Transformer produces partially grammatical multi-sentence code/reasoning
+fragments where the GRU still collapses. This is an architecture branch, not a
+generation-quality promotion. Recurrent/SNN language routing is being removed;
+continual memory and plasticity remain paused until a Transformer checkpoint
+demonstrates coherent unseen language.
 
 Latest local validation snapshot, 2026-07-03 on a RTX3060:
 

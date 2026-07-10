@@ -380,13 +380,15 @@ continual learning and structural plasticity resume. The Transformer baseline
 uses rotary positions and bounded incremental KV state; it imports no model
 weights and therefore keeps `external_llm_used=false`.
 
-The 2026-07-09 full-span comparison selected dense GRU and rejected routing in
-the base language learner. The current scale branch therefore uses
-checkpointed multi-layer GRU recurrence, the real tokenizer vocabulary, and
-stratified corpus windows. Spikes, routed experts, continual repair, and
-structural mutation are downstream research modules until the base checkpoint
-generates coherent unseen text. This is an evidence-driven branch, not a claim
-that dense GRU is the final MARULHO architecture.
+The 2026-07-09 full-span comparison selected dense GRU over spiking recurrence
+and rejected routing. The 2026-07-10 matched BPE comparison then superseded
+that intermediate branch: the causal Transformer has a lower heldout loss at
+both tested token budgets, trains about twice as fast at the final point, and
+produces materially more structured unseen fragments. The recurrent/SNN
+language base and routed experts are therefore retired rather than retained as
+compatibility paths. Continual memory, PMRM-style fast/episodic state, LCO-style
+grounding, and structural mutation remain downstream until the Transformer base
+generates coherent unseen text.
 
 ## Surrogate Gradient
 
