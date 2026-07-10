@@ -54,12 +54,16 @@ from marulho.data.language_tokenizer import (
     LanguageTokenizer,
     load_language_tokenizer_state,
 )
+from marulho.training.language_transformer import (
+    MarulhoCausalTransformerStateBlock,
+)
 
 
 LANGUAGE_STATE_CORE_KINDS = (
     "selective_spiking",
     "selective_continuous",
     "gru",
+    "transformer",
 )
 
 
@@ -70,6 +74,11 @@ class LanguageModelConfig:
     state_dim: int = 128
     state_core: str = "selective_spiking"
     state_layers: int = 1
+    attention_heads: int = 4
+    transformer_context_length: int = 256
+    transformer_mlp_ratio: float = 4.0
+    transformer_dropout: float = 0.0
+    tie_embeddings: bool = False
     spike_slope: float = 5.0
     adaptive_timestep_budget: int = 1
     expert_count: int = 0
@@ -1357,6 +1366,16 @@ def build_language_state_block(config: LanguageModelConfig) -> nn.Module:
             state_layers=config.state_layers,
             recurrent_gradient_horizon=config.recurrent_gradient_horizon,
         )
+    if kind == "transformer":
+        return MarulhoCausalTransformerStateBlock(
+            config.embedding_dim,
+            config.state_dim,
+            state_layers=config.state_layers,
+            attention_heads=config.attention_heads,
+            context_length=config.transformer_context_length,
+            mlp_ratio=config.transformer_mlp_ratio,
+            dropout=config.transformer_dropout,
+        )
     raise ValueError(
         f"Unsupported language state core {config.state_core!r}; "
         f"expected one of {LANGUAGE_STATE_CORE_KINDS}"
@@ -1965,8 +1984,19 @@ class MarulhoLanguageModel(nn.Module):
             )
         if int(config.state_layers) < 1:
             raise ValueError("state_layers must be at least one")
-        if str(config.state_core).strip().lower() != "gru" and int(config.state_layers) != 1:
-            raise ValueError("state_layers greater than one currently requires state_core='gru'")
+        state_core = str(config.state_core).strip().lower()
+        if state_core not in {"gru", "transformer"} and int(config.state_layers) != 1:
+            raise ValueError(
+                "state_layers greater than one requires state_core='gru' or 'transformer'"
+            )
+        if int(config.attention_heads) < 1:
+            raise ValueError("attention_heads must be at least one")
+        if int(config.transformer_context_length) < 2:
+            raise ValueError("transformer_context_length must be at least two")
+        if state_core == "transformer" and int(config.recurrent_gradient_horizon) != 0:
+            raise ValueError("Transformer state core does not use recurrent_gradient_horizon")
+        if bool(config.tie_embeddings) and int(config.embedding_dim) != int(config.state_dim):
+            raise ValueError("tie_embeddings requires embedding_dim == state_dim")
         self.config = config
         self.token_embedding = nn.Embedding(
             config.vocab_size,
@@ -1982,6 +2012,15 @@ class MarulhoLanguageModel(nn.Module):
             expert_hidden_dim=config.expert_hidden_dim,
         )
         self.lm_head = nn.Linear(config.state_dim, config.vocab_size)
+        if bool(config.tie_embeddings):
+            self.lm_head.weight = self.token_embedding.weight
+        if state_core == "transformer":
+            for module in self.modules():
+                if isinstance(module, (nn.Linear, nn.Embedding)):
+                    nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                    bias = getattr(module, "bias", None)
+                    if isinstance(bias, torch.Tensor):
+                        nn.init.zeros_(bias)
         memory_slot_count = max(0, int(config.memory_slot_count))
         if memory_slot_count > 0:
             self.memory_slots = nn.Parameter(

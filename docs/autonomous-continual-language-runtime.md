@@ -368,14 +368,17 @@ complete-runtime impact evidence.
 
 The selective-spiking block is a hypothesis, not a permanent compatibility
 boundary. `LanguageModelConfig.state_core` also supports continuous selective
-recurrence and a dense GRU baseline under the same MARULHO-owned tokenizer,
+recurrence, a dense GRU baseline, and a MARULHO-owned causal Transformer under
+the same MARULHO-owned tokenizer,
 experts, LM head, checkpoint, and generation contracts. The architecture
 bakeoff additionally disables routing on the spiking core to isolate whether
 sparse experts help or destabilize base learning. Shared data, seeds, token
 budgets, heldout prompts, and parameter inventories make the comparison
 reviewable. If a baseline wins sustained heldout-loss curves and unseen
 generation, the next branch replaces or hybridizes the current core before
-continual learning and structural plasticity resume.
+continual learning and structural plasticity resume. The Transformer baseline
+uses rotary positions and bounded incremental KV state; it imports no model
+weights and therefore keeps `external_llm_used=false`.
 
 The 2026-07-09 full-span comparison selected dense GRU and rejected routing in
 the base language learner. The current scale branch therefore uses

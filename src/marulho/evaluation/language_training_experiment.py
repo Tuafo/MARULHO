@@ -61,6 +61,11 @@ class LanguageTrainingExperimentConfig:
     state_dim: int = 64
     state_core: str = "selective_spiking"
     state_layers: int = 1
+    attention_heads: int = 4
+    transformer_context_length: int = 256
+    transformer_mlp_ratio: float = 4.0
+    transformer_dropout: float = 0.0
+    tie_embeddings: bool = False
     expert_count: int = 8
     active_expert_count: int = 2
     route_candidate_count: int = 4
@@ -126,12 +131,19 @@ def _model_config(
     if sampled_vocab_size >= model_vocab_size:
         raise ValueError("sampled_vocab_size must be smaller than model_vocab_size")
     sparse_vocab_gradients = bool(config.sparse_vocab_optimizer and sampled_vocab_size > 0)
+    if bool(config.tie_embeddings) and sparse_vocab_gradients:
+        raise ValueError("tie_embeddings is incompatible with sparse sampled-vocab training")
     return LanguageModelConfig(
         vocab_size=model_vocab_size,
         embedding_dim=int(config.embedding_dim),
         state_dim=int(config.state_dim),
         state_core=str(config.state_core),
         state_layers=max(1, int(config.state_layers)),
+        attention_heads=max(1, int(config.attention_heads)),
+        transformer_context_length=max(2, int(config.transformer_context_length)),
+        transformer_mlp_ratio=float(config.transformer_mlp_ratio),
+        transformer_dropout=float(config.transformer_dropout),
+        tie_embeddings=bool(config.tie_embeddings),
         adaptive_timestep_budget=int(config.adaptive_timestep_budget),
         recurrent_gradient_horizon=max(0, int(config.recurrent_gradient_horizon)),
         expert_count=int(config.expert_count),
@@ -1240,10 +1252,15 @@ def main() -> int:
     parser.add_argument("--state-dim", type=int, default=64)
     parser.add_argument(
         "--state-core",
-        choices=("selective_spiking", "selective_continuous", "gru"),
+        choices=("selective_spiking", "selective_continuous", "gru", "transformer"),
         default="selective_spiking",
     )
     parser.add_argument("--state-layers", type=int, default=1)
+    parser.add_argument("--attention-heads", type=int, default=4)
+    parser.add_argument("--transformer-context-length", type=int, default=256)
+    parser.add_argument("--transformer-mlp-ratio", type=float, default=4.0)
+    parser.add_argument("--transformer-dropout", type=float, default=0.0)
+    parser.add_argument("--tie-embeddings", action="store_true")
     parser.add_argument("--expert-count", type=int, default=8)
     parser.add_argument("--active-expert-count", type=int, default=2)
     parser.add_argument("--route-candidate-count", type=int, default=4)
@@ -1290,6 +1307,11 @@ def main() -> int:
         state_dim=args.state_dim,
         state_core=args.state_core,
         state_layers=max(1, int(args.state_layers)),
+        attention_heads=max(1, int(args.attention_heads)),
+        transformer_context_length=max(2, int(args.transformer_context_length)),
+        transformer_mlp_ratio=float(args.transformer_mlp_ratio),
+        transformer_dropout=float(args.transformer_dropout),
+        tie_embeddings=bool(args.tie_embeddings),
         expert_count=args.expert_count,
         active_expert_count=args.active_expert_count,
         route_candidate_count=args.route_candidate_count,

@@ -101,3 +101,60 @@ def test_language_architecture_bakeoff_compares_shared_data_and_decides(tmp_path
         ),
     )
     assert reused["quality_curves"] == report["quality_curves"]
+
+
+def test_language_architecture_bakeoff_accepts_transformer_falsification_arm(
+    tmp_path,
+) -> None:
+    corpus = tmp_path / "transformer-corpus.txt"
+    corpus.write_text(
+        (
+            "Causal attention predicts each token only from the prefix. "
+            "A recurrent baseline receives the same source windows.\n"
+        )
+        * 40,
+        encoding="utf-8",
+    )
+    report = run_language_architecture_bakeoff(
+        output_path=tmp_path / "transformer-bakeoff.json",
+        corpus_path=corpus,
+        config=LanguageArchitectureBakeoffConfig(
+            training=LanguageTrainingExperimentConfig(
+                embedding_dim=16,
+                state_dim=16,
+                state_layers=1,
+                attention_heads=4,
+                transformer_context_length=128,
+                transformer_mlp_ratio=2.0,
+                expert_count=0,
+                active_expert_count=1,
+                sequence_length=12,
+                stride=6,
+                batch_size=2,
+                max_train_batches=1,
+                max_eval_batches=1,
+                generation_tokens=1,
+                sustained_target_tokens=1,
+                sustained_tick_tokens=1,
+                sustained_quantum_tokens=1,
+                sustained_timeout_seconds=30.0,
+                device="cpu",
+            ),
+            variants=("gru_dense", "transformer_dense"),
+            epoch_budgets=(1,),
+            seeds=(23,),
+            heldout_prompt_count=1,
+            heldout_prompt_characters=12,
+        ),
+    )
+
+    assert {row["variant"] for row in report["quality_curves"]} == {
+        "gru_dense",
+        "transformer_dense",
+    }
+    assert report["decision"]["winner"] in {"gru_dense", "transformer_dense"}
+    transformer = next(
+        row for row in report["quality_curves"] if row["variant"] == "transformer_dense"
+    )
+    assert transformer["state_core"] == "transformer"
+    assert transformer["external_llm_used"] is False

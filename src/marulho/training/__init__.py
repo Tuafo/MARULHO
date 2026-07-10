@@ -33,6 +33,7 @@ from .language_model import (
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
+from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_structural_plasticity import (
     LanguageStructuralPlasticityConfig,
     apply_language_structural_plasticity_transaction,
@@ -55,6 +56,7 @@ __all__ = [
     "LanguageSplit",
     "LanguageStructuralPlasticityConfig",
     "MarulhoGRUStateBlock",
+    "MarulhoCausalTransformerStateBlock",
     "MarulhoLanguageModel",
     "MarulhoModel",
     "MarulhoSelectiveContinuousStateBlock",

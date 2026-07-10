@@ -77,7 +77,7 @@ harnesses.
   Triton/CUDA kernel parity evidence exist.
 - `language_training_experiment.py` is the fast mutable LM experiment runner.
   It trains a configurable MARULHO-owned LM with selective-spiking,
-  selective-continuous, or GRU recurrent state on local
+  selective-continuous, GRU recurrent state, or a causal Transformer on local
   text using packed device-resident windows, records training throughput,
   heldout loss/perplexity before and after training, owned generation samples,
   source-continuation quality probes, a checkpoint, and paired sustained
@@ -97,13 +97,15 @@ harnesses.
   It is meant to accelerate model experiments, not create a new promotion gate.
 - `language_architecture_bakeoff.py` is the base-capability decision runner. It
   compares routed selective-spiking, dense/no-routing spiking,
-  routed selective-continuous, routed GRU, and dense GRU arms under shared data, seeds,
+  routed selective-continuous, routed GRU, dense GRU, and dense causal
+  Transformer arms under shared data, seeds,
   optimizer/token budgets, heldout prompts, checkpoints, and sustained decode.
   It records total/core/routing parameter counts and heldout quality curves
   across epoch budgets, then emits one explicit branch: scale the routed
   spiking core, remove routing, hybridize toward continuous selective state, or
-  move toward GRU, with or without routing. Heldout loss is primary; throughput and prompt pass counts
-  cannot select the winner.
+  move toward GRU, or retire the recurrent language base for the Transformer.
+  Heldout loss is primary; throughput and prompt pass counts cannot select the
+  winner.
   The corrected 2026-07-09 full-span report
   `reports/language_architecture_bakeoff/nvidia-open-stratified-dense-bakeoff-20260709.json`
   selects dense GRU over dense spiking at the `2097152`-token point (`2.4209`

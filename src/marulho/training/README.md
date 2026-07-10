@@ -65,13 +65,17 @@ developmental and consolidation runners, query runners, and long-run evidence.
   contract; BPE checkpoints carry the complete MARULHO-trained vocabulary and
   do not depend on a remote tokenizer artifact at restore time.
 - `LanguageModelConfig.state_core` is the breaking-change seam for base-model
-  falsification. `selective_spiking`, `selective_continuous`, and `gru` share
+  falsification. `selective_spiking`, `selective_continuous`, `gru`, and
+  `transformer` share
   tokenizer, embedding, routed-expert, LM-head, checkpoint, generation, and
   sustained-runtime contracts. They are competing architectures, not permanent
   compatibility promises; parameter inventories make core and routing cost
-  visible before a branch is selected. The GRU core also supports checkpointed
-  `state_layers > 1`; non-GRU reference cores remain single-layer until they
-  earn further scaling work.
+  visible before a branch is selected. GRU and Transformer cores support
+  checkpointed `state_layers > 1`; reference selective cores remain
+  single-layer until they earn further scaling work. The Transformer is a
+  MARULHO implementation rather than an imported model: RMSNorm/SwiGLU blocks,
+  causal scaled-dot-product attention, rotary positions, optional tied token
+  embeddings, and bounded per-layer KV state all live under `training`.
 - The current `MarulhoSelectiveSpikingStateBlock` is the Iteration 3 PyTorch
   foundation: RMSNorm stabilization, input-dependent leak/threshold, trainable
   current terms, selective recurrent state, eligibility trace cache, adaptive

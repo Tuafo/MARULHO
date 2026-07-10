@@ -34,6 +34,7 @@ DEFAULT_VARIANTS = (
     "selective_continuous_routed",
     "gru_routed",
     "gru_dense",
+    "transformer_dense",
 )
 
 
@@ -155,6 +156,18 @@ def _variant_training_config(
         return replace(
             base,
             state_core="gru",
+            expert_count=0,
+            active_expert_count=1,
+            route_candidate_count=0,
+            expert_hidden_dim=0,
+            **common,
+        )
+    if variant == "transformer_dense":
+        return replace(
+            base,
+            state_core="transformer",
+            recurrent_gradient_horizon=0,
+            tie_embeddings=bool(base.embedding_dim == base.state_dim),
             expert_count=0,
             active_expert_count=1,
             route_candidate_count=0,
@@ -284,6 +297,7 @@ def _branch_decision(
             "selective_continuous_routed": "redesign_toward_continuous_or_hybrid",
             "gru_routed": "redesign_toward_gru_or_hybrid",
             "gru_dense": "redesign_toward_gru_remove_routing",
+            "transformer_dense": "retire_recurrent_language_base_scale_transformer",
         }[str(winner["variant"])]
         reason = "lowest final-budget heldout loss; generation quality is tie-break only"
     return {
@@ -529,12 +543,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, default=None)
+    parser.add_argument("--tokenizer-kind", choices=("byte", "bpe"), default="byte")
+    parser.add_argument("--tokenizer-vocab-size", type=int, default=4096)
+    parser.add_argument("--tokenizer-min-frequency", type=int, default=2)
     parser.add_argument("--variant", action="append", default=[])
     parser.add_argument("--seed", action="append", type=int, default=[])
     parser.add_argument("--epoch-budget", action="append", type=int, default=[])
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--state-dim", type=int, default=128)
     parser.add_argument("--state-layers", type=int, default=1)
+    parser.add_argument("--attention-heads", type=int, default=4)
+    parser.add_argument("--transformer-context-length", type=int, default=256)
+    parser.add_argument("--transformer-mlp-ratio", type=float, default=4.0)
+    parser.add_argument("--transformer-dropout", type=float, default=0.0)
     parser.add_argument("--expert-count", type=int, default=8)
     parser.add_argument("--active-expert-count", type=int, default=2)
     parser.add_argument("--route-candidate-count", type=int, default=4)
@@ -554,9 +575,16 @@ def main() -> int:
     args = parser.parse_args()
 
     training = LanguageTrainingExperimentConfig(
+        tokenizer_kind=args.tokenizer_kind,
+        tokenizer_vocab_size=max(512, int(args.tokenizer_vocab_size)),
+        tokenizer_min_frequency=max(1, int(args.tokenizer_min_frequency)),
         embedding_dim=args.embedding_dim,
         state_dim=args.state_dim,
         state_layers=max(1, int(args.state_layers)),
+        attention_heads=max(1, int(args.attention_heads)),
+        transformer_context_length=max(2, int(args.transformer_context_length)),
+        transformer_mlp_ratio=float(args.transformer_mlp_ratio),
+        transformer_dropout=float(args.transformer_dropout),
         expert_count=args.expert_count,
         active_expert_count=args.active_expert_count,
         route_candidate_count=args.route_candidate_count,
