@@ -61,8 +61,8 @@ class PMRMFalsificationArm:
 class PMRMFalsificationConfig:
     token_budget: int = 1_048_576
     relation_fraction: float = 0.20
-    sequence_length: int = 64
-    batch_size: int = 160
+    sequence_length: int = 72
+    batch_size: int = 144
     eval_batches: int = 16
     relation_eval_batch_size: int = 64
     learning_rate: float = 3.0e-4
@@ -771,8 +771,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arm", action="append", default=[])
     parser.add_argument("--token-budget", type=int, default=1_048_576)
-    parser.add_argument("--sequence-length", type=int, default=64)
-    parser.add_argument("--batch-size", type=int, default=160)
+    parser.add_argument("--sequence-length", type=int, default=72)
+    parser.add_argument("--batch-size", type=int, default=144)
     parser.add_argument("--eval-batches", type=int, default=16)
     parser.add_argument("--relation-eval-batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=3.0e-4)
