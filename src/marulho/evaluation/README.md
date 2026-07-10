@@ -62,6 +62,12 @@ frozen source-balanced schedule, parameters, optimizer, relation/general
 evaluation, gradient coverage, state bytes, wall time, throughput, and CUDA
 memory. Candidate screens cannot install a runtime model.
 
+**`language_sparse_event_falsification.py`** — trains exact-only, dense-sidecar,
+random-sparse, and utility-sparse v2 arms on one frozen 20/40/40 real-language
+schedule. Random and utility execute the same one-of-four specialist budget;
+utility alone receives explicit counterfactual probes. The selector must beat
+random and avoid harming the complete exact stream before v2 can scale.
+
 The retired delta falsification and unseen-generation runners established the
 same-tokenizer, frozen-schedule contract for recurrent replacement experiments.
 Their code and rejected checkpoint are deleted after the 16.78M-token result;
