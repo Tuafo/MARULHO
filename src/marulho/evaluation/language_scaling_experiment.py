@@ -35,7 +35,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v3"
+SURFACE = "marulho_transformer_scaling_experiment.v4"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -706,7 +706,9 @@ def run_language_scaling_experiment(
     wall_clock_comparison_accepted = (
         budget_basis != "empirical_wall_clock" or training_elapsed_ratio <= 1.15
     )
-    if budget_basis == "empirical_wall_clock":
+    if len(completed_by_size) == 1:
+        branch_decision = "continue_data_scaling_at_selected_model_size"
+    elif budget_basis == "empirical_wall_clock":
         if not wall_clock_comparison_accepted:
             branch_decision = "recalibrate_empirical_wall_clock_budgets"
         elif best["name"] == smallest_completed["name"]:
@@ -906,7 +908,7 @@ def main() -> int:
         prompts=tuple(args.prompt) or DEFAULT_PROMPTS,
         config=config,
     )
-    return 0 if int(report["completed_arm_count"]) >= 2 else 1
+    return 0 if int(report["completed_arm_count"]) >= 1 else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

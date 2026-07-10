@@ -20,7 +20,9 @@ keeps later-offset holdout documents entirely outside training. Its separate
 multipliers, reports unique and repeated updates, and rejects the comparison
 when actual training times differ by more than 15 percent. Unequal-token runs
 cannot be mislabeled as scaling-law grids. Repeated `--corpus` arguments train
-one tokenizer and split over multiple provenance-recorded corpus shards.
+one tokenizer and split over multiple provenance-recorded corpus shards. A
+single arm is a maintained data-scaling curve and emits
+`continue_data_scaling_at_selected_model_size`, not a fictitious size winner.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

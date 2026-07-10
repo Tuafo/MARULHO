@@ -94,6 +94,39 @@ def test_equal_token_basis_rejects_arm_multiplier() -> None:
         raise AssertionError("Expected mismatched budget basis to be rejected")
 
 
+def test_single_arm_is_a_data_curve_not_a_size_decision(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus.txt"
+    eval_corpus = tmp_path / "eval.txt"
+    corpus.write_text("A small clean training stream. " * 64, encoding="utf-8")
+    eval_corpus.write_text("A separate evaluation stream. " * 32, encoding="utf-8")
+
+    report = run_language_scaling_experiment(
+        output_path=tmp_path / "curve.json",
+        corpus_paths=(corpus,),
+        eval_corpus_path=eval_corpus,
+        prompts=("An absent prompt",),
+        config=LanguageScalingExperimentConfig(
+            tokenizer_vocab_size=512,
+            sequence_length=8,
+            stride=8,
+            batch_size=2,
+            max_train_batches=4,
+            max_eval_batches=2,
+            token_budgets=(32, 64),
+            arms=(ScalingArmConfig("selected", 16, 1, 4, mlp_ratio=2.0),),
+            transformer_context_length=16,
+            learning_rate=1.0e-3,
+            precision="float32",
+            generation_tokens=2,
+            device="cpu",
+        ),
+    )
+
+    assert report["completed_arm_count"] == 1
+    assert report["selection"]["selected_arm"] == "selected"
+    assert report["branch_decision"] == "continue_data_scaling_at_selected_model_size"
+
+
 def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     tmp_path: Path,
 ) -> None:
