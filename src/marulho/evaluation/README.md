@@ -46,39 +46,33 @@ corpus, then delete the temporary parquet after conversion.
 
 ## Current Branch Decision
 
-The 2026-07-10 unique-data curve is stored locally at:
+The 2026-07-10 explicit-record coherence diagnostic is stored locally at:
 
-`reports/language_scaling/fineweb-edu-21m-50m-unique-20260710.json`
+`reports/language_scaling/tinystories-21m-50m-diagnostic-20260710.json`
 
 | Update tokens | Unique | Repeated | Heldout loss | Perplexity | Train tokens/s |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16,777,216 | 16,777,216 | 0 | 4.5754 | 97.07 | 72,125 |
-| 33,554,432 | 33,554,432 | 0 | 4.1328 | 62.35 | 72,498 |
-| 50,331,648 | 50,331,648 | 0 | 3.9889 | 54.00 | 72,531 |
+| 16,777,216 | 16,777,216 | 0 | 2.1879 | 8.92 | 66,698 |
+| 33,554,432 | 33,554,432 | 0 | 1.9520 | 7.04 | 67,013 |
+| 50,334,464 | 50,334,464 | 0 | 1.8573 | 6.41 | 67,210 |
 
-The stream contains 57,963,348 BPE tokens. The artifact branch is
-`continue_data_scaling_at_selected_model_size`, but the gain contracts from
-0.4426 to 0.1439 loss across equal 16.8M-token intervals. All four unseen
-continuations still fail coherent causal continuation; one retains the
-malformed hyphen-chain failure.
+The split owns 250,001 training records and 21,991 evaluation records, including
+one provenance header per file. All four unseen prompts produce grammatical,
+prompt-conditioned multi-sentence continuations. The scientific branch is
+`keep_transformer_scale_curated_general_curriculum`; the artifact's generic
+single-arm branch string remains `continue_data_scaling_at_selected_model_size`.
+
+This passes a restricted coherence diagnostic, not Base-Language Qualification.
+Entity names, object properties, character roles, and causal closure still
+fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-### 1. Coherence falsification
+### 1. General quality scale run
 
-Train the same 21M architecture on an official TinyStories train shard and
-evaluate on its official validation split with story-completion prompts. The
-published benchmark reports coherent English from smaller Transformers. Treat
-the result only as a recipe diagnostic:
-
-- pass: keep the Transformer recipe and scale a cleaner general curriculum;
-- fail: redesign tokenizer, optimization, or decoding before more base compute;
-- never promote TinyStories-only quality as general-language quality.
-
-### 2. General quality scale run
-
-If the diagnostic passes, train the 21M model with more unique, high-quality
-general-language data. Record:
+Train the 21M model with a provenance-recorded mixture of structured synthetic
+textbooks/stories and educational web text. Every source must use explicit
+document records. Record:
 
 - heldout loss at multiple token budgets;
 - training and evaluation token counts;
@@ -87,7 +81,11 @@ general-language data. Record:
 - exact checkpoint hash and restoration;
 - observed CUDA throughput and peak memory.
 
-### 3. Local scaling grid
+Evaluate entity-name retention, object-property consistency, role consistency,
+causal closure, and the original general prompts. Do not let a narrow story
+pass substitute for general quality.
+
+### 2. Local scaling grid
 
 Fit, rather than assume:
 
@@ -97,7 +95,7 @@ Use approximately 5M, 20M, and the largest feasible 60-100M-class model on the
 RTX 3060, several token budgets per size, and repeated seeds where the result
 could change the branch. A two-point curve for one model is insufficient.
 
-### 4. Adaptive memory
+### 3. Adaptive memory
 
 Only after base-language qualification, compare surprise-selected episodic
 memory with:
@@ -111,7 +109,7 @@ memory with:
 Fast associative weights are a later ablation, not bundled into the first
 memory test.
 
-### 5. Continual and sustained validation
+### 4. Continual and sustained validation
 
 From the same quality-qualified checkpoint:
 

@@ -195,16 +195,29 @@ but the interval gain contracts from 0.4426 to 0.1439. Unseen continuations are
 more prompt-related yet still repetitive, sometimes malformed, and causally
 incoherent.
 
-Decision: `continue_data_scaling_at_selected_model_size`; language quality is
-not promoted.
+The subsequent explicit-record TinyStories diagnostic used the same 21M
+architecture, 250,000 official training rows, all 21,990 validation rows, and
+50,334,464 unique update tokens:
+
+| Update tokens | Heldout loss | Perplexity | Train time | Tokens/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 16,777,216 | 2.1879 | 8.92 | 251.5 s | 66,698 |
+| 33,554,432 | 1.9520 | 7.04 | 500.7 s | 67,013 |
+| 50,334,464 | 1.8573 | 6.41 | 748.9 s | 67,210 |
+
+All four unseen story prompts produced grammatical, prompt-conditioned,
+multi-sentence continuations. Three emitted EOS before the 192-token cap; one
+continued to the cap. The remaining failures are entity drift, object-property
+contradiction, role confusion, and incomplete causal closure.
+
+Decision: `keep_transformer_scale_curated_general_curriculum`.
 
 Interpretation: 21M parameters remains the local compute optimum in the tested
-range, but more raw general data alone has not established coherent language.
-The next bounded falsification is a TinyStories coherence diagnostic. Published
-work reports coherent multi-paragraph English from smaller Transformers on that
-restricted corpus. Success would isolate general-corpus scale and curriculum as
-the blocker; failure would force a tokenizer, optimization, or decoding recipe
-redesign. TinyStories cannot itself qualify general language.
+range, and the base recipe can learn coherent English. Raw general-web scale and
+curriculum quality—not basic Transformer incapacity—are the active blockers.
+TinyStories is a restricted diagnostic and does not qualify general language.
+The next run must mix structured synthetic textbooks/stories with explicit-
+record educational web data, then evaluate the original general prompts.
 
 ## Retired Language Concepts
 
@@ -229,9 +242,9 @@ must not present them as active capability.
 
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
-3. Run the 21M TinyStories diagnostic to falsify the coherence recipe.
-4. If it passes, scale higher-quality general-language data; if it fails,
-   redesign the base recipe before spending more general-corpus compute.
+3. Pass the 21M TinyStories coherence falsification.
+4. Scale a curated explicit-record general-language curriculum at 21M and test
+   entity, property, role, and causal consistency on unseen prompts.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.

@@ -63,13 +63,22 @@ is still not a quality promotion: continuations are more prompt-related, but
 remain repetitive, sometimes malformed, and incoherent. The marginal loss gain
 also contracts sharply in the last interval.
 
-The next experiment is a TinyStories coherence diagnostic, not a retreat to a
-toy objective. The [TinyStories paper](https://arxiv.org/abs/2305.07759) reports
-coherent multi-paragraph English from models smaller than MARULHO on a
-restricted corpus. If MARULHO fails the same kind of task, the base recipe needs
-redesign; if it passes, general-corpus scale and curriculum are the blocker. The
-current evidence artifact is local at
-`reports/language_scaling/fineweb-edu-21m-50m-unique-20260710.json`.
+The coherence diagnostic passed. With 250,000 official TinyStories training
+records, the complete 21,990-record validation split, and 50.33M unique updates,
+the same 21M model reached loss 1.8573 / perplexity 6.41. All four unseen prompts
+produced grammatical, prompt-conditioned multi-sentence stories; three emitted
+EOS before the 192-token cap.
+
+This does not promote general-language quality. Names still drift, object
+properties contradict, character roles blur, and one story does not close. But
+it falsifies basic architecture incapacity: the 21M MARULHO Transformer can
+learn coherent English. The active blocker is a general curriculum that teaches
+structured knowledge and consistency. The [TinyStories paper](https://arxiv.org/abs/2305.07759)
+motivates the diagnostic; the next mixture follows the data lesson from
+[Hugging Face's SmolLM work](https://huggingface.co/blog/smollm): structured
+synthetic textbooks/stories plus deduplicated educational web data. The current
+artifact is local at
+`reports/language_scaling/tinystories-21m-50m-diagnostic-20260710.json`.
 
 ## Research Objective
 
@@ -81,8 +90,9 @@ The priority order is:
 
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
-2. Falsify the current coherence recipe on a bounded small-model benchmark.
-3. Scale or redesign the 21M base from that result.
+2. Preserve the coherence-qualified 21M recipe.
+3. Scale a curated explicit-record general curriculum and test entity/causal
+   consistency.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint
