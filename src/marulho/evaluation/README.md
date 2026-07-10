@@ -55,6 +55,30 @@ curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
+The active 2026-07-10 document-disjoint continuation is stored locally at:
+
+`reports/language_scaling/cosmopedia-v2-21m-150m-continuation-20260710.json`
+
+It restored the prior 50,331,648-token weights/tokenizer, trained on 150,000
+new shard-1 Cosmopedia records, and evaluated 10,000 shard-2 records that did
+not train the checkpoint tokenizer.
+
+| Phase update tokens | Cumulative tokens | Strict loss | Perplexity | Selected epochs | Repeated | Tokens/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 50,331,648 | 3.1289 | 22.85 | 0.00 | 0 | — |
+| 50,331,648 | 100,663,296 | 2.9863 | 19.81 | 0.41 | 0 | 64,765 |
+| 100,663,296 | 150,994,944 | 2.7681 | 15.93 | 0.82 | 0 | 64,785 |
+
+All six unseen generations still reached 192 tokens. Some topical adherence
+improved, but entity/property binding and causal closure still fail. This is a
+better continual-pretraining base, not Base-Language Qualification. The branch
+is `mix_fresh_structured_and_educational_web_data_at_21m`. The active 256.4 MiB
+checkpoint reloads with 150,994,944 cumulative tokens, 36,864 optimizer steps,
+26 AdamW state entries, and exact RNG/batch position; SHA-256 is
+`7fcaa42ed2a32c2c4f2bbba60d632b9a4b78385852a6613141c77372a59998fd`.
+
+### First structured-general ablation
+
 The 2026-07-10 first Cosmopedia v2 structured-general ablation is stored
 locally at:
 

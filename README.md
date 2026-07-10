@@ -93,6 +93,19 @@ a tokenizer-disjoint holdout, then decide from the longer curve whether to
 scale data/model size or add memory/grounding machinery. The local artifact is
 `reports/language_scaling/cosmopedia-v2-21m-50m-20260710.json`.
 
+The next continuation restored those weights/tokenizer, trained on 150,000 new
+Cosmopedia records from shard 1, and evaluated 10,000 tokenizer-disjoint records
+from shard 2. Strict holdout loss fell from 3.1289 before the phase to 2.9863 at
+100.66M cumulative updates and 2.7681 at 150.99M; neither 50M phase repeated a
+selected training window. Prompt adherence improved slightly, especially for
+rain/soil and server/data, but all six outputs still hit 192 tokens and entity/
+causal binding still failed. The checkpoint is a better continual-pretraining
+base, not a quality promotion. It now owns exact AdamW/scaler/RNG/batch state:
+`reports/language_scaling/cosmopedia-v2-21m-150m-continuation-20260710-21m-checkpoint.pt`
+(SHA-256 `7fcaa42ed2a32c2c4f2bbba60d632b9a4b78385852a6613141c77372a59998fd`).
+The next ablation mixes fresh structured prose with educational-web text rather
+than amplifying Cosmopedia's synthetic style alone.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -104,8 +117,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Continue the curated explicit-record general curriculum on new documents
-   and test entity/causal consistency against a strict holdout.
+3. Continue a mixed explicit-record structured/educational-web curriculum on
+   new documents and test entity/causal consistency against a strict holdout.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

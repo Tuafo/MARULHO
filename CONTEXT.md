@@ -242,6 +242,25 @@ never trained the checkpoint tokenizer, and preserve fresh-versus-repeated
 token accounting. If the longer curve flattens without state consistency,
 scale/redesign from that evidence rather than from prose fluency alone.
 
+The document-disjoint continuation restored the 50.33M-token weights/tokenizer,
+trained on 150,000 new shard-1 records, and held out 10,000 shard-2 records that
+never trained the tokenizer. On this strict holdout, loss moved from 3.1289
+before the phase to 2.9863 at 100,663,296 cumulative tokens and 2.7681 at
+150,994,944. Both phase points used fresh selected windows. Rain/soil and
+server/data adherence improved, but every continuation still hit 192 tokens;
+key/box and coin/cup state mutated or vanished, and causal explanations still
+degenerated. This remains below Base-Language Qualification.
+
+Decision: `mix_fresh_structured_and_educational_web_data_at_21m`.
+
+The active checkpoint is the 150,994,944-token continuation with exact
+optimizer/scaler/RNG/batch-position metadata. Its SHA-256 is
+`7fcaa42ed2a32c2c4f2bbba60d632b9a4b78385852a6613141c77372a59998fd`.
+Continue these weights on an explicit Cosmopedia/FineWeb-Edu ablation. Do not
+add episodic memory merely to compensate for an undertrained base; do not keep
+scaling synthetic textbook style if strict loss improves without entity/causal
+binding.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -266,9 +285,9 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Continue the curated explicit-record general-language curriculum at 21M on
-   new documents and test entity, property, role, and causal consistency on a
-   tokenizer-disjoint holdout.
+4. Continue a mixed explicit-record structured/educational-web curriculum at
+   21M on new documents and test entity, property, role, and causal consistency
+   on a tokenizer-disjoint holdout.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.
