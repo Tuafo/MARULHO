@@ -113,21 +113,26 @@ because a tiny model has high tokens per second. A meaningful win would be, for
 example, better retained adaptation or long-context recall than a larger static
 baseline under the same VRAM, wall-clock, and data budget.
 
-## Planned Adaptive Architecture
+## Adaptive Architecture Status
 
 These concepts are hypotheses and must not appear as implemented capabilities.
 
-**Editable Delta-Memory Candidate** — the next base-language competitor. It is
-a fixed-size recurrent fast-weight state, not an SNN, PMRM column stack, or
-prompt extension. Each token reads the state and updates it through
-channel-wise decay plus separately learned erase and write gates. Pure recurrent
-and local-attention hybrid variants must share one language/checkpoint contract
-and be matched against the Transformer on parameters, tokens, optimizer,
-hardware, data order, and evaluations. A PyTorch reference establishes causal
-forward/backward truth before fused execution is claimed. The reference now
-lives in `src/marulho/training/language_delta.py`; both 20.98M-parameter arms
-have full gradient, causal scan/step, generation, and recurrent-state tests but
-no quality result or runtime promotion yet.
+**Retired Editable Delta-Memory Candidate v1** — a tested fixed-state recurrent
+fast-weight competitor with channel-wise decay and separate erase/write gates.
+The 2-delta/2-attention hybrid beat the Transformer early, but the advantage
+disappeared by 16.78M tokens. It then lost heldout loss and free relation recall,
+failed unseen semantic generation, and trained about ten times slower. Its
+implementation, runner, tests, rejected checkpoint, and schedule caches are
+deleted; compact reports and git history retain the evidence.
+
+**Distributed Predictive Organism Candidate** — the next base-language
+hypothesis. Exact recent retrieval, bounded recurrent predictive state, episodic
+latent memory, and slow weights operate at different timescales. Small predictive
+units receive the same input in parallel and communicate through a bounded
+workspace. Delayed counterfactual utility targets train unit output, memory
+writes, and compute allocation by their effect on future language or behavior,
+not by raw surprise, similarity, or traffic balance. `RESEARCH.md` is the living
+hypothesis notebook. This architecture is not implemented or promoted yet.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -386,13 +391,23 @@ versus 5.9962 at 4,199,040 tokens. Its candidate relation accuracy at the last
 point was 90.6% versus 73.8%, while strict free generation remained only 0.8%
 versus 0%.
 
-The 2/2 hybrid has 20,977,152 parameters and complete gradient coverage. Its
-unfused PyTorch reference is about ten times slower than the Transformer, so it
-earns durable scaling and unseen-generation testing, not runtime installation
-or a replacement claim. The compact finalist report is
+The 2/2 hybrid had 20,977,152 parameters and complete gradient coverage. Its
+unfused PyTorch reference was about ten times slower than the Transformer. This
+early result justified durable scaling and unseen-generation testing, not
+runtime installation or a replacement claim. The compact finalist report is
 `reports/language_scaling/delta-editable-half-finalist-4m-20260710.json`.
 
-Decision: `scale_delta-hybrid-half_and_test_unseen_generation`.
+At 16,785,792 tokens, the early advantage reversed. The Transformer reached
+heldout loss 4.5657, 98.4% candidate relation accuracy, and 17.2% exact free
+accuracy. The hybrid reached 4.5858, 87.9%, and 7.8%, while sustaining 7,984
+training tokens/s versus 83,505. Its four source-absent unseen prompts produced
+English-shaped text but failed semantic continuation and conflict binding; the
+silver-key prompt ended with an unrelated water/shelf answer. Surface metrics do
+not override the human semantic failure. Compact reports are
+`reports/language_scaling/delta-editable-half-durable-16m-20260710.json` and
+`reports/language_scaling/delta-editable-half-unseen-generation-16m-20260710.json`.
+
+Decision: `retire_delta_v1_design_distributed_predictive_organism`.
 
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568
@@ -431,6 +446,7 @@ The following are not maintained language paths:
 - integrated PMRM fixed columns, dual state, episodic selector, and recurrent
   workspace as a base-language architecture.
 - token surprise as an assumed memory-utility signal.
+- editable delta-memory v1 as a base-language architecture.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -444,13 +460,15 @@ must not present them as active capability.
    strict free relation generation.
 5. Retire integrated PMRM after the corrected equal-budget screen shows no
    base-language advantage and surprise loses to naive selectors.
-6. Keep only the 2-delta/2-attention hybrid after it beats the Transformer at
-   1.06M and 4.20M tokens; add durable checkpointing and test unseen generation.
-7. Use LCWM-style execution-coupled selection only after a base model survives;
+6. Scale the 2-delta/2-attention hybrid after its early win, then retire it when
+   the win reverses at 16.78M and unseen semantic generation fails.
+7. Build one parallel, multi-timescale distributed predictive candidate whose
+   unit, write, and compute routing is trained from counterfactual future utility.
+8. Use LCWM-style execution-coupled selection only after a base model survives;
    do not make typed synthetic machinery the token mixer.
-8. Continue only non-dominated arms through successive halving, then fit the
+9. Continue only non-dominated arms through successive halving, then fit the
    first defensible local scaling law only for architectures that
    survive the pilot, using repeated seeds near a branch boundary.
-9. Rebuild continual learning, exact resume, and retention measurement.
-10. Re-establish sustained 524,288-token generation from the same checkpoint.
-11. Add grounded causal experiments, then scale, redesign, or retire.
+10. Rebuild continual learning, exact resume, and retention measurement.
+11. Re-establish sustained 524,288-token generation from the same checkpoint.
+12. Add grounded causal experiments, then scale, redesign, or retire.

@@ -452,7 +452,7 @@ def run_language_training_experiment(
             "training": training,
             "eval_before": eval_before,
             "eval_after": eval_after,
-            "language_delta": {
+            "heldout_change": {
                 "heldout_loss_delta": loss_delta,
                 "heldout_loss_improved": loss_delta < 0.0,
             },
@@ -559,7 +559,7 @@ def main() -> int:
         prompts=tuple(args.prompt) or ("MARULHO", "The system"),
         config=config,
     )
-    return 0 if bool(report["language_delta"]["heldout_loss_improved"]) else 1
+    return 0 if bool(report["heldout_change"]["heldout_loss_improved"]) else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

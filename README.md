@@ -40,24 +40,17 @@ flowchart LR
 ```
 
 Only the Transformer path is installed in `MarulhoBrain`. It remains the quality
-and systems baseline. A completed integrated PMRM experiment did not earn
-continuation: its best recurrent control still lost to the Transformer, and the
-full column/associative/episodic/workspace stack did not beat its simpler
-temporal-only ablation. That implementation is deleted rather than kept as an
-unused compatibility path. MARULHO now has a correctness-tested editable
-recurrent fast-weight candidate with separately learned erase and write
-operations, plus a variant with one bounded local-attention layer. Neither is
-installed or promoted; matched language evidence decides whether either
-survives before any structured reasoning or episodic-memory organ is added.
+and systems baseline, not MARULHO's assumed final form. Integrated PMRM and the
+editable delta-memory v1 candidate both completed matched falsification and are
+deleted from the live tree. PMRM lost at its first corrected budget. Delta v1
+learned faster early, but lost that advantage at a durable budget and failed
+unseen semantic generation.
 
-The candidate is an independent MARULHO implementation of a public recurrent
-update family, not imported model code. The immediate research basis is
-[Gated DeltaNet-2](https://arxiv.org/abs/2605.22791), whose erase/write
-separation has large-scale language evidence; the matched pure-versus-hybrid
-design follows the trade-offs measured in the July 2026
-[linear-attention comparison](https://arxiv.org/abs/2607.07953). If this branch
-fails locally, [Mamba-3](https://arxiv.org/abs/2603.15569) is the next recurrent
-state hypothesis, not a reason to preserve the current candidate.
+The next hypothesis is broader than another sequence mixer: a distributed
+predictive system with parallel exact and recurrent state, bounded episodic
+memory, multiple learning timescales, and routing trained by counterfactual
+future usefulness. It is specified as a falsifiable research direction in
+`RESEARCH.md`; it is not implemented capability.
 
 ## Current Evidence
 
@@ -230,8 +223,23 @@ At 4.20M tokens, candidate relation accuracy was 90.6% for the hybrid versus
 73.8% for the Transformer; strict free accuracy was still only 0.8% versus 0%.
 The hybrid used 20,977,152 parameters, all with gradients, and about 8,021
 training tokens/s versus 82,960 for the Transformer. This is a promising local
-learning-curve result, not coherent-language or systems promotion. Decision:
-`scale_delta-hybrid-half_and_test_unseen_generation`.
+learning-curve result, not coherent-language or systems promotion.
+
+The durable 16.78M-token run reversed the result:
+
+| Metric | Transformer | 2/2 delta hybrid |
+| --- | ---: | ---: |
+| Heldout loss | 4.5657 | 4.5858 |
+| Candidate relation | 98.4% | 87.9% |
+| Exact free relation | 17.2% | 7.8% |
+| Training tokens/s | 83,505 | 7,984 |
+| Peak allocated VRAM | 2.41 GiB | 3.90 GiB |
+
+Four prompts verified absent from all source corpora produced sentence-shaped
+but semantically broken continuations. The conflict prompt placed a silver key
+in a glass jar; the hybrid answered about water reaching a shelf. Delta v1 is
+therefore retired, including its implementation and rejected checkpoint.
+Decision: `retire_delta_v1_design_distributed_predictive_organism`.
 
 ## Research Objective
 
@@ -243,9 +251,9 @@ The priority order is:
 
 1. Keep the 21M Transformer as the reproducible local baseline and active
    checkpoint, not the assumed final architecture.
-2. Build a MARULHO-owned editable recurrent fast-weight candidate with
-   channel-wise decay and separate erase/write control; compare pure recurrent
-   and small local-attention hybrid variants.
+2. Build a MARULHO-owned distributed predictive candidate with parallel exact
+   and bounded recurrent paths, a small episodic organ, multiple learning
+   timescales, and counterfactual future-utility credit.
 3. Compare every candidate against the Transformer on the same tokenizer, data,
    tokens, parameters, hardware, optimizer, and evaluations.
 4. Require unseen generation, real-language loss, retrieval/binding, state

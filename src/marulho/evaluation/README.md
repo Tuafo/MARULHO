@@ -62,15 +62,11 @@ frozen source-balanced schedule, parameters, optimizer, relation/general
 evaluation, gradient coverage, state bytes, wall time, throughput, and CUDA
 memory. Candidate screens cannot install a runtime model.
 
-**`language_delta_falsification.py`** — compares the fresh 20.98M Transformer,
-pure editable delta-memory, and one-local-attention hybrid on that contract. It
-uses only the active checkpoint tokenizer, never its weights. A content-hashed
-CPU schedule cache owns the selected relation, FineWeb-Edu, Cosmopedia, and
-heldout windows so reruns avoid tokenization cost without changing data order.
-The report includes all-parameter gradient coverage, real heldout loss,
-label-safe candidate and free relation generation, fixed-state bytes, wall
-time, throughput, and peak CUDA allocation. Checkpoints are omitted by default;
-an explicit finalist flag writes strict model/tokenizer/optimizer/RNG state.
+The retired delta falsification and unseen-generation runners established the
+same-tokenizer, frozen-schedule contract for recurrent replacement experiments.
+Their code and rejected checkpoint are deleted after the 16.78M-token result;
+compact local reports retain the measured loss, relation, generation, state,
+throughput, and CUDA evidence.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
@@ -185,7 +181,9 @@ The matched delta reports are local at:
 - `reports/language_scaling/delta-editable-screening-262k-20260710.json`;
 - `reports/language_scaling/delta-editable-half-screening-262k-20260710.json`;
 - `reports/language_scaling/delta-editable-half-screening-1m-20260710.json`;
-- `reports/language_scaling/delta-editable-half-finalist-4m-20260710.json`.
+- `reports/language_scaling/delta-editable-half-finalist-4m-20260710.json`;
+- `reports/language_scaling/delta-editable-half-durable-16m-20260710.json`;
+- `reports/language_scaling/delta-editable-half-unseen-generation-16m-20260710.json`.
 
 Pure delta memory was dominated at 262k tokens (8.0018 loss), while adding one
 local-attention layer reached 7.6833. The 2-delta/2-attention hybrid reached
@@ -194,8 +192,14 @@ local-attention layer reached 7.6833. The 2-delta/2-attention hybrid reached
 scores were 90.6% versus 73.8%; exact free scores were only 0.8% versus 0%.
 Every hybrid parameter received a gradient, the parameter delta was 0.0049%,
 and peak allocated VRAM was 3.90 GiB. The unfused reference sustained 8,021
-tokens/s versus 82,960 for the Transformer. Branch:
-`scale_delta-hybrid-half_and_test_unseen_generation`.
+tokens/s versus 82,960 for the Transformer.
+
+At 16,785,792 tokens, the Transformer reached loss 4.5657, 98.4% candidate
+relation, 17.2% exact free relation, and 83,505 tokens/s. The hybrid reached
+4.5858, 87.9%, 7.8%, and 7,984 tokens/s. Its four verified source-absent prompt
+continuations failed human semantic review, including an exact location-update
+prompt. The early learning gain did not survive. Branch:
+`retire_delta_v1_design_distributed_predictive_organism`.
 
 ### Narrow relation fine-tune
 
@@ -351,16 +355,16 @@ Use approximately 5M, 20M, and the largest feasible 60-100M-class model on the
 RTX 3060, several token budgets per size, and repeated seeds where the result
 could change the branch. A two-point curve for one model is insufficient.
 
-### 3. Editable recurrent competitor
+### 3. Distributed predictive competitor
 
-Build one MARULHO-owned recurrent fast-weight state with channel-wise decay and
-separate erase/write control. Compare pure recurrent and small local-attention
-hybrid variants with the active Transformer using the same tokenizer, corpora,
-tokens, parameters, optimizer, hardware, and evaluation code. A PyTorch
-reference must prove causal forward/backward correctness before any fused
-Triton claim. LCWM-style execution-coupled structured memory is a later organ,
-not part of the base token mixer. Synthetic relation cases diagnose mechanisms;
-real heldout language loss and open generation remain mandatory.
+Build one MARULHO-owned, vectorized population of small predictive units with
+parallel bounded exact attention, recurrent multi-rate state, a small latent
+episodic organ, and counterfactual future-utility credit. Match it against the
+Transformer on tokenizer, corpora, tokens, parameters, optimizer, hardware, and
+evaluation code. A PyTorch reference must prove causal forward/backward truth
+before fused execution is claimed. Synthetic relation cases diagnose mechanisms;
+real heldout language loss and open generation remain mandatory. See
+`RESEARCH.md` for hypotheses and falsifiers.
 
 ### 4. Continual and sustained validation
 

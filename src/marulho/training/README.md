@@ -16,23 +16,22 @@ matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
 decision.
 
-**`language_delta.py`** — the experimental editable delta-memory language
-model. Each recurrent head owns a fixed matrix state with channel-wise decay,
-key-side erase, value-side write, and gated readout. Erase and write are learned
-independently. The pure arm uses four recurrent mixers; the hybrid replaces
-every fourth mixer with bounded local attention. Both use the same tied BPE
-head, SwiGLU blocks, full-vocabulary loss/generation, tensor-only runtime-state
-serialization, and causal scan/step contract. The matched 8,192-vocabulary
-configurations have 20,978,176 and 20,977,664 parameters versus 20,976,128 for
-the Transformer. The surviving 2/2 hybrid has 20,977,152 parameters. They are
-not installed in `MarulhoBrain`.
+No replacement candidate is currently implemented. The next candidate must use
+`language_protocol.py` and earn survival against the active Transformer before
+it can be installed in `MarulhoBrain`.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
 meaningfully beat temporal-only despite higher state, compute, and memory cost.
 Its surprise selector also lost to random and recency under identical write and
-read budgets. New recurrent work starts from an editable fast-weight state with
-separate erase/write control, not from PMRM compatibility code.
+read budgets. No PMRM compatibility code remains.
+
+The editable delta-memory v1 model, falsification runner, generation audit, and
+tests are also deleted after durable falsification. Its 2/2 hybrid beat the
+Transformer at 1.06M and 4.20M tokens, then lost heldout loss, free relation
+recall, throughput, and unseen semantic generation at 16.78M. New work starts
+from the distributed multi-timescale hypothesis in `RESEARCH.md`, not from a
+delta compatibility surface.
 
 **`language_model.py`** — the language model contract. It owns:
 
@@ -89,13 +88,8 @@ atomically replace the target.
 Retired candidate checkpoint surfaces are rejected, so an experiment cannot
 silently replace the active brain model.
 
-`marulho_delta_language_checkpoint.v1` is a separate strict surface. It owns
-the exact delta configuration, tied model tensors, checkpoint tokenizer/hash,
-metadata, and optional tensor-only recurrent/KV runtime state. Experiment
-metadata can additionally carry exact AdamW, RNG, schedule, cursor, cumulative
-token, and optimizer-step state. Writes use the same temporary-file, flush,
-fsync, and atomic-replace discipline. The active Transformer loader rejects the
-surface.
+The retired `marulho_delta_language_checkpoint.v1` surface is rejected by the
+active Transformer loader. No compatibility loader remains in the live tree.
 
 ## Runtime Boundaries
 
