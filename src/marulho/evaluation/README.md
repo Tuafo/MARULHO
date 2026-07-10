@@ -56,6 +56,12 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
+**`language_episodic_memory_experiment.py`** — stress-tests bounded prompt-time
+episodic memory with distractors. Surprise-selected writes are compared with
+budget-matched random/recency policies, full-store retrieval, no memory, and a
+non-promotable oracle. Reports include exact free binding, stored bytes,
+writes/reads, selection latency, and end-to-end throughput.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
