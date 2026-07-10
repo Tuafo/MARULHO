@@ -442,6 +442,22 @@ report. Compact eager and compiled results are
 
 Decision: `continue_organism_to_durable_budget_and_unseen_generation`.
 
+At 16,785,792 fresh matched update tokens, the organism reached 4.5101 heldout
+loss, 96.9% candidate relation ranking, and 28.1% strict exact free relation
+generation. The Transformer reached 4.6130, 91.8%, and 12.5%. The organism
+sustained 51,994 steady and 50,797 compile-amortized tokens/s versus 123,815 and
+119,269. Every candidate parameter received a gradient. Its 202 explicit probes
+split into 154 unit and 48 episodic interventions; the mean counterfactual target
+was positive but small at 0.00202. The learned mix was 40.4% exact and 59.6%
+population, while every unit remained active, so sparse compute is still
+unproven. The 272.2 MB schedule cache was deleted. The strict checkpoint is
+268,848,073 bytes with SHA-256
+`2e1406e4df0a1d04aa589777ef9a58b807337ed2a21f758a3f6c91900872c0fd`.
+The compact report is
+`reports/language_scaling/distributed-organism-compiled-durable-16m-20260710.json`.
+
+Decision: `test_organism_unseen_generation_before_any_promotion`.
+
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568
 identical scheduled tokens. Every full-memory parameter received a gradient;

@@ -264,6 +264,25 @@ to justify durable scaling, but strict free generation remains unproven and
 delta v1 already showed that an early win can reverse. Decision:
 `continue_organism_to_durable_budget_and_unseen_generation`.
 
+The fresh 16.78M-token durable comparison strengthened rather than reversed the
+result:
+
+| Metric | Transformer | Distributed organism |
+| --- | ---: | ---: |
+| Heldout loss | 4.6130 | 4.5101 |
+| Candidate relation | 91.8% | 96.9% |
+| Exact free relation | 12.5% | 28.1% |
+| Steady training tokens/s | 123,815 | 51,994 |
+| Amortized tokens/s including compile | 119,269 | 50,797 |
+| Peak allocated VRAM | 1.44 GiB | 4.21 GiB |
+
+All 20,971,120 organism parameters received gradients. Its 202 explicit
+counterfactual probes included 154 unit and 48 episodic interventions, and the
+compiled/eager warm-up loss delta was 0.00012. This is the first MARULHO
+replacement candidate to retain a heldout advantage at the durable budget and
+also beat the matched Transformer on strict free relation generation. Decision:
+`test_organism_unseen_generation_before_any_promotion`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional

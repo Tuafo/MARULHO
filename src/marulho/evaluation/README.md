@@ -93,6 +93,23 @@ executed 354 compiled ordinary steps plus 51 eager probes, and deleted its 70.4
 MB schedule cache. Compiled execution is therefore admitted for durable
 evidence.
 
+### Distributed predictive-organism finalist
+
+The current matched reports are local at:
+
+- `reports/language_scaling/distributed-organism-finalist-4m-20260710.json`;
+- `reports/language_scaling/distributed-organism-compiled-finalist-4m-20260710.json`;
+- `reports/language_scaling/distributed-organism-compiled-durable-16m-20260710.json`.
+
+At 16,785,792 fresh matched update tokens, the organism reached 4.5101 heldout
+loss versus 4.6130, 96.9% candidate relation ranking versus 91.8%, and 28.1%
+strict free relation generation versus 12.5%. It sustained 51,994 steady and
+50,797 compile-amortized tokens/s versus 123,815 and 119,269 for the Transformer.
+All candidate parameters received gradients. The run executed 1,417 compiled
+ordinary steps and 202 eager probes, passed compiled/eager loss parity at a
+0.00012 delta, and deleted its 272.2 MB schedule cache. Branch:
+`test_organism_unseen_generation_before_any_promotion`.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

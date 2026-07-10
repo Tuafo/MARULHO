@@ -30,7 +30,11 @@ pass. At 4,199,040 matched update tokens its compiled reproduction reached
 5.5257 heldout loss versus 6.0113 for the Transformer and 98.4% versus 72.7%
 candidate relation ranking.
 Strict free relation generation remained 0% for both. The result earns a durable
-run and unseen-generation audit, not installation or quality promotion.
+run and unseen-generation audit, not installation or quality promotion. At the
+fresh 16,785,792-token durable comparison, the candidate retained the advantage:
+4.5101 loss versus 4.6130, 96.9% versus 91.8% candidate relation ranking, and
+28.1% versus 12.5% strict free relation generation. It now requires a
+source-absent semantic-generation audit before any promotion.
 `next_token_loss` also accepts an explicit counterfactual-probe decision. The
 falsification runner uses this to keep ordinary fixed-shape steps compilable
 while preserving eager, fully measured utility interventions on a deterministic

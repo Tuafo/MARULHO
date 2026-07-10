@@ -70,6 +70,12 @@ one word with it.
    ranking. Both arms still scored 0% strict free relation generation. This is
    evidence to continue, not evidence of behavioral memory or durable
    superiority.
+8. Unlike delta v1, the organism advantage survived 16.78M matched tokens. It
+   reached 4.5101 heldout loss versus 4.6130, 96.9% versus 91.8% candidate
+   relation ranking, and 28.1% versus 12.5% strict free relation generation.
+   This is the first durable positive replacement result, but source-absent
+   semantic generation still decides whether it represents usable language
+   capability rather than a stronger corpus/task fit.
 
 ## Current systems opportunity
 
