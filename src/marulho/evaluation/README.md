@@ -77,19 +77,21 @@ hardware, relation/general evaluation, and model seed. The report additionally
 records counterfactual utility targets, exact/population mixing, unit activity,
 episodic writes/usage, runtime-state bytes, throughput, peak CUDA allocation,
 gradient coverage, and the anti-promotion boundary. At 4,199,040 matched update
-tokens, the organism reached 5.5263 heldout loss versus 6.0134 for the
-Transformer and 97.3% versus 75.8% candidate relation ranking. Both arms scored
-0% on strict free relation generation. The organism sustained 20,422 training
-tokens/s versus 83,743 and used 4.22 GiB versus 2.41 GiB peak allocation. This is
-an early quality win that must survive the durable budget and unseen semantics.
+tokens, the strict compiled reproduction reached 5.5257 organism heldout loss
+versus 6.0113 for the Transformer and 98.4% versus 72.7% candidate relation
+ranking. Both arms scored 0% on strict free relation generation. The organism
+sustained 50,264 steady and 45,758 compile-amortized tokens/s versus 124,073 and
+105,193. This early quality win must survive the durable budget and unseen
+semantics.
 The v2 runner can execute ordinary fixed-shape steps through one strict Inductor
 full graph per arm. It chooses an exact deterministic counterfactual-probe
 schedule before training and executes those occasional organism steps eagerly,
 so Python branching cannot create hidden graph variants. Reports separate
 compile time, steady throughput, amortized throughput, and compiled/eager warm-up
-loss parity. A real-data smoke passed with one eager probe and no retained cache
-or smoke report; the matched 4.20M result must be reproduced before compiled
-execution is used for durable evidence.
+loss parity. The matched compiled 4.20M run reproduced the eager loss conclusion,
+executed 354 compiled ordinary steps plus 51 eager probes, and deleted its 70.4
+MB schedule cache. Compiled execution is therefore admitted for durable
+evidence.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove

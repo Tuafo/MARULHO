@@ -137,15 +137,17 @@ hypothesis notebook. The first 20,971,120-parameter PyTorch reference lives in
 full finite gradient coverage, bounded tensor-only state, counterfactual credit,
 generation, and strict checkpoint tests. Exact paths operate per token; unit and
 episodic state update causally every 24 tokens. It is not installed or
-quality-promoted. Its first matched 4,199,040-token run reached 5.5263 heldout
-loss versus 6.0134 for the Transformer and 97.3% versus 75.8% candidate relation
-ranking. Both arms remained at 0% strict free relation generation. The organism
-used 4.22 GiB versus 2.41 GiB and sustained 20,422 versus 83,743 training
-tokens/s. This earns durable falsification and unseen-generation review, not a
-capability claim. The matched runner now has a strict compiled backend with one
+quality-promoted. Its strict compiled 4,199,040-token reproduction reached
+5.5257 heldout loss versus 6.0113 for the Transformer and 98.4% versus 72.7%
+candidate relation ranking. Both arms remained at 0% strict free relation
+generation. The organism sustained 50,264 steady tokens/s versus 124,073 and
+45,758 amortized tokens/s versus 105,193 after compile cost. This earns durable
+falsification and unseen-generation review, not a capability claim. The matched
+runner has a strict compiled backend with one
 fixed full graph per arm, an explicit eager probe schedule, separate compile and
-steady timings, and a compiled/eager loss-drift rejection check. That backend
-has passed a real-data smoke but has not yet reproduced the 4.20M quality result.
+steady timings, and a compiled/eager loss-drift rejection check. The result
+reproduces the eager loss conclusion while more than doubling organism
+throughput, so compiled execution is admitted for the durable comparison.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -424,14 +426,19 @@ Decision: `retire_delta_v1_design_distributed_predictive_organism`.
 
 The first distributed-organism finalist used the same tokenizer, selected
 windows, schedule, optimizer, model seed, parameter budget, and evaluation as a
-fresh Transformer. At 4,199,040 update tokens it reached 5.5263 heldout loss
-versus 6.0134 and 97.3% candidate relation ranking versus 75.8%. Strict free
+fresh Transformer. Its compiled reproduction at 4,199,040 update tokens reached
+5.5257 heldout loss versus 6.0113 and 98.4% candidate relation ranking versus
+72.7%. Strict free
 relation generation was 0% for both. Every candidate parameter received a
 gradient. Its learned parallel mix averaged 37.7% exact attention and 62.3%
 predictive population; all units remained active, so sparse-compute benefit has
-not been demonstrated. The temporary 70.4 MB bounded corpus cache was deleted
-after the report. The compact result is
-`reports/language_scaling/distributed-organism-finalist-4m-20260710.json`.
+not been demonstrated. The compiled runner executed 354 ordinary full-graph
+steps and 51 explicit eager probes. The organism sustained 50,264 steady and
+45,758 compile-amortized tokens/s, versus 124,073 and 105,193 for the
+Transformer. The temporary 70.4 MB bounded corpus cache was deleted after the
+report. Compact eager and compiled results are
+`reports/language_scaling/distributed-organism-finalist-4m-20260710.json` and
+`reports/language_scaling/distributed-organism-compiled-finalist-4m-20260710.json`.
 
 Decision: `continue_organism_to_durable_budget_and_unseen_generation`.
 

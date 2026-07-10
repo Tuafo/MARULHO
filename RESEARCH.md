@@ -64,10 +64,11 @@ one word with it.
 6. Lower loss or higher multiple-choice ranking does not prove usable memory.
    MARULHO has repeatedly observed lower proxy loss without correct free-form
    recall.
-7. The first distributed-organism run produced a large matched loss advantage
-   at 4.20M tokens: 5.5263 versus 6.0134, with 97.3% versus 75.8% candidate
-   relation ranking. Both arms still scored 0% strict free relation generation.
-   This is evidence to continue, not evidence of behavioral memory or durable
+7. The distributed organism produced a large matched loss advantage at 4.20M
+   tokens in both eager and compiled runs. The strict compiled reproduction
+   reached 5.5257 versus 6.0113, with 98.4% versus 72.7% candidate relation
+   ranking. Both arms still scored 0% strict free relation generation. This is
+   evidence to continue, not evidence of behavioral memory or durable
    superiority.
 
 ## Current systems opportunity
@@ -90,9 +91,11 @@ across seven compiled steps and one eager probe. Full-model BF16 compiled/eager
 loss deltas were 0.000037 and 0.000155, below the 0.001 rejection tolerance.
 Compile cost, steady training time, and amortized throughput are reported
 separately, and full-graph mode fails rather than silently falling back. The
-4.20M quality result above used eager execution. The matched 4.20M decision must
-still reproduce under the common compiled backend before compile can support a
-quality or scaling claim.
+matched 4.20M compiled reproduction retained the loss conclusion: 5.5257 versus
+6.0113, within 0.0007 and 0.0021 of the eager results. Organism steady throughput
+rose from 20.4k to 50.3k tokens/s; compile-amortized throughput was 45.8k versus
+105.2k for the Transformer. This admits the backend for the durable experiment,
+not a quality or scaling claim by itself.
 
 ## What LCO contributes
 

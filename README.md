@@ -248,16 +248,20 @@ matched 4.20M-token screen:
 
 | Metric | Transformer | Distributed organism |
 | --- | ---: | ---: |
-| Heldout loss | 6.0134 | 5.5263 |
-| Candidate relation | 75.8% | 97.3% |
+| Heldout loss | 6.0113 | 5.5257 |
+| Candidate relation | 72.7% | 98.4% |
 | Exact free relation | 0% | 0% |
-| Training tokens/s | 83,743 | 20,422 |
-| Peak allocated VRAM | 2.41 GiB | 4.22 GiB |
+| Steady training tokens/s | 124,073 | 50,264 |
+| Amortized tokens/s including compile | 105,193 | 45,758 |
+| Peak allocated VRAM | 1.44 GiB | 4.21 GiB |
 
 The candidate is parameter-matched within 0.024%, every parameter received a
-gradient, and its bounded sampling cache was deleted after the report. The loss
-win is large enough to justify scaling, but strict free generation remains
-unproven and delta v1 already showed that an early win can reverse. Decision:
+gradient, and its bounded sampling cache was deleted after the report. This
+strict compiled-backend reproduction matches the earlier eager losses within
+0.0021 for the Transformer and 0.0007 for the organism while raising organism
+steady throughput from 20,422 to 50,264 tokens/s. The loss win is large enough
+to justify durable scaling, but strict free generation remains unproven and
+delta v1 already showed that an early win can reverse. Decision:
 `continue_organism_to_durable_budget_and_unseen_generation`.
 
 ## Research Objective

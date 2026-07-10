@@ -26,8 +26,9 @@ Unit and episodic write gates receive delayed counterfactual future-loss targets
 on sampled training steps. The 8,192-vocabulary matched configuration has
 20,971,120 parameters versus 20,976,128 for the Transformer. Causal scan/step,
 all-gradient, counterfactual-credit, generation, and populated checkpoint tests
-pass. At 4,199,040 matched update tokens it reached 5.5263 heldout loss versus
-6.0134 for the Transformer and 97.3% versus 75.8% candidate relation ranking.
+pass. At 4,199,040 matched update tokens its compiled reproduction reached
+5.5257 heldout loss versus 6.0113 for the Transformer and 98.4% versus 72.7%
+candidate relation ranking.
 Strict free relation generation remained 0% for both. The result earns a durable
 run and unseen-generation audit, not installation or quality promotion.
 `next_token_loss` also accepts an explicit counterfactual-probe decision. The
