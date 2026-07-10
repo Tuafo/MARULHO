@@ -86,6 +86,11 @@ one word with it.
     tokens/s versus 110,345. Its early advantage was a low-data inductive bias,
     not a scalable replacement. Dense event computation is retired from the
     base token mixer.
+11. Sparse event v2 preserved the exact stream and recovered a relation benefit:
+    random one-of-four specialists reached 27.0% strict free relation versus
+    14.5% exact-only at tied heldout loss. The first utility router fell back to
+    14.8% despite slightly better scalar loss. Chosen-expert-only short-horizon
+    feedback is insufficient to learn expert ranking.
 
 ## Provisional scaling diagnosis
 
@@ -396,8 +401,43 @@ following event. Normal execution gathers one specialist rather than evaluating
 all four; telemetry reports 25% active specialist compute. Exact neutrality,
 causal scan/step equality, dense-versus-sparse accounting, and counterfactual
 gradient coverage pass. On one warm RTX 3060 eager diagnostic it sustained 81.1k
-forward/backward tokens/s versus 88.4k for the Transformer. This is machinery
-evidence only; the four-arm real-language comparison is still required.
+forward/backward tokens/s versus 88.4k for the Transformer. Before quality
+testing, this established machinery only.
+
+That comparison is now complete at 16.79M tokens. Exact-only, dense, random, and
+utility losses were 4.6140, 4.6146, 4.6128, and 4.6116. Strict free relation was
+14.5%, 25.4%, 27.0%, and 14.8%. Random and utility both executed one of four
+specialists; utility ran 202 counterfactual probes with mean target +0.0073.
+Therefore sidecar diversity remains promising, but the initial utility credit is
+retired. It observed only the chosen expert and supplied no comparative targets
+for alternatives. V2.1 will evaluate all four alternatives on probe steps,
+center their utilities within each event, and train the router to rank them.
+Normal execution remains one-of-four.
+
+## Beyond a monolithic model
+
+The failure of dense organism v1 does not imply that intelligence must remain
+one static monolith. It refutes making every small unit compete with the full
+language path on every token. A more plausible decomposition is an ecology built
+around a shared substrate:
+
+- the substrate supplies stable language, routing context, and common latent
+  coordinates;
+- small units own bounded memories, domains, tools, causal models, or temporal
+  scales rather than miniature copies of the whole model;
+- only units with predicted marginal value execute for a given event;
+- new units can be added, consolidated, split, made dormant, or retired without
+  rewriting all shared knowledge;
+- communication uses a narrow learned interface and is judged by downstream
+  behavior, not by biological analogy or balanced traffic.
+
+V2 is only the first narrow test of this direction: one exact shared substrate
+and sparse event specialists. If utility selection fails to beat random, that
+falsifies this selector/credit interface, not the larger possibility of a
+non-monolithic system. Conversely, a small sidecar win is not proof that the
+substrate should immediately be decomposed. Modularizing syntax and general
+representation comes only after sparse coordination demonstrates repeatable
+benefit, stable checkpoint composition, and bounded interference.
 
 ## Retired ideas
 

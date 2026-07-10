@@ -148,7 +148,12 @@ utility-sparse arms. The first causal PyTorch reference preserves all 20,976,128
 baseline parameters and adds 133,124 sidecar parameters (0.635%). One-of-four
 execution measures 25% specialist activity, scan/step equality passes, and warm
 eager training retained 91.7% of Transformer throughput. No language-quality
-result exists yet.
+result was claimed from machinery alone. The first 16.79M four-arm comparison
+then found exact/dense/random/utility losses of 4.6140/4.6146/4.6128/4.6116 and
+strict free relation scores of 14.5%/25.4%/27.0%/14.8%. Random and utility both
+used 25% specialist compute. Utility did not beat random behavior, so the
+chosen-expert-only credit interface is retired while the sidecar hypothesis
+remains open.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

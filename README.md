@@ -54,7 +54,11 @@ specified in `RESEARCH.md`. The first reference preserves the complete
 20,976,128-parameter Transformer and adds only 133,124 sidecar parameters. Its
 one-of-four specialist path measures 25% active specialist compute and retained
 91.7% of warm eager Transformer throughput. It has no language-quality result
-yet.
+from machinery alone. At 16.79M matched tokens, random-sparse nearly doubled
+strict free relation accuracy (27.0% versus 14.5% exact) without harming loss,
+but utility-sparse reached only 14.8%. The chosen-expert-only utility target is
+retired; v2.1 will train comparative utility for every specialist on probe
+steps.
 
 ## Current Evidence
 

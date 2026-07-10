@@ -30,7 +30,10 @@ baseline. Utility and random modes gather one of four rank-32 specialists;
 dense control executes all four. Counterfactual targets measure future-token
 loss reduction minus compute cost. Exact neutrality, scan/step equality, true
 25% specialist execution, dense accounting, and gradient tests pass. It is not
-installed and has no language-quality result.
+installed. The first 16.79M comparison found tied general loss across exact,
+dense, random, and utility arms. Random-sparse reached 27.0% strict free relation
+versus 14.5% exact, but chosen-expert-only utility reached 14.8%. That selector
+is retired; comparative all-expert probe credit is the next implementation.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
