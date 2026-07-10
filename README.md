@@ -106,6 +106,24 @@ base, not a quality promotion. It now owns exact AdamW/scaler/RNG/batch state:
 The next ablation mixes fresh structured prose with educational-web text rather
 than amplifying Cosmopedia's synthetic style alone.
 
+That mixed continuation is now complete. It restored exact AdamW state, trained
+on 75,000 fresh FineWeb-Edu plus 75,000 fresh Cosmopedia documents, and held out
+10,000 documents from each source. Combined holdout loss fell from 3.6216 to
+3.4429 at 201.33M cumulative tokens and 3.2534 at 251.66M, again with no
+repeated selected updates. However, entity/causal binding stayed flat: notebook
+ownership vanished, valve ordering collapsed into word association, and the
+coin/cup relation drifted. A same-checkpoint decode ablation showed that seeded
+temperature-0.8/top-p-0.9 sampling increased variety but did not recover those
+relations, so greedy decoding was not hiding a capable model.
+
+The active checkpoint is
+`reports/language_scaling/mixed-cosmopedia-fineweb-21m-251m-continuation-20260710-21m-checkpoint.pt`
+(SHA-256 `25e16893fd6bec4c8f7c858f7fc7bdd969e13fbe733104f4467d7f2f784a7fd3`).
+It is a stronger pretraining base, not Base-Language Qualification. The next
+step is a controlled, compositionally held-out relation-binding falsification:
+determine whether this Transformer can learn persistent entities/events before
+spending more compute on generic text or adding episodic memory.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -117,8 +135,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Continue a mixed explicit-record structured/educational-web curriculum on
-   new documents and test entity/causal consistency against a strict holdout.
+3. Falsify entity/event relation binding on compositionally held-out cases from
+   the active 251.66M-token checkpoint, while measuring general-loss retention.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

@@ -261,6 +261,31 @@ add episodic memory merely to compensate for an undertrained base; do not keep
 scaling synthetic textbook style if strict loss improves without entity/causal
 binding.
 
+The mixed continuation then restored exact AdamW state and trained on 75,000
+fresh FineWeb-Edu plus 75,000 fresh Cosmopedia records, with 10,000 disjoint
+holdout records from each source. Combined holdout loss moved from 3.6216 before
+the phase to 3.4429 at 201,326,592 cumulative tokens and 3.2534 at 251,658,240.
+Neither phase point repeated a selected update. Yet entity and causal binding
+did not improve: notebook ownership vanished, valve/pump ordering became word
+association, and coin/cup state still drifted.
+
+A same-checkpoint decode comparison falsified the simplest alternative
+explanation. Seeded temperature-0.8/top-p-0.9 nucleus sampling increased lexical
+variety but did not restore prompt relations and often worsened factual drift.
+The blocker is not greedy argmax alone.
+
+Decision: `falsify_relation_binding_before_more_generic_pretraining`.
+
+The active checkpoint owns 251,658,240 cumulative update tokens, 61,440
+optimizer steps, and exact optimizer/scaler/RNG/batch state. Its SHA-256 is
+`25e16893fd6bec4c8f7c858f7fc7bdd969e13fbe733104f4467d7f2f784a7fd3`.
+Build a procedural entity/event curriculum with compositionally disjoint
+holdouts, continue a branch from this checkpoint, and measure both relation
+accuracy and general heldout-loss retention. If the Transformer learns the
+relations, redesign curriculum; if it cannot, test PMRM-like episodic binding or
+larger capacity against the same benchmark. Do not continue generic token scale
+without resolving this branch.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -285,9 +310,8 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Continue a mixed explicit-record structured/educational-web curriculum at
-   21M on new documents and test entity, property, role, and causal consistency
-   on a tokenizer-disjoint holdout.
+4. Run the controlled relation-binding falsification from the active 21M
+   checkpoint and measure general-loss retention.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.

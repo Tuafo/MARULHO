@@ -62,6 +62,33 @@ curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
+The active 2026-07-10 mixed-data continuation is stored locally at:
+
+`reports/language_scaling/mixed-cosmopedia-fineweb-21m-251m-continuation-20260710.json`
+
+It restored exact optimizer state, trained on 75,000 fresh FineWeb-Edu and
+75,000 fresh Cosmopedia records, and evaluated 10,000 disjoint records from
+each source.
+
+| Phase update tokens | Cumulative tokens | Mixed loss | Perplexity | Selected epochs | Repeated | Tokens/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 150,994,944 | 3.6216 | 37.40 | 0.00 | 0 | — |
+| 50,331,648 | 201,326,592 | 3.4429 | 31.28 | 0.41 | 0 | 64,878 |
+| 100,663,296 | 251,658,240 | 3.2534 | 25.88 | 0.82 | 0 | 64,932 |
+
+The general distribution improved, but relation binding did not. The decode
+artifact at
+`reports/language_scaling/mixed-cosmopedia-fineweb-21m-251m-decode-comparison-20260710.json`
+shows that deterministic nucleus sampling changes style without recovering
+entity/causal state. This is not Base-Language Qualification.
+
+The branch is `falsify_relation_binding_before_more_generic_pretraining`.
+The active 256.4 MiB checkpoint reloads with 251,658,240 cumulative tokens,
+61,440 optimizer steps, and 26 AdamW state entries; SHA-256 is
+`25e16893fd6bec4c8f7c858f7fc7bdd969e13fbe733104f4467d7f2f784a7fd3`.
+
+### Structured-only continuation
+
 The active 2026-07-10 document-disjoint continuation is stored locally at:
 
 `reports/language_scaling/cosmopedia-v2-21m-150m-continuation-20260710.json`
@@ -134,13 +161,14 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-### 1. General quality continuation
+### 1. Relation-binding falsification
 
-Continue the 21M model on new provenance-recorded structured synthetic
-textbooks/stories, then introduce educational web text as an explicit ablation.
-Every source must use explicit document records. Record:
+Continue a branch from the active checkpoint on a procedural entity/event
+curriculum with compositionally disjoint names, colors, containers, transfers,
+and event orders. Keep the mixed holdouts unchanged. Record:
 
-- heldout loss at multiple token budgets;
+- relation accuracy on unseen compositions;
+- mixed heldout loss before/after the relation phase;
 - training and evaluation token counts;
 - unique versus repeated corpus tokens;
 - unseen prompt continuations;
