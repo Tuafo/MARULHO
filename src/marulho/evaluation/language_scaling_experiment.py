@@ -35,7 +35,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v1"
+SURFACE = "marulho_transformer_scaling_experiment.v2"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -53,6 +53,7 @@ class ScalingArmConfig:
     layers: int
     heads: int
     mlp_ratio: float = 4.0
+    token_budget_multiplier: float = 1.0
 
 
 DEFAULT_ARMS = (
@@ -73,6 +74,7 @@ class LanguageScalingExperimentConfig:
     max_eval_batches: int = 128
     eval_fraction: float = 0.20
     token_budgets: tuple[int, ...] = (1_048_576, 2_097_152, 4_194_304)
+    budget_basis: str = "equal_update_tokens"
     arms: tuple[ScalingArmConfig, ...] = DEFAULT_ARMS
     transformer_context_length: int = 512
     learning_rate: float = 3.0e-4
@@ -275,6 +277,23 @@ def _next_batch_order(
     return torch.randperm(int(batch_count), generator=generator).tolist()
 
 
+def _arm_token_budgets(
+    arm: ScalingArmConfig,
+    config: LanguageScalingExperimentConfig,
+) -> tuple[int, ...]:
+    multiplier = float(arm.token_budget_multiplier)
+    if not math.isfinite(multiplier) or multiplier <= 0.0:
+        raise ValueError("token_budget_multiplier must be finite and positive")
+    return tuple(
+        sorted(
+            {
+                max(1, int(round(int(value) * multiplier)))
+                for value in config.token_budgets
+            }
+        )
+    )
+
+
 def _run_arm(
     arm: ScalingArmConfig,
     *,
@@ -290,10 +309,13 @@ def _run_arm(
     model = MarulhoLanguageModel(_model_config(tokenizer, arm_config)).to(device)
     parameter_inventory = _parameter_inventory(model)
     optimizer, fused = _optimizer(model, arm_config)
-    budgets = tuple(sorted({max(1, int(value)) for value in config.token_budgets}))
+    budgets = _arm_token_budgets(arm, config)
     nominal_batch_tokens = max(
         1,
         int(split.train[0].target_ids.numel()),
+    )
+    selected_train_tokens_per_epoch = sum(
+        int(batch.target_ids.numel()) for batch in split.train
     )
     total_steps = math.ceil(max(budgets) / nominal_batch_tokens)
     warmup_steps = int(round(total_steps * max(0.0, config.warmup_fraction)))
@@ -372,8 +394,29 @@ def _run_arm(
         gradients = torch.stack(gradient_scalars).cpu()
         curve.append(
             {
+                "base_requested_update_tokens": int(
+                    min(
+                        config.token_budgets,
+                        key=lambda value: abs(
+                            int(round(int(value) * arm.token_budget_multiplier))
+                            - int(budget)
+                        ),
+                    )
+                ),
                 "requested_update_tokens": int(budget),
+                "token_budget_multiplier": float(arm.token_budget_multiplier),
+                "budget_basis": str(config.budget_basis),
                 "update_tokens": int(update_tokens),
+                "unique_selected_update_tokens": min(
+                    int(update_tokens),
+                    int(selected_train_tokens_per_epoch),
+                ),
+                "repeated_selected_update_tokens": max(
+                    0,
+                    int(update_tokens) - int(selected_train_tokens_per_epoch),
+                ),
+                "selected_train_token_epochs": float(update_tokens)
+                / max(1, selected_train_tokens_per_epoch),
                 "optimizer_steps": int(step),
                 "heldout_loss": float(evaluation["heldout_loss"]),
                 "heldout_perplexity": float(evaluation["heldout_perplexity"]),
@@ -471,6 +514,23 @@ def run_language_scaling_experiment(
     config: LanguageScalingExperimentConfig | None = None,
 ) -> dict[str, Any]:
     cfg = config or LanguageScalingExperimentConfig()
+    budget_basis = str(cfg.budget_basis).strip().lower()
+    if budget_basis not in {"equal_update_tokens", "empirical_wall_clock"}:
+        raise ValueError(
+            "budget_basis must be 'equal_update_tokens' or "
+            "'empirical_wall_clock'"
+        )
+    multipliers = [float(arm.token_budget_multiplier) for arm in cfg.arms]
+    if budget_basis == "equal_update_tokens" and any(
+        not math.isclose(multiplier, 1.0) for multiplier in multipliers
+    ):
+        raise ValueError(
+            "equal_update_tokens requires token_budget_multiplier=1 for every arm"
+        )
+    if budget_basis == "empirical_wall_clock" and len(set(multipliers)) == 1:
+        raise ValueError(
+            "empirical_wall_clock requires different per-arm token budget multipliers"
+        )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     corpus_path = Path(corpus_path)
@@ -585,7 +645,21 @@ def run_language_scaling_experiment(
         for arm in completed
         for point in arm["curve"]
     ]
-    scaling_law = fit_language_scaling_law(fit_points)
+    scaling_law = (
+        fit_language_scaling_law(fit_points)
+        if budget_basis == "equal_update_tokens"
+        else {
+            "available": False,
+            "reason": "requires_equal_update_token_grid",
+            "point_count": len(fit_points),
+            "model_size_count": len(
+                {point["non_embedding_parameters"] for point in fit_points}
+            ),
+            "token_budget_count": len(
+                {point["update_tokens"] for point in fit_points}
+            ),
+        }
+    )
     completed_by_size = sorted(
         completed,
         key=lambda arm: int(arm["parameter_inventory"]["total_parameters"]),
@@ -610,10 +684,34 @@ def run_language_scaling_experiment(
     )
     data_to_size_gain_ratio = (
         largest_data_loss_gain / max(final_size_loss_gain, 1.0e-9)
-        if final_size_loss_gain > 0.0
+        if budget_basis == "equal_update_tokens" and final_size_loss_gain > 0.0
         else None
     )
-    if best_is_largest and size_quality_monotonic:
+    training_elapsed_by_arm = {
+        str(arm["name"]): float(arm["curve"][-1]["training_elapsed_seconds"])
+        for arm in completed_by_size
+    }
+    positive_training_elapsed = [
+        elapsed for elapsed in training_elapsed_by_arm.values() if elapsed > 0.0
+    ]
+    training_elapsed_ratio = (
+        max(positive_training_elapsed) / min(positive_training_elapsed)
+        if len(positive_training_elapsed) >= 2
+        else 1.0
+    )
+    wall_clock_comparison_accepted = (
+        budget_basis != "empirical_wall_clock" or training_elapsed_ratio <= 1.15
+    )
+    if budget_basis == "empirical_wall_clock":
+        if not wall_clock_comparison_accepted:
+            branch_decision = "recalibrate_empirical_wall_clock_budgets"
+        elif best["name"] == smallest_completed["name"]:
+            branch_decision = "scale_data_at_compute_optimal_smaller_model"
+        elif best_is_largest:
+            branch_decision = "scale_data_at_compute_optimal_larger_model"
+        else:
+            branch_decision = "scale_data_at_compute_optimal_selected_model"
+    elif best_is_largest and size_quality_monotonic:
         branch_decision = (
             "scale_data_at_selected_model_size"
             if data_to_size_gain_ratio is not None
@@ -668,7 +766,11 @@ def run_language_scaling_experiment(
         "completed_arm_count": len(completed),
         "failed_arm_count": len(arms) - len(completed),
         "selection": {
-            "metric": "final_heldout_loss",
+            "metric": (
+                "final_heldout_loss"
+                if budget_basis == "equal_update_tokens"
+                else "final_heldout_loss_under_empirical_wall_clock_budget"
+            ),
             "selected_arm": best["name"],
             "selected_checkpoint": best["checkpoint_path"],
             "deleted_nonselected_checkpoints": deleted_checkpoints,
@@ -677,9 +779,31 @@ def run_language_scaling_experiment(
         },
         "scaling_law": scaling_law,
         "effect_sizes": {
-            "smallest_to_largest_final_heldout_loss_gain": final_size_loss_gain,
+            "final_loss_difference_smallest_minus_largest": final_size_loss_gain,
             "largest_arm_first_to_final_data_loss_gain": largest_data_loss_gain,
             "data_to_size_gain_ratio": data_to_size_gain_ratio,
+        },
+        "budget_normalization": {
+            "basis": budget_basis,
+            "base_token_budgets": [int(value) for value in cfg.token_budgets],
+            "arm_token_budget_multipliers": {
+                str(arm.name): float(arm.token_budget_multiplier)
+                for arm in cfg.arms
+            },
+            "training_elapsed_seconds_by_arm": training_elapsed_by_arm,
+            "full_corpus_token_epochs_by_arm": {
+                str(arm["name"]): float(arm["curve"][-1]["update_tokens"])
+                / max(1, corpus_token_count)
+                for arm in completed_by_size
+            },
+            "max_to_min_training_elapsed_ratio": training_elapsed_ratio,
+            "comparison_tolerance_ratio": 1.15,
+            "comparison_accepted": wall_clock_comparison_accepted,
+            "method": (
+                "shared_update_token_budgets"
+                if budget_basis == "equal_update_tokens"
+                else "multipliers_from_prior_observed_training_throughput"
+            ),
         },
         "branch_decision": branch_decision,
         "quality_boundary": {
@@ -699,14 +823,18 @@ def run_language_scaling_experiment(
 
 def _parse_arm(value: str) -> ScalingArmConfig:
     parts = str(value).split(":")
-    if len(parts) != 4:
-        raise argparse.ArgumentTypeError("arm must be name:width:layers:heads")
-    name, width, layers, heads = parts
+    if len(parts) not in {4, 5}:
+        raise argparse.ArgumentTypeError(
+            "arm must be name:width:layers:heads[:token_budget_multiplier]"
+        )
+    name, width, layers, heads = parts[:4]
+    multiplier = 1.0 if len(parts) == 4 else float(parts[4])
     return ScalingArmConfig(
         name=name,
         width=int(width),
         layers=int(layers),
         heads=int(heads),
+        token_budget_multiplier=multiplier,
     )
 
 
@@ -717,6 +845,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arm", action="append", type=_parse_arm, default=[])
     parser.add_argument("--token-budget", action="append", type=int, default=[])
+    parser.add_argument(
+        "--budget-basis",
+        choices=("equal_update_tokens", "empirical_wall_clock"),
+        default="equal_update_tokens",
+    )
     parser.add_argument("--prompt", action="append", default=[])
     parser.add_argument("--tokenizer-vocab-size", type=int, default=4096)
     parser.add_argument("--sequence-length", type=int, default=256)
@@ -745,6 +878,7 @@ def main() -> int:
         max_eval_batches=max(1, int(args.max_eval_batches)),
         token_budgets=tuple(args.token_budget)
         or LanguageScalingExperimentConfig.token_budgets,
+        budget_basis=str(args.budget_basis),
         arms=tuple(args.arm) or DEFAULT_ARMS,
         transformer_context_length=max(2, int(args.context_length)),
         learning_rate=float(args.learning_rate),

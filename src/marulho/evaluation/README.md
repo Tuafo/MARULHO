@@ -15,7 +15,11 @@ checkpoint/report output.
 shared token budgets, records heldout curves, throughput, peak VRAM, unseen
 generations, OOM failures, and a provisional fitted `L(N,D)` law. It retains
 only the best checkpoint by default. An optional explicit evaluation corpus
-keeps later-offset holdout documents entirely outside training.
+keeps later-offset holdout documents entirely outside training. Its separate
+`empirical_wall_clock` budget basis applies recorded per-arm throughput
+multipliers, reports unique and repeated updates, and rejects the comparison
+when actual training times differ by more than 15 percent. Unequal-token runs
+cannot be mislabeled as scaling-law grids.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

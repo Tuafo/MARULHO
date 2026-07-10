@@ -7,6 +7,8 @@ from marulho.evaluation.language_scaling_experiment import (
     SURFACE,
     LanguageScalingExperimentConfig,
     ScalingArmConfig,
+    _arm_token_budgets,
+    _parse_arm,
     fit_language_scaling_law,
     run_language_scaling_experiment,
 )
@@ -52,6 +54,44 @@ def test_scaling_law_fits_a_three_by_three_synthetic_grid() -> None:
     assert report["rmse"] < 0.02
     assert report["alpha"] > 0.0
     assert report["beta"] > 0.0
+
+
+def test_empirical_wall_clock_arm_scales_token_budgets() -> None:
+    arm = _parse_arm("small:16:1:4:2.5")
+    config = LanguageScalingExperimentConfig(
+        token_budgets=(100, 200),
+        budget_basis="empirical_wall_clock",
+        arms=(arm, ScalingArmConfig("large", 32, 1, 4)),
+    )
+
+    assert arm.token_budget_multiplier == 2.5
+    assert _arm_token_budgets(arm, config) == (250, 500)
+
+
+def test_equal_token_basis_rejects_arm_multiplier() -> None:
+    config = LanguageScalingExperimentConfig(
+        token_budgets=(32,),
+        arms=(
+            ScalingArmConfig(
+                "small",
+                width=16,
+                layers=1,
+                heads=4,
+                token_budget_multiplier=2.0,
+            ),
+        ),
+    )
+
+    try:
+        run_language_scaling_experiment(
+            output_path="unused.json",
+            corpus_path="unused.txt",
+            config=config,
+        )
+    except ValueError as exc:
+        assert "equal_update_tokens requires" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("Expected mismatched budget basis to be rejected")
 
 
 def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
