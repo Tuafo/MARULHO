@@ -164,6 +164,20 @@ measure exact retrieval/free relation output, memory growth, latency, and
 general-language retention. The failed adapter code and checkpoints are not
 maintained.
 
+The first PMRM-inspired prompt-memory interface was also falsified and deleted.
+Under eight distractors and a two-slot budget, exact free accuracy fell from
+18.4% with no memory to 12.1% random, 5.9% recency, and 8.6% surprise. Full-store
+retrieval reached 11.7% and the non-promotable oracle only 3.9%; surprise also
+reduced throughput from 3.52 to 2.33 cases/s. The failure is therefore the
+“retrieve text and prepend it” interface, not merely surprise selection.
+
+Decision: `retire_prompt_memory_build_answer_masked_post_training`. The replay
+model already ranks candidates at 98% but emits exact free answers at 44.9%.
+Next give answer tokens direct masked loss while interleaving ordinary
+next-token replay. This tests whether post-training can expose latent knowledge
+without generic forgetting before MARULHO invests in learned hidden-state
+memory.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -175,8 +189,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Test surprise-selected episodic binding against random/recency controls
-   under equal memory and compute budgets.
+3. Test answer-masked relation post-training with general replay, requiring
+   strict free binding and bounded general loss together.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

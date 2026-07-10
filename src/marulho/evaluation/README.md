@@ -56,12 +56,6 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
-**`language_episodic_memory_experiment.py`** — stress-tests bounded prompt-time
-episodic memory with distractors. Surprise-selected writes are compared with
-budget-matched random/recency policies, full-store retrieval, no memory, and a
-non-promotable oracle. Reports include exact free binding, stored bytes,
-writes/reads, selection latency, and end-to-end throughput.
-
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
@@ -110,6 +104,15 @@ Rank 128 trained only 131,072 parameters at ~151k tokens/s with a +0.0227 mixed
 loss delta, but capability did not improve with rank and remained far below
 full replay's 44.9% free accuracy. The branch is
 `retire_output_adapter_test_selective_episodic_binding`.
+
+The first prompt-level episodic memory interface was also falsified and removed.
+With eight distractors and two slots, exact free accuracy was 18.4% without
+memory, 12.1% random, 5.9% recency, 8.6% surprise, 11.7% full-store retrieval,
+and 3.9% for the non-promotable oracle. Surprise also slowed throughput from
+3.52 to 2.33 cases/s. Because even full/oracle retrieval hurt, prepending
+retrieved text is the rejected interface—not evidence against all learned
+episodic memory. The branch is
+`retire_prompt_memory_build_answer_masked_post_training`.
 
 ### Narrow relation fine-tune
 

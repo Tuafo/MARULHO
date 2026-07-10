@@ -340,6 +340,23 @@ episodic writes/retrieval and compare surprise, random, and recency policies at
 equal slot/byte/read/write budgets. Measure strict free binding, general loss,
 memory growth, retrieval latency, and throughput together.
 
+The first prompt-level PMRM-inspired memory interface was falsified and removed.
+With eight distractors and two stored/read episodes, exact free accuracy was
+18.4% for no memory, 12.1% random, 5.9% recency, 8.6% surprise, 11.7% full-store
+retrieval, and 3.9% for the non-promotable oracle. Surprise required 109.7 s
+(2.33 cases/s) versus 72.8 s (3.52 cases/s) for no memory. Even full/oracle
+retrieval hurt, so prepending selected text is the rejected interface; this does
+not falsify learned hidden-state episodic memory in general.
+
+Decision: `retire_prompt_memory_build_answer_masked_post_training`.
+
+The replay model's 98% candidate ranking versus 44.9% free generation indicates
+an objective/interface gap. Next train from the active base with loss masked to
+relation answer tokens while interleaving ordinary general replay. Require
+strict free binding plus bounded mixed-language loss. Only if masked
+post-training fails should MARULHO pay the complexity cost of learned
+hidden-state episodic memory.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -354,8 +371,9 @@ The following are not maintained language paths:
   transactions;
 - quality-repair sweeps that optimize old prompt gates without solving unseen
   continuation;
-- old SNN language readout ledgers as a generation architecture.
+- old SNN language readout ledgers as a generation architecture;
 - frozen residual output adapters for relation binding.
+- prompt-text episodic retrieval by prepending selected episodes.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -365,8 +383,8 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Test surprise-selected episodic binding against random/recency controls at
-   equal memory and compute budgets.
+4. Test answer-masked relation post-training with general replay, requiring
+   strict free binding and bounded general-language loss.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.
