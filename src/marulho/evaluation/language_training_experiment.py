@@ -98,15 +98,16 @@ def _read_corpus(path: str | Path | None) -> str:
 
 
 def _build_tokenizer(
-    corpus: str,
+    corpus: str | Sequence[str],
     config: LanguageTrainingExperimentConfig,
 ) -> LanguageTokenizer:
+    texts = [corpus] if isinstance(corpus, str) else [str(text) for text in corpus]
     kind = str(config.tokenizer_kind).strip().lower()
     if kind == "byte":
         return ByteLevelLanguageTokenizer()
     if kind == "bpe":
         return BytePairLanguageTokenizer.train(
-            [corpus],
+            texts,
             vocab_size=max(512, int(config.tokenizer_vocab_size)),
             min_frequency=max(1, int(config.tokenizer_min_frequency)),
         )

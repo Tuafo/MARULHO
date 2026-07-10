@@ -35,7 +35,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v2"
+SURFACE = "marulho_transformer_scaling_experiment.v3"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -508,7 +508,7 @@ def _failed_arm(arm: ScalingArmConfig, exc: BaseException) -> dict[str, Any]:
 def run_language_scaling_experiment(
     *,
     output_path: str | Path,
-    corpus_path: str | Path,
+    corpus_paths: Sequence[str | Path],
     eval_corpus_path: str | Path | None = None,
     prompts: Sequence[str] = DEFAULT_PROMPTS,
     config: LanguageScalingExperimentConfig | None = None,
@@ -533,8 +533,10 @@ def run_language_scaling_experiment(
         )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    corpus_path = Path(corpus_path)
-    corpus = _read_corpus(corpus_path)
+    source_paths = tuple(Path(path) for path in corpus_paths)
+    if not source_paths:
+        raise ValueError("At least one training corpus path is required")
+    corpora = tuple(_read_corpus(path) for path in source_paths)
     eval_corpus_file = (
         None if eval_corpus_path is None else Path(eval_corpus_path)
     )
@@ -552,12 +554,13 @@ def run_language_scaling_experiment(
         tokenizer_vocab_size=int(cfg.tokenizer_vocab_size),
         tokenizer_min_frequency=int(cfg.tokenizer_min_frequency),
     )
-    tokenizer = _build_tokenizer(corpus, tokenizer_config)
-    corpus_token_count = len(
-        tokenizer.encode(corpus, add_bos=False, add_eos=False)
+    tokenizer = _build_tokenizer(corpora, tokenizer_config)
+    corpus_token_count = sum(
+        len(tokenizer.encode(corpus, add_bos=False, add_eos=False))
+        for corpus in corpora
     )
     split = build_language_model_splits(
-        [corpus],
+        corpora,
         tokenizer,
         eval_texts=None if eval_corpus is None else [eval_corpus],
         sequence_length=int(cfg.sequence_length),
@@ -572,8 +575,9 @@ def run_language_scaling_experiment(
     prompt_rows = [
         {
             "prompt": str(prompt),
-            "exact_prompt_absent_from_corpus": str(prompt).lower()
-            not in corpus.lower(),
+            "exact_prompt_absent_from_corpus": all(
+                str(prompt).lower() not in corpus.lower() for corpus in corpora
+            ),
         }
         for prompt in prompts
     ]
@@ -733,13 +737,20 @@ def run_language_scaling_experiment(
             "arms": [asdict(arm) for arm in cfg.arms],
         },
         "corpus": {
-            "path": str(corpus_path),
-            "sha256": hashlib.sha256(corpus_path.read_bytes()).hexdigest(),
-            "utf8_bytes": len(corpus.encode("utf-8")),
+            "sources": [
+                {
+                    "path": str(path),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "utf8_bytes": len(corpus.encode("utf-8")),
+                    "row_provenance_report_expected": str(
+                        path.with_suffix(".json")
+                    ),
+                }
+                for path, corpus in zip(source_paths, corpora)
+            ],
+            "source_count": len(source_paths),
+            "utf8_bytes": sum(len(corpus.encode("utf-8")) for corpus in corpora),
             "bpe_tokens": corpus_token_count,
-            "row_provenance_report_expected": str(
-                corpus_path.with_suffix(".json")
-            ),
             "explicit_eval_path": (
                 None if eval_corpus_file is None else str(eval_corpus_file)
             ),
@@ -840,7 +851,7 @@ def _parse_arm(value: str) -> ScalingArmConfig:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, required=True)
+    parser.add_argument("--corpus", action="append", type=Path, required=True)
     parser.add_argument("--eval-corpus", type=Path, default=None)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arm", action="append", type=_parse_arm, default=[])
@@ -890,7 +901,7 @@ def main() -> int:
     )
     report = run_language_scaling_experiment(
         output_path=args.output,
-        corpus_path=args.corpus,
+        corpus_paths=tuple(args.corpus),
         eval_corpus_path=args.eval_corpus,
         prompts=tuple(args.prompt) or DEFAULT_PROMPTS,
         config=config,

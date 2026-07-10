@@ -19,7 +19,8 @@ keeps later-offset holdout documents entirely outside training. Its separate
 `empirical_wall_clock` budget basis applies recorded per-arm throughput
 multipliers, reports unique and repeated updates, and rejects the comparison
 when actual training times differ by more than 15 percent. Unequal-token runs
-cannot be mislabeled as scaling-law grids.
+cannot be mislabeled as scaling-law grids. Repeated `--corpus` arguments train
+one tokenizer and split over multiple provenance-recorded corpus shards.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

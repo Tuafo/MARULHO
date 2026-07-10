@@ -85,7 +85,7 @@ def test_equal_token_basis_rejects_arm_multiplier() -> None:
     try:
         run_language_scaling_experiment(
             output_path="unused.json",
-            corpus_path="unused.txt",
+            corpus_paths=("unused.txt",),
             config=config,
         )
     except ValueError as exc:
@@ -115,10 +115,19 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
         * 32,
         encoding="utf-8",
     )
+    second_corpus = tmp_path / "second-corpus.txt"
+    second_corpus.write_text(
+        (
+            "A second provenance shard broadens the clean training stream. "
+            "Both shards share one checkpoint-owned tokenizer.\n"
+        )
+        * 32,
+        encoding="utf-8",
+    )
     output = tmp_path / "scaling.json"
     report = run_language_scaling_experiment(
         output_path=output,
-        corpus_path=corpus,
+        corpus_paths=(corpus, second_corpus),
         eval_corpus_path=eval_corpus,
         prompts=("This prompt is absent",),
         config=LanguageScalingExperimentConfig(
@@ -149,6 +158,9 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     assert report["failed_arm_count"] == 0
     assert report["external_llm_used"] is False
     assert report["split"]["split_strategy"] == "explicit_text_sets"
+    assert report["corpus"]["source_count"] == 2
+    assert report["corpus"]["sources"][0]["path"] == str(corpus)
+    assert report["corpus"]["sources"][1]["path"] == str(second_corpus)
     assert report["corpus"]["explicit_eval_path"] == str(eval_corpus)
     assert report["prompts"][0]["exact_prompt_absent_from_corpus"] is True
     assert report["scaling_law"]["available"] is False
