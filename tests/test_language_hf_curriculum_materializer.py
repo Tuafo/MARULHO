@@ -265,3 +265,49 @@ def test_materialize_hf_curriculum_paginates_requested_rows(
     assert report["source_reports"][0]["page_size"] == 100
     assert report["source_reports"][0]["page_count"] == 2
     assert report["source_reports"][0]["materialized_rows"] == 105
+
+
+def test_materialize_hf_curriculum_preserves_rows_before_later_page_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    source = HFCurriculumSource(
+        dataset="HuggingFaceFW/fineweb-edu",
+        config="sample-10BT",
+        split="train",
+        text_field="text",
+        role="base_pretraining",
+        license="odc-by",
+    )
+
+    def _fake_urlopen(request, timeout):
+        query = parse_qs(urlparse(request.full_url).query)
+        offset = int(query["offset"][0])
+        if offset >= 100:
+            raise RuntimeError("rate limited after first page")
+        return _Response(
+            {
+                "rows": [
+                    {"row": {"text": f"Document {idx}"}}
+                    for idx in range(100)
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "marulho.evaluation.language_hf_curriculum_materializer.urlopen",
+        _fake_urlopen,
+    )
+
+    report = materialize_hf_curriculum(
+        output_path=tmp_path / "fineweb.json",
+        corpus_output_path=tmp_path / "fineweb.txt",
+        sources=(source,),
+        rows_per_source=105,
+    )
+
+    assert report["report_status"] == "partial"
+    assert report["corpus"]["row_count"] == 100
+    assert report["source_reports"][0]["status"] == "partial"
+    assert report["source_reports"][0]["fetched_rows"] == 100
+    assert "rate limited" in report["source_reports"][0]["failure_reason"]

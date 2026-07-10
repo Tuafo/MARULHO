@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Any, Mapping, Sequence
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -143,8 +145,21 @@ def _dataset_viewer_get_json(url: str, *, timeout_seconds: float) -> Mapping[str
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = Request(url, headers=headers)
-    with urlopen(request, timeout=float(timeout_seconds)) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(7):
+        try:
+            with urlopen(request, timeout=float(timeout_seconds)) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            retryable = int(exc.code) == 429 or 500 <= int(exc.code) < 600
+            if not retryable or attempt >= 6:
+                raise
+            retry_after = None if exc.headers is None else exc.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after is not None else 0.0
+            except ValueError:
+                delay = 0.0
+            time.sleep(max(delay, min(30.0, float(2**attempt))))
+    raise RuntimeError("Dataset Viewer retry loop exited unexpectedly")
 
 
 def _fetch_dataset_viewer_rows(
@@ -257,6 +272,7 @@ def materialize_hf_curriculum(
     rows_per_source: int = 4,
     offset: int = 0,
     row_page_size: int = 100,
+    request_interval_seconds: float = 0.0,
     timeout_seconds: float = 60.0,
     write_partial_after_each_source: bool = True,
 ) -> dict[str, Any]:
@@ -280,14 +296,21 @@ def materialize_hf_curriculum(
             rows_endpoint_failures: list[str] = []
             page_count = 0
             next_offset = requested_offset
+            page_failure: str | None = None
             while len(row_items) < requested_rows:
                 page_length = min(page_size, requested_rows - len(row_items))
-                payload = _fetch_dataset_viewer_rows(
-                    source,
-                    offset=next_offset,
-                    length=page_length,
-                    timeout_seconds=float(timeout_seconds),
-                )
+                try:
+                    payload = _fetch_dataset_viewer_rows(
+                        source,
+                        offset=next_offset,
+                        length=page_length,
+                        timeout_seconds=float(timeout_seconds),
+                    )
+                except Exception as exc:
+                    page_failure = str(exc) or exc.__class__.__name__
+                    rows_endpoint_failure = rows_endpoint_failure or page_failure
+                    rows_endpoint_failures.append(page_failure)
+                    break
                 page_count += 1
                 page_rows = list(payload.get("rows") or [])
                 row_items.extend(page_rows)
@@ -304,6 +327,11 @@ def materialize_hf_curriculum(
                 if not page_rows or len(page_rows) < page_length:
                     break
                 next_offset += len(page_rows)
+                if (
+                    len(row_items) < requested_rows
+                    and float(request_interval_seconds) > 0.0
+                ):
+                    time.sleep(float(request_interval_seconds))
             row_texts: list[str] = []
             row_hashes: list[str] = []
             for item in row_items:
@@ -324,7 +352,13 @@ def materialize_hf_curriculum(
             source_reports.append(
                 _source_report(
                     source,
-                    status="materialized" if row_texts else "empty",
+                    status=(
+                        "materialized"
+                        if page_failure is None and row_texts
+                        else "partial"
+                        if row_texts
+                        else "failed"
+                    ),
                     requested_rows=requested_rows,
                     offset=requested_offset,
                     page_size=page_size,
@@ -333,6 +367,7 @@ def materialize_hf_curriculum(
                     materialized_rows=len(row_texts),
                     character_count=sum(len(text) for text in row_texts),
                     row_hashes=row_hashes,
+                    failure_reason=page_failure,
                     fallback_endpoint=fallback_endpoint,
                     rows_endpoint_failure=rows_endpoint_failure,
                     rows_endpoint_failures=rows_endpoint_failures,
@@ -367,7 +402,7 @@ def materialize_hf_curriculum(
         item for item in source_reports if int(item["materialized_rows"]) > 0
     ]
     incomplete_sources = [
-        item for item in source_reports if int(item["materialized_rows"]) <= 0
+        item for item in source_reports if item["status"] != "materialized"
     ]
     status = (
         "final"
@@ -452,6 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--rows-per-source", type=int, default=4)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--row-page-size", type=int, default=100)
+    parser.add_argument("--request-interval-seconds", type=float, default=0.0)
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
     parser.add_argument(
         "--no-partial-after-each-source",
@@ -470,6 +506,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rows_per_source=args.rows_per_source,
         offset=args.offset,
         row_page_size=args.row_page_size,
+        request_interval_seconds=max(0.0, float(args.request_interval_seconds)),
         timeout_seconds=args.timeout_seconds,
         write_partial_after_each_source=not args.no_partial_after_each_source,
     )
