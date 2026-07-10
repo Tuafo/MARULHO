@@ -159,6 +159,32 @@ def test_pmrm_backward_is_finite_and_future_tokens_are_causal() -> None:
         assert bool(torch.isfinite(parameter.grad).all().item()) is True
 
 
+def test_pmrm_integrated_path_reaches_every_trainable_parameter() -> None:
+    torch.manual_seed(13)
+    model = MarulhoPMRMLanguageModel(
+        _config(episodic_policy="surprise", episodic_write_interval=2)
+    )
+    token_ids = torch.randint(0, 64, (2, 8))
+    targets = torch.randint(0, 64, (2, 8))
+
+    loss = model.next_token_loss(
+        token_ids, targets, collect_telemetry=False
+    )["loss"]
+    loss.backward()
+
+    missing = [
+        name for name, parameter in model.named_parameters() if parameter.grad is None
+    ]
+    nonfinite = [
+        name
+        for name, parameter in model.named_parameters()
+        if parameter.grad is not None
+        and not bool(torch.isfinite(parameter.grad).all().item())
+    ]
+    assert missing == []
+    assert nonfinite == []
+
+
 def test_pmrm_reset_mask_only_resets_selected_streams() -> None:
     model = MarulhoPMRMLanguageModel(_config()).eval()
     state = model(torch.randint(0, 64, (3, 4)), collect_telemetry=False)["state"]

@@ -356,12 +356,11 @@ class MarulhoPMRMLanguageModel(nn.Module):
                 priority = state["step_index"].to(dtype=torch.float32)
             priority = priority.to(dtype=state["episodes_score"].dtype)
             if policy == "full":
-                selected_key = state["pending_key"]
-                selected_value = state["pending_value"]
                 selected_score = priority
                 should_write = pending
                 candidate_valid = state["write_candidate_valid"]
                 interval_progress = state["write_interval_progress"]
+                replace_candidate = pending
             else:
                 replace_candidate = pending & (
                     ~state["write_candidate_valid"]
@@ -369,16 +368,6 @@ class MarulhoPMRMLanguageModel(nn.Module):
                 )
                 if policy == "recency":
                     replace_candidate = pending
-                selected_key = torch.where(
-                    replace_candidate.unsqueeze(1),
-                    state["pending_key"],
-                    state["write_candidate_key"],
-                )
-                selected_value = torch.where(
-                    replace_candidate.unsqueeze(1),
-                    state["pending_value"],
-                    state["write_candidate_value"],
-                )
                 selected_score = torch.where(
                     replace_candidate,
                     priority,
@@ -394,6 +383,23 @@ class MarulhoPMRMLanguageModel(nn.Module):
 
             destination = torch.remainder(
                 state["write_pointer"], int(self.config.episodic_slots)
+            )
+
+        # Selection policy is discrete, but the selected memory content must keep
+        # its graph so the episodic encoders learn through later retrievals.
+        if policy == "full":
+            selected_key = state["pending_key"]
+            selected_value = state["pending_value"]
+        else:
+            selected_key = torch.where(
+                replace_candidate.unsqueeze(1),
+                state["pending_key"],
+                state["write_candidate_key"],
+            )
+            selected_value = torch.where(
+                replace_candidate.unsqueeze(1),
+                state["pending_value"],
+                state["write_candidate_value"],
             )
 
         slot_mask = F.one_hot(destination, num_classes=int(self.config.episodic_slots))
