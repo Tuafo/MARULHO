@@ -29,7 +29,7 @@ construction:
 flowchart LR
     Data["Local text and grounded experience"] --> Tok["Checkpoint-owned BPE"]
     Tok --> Baseline["Active 21M Transformer baseline"]
-    Tok --> Event["PMRM event encoder - under construction"]
+    Tok --> Event["PMRM event encoder - reference candidate"]
     Event --> Router["Sparse fixed-pool column router"]
     Router --> Dual["Dual temporal and associative column state"]
     Dual <--> Episode["Internal surprise-budgeted episodes"]
@@ -44,11 +44,12 @@ flowchart LR
     Service["Thin /brain API"] --> Brain
 ```
 
-Only the Transformer path is runnable today. It remains the quality and systems
-baseline while MARULHO builds a coherent PMRM competitor: continuous recurrent
-state, not spikes; fixed persistent columns; selective temporal state; editable
-delta-rule associative state; internal episodic memory; sparse relations; and
-adaptive latent workspace iterations. Component switches exist to explain the
+Only the Transformer path is installed in `MarulhoBrain`. It remains the quality
+and systems baseline. MARULHO now has a runnable PMRM reference candidate with
+continuous recurrent state, not spikes; fixed persistent columns; selective
+temporal state; editable delta-rule associative state; internal episodic memory;
+sparse relations; and recurrent latent workspace iterations. It has correctness
+tests but no quality evidence yet. Component switches explain the eventual
 result, but a detached memory heuristic does not count as a PMRM test. Grounded
 identity and intervention tasks from LCO can later evaluate whether surviving
 columns represent persistent objects rather than text correlations.

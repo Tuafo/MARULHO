@@ -1,13 +1,29 @@
 # Training
 
 This package owns MARULHO model execution, optimization machinery, and
-checkpoint serialization. The maintained language path is Transformer-only.
+checkpoint serialization. The installed language runtime remains Transformer-
+only; PMRM is an isolated architecture candidate until matched evidence earns
+promotion.
 
 ## Active Language Modules
 
 **`language_transformer.py`** — MARULHO's decoder-only causal Transformer
 state block. It owns RMSNorm, rotary positions, causal attention, SwiGLU, and
 bounded per-layer KV state for incremental decoding.
+
+**`language_protocol.py`** — the shared causal-language model interface used by
+matched evaluations. The Transformer and PMRM are the two adapters at this
+seam; service/runtime installation remains a separate promotion decision.
+
+**`language_pmrm.py`** — the integrated continuous-state PMRM reference model.
+One deep module owns event encoding, honest dense-cost top-k routing into a
+fixed column pool, coupled selective temporal and delta-rule associative state,
+sparse relation messages, hidden episodic memory, a weight-shared recurrent
+workspace, full-vocabulary language loss/generation, runtime-state
+reset/serialization, and an atomic PMRM-only checkpoint. Configuration switches
+produce temporal-only, associative-only, fusion, memory-policy, and workspace
+ablations without parallel implementations. It does not import the grounded
+SNN/column runtime and cannot be installed by `MarulhoBrain`.
 
 **`language_model.py`** — the language model contract. It owns:
 
@@ -36,8 +52,9 @@ policy, temperature, top-p threshold, and seed.
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 
-The active language path is `marulho_transformer`; the only accepted
-`state_core` value is `transformer`.
+The active installed language path is `marulho_transformer`; the only accepted
+runtime `state_core` value is `transformer`. The experimental PMRM path is
+`marulho_pmrm_v0` and uses a distinct checkpoint surface.
 
 ## Checkpoint Contract
 
@@ -59,6 +76,11 @@ checkpoints are rejected rather than upgraded through compatibility code.
 
 Checkpoint writes use a temporary file, flush and fsync the payload, then
 atomically replace the target.
+
+`marulho_pmrm_language_checkpoint.v1` follows the same tokenizer/hash and atomic
+write discipline while also allowing exact tensor-only recurrent runtime state.
+The Transformer loader rejects it, so an experimental candidate cannot silently
+replace the active brain model.
 
 ## Runtime Boundaries
 

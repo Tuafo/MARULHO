@@ -24,6 +24,7 @@ from marulho.data.language_tokenizer import (
     load_language_tokenizer_state,
 )
 from marulho.training.language_transformer import MarulhoCausalTransformerStateBlock
+from marulho.training.language_protocol import CausalLanguageModel
 
 
 LANGUAGE_STATE_CORE_KINDS = ("transformer",)
@@ -189,6 +190,10 @@ class MarulhoLanguageModel(nn.Module):
     @property
     def generation_vocab_size(self) -> int:
         return int(self.config.vocab_size)
+
+    @property
+    def context_length(self) -> int:
+        return int(self.config.transformer_context_length)
 
     def generation_decode_policy(
         self,
@@ -729,7 +734,7 @@ def build_language_model_splits(
 
 @torch.no_grad()
 def evaluate_language_model(
-    model: MarulhoLanguageModel,
+    model: CausalLanguageModel,
     batches: Sequence[LanguageBatch],
 ) -> dict[str, Any]:
     if not batches:

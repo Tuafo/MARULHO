@@ -100,7 +100,7 @@ def run_language_sustained_runtime_evidence(
         "runtime": {
             "state_core": "transformer",
             "bounded_kv_cache": True,
-            "context_length": int(model.config.transformer_context_length),
+            "context_length": int(model.context_length),
             "routing_present": False,
             "spiking_present": False,
             "sampled_padded_vocab_present": False,

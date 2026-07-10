@@ -122,8 +122,9 @@ a continuous-state recurrent model, not an SNN and not a Transformer prompt
 extension. Its minimal complete dataflow is event encoding, sparse routing into
 a fixed pool of persistent columns, dual temporal/associative state updates,
 internal episodic write/retrieval, recurrent workspace computation, and a
-language head. This is unimplemented and unvalidated until the end-to-end path
-runs.
+language head. The reference implementation lives in
+`src/marulho/training/language_pmrm.py`; it is correctness-tested but remains
+unvalidated until matched end-to-end evidence exists.
 
 **Dual-State Column** — one persistent column owns a selective temporal state
 and an editable delta-rule associative matrix. Parallel and both serial fusion

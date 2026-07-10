@@ -309,7 +309,7 @@ def evaluate_relation_binding_cases(
                 add_eos=True,
             )
             combined = prompt_ids + candidate_ids
-            if len(combined) > int(model.config.transformer_context_length):
+            if len(combined) > int(model.context_length):
                 raise ValueError("Relation case exceeds checkpoint context length")
             input_ids = torch.tensor(
                 [combined[:-1]],

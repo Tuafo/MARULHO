@@ -141,8 +141,9 @@ The branch is
 Neither this run nor the prompt-memory run tested PMRM. A PMRM language test
 requires one internal architecture containing persistent columns, coupled
 temporal and associative state, hidden-state episodic writes/retrieval, and a
-recurrent workspace. The active Transformer remains the matched baseline while
-that competitor is built.
+recurrent workspace. That reference model now exists under
+`src/marulho/training/language_pmrm.py`; the active Transformer remains the
+matched baseline until the new model produces quality evidence.
 
 ### Narrow relation fine-tune
 
