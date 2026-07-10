@@ -25,7 +25,7 @@ from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_model import load_language_model_checkpoint
 
 
-SURFACE = "marulho_language_relation_binding_falsification.v1"
+SURFACE = "marulho_language_relation_binding_falsification.v2"
 ARTIFACT_KIND = "marulho_language_relation_binding_falsification"
 
 ENTITIES = ("Ava", "Ben", "Cora", "Dax", "Eli", "Mara", "Nora", "Owen")
@@ -357,8 +357,17 @@ def relation_binding_branch_decision(
     accuracy_before: float,
     accuracy_after: float,
     general_loss_delta: float,
+    replay_enabled: bool = False,
 ) -> str:
     relation_gain = float(accuracy_after) - float(accuracy_before)
+    if replay_enabled:
+        if float(accuracy_after) >= 0.75 and float(general_loss_delta) <= 0.15:
+            return "replay_preserves_language_and_relations"
+        if relation_gain >= 0.25 and float(general_loss_delta) > 0.15:
+            return "replay_insufficient_test_parameter_isolation_or_episodic_memory"
+        if float(general_loss_delta) <= 0.15:
+            return "increase_relation_replay_budget"
+        return "replay_fails_relation_and_retention"
     if relation_gain >= 0.25 and float(general_loss_delta) > 0.15:
         return "relation_learned_but_catastrophic_forgetting_test_replay"
     if float(accuracy_after) >= 0.80 and float(general_loss_delta) <= 0.15:
@@ -375,6 +384,7 @@ def run_relation_binding_falsification(
     corpus_path: str | Path,
     cases_path: str | Path,
     general_eval_corpus_paths: Sequence[str | Path],
+    replay_corpus_paths: Sequence[str | Path] = (),
     train_document_count: int = 200_000,
     eval_cases_per_kind: int = 64,
     token_budgets: Sequence[int] = (4_194_304, 8_388_608, 16_777_216),
@@ -411,7 +421,7 @@ def run_relation_binding_falsification(
     max_train_batches = math.ceil(maximum_budget / (sequence_length * batch_size)) + 128
     scaling_report = run_language_scaling_experiment(
         output_path=training_output,
-        corpus_paths=(corpus,),
+        corpus_paths=(corpus, *tuple(replay_corpus_paths)),
         eval_corpus_paths=tuple(general_eval_corpus_paths),
         prompts=tuple(case.prompt for case in cases[:8]),
         config=LanguageScalingExperimentConfig(
@@ -467,6 +477,7 @@ def run_relation_binding_falsification(
         accuracy_before=float(before["accuracy"]),
         accuracy_after=float(after["accuracy"]),
         general_loss_delta=general_loss_delta,
+        replay_enabled=bool(replay_corpus_paths),
     )
     report = {
         "artifact_kind": ARTIFACT_KIND,
@@ -486,6 +497,8 @@ def run_relation_binding_falsification(
             "split_policy": "sha256_signature_mod5_holdout",
             "evaluation_template_disjoint": True,
             "correct_index_metrics_only": True,
+            "replay_enabled": bool(replay_corpus_paths),
+            "replay_corpus_paths": [str(path) for path in replay_corpus_paths],
         },
         "relation_before": before,
         "relation_after": after,
@@ -519,6 +532,7 @@ def main() -> int:
     parser.add_argument("--corpus-output", type=Path, required=True)
     parser.add_argument("--cases-output", type=Path, required=True)
     parser.add_argument("--general-eval-corpus", action="append", type=Path, required=True)
+    parser.add_argument("--replay-corpus", action="append", type=Path, default=[])
     parser.add_argument("--train-documents", type=int, default=200_000)
     parser.add_argument("--eval-cases-per-kind", type=int, default=64)
     parser.add_argument("--token-budget", action="append", type=int, default=[])
@@ -531,6 +545,7 @@ def main() -> int:
         corpus_path=args.corpus_output,
         cases_path=args.cases_output,
         general_eval_corpus_paths=tuple(args.general_eval_corpus),
+        replay_corpus_paths=tuple(args.replay_corpus),
         train_document_count=max(1, int(args.train_documents)),
         eval_cases_per_kind=max(1, int(args.eval_cases_per_kind)),
         token_budgets=tuple(args.token_budget) or (4_194_304, 8_388_608, 16_777_216),

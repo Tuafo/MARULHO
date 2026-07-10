@@ -47,7 +47,9 @@ procedural entity/event curriculum and evaluates compositionally held-out
 container, ownership, property, and event-order cases. Predictions rank every
 candidate by continuation loss before the correct index is used for metrics.
 The same mixed-language holdouts measure retention, so relation gains cannot
-silently trade away general language.
+silently trade away general language. Repeated `--replay-corpus` sources test
+whether a budgeted general-data mixture preserves both capabilities before
+parameter isolation or episodic memory is introduced.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove

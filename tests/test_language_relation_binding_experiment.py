@@ -67,3 +67,18 @@ def test_relation_branch_prioritizes_catastrophic_forgetting() -> None:
         accuracy_after=0.88,
         general_loss_delta=5.4,
     ) == "relation_learned_but_catastrophic_forgetting_test_replay"
+
+
+def test_relation_replay_requires_both_accuracy_and_retention() -> None:
+    assert relation_binding_branch_decision(
+        accuracy_before=0.48,
+        accuracy_after=0.82,
+        general_loss_delta=0.08,
+        replay_enabled=True,
+    ) == "replay_preserves_language_and_relations"
+    assert relation_binding_branch_decision(
+        accuracy_before=0.48,
+        accuracy_after=0.84,
+        general_loss_delta=0.70,
+        replay_enabled=True,
+    ) == "replay_insufficient_test_parameter_isolation_or_episodic_memory"
