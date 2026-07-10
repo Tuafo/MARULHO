@@ -132,6 +132,81 @@ def test_distributed_loss_trains_all_parameters_and_counterfactual_credit() -> N
     )
 
 
+def test_auxiliary_fast_path_preserves_loss_state_and_gradients() -> None:
+    torch.manual_seed(9)
+    tokenizer = ByteLevelLanguageTokenizer()
+    config = _tiny_config(tokenizer.vocab_size, counterfactual_rate=0.0)
+    fast = MarulhoDistributedLanguageModel(config).train()
+    instrumented = MarulhoDistributedLanguageModel(config).train()
+    instrumented.load_state_dict(fast.state_dict(), strict=True)
+    input_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    target_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    fast_result = fast.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=False,
+        return_evidence=False,
+    )
+    instrumented_result = instrumented.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=True,
+        return_evidence=True,
+    )
+    torch.testing.assert_close(fast_result["loss"], instrumented_result["loss"])
+    for key, value in fast_result["state"].items():
+        torch.testing.assert_close(value, instrumented_result["state"][key])
+    fast_result["loss"].backward()
+    instrumented_result["loss"].backward()
+    for (fast_name, fast_parameter), (full_name, full_parameter) in zip(
+        fast.named_parameters(), instrumented.named_parameters(), strict=True
+    ):
+        assert fast_name == full_name
+        assert fast_parameter.grad is not None
+        assert full_parameter.grad is not None
+        torch.testing.assert_close(fast_parameter.grad, full_parameter.grad)
+
+
+def test_counterfactual_metadata_survives_evidence_suppression() -> None:
+    torch.manual_seed(10)
+    tokenizer = ByteLevelLanguageTokenizer()
+    config = _tiny_config(tokenizer.vocab_size, counterfactual_rate=1.0)
+    model = MarulhoDistributedLanguageModel(config).train()
+    instrumented = MarulhoDistributedLanguageModel(config).train()
+    instrumented.load_state_dict(model.state_dict(), strict=True)
+    input_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    target_ids = torch.randint(0, tokenizer.vocab_size, (2, 7))
+    rng_state = torch.get_rng_state()
+    result = model.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=False,
+        return_evidence=False,
+    )
+    torch.set_rng_state(rng_state)
+    instrumented_result = instrumented.next_token_loss(
+        input_ids,
+        target_ids,
+        collect_telemetry=True,
+        return_evidence=True,
+    )
+    assert result["loss_evidence"] == {}
+    assert result["training_aux"]["counterfactual"]["ran"] is True
+    assert result["training_aux"]["counterfactual"]["kind"] in {"unit", "episode"}
+    torch.testing.assert_close(result["loss"], instrumented_result["loss"])
+    for key, value in result["state"].items():
+        torch.testing.assert_close(value, instrumented_result["state"][key])
+    result["loss"].backward()
+    instrumented_result["loss"].backward()
+    for (name, parameter), (instrumented_name, instrumented_parameter) in zip(
+        model.named_parameters(), instrumented.named_parameters(), strict=True
+    ):
+        assert name == instrumented_name
+        assert parameter.grad is not None
+        assert instrumented_parameter.grad is not None
+        torch.testing.assert_close(parameter.grad, instrumented_parameter.grad)
+
+
 def test_distributed_generation_is_owned_and_stateful() -> None:
     torch.manual_seed(11)
     tokenizer = ByteLevelLanguageTokenizer()

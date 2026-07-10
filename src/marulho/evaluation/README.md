@@ -76,8 +76,12 @@ default. Both arms share tokenizer, selected windows, order, tokens, optimizer,
 hardware, relation/general evaluation, and model seed. The report additionally
 records counterfactual utility targets, exact/population mixing, unit activity,
 episodic writes/usage, runtime-state bytes, throughput, peak CUDA allocation,
-gradient coverage, and the anti-promotion boundary. A one-step real-data smoke
-passed; no quality result exists yet.
+gradient coverage, and the anti-promotion boundary. At 4,199,040 matched update
+tokens, the organism reached 5.5263 heldout loss versus 6.0134 for the
+Transformer and 97.3% versus 75.8% candidate relation ranking. Both arms scored
+0% on strict free relation generation. The organism sustained 20,422 training
+tokens/s versus 83,743 and used 4.22 GiB versus 2.41 GiB peak allocation. This is
+an early quality win that must survive the durable budget and unseen semantics.
 
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove

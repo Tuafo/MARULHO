@@ -289,6 +289,8 @@ class _PredictiveUnitPopulation(nn.Module):
         *,
         layer_index: int,
         intervention: _Intervention | None,
+        collect_auxiliary: bool,
+        fresh_state: bool,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         batch_size, time_steps, _ = inputs.shape
         units = state["units"].to(device=inputs.device, dtype=inputs.dtype)
@@ -313,7 +315,11 @@ class _PredictiveUnitPopulation(nn.Module):
         pending_episode_weight = state["pending_episode_weight"].to(
             device=inputs.device, dtype=inputs.dtype
         )
-        pending_count = int(state["pending_count"].detach().cpu().item())
+        pending_count = (
+            0
+            if fresh_state
+            else int(state["pending_count"].detach().cpu().item())
+        )
         retention = torch.sigmoid(self.retention_logits).to(dtype=inputs.dtype)
 
         outputs: list[torch.Tensor] = []
@@ -464,23 +470,28 @@ class _PredictiveUnitPopulation(nn.Module):
                 pending_count = 0
 
             outputs.append(population_output)
-            unit_utilities.append(utility_prediction)
-            episode_utilities.append(episode_prediction)
-            unit_gates.append(utility_gate)
-            episode_gates.append(episode_gate)
-            episode_writes.append(episode_write)
-            relevance_rows.append(relevance)
+            if collect_auxiliary:
+                unit_utilities.append(utility_prediction)
+                episode_utilities.append(episode_prediction)
+                unit_gates.append(utility_gate)
+                episode_gates.append(episode_gate)
+                episode_writes.append(episode_write)
+                relevance_rows.append(relevance)
             start = end
 
         output = torch.cat(outputs, dim=1)
-        evidence = {
-            "unit_utility": torch.cat(unit_utilities, dim=1),
-            "episode_utility": torch.cat(episode_utilities, dim=1),
-            "unit_gate": torch.cat(unit_gates, dim=1),
-            "episode_gate": torch.cat(episode_gates, dim=1),
-            "episode_write": torch.cat(episode_writes, dim=1),
-            "unit_relevance": torch.cat(relevance_rows, dim=1),
-        }
+        evidence = (
+            {
+                "unit_utility": torch.cat(unit_utilities, dim=1),
+                "episode_utility": torch.cat(episode_utilities, dim=1),
+                "unit_gate": torch.cat(unit_gates, dim=1),
+                "episode_gate": torch.cat(episode_gates, dim=1),
+                "episode_write": torch.cat(episode_writes, dim=1),
+                "unit_relevance": torch.cat(relevance_rows, dim=1),
+            }
+            if collect_auxiliary
+            else {}
+        )
         next_state = {
             "units": units,
             "episode_keys": episode_keys,
@@ -523,6 +534,8 @@ class _DistributedPredictiveBlock(nn.Module):
         layer_index: int,
         position_offset: torch.Tensor,
         intervention: _Intervention | None,
+        collect_auxiliary: bool,
+        fresh_state: bool,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         normalized = self.parallel_norm(value)
         attention, next_key, next_value = self.attention(
@@ -536,6 +549,8 @@ class _DistributedPredictiveBlock(nn.Module):
             state,
             layer_index=layer_index,
             intervention=intervention,
+            collect_auxiliary=collect_auxiliary,
+            fresh_state=fresh_state,
         )
         mix = torch.softmax(self.parallel_mixer(normalized), dim=-1)
         value = value + self.dropout(
@@ -550,7 +565,7 @@ class _DistributedPredictiveBlock(nn.Module):
                 "value": next_value,
                 **population_state,
             },
-            {**evidence, "parallel_mix": mix},
+            ({**evidence, "parallel_mix": mix} if collect_auxiliary else {}),
         )
 
 
@@ -599,6 +614,7 @@ class _DistributedPredictiveStateBlock(nn.Module):
         *,
         intervention: _Intervention | None = None,
         collect_telemetry: bool = True,
+        collect_auxiliary: bool = False,
     ) -> tuple[
         torch.Tensor,
         dict[str, torch.Tensor],
@@ -610,6 +626,7 @@ class _DistributedPredictiveStateBlock(nn.Module):
         batch_size, time_steps, _ = inputs.shape
         if int(time_steps) > int(self.config.context_length):
             raise ValueError("input chunk exceeds bounded exact context_length")
+        fresh_state = state is None
         current_state = (
             self.initial_state(
                 int(batch_size), device=inputs.device, dtype=inputs.dtype
@@ -623,6 +640,7 @@ class _DistributedPredictiveStateBlock(nn.Module):
             if isinstance(position_value, torch.Tensor)
             else torch.zeros((), device=inputs.device, dtype=torch.long)
         )
+        collect_auxiliary = bool(collect_auxiliary or collect_telemetry)
         hidden = inputs
         next_state: dict[str, torch.Tensor] = {
             "position": position_offset + int(time_steps)
@@ -660,28 +678,35 @@ class _DistributedPredictiveStateBlock(nn.Module):
                 layer_index=layer_index,
                 position_offset=position_offset,
                 intervention=intervention,
+                collect_auxiliary=collect_auxiliary,
+                fresh_state=fresh_state,
             )
             for key, tensor in layer_next.items():
                 next_state[f"{prefix}{key}"] = tensor.detach()
             cache_tokens = int(layer_next["key"].shape[2])
-            final_usage.append(layer_next["episode_usage"])
-            unit_utility_rows.append(evidence["unit_utility"])
-            episode_utility_rows.append(evidence["episode_utility"])
-            unit_gate_rows.append(evidence["unit_gate"])
-            episode_gate_rows.append(evidence["episode_gate"])
-            write_rows.append(evidence["episode_write"])
-            mix_rows.append(evidence["parallel_mix"])
-            relevance_rows.append(evidence["unit_relevance"])
+            if collect_auxiliary:
+                final_usage.append(layer_next["episode_usage"])
+                unit_utility_rows.append(evidence["unit_utility"])
+                episode_utility_rows.append(evidence["episode_utility"])
+                unit_gate_rows.append(evidence["unit_gate"])
+                episode_gate_rows.append(evidence["episode_gate"])
+                write_rows.append(evidence["episode_write"])
+                mix_rows.append(evidence["parallel_mix"])
+                relevance_rows.append(evidence["unit_relevance"])
         hidden = self.output_norm(hidden)
-        auxiliary = {
-            "unit_utility": torch.stack(unit_utility_rows, dim=0),
-            "episode_utility": torch.stack(episode_utility_rows, dim=0),
-            "unit_gate": torch.stack(unit_gate_rows, dim=0),
-            "episode_gate": torch.stack(episode_gate_rows, dim=0),
-            "episode_write": torch.stack(write_rows, dim=0),
-            "parallel_mix": torch.stack(mix_rows, dim=0),
-            "unit_relevance": torch.stack(relevance_rows, dim=0),
-        }
+        auxiliary = (
+            {
+                "unit_utility": torch.stack(unit_utility_rows, dim=0),
+                "episode_utility": torch.stack(episode_utility_rows, dim=0),
+                "unit_gate": torch.stack(unit_gate_rows, dim=0),
+                "episode_gate": torch.stack(episode_gate_rows, dim=0),
+                "episode_write": torch.stack(write_rows, dim=0),
+                "parallel_mix": torch.stack(mix_rows, dim=0),
+                "unit_relevance": torch.stack(relevance_rows, dim=0),
+            }
+            if collect_auxiliary
+            else {}
+        )
         telemetry: dict[str, Any] = {
             "surface": "marulho_distributed_predictive_state_block.v1",
             "state_core": "distributed_predictive_organism",
@@ -802,6 +827,7 @@ class MarulhoDistributedLanguageModel(nn.Module):
         *,
         intervention: _Intervention | None = None,
         collect_telemetry: bool = True,
+        collect_auxiliary: bool | None = None,
     ) -> dict[str, Any]:
         if input_ids.ndim != 2:
             raise ValueError("Language model expects input_ids shaped [batch, time]")
@@ -811,6 +837,11 @@ class MarulhoDistributedLanguageModel(nn.Module):
             state,
             intervention=intervention,
             collect_telemetry=collect_telemetry,
+            collect_auxiliary=(
+                bool(collect_telemetry)
+                if collect_auxiliary is None
+                else bool(collect_auxiliary)
+            ),
         )
         return {
             "hidden": hidden,
@@ -872,20 +903,35 @@ class MarulhoDistributedLanguageModel(nn.Module):
         collect_telemetry: bool = True,
         return_evidence: bool = True,
     ) -> dict[str, Any]:
+        targets = target_ids.to(device=self.device, dtype=torch.long)
+        should_probe = bool(
+            self.training
+            and float(self.config.utility_loss_weight) > 0.0
+            and float(self.config.counterfactual_rate) > 0.0
+            and int(targets.shape[1]) > 1
+            and float(torch.rand(()).item())
+            < float(self.config.counterfactual_rate)
+        )
         result = self._forward_hidden(
             input_ids,
             collect_telemetry=collect_telemetry,
+            collect_auxiliary=should_probe,
         )
         logits = self.lm_head(result["hidden"])
-        targets = target_ids.to(device=self.device, dtype=torch.long)
         if logits.shape[:2] != targets.shape:
             raise ValueError("target_ids must match input batch/time dimensions")
-        token_losses = F.cross_entropy(
-            logits.reshape(-1, logits.shape[-1]),
-            targets.reshape(-1),
-            reduction="none",
-        ).view_as(targets)
-        language_loss = token_losses.mean()
+        token_losses: torch.Tensor | None = None
+        if should_probe:
+            token_losses = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                targets.reshape(-1),
+                reduction="none",
+            ).view_as(targets)
+            language_loss = token_losses.mean()
+        else:
+            language_loss = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
+            )
         utility_loss = language_loss.new_zeros(())
         counterfactual: dict[str, Any] = {
             "ran": False,
@@ -896,15 +942,8 @@ class MarulhoDistributedLanguageModel(nn.Module):
             "horizon": 0,
             "mean_target": 0.0,
         }
-        should_probe = bool(
-            self.training
-            and float(self.config.utility_loss_weight) > 0.0
-            and float(self.config.counterfactual_rate) > 0.0
-            and int(targets.shape[1]) > 1
-            and float(torch.rand(()).item())
-            < float(self.config.counterfactual_rate)
-        )
         if should_probe:
+            assert token_losses is not None
             layer_index = int(
                 torch.randint(int(self.config.layers), ()).item()
             )
@@ -967,10 +1006,8 @@ class MarulhoDistributedLanguageModel(nn.Module):
                 "token_index": token_index,
                 "unit_group": unit_group,
                 "horizon": horizon_end - token_index,
-                "mean_target": (
-                    float(utility_target.detach().mean().cpu().item())
-                    if return_evidence
-                    else 0.0
+                "mean_target": float(
+                    utility_target.detach().mean().cpu().item()
                 ),
             }
         loss = language_loss + float(self.config.utility_loss_weight) * utility_loss
@@ -993,6 +1030,7 @@ class MarulhoDistributedLanguageModel(nn.Module):
             "loss": loss,
             "loss_kind": "full_vocab_cross_entropy_plus_counterfactual_utility",
             "loss_evidence": evidence,
+            "training_aux": {"counterfactual": counterfactual},
             "state": result["state"],
             "telemetry": result["telemetry"],
         }

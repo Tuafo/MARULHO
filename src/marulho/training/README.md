@@ -26,7 +26,10 @@ Unit and episodic write gates receive delayed counterfactual future-loss targets
 on sampled training steps. The 8,192-vocabulary matched configuration has
 20,971,120 parameters versus 20,976,128 for the Transformer. Causal scan/step,
 all-gradient, counterfactual-credit, generation, and populated checkpoint tests
-pass. It is not installed in `MarulhoBrain` and has no quality result yet.
+pass. At 4,199,040 matched update tokens it reached 5.5263 heldout loss versus
+6.0134 for the Transformer and 97.3% versus 75.8% candidate relation ranking.
+Strict free relation generation remained 0% for both. The result earns a durable
+run and unseen-generation audit, not installation or quality promotion.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

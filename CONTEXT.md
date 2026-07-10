@@ -137,7 +137,12 @@ hypothesis notebook. The first 20,971,120-parameter PyTorch reference lives in
 full finite gradient coverage, bounded tensor-only state, counterfactual credit,
 generation, and strict checkpoint tests. Exact paths operate per token; unit and
 episodic state update causally every 24 tokens. It is not installed or
-quality-promoted.
+quality-promoted. Its first matched 4,199,040-token run reached 5.5263 heldout
+loss versus 6.0134 for the Transformer and 97.3% versus 75.8% candidate relation
+ranking. Both arms remained at 0% strict free relation generation. The organism
+used 4.22 GiB versus 2.41 GiB and sustained 20,422 versus 83,743 training
+tokens/s. This earns durable falsification and unseen-generation review, not a
+capability claim.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -413,6 +418,19 @@ not override the human semantic failure. Compact reports are
 `reports/language_scaling/delta-editable-half-unseen-generation-16m-20260710.json`.
 
 Decision: `retire_delta_v1_design_distributed_predictive_organism`.
+
+The first distributed-organism finalist used the same tokenizer, selected
+windows, schedule, optimizer, model seed, parameter budget, and evaluation as a
+fresh Transformer. At 4,199,040 update tokens it reached 5.5263 heldout loss
+versus 6.0134 and 97.3% candidate relation ranking versus 75.8%. Strict free
+relation generation was 0% for both. Every candidate parameter received a
+gradient. Its learned parallel mix averaged 37.7% exact attention and 62.3%
+predictive population; all units remained active, so sparse-compute benefit has
+not been demonstrated. The temporary 70.4 MB bounded corpus cache was deleted
+after the report. The compact result is
+`reports/language_scaling/distributed-organism-finalist-4m-20260710.json`.
+
+Decision: `continue_organism_to_durable_budget_and_unseen_generation`.
 
 The active checkpoint remains the 251,658,240-token mixed Transformer. The final
 corrected integrated PMRM screen trained six fresh matched arms for 269,568

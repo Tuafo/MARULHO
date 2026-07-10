@@ -64,6 +64,30 @@ one word with it.
 6. Lower loss or higher multiple-choice ranking does not prove usable memory.
    MARULHO has repeatedly observed lower proxy loss without correct free-form
    recall.
+7. The first distributed-organism run produced a large matched loss advantage
+   at 4.20M tokens: 5.5263 versus 6.0134, with 97.3% versus 75.8% candidate
+   relation ranking. Both arms still scored 0% strict free relation generation.
+   This is evidence to continue, not evidence of behavioral memory or durable
+   superiority.
+
+## Current systems opportunity
+
+The eager organism is launch-bound rather than arithmetic-bound: a profiled
+training step spent about 737 ms in CPU/dispatch work versus 181 ms of CUDA
+kernel time, across hundreds of small matrix, multiply, copy, and batch-matrix
+operations. Auxiliary tensors are now materialized only for counterfactual
+probes or requested telemetry. Tests require the fast path to preserve loss,
+tensor state, and every parameter gradient on both ordinary and probe steps.
+
+A diagnostic `torch.compile` run is substantially more promising but is not yet
+scientific evidence. The full candidate took about 343 seconds to compile once;
+after warm-up, a synthetic fixed-shape forward/backward loop reached roughly
+104k tokens/s. The BF16 compiled/eager loss difference was about 0.00034. Random
+counterfactual branches can trigger graph breaks or recompilation, and the 4.20M
+result above used eager execution. Before compile can support a quality claim,
+MARULHO must give both arms the same backend, schedule probes explicitly, record
+compile and warm-up cost separately, enforce numerical-parity tolerances, and
+reproduce the matched 4.20M decision.
 
 ## What LCO contributes
 

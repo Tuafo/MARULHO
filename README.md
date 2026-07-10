@@ -243,6 +243,23 @@ in a glass jar; the hybrid answered about water reaching a shelf. Delta v1 is
 therefore retired, including its implementation and rejected checkpoint.
 Decision: `retire_delta_v1_design_distributed_predictive_organism`.
 
+The replacement distributed predictive organism has now crossed its first
+matched 4.20M-token screen:
+
+| Metric | Transformer | Distributed organism |
+| --- | ---: | ---: |
+| Heldout loss | 6.0134 | 5.5263 |
+| Candidate relation | 75.8% | 97.3% |
+| Exact free relation | 0% | 0% |
+| Training tokens/s | 83,743 | 20,422 |
+| Peak allocated VRAM | 2.41 GiB | 4.22 GiB |
+
+The candidate is parameter-matched within 0.024%, every parameter received a
+gradient, and its bounded sampling cache was deleted after the report. The loss
+win is large enough to justify scaling, but strict free generation remains
+unproven and delta v1 already showed that an early win can reverse. Decision:
+`continue_organism_to_durable_budget_and_unseen_generation`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional

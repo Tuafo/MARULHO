@@ -593,7 +593,7 @@ def _run_arm(
                 batch.input_ids,
                 batch.target_ids,
                 collect_telemetry=False,
-                return_evidence=name == "organism",
+                return_evidence=False,
             )
             loss = loss_result["loss"]
         loss.backward()
@@ -607,8 +607,8 @@ def _run_arm(
         general_tokens += token_count if kind != "relation" else 0
         losses.append(loss.detach())
         gradient_norms.append(gradient_norm.detach())
-        evidence = dict(loss_result.get("loss_evidence") or {})
-        counterfactual = dict(evidence.get("counterfactual") or {})
+        training_aux = dict(loss_result.get("training_aux") or {})
+        counterfactual = dict(training_aux.get("counterfactual") or {})
         if bool(counterfactual.get("ran")):
             utility_targets.append(float(counterfactual["mean_target"]))
             utility_kinds.append(str(counterfactual["kind"]))
