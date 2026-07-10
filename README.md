@@ -106,6 +106,8 @@ code.
 - `src/marulho/data/language_tokenizer.py`: byte and BPE tokenizers.
 - `src/marulho/evaluation/language_training_experiment.py`: maintained
   training/evaluation runner.
+- `src/marulho/evaluation/language_scaling_experiment.py`: matched local
+  model-size/token-budget curves and provisional scaling-law fit.
 - `src/marulho/evaluation/language_generation_coherence.py`: unseen
   continuation evaluation.
 - `src/marulho/evaluation/language_sustained_runtime_evidence.py`: bounded
