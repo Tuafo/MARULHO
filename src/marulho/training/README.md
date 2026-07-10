@@ -21,6 +21,8 @@ bounded per-layer KV state for incremental decoding.
   second full-corpus tokenizer pass in experiment reports;
 - chunked host-to-device split transfer whose batch views share large tensor
   storage instead of creating thousands of tiny CUDA allocations;
+- a versioned row-major selected-window hash that is independent of batch and
+  transfer chunk boundaries;
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 

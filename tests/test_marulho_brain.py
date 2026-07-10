@@ -99,8 +99,14 @@ def test_language_split_reports_text_tokens_without_reencoding() -> None:
     assert split.report["eval_token_stream_count"] == expected_eval_tokens + 2
     digest = hashlib.sha256()
     for batch in split.train:
-        digest.update(batch.input_ids.contiguous().numpy().tobytes())
-        digest.update(batch.target_ids.contiguous().numpy().tobytes())
+        windows = torch.cat(
+            (batch.input_ids, batch.target_ids[:, -1:]),
+            dim=1,
+        )
+        digest.update(windows.contiguous().numpy().tobytes())
+    assert split.report["split_hash_format"] == (
+        "selected_windows_int64_row_major.v1"
+    )
     assert split.report["train_split_hash"] == digest.hexdigest()
     assert len(split.train) > 1
     assert (

@@ -546,21 +546,9 @@ def build_language_model_splits(
                 dtype=torch.long,
             ) * step
             windows = token_ids[starts.unsqueeze(1) + token_offsets.unsqueeze(0)]
+            digest.update(windows.contiguous().numpy().tobytes())
             input_ids = windows[:, :-1].contiguous()
             target_ids = windows[:, 1:].contiguous()
-            for batch_offset in range(0, len(relative_indices), batch_size):
-                digest.update(
-                    input_ids[batch_offset : batch_offset + batch_size]
-                    .contiguous()
-                    .numpy()
-                    .tobytes()
-                )
-                digest.update(
-                    target_ids[batch_offset : batch_offset + batch_size]
-                    .contiguous()
-                    .numpy()
-                    .tobytes()
-                )
             device_inputs = input_ids.to(target_device)
             device_targets = target_ids.to(target_device)
             for batch_offset in range(0, len(relative_indices), batch_size):
@@ -587,7 +575,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v3",
+        "surface": "marulho_transformer_train_eval_split.v4",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -603,6 +591,7 @@ def build_language_model_splits(
         "train_token_stream_count": int(train_token_ids.numel()),
         "eval_text_token_count": int(eval_text_token_count),
         "eval_token_stream_count": int(eval_token_ids.numel()),
+        "split_hash_format": "selected_windows_int64_row_major.v1",
         "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,
