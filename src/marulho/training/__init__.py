@@ -14,10 +14,6 @@ from .language_model import (
 )
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
-from .language_sparse_event_memory import (
-    MarulhoSparseEventLanguageModel,
-    SparseEventMemoryConfig,
-)
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
 
@@ -29,12 +25,10 @@ __all__ = [
     "LanguageSplit",
     "LanguageRuntimeState",
     "MarulhoCausalTransformerStateBlock",
-    "MarulhoSparseEventLanguageModel",
     "MarulhoLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",
     "PredictiveBootstrap",
-    "SparseEventMemoryConfig",
     "build_language_model_splits",
     "evaluate_language_model",
     "load_language_model_checkpoint",

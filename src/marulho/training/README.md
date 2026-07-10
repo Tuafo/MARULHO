@@ -23,17 +23,12 @@ tokens/s versus 110,345, while 99.8% of units remained active. The model,
 checkpoint surface, runner, audit, tests, and rejected checkpoints are deleted;
 no compatibility import remains.
 
-**`language_sparse_event_memory.py`** — v2 keeps the full exact Transformer
-stream intact and attaches event memory as a causal residual from one completed
-24-token event to the next. It adds 133,124 parameters to the 20,976,128-parameter
-baseline. Utility and random modes gather one of four rank-32 specialists;
-dense control executes all four. Counterfactual targets measure future-token
-loss reduction minus compute cost. Exact neutrality, scan/step equality, true
-25% specialist execution, dense accounting, and gradient tests pass. It is not
-installed. The first 16.79M comparison found tied general loss across exact,
-dense, random, and utility arms. Random-sparse reached 27.0% strict free relation
-versus 14.5% exact, but chosen-expert-only utility reached 14.8%. That selector
-is retired; comparative all-expert probe credit is the next implementation.
+Sparse event-memory v2 is retired. At 16.79M matched tokens, random one-of-four
+specialists reached 27.0% strict free relation versus 14.5% exact-only at tied
+loss. Chosen-expert utility reached 14.8%; all-expert comparative utility restored
+25.8% but still did not beat random and slightly worsened loss. The model,
+runner, and tests are deleted. V3 will test multiple smaller sequence models
+rather than another sidecar on one monolith.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

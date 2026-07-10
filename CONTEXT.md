@@ -137,7 +137,7 @@ reducing exact-stream capacity. Its implementation, runner, audit, tests, and
 rejected checkpoints are deleted. Compact reports and `RESEARCH.md` retain the
 evidence.
 
-**Sparse Event-Memory v2 Hypothesis** — the next replacement must preserve a
+**Retired Sparse Event-Memory v2** — this replacement preserved a
 full-strength exact language stream and make event memory an optional residual,
 not a competing half-model in every block. Event specialists must earn writes,
 reads, and residual influence through counterfactual future utility plus an
@@ -153,7 +153,18 @@ then found exact/dense/random/utility losses of 4.6140/4.6146/4.6128/4.6116 and
 strict free relation scores of 14.5%/25.4%/27.0%/14.8%. Random and utility both
 used 25% specialist compute. Utility did not beat random behavior, so the
 chosen-expert-only credit interface is retired while the sidecar hypothesis
-remains open.
+remained open for one comparative-credit test. Comparative all-expert probes
+restored utility free relation to 25.8% but still lost to random's 27.0%, with
+loss 4.6153 versus 4.6128. The selector/interface met its kill criterion. Its
+implementation, runner, and tests are deleted; compact reports retain evidence.
+
+**Modular Predictive Society v3 Hypothesis** — directly test several smaller
+deep sequence models with independent state and weights, coordinated through a
+narrow learned latent bus. Total parameters and active compute must match the
+monolithic Transformer. Independent cells, no/shuffled communication, random
+aggregation, and learned coordination are required controls. This tests whether
+meaningful organization can emerge among small models rather than attaching
+specialists to one permanent large substrate. No implementation exists yet.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

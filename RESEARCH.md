@@ -91,6 +91,9 @@ one word with it.
     14.5% exact-only at tied heldout loss. The first utility router fell back to
     14.8% despite slightly better scalar loss. Chosen-expert-only short-horizon
     feedback is insufficient to learn expert ranking.
+12. Comparative all-expert probes repaired utility free relation from 14.8% to
+    25.8%, but random remained better at 27.0% and lower loss. Next-event token
+    utility is not a sufficient coordination currency for this sidecar.
 
 ## Provisional scaling diagnosis
 
@@ -363,7 +366,7 @@ using 4.22 GiB and about three times more training time. This satisfies the
 predeclared radical-redesign condition. Code and rejected checkpoints are
 deleted; compact reports retain the curve.
 
-## V2 hypothesis: full exact stream plus utility-earned sparse event memory
+## Retired v2 hypothesis: full exact stream plus sparse event memory
 
 V1 made the exact path and event population compete for the same per-layer
 capacity. Its smaller feed-forward path and always-active population helped
@@ -410,9 +413,10 @@ utility losses were 4.6140, 4.6146, 4.6128, and 4.6116. Strict free relation was
 specialists; utility ran 202 counterfactual probes with mean target +0.0073.
 Therefore sidecar diversity remains promising, but the initial utility credit is
 retired. It observed only the chosen expert and supplied no comparative targets
-for alternatives. V2.1 will evaluate all four alternatives on probe steps,
-center their utilities within each event, and train the router to rank them.
-Normal execution remains one-of-four.
+for alternatives. V2.1 then evaluated all four alternatives on probe steps and
+trained centered relative utility. Free relation recovered to 25.8%, but random
+remained better at 27.0% with lower loss. The selector/interface therefore met
+its kill criterion. V2 code is deleted; the reports retain both stages.
 
 ## Beyond a monolithic model
 
@@ -439,6 +443,32 @@ substrate should immediately be decomposed. Modularizing syntax and general
 representation comes only after sparse coordination demonstrates repeatable
 benefit, stable checkpoint composition, and bounded interference.
 
+## V3 hypothesis: a modular predictive society
+
+V3 tests the stronger non-monolithic idea directly. Instead of one large
+substrate with attached sidecars, several smaller causal sequence models own
+independent weights and runtime state. They share a tokenizer and exchange only
+low-rank event messages through a narrow bus. A small coordinator combines token
+predictions and messages; no cell sees another cell's full hidden state.
+
+The first reference should use four cells whose total trainable parameters match
+the 21M Transformer. Cells receive different learned projections of the same
+tokens and predict both next tokens and next-event latent summaries. Required
+controls are:
+
+1. one monolithic Transformer at matched total parameters and tokens;
+2. independent cells with averaged logits and no communication;
+3. cells with shuffled messages, preserving message compute while destroying
+   meaning;
+4. cells with a learned coordinator and real messages.
+
+The coordinator survives only if real communication beats both no-message and
+shuffled-message controls on heldout loss and free behavior. Cell specialization
+must be diagnosed from counterfactual ablations, not assigned labels. If this
+works, later versions may give cells separate corpora, memories, update clocks,
+checkpoints, and birth/retirement operations. If it does not, “many small
+models” remains an inspiration rather than a supported MARULHO architecture.
+
 ## Retired ideas
 
 - SNN or GRU language recurrence as the active language core.
@@ -447,6 +477,7 @@ benefit, stable checkpoint composition, and bounded interference.
 - Raw token surprise as assumed write utility.
 - Delta-memory v1 as the next scalable core.
 - Dense distributed-organism v1 as the base token mixer.
+- Sparse event-memory v2's next-token utility selector.
 - Multiple-choice or loss improvement as proof of memory.
 - Biological vocabulary without a measurable computational role.
 

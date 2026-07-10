@@ -62,16 +62,15 @@ frozen source-balanced schedule, parameters, optimizer, relation/general
 evaluation, gradient coverage, state bytes, wall time, throughput, and CUDA
 memory. Candidate screens cannot install a runtime model.
 
-**`language_sparse_event_falsification.py`** — trains exact-only, dense-sidecar,
-random-sparse, and utility-sparse v2 arms on one frozen 20/40/40 real-language
-schedule. Random and utility execute the same one-of-four specialist budget;
-utility alone receives explicit counterfactual probes. The selector must beat
-random and avoid harming the complete exact stream before v2 can scale.
-The first 16.79M report is
+The retired sparse event-memory v2 reports are
 `reports/language_scaling/sparse-event-v2-falsification-16m-20260710.json`.
 Random-sparse reached 4.6128 loss / 27.0% strict free relation; utility reached
 4.6116 / 14.8%. Decision:
 `retire_v2_utility_selector_not_better_than_random`.
+Comparative all-expert credit is stored at
+`reports/language_scaling/sparse-event-v2-comparative-utility-16m-20260710.json`;
+it reached 4.6153 / 25.8% and still lost to random. The implementation, runner,
+and tests are deleted.
 
 The retired delta falsification and unseen-generation runners established the
 same-tokenizer, frozen-schedule contract for recurrent replacement experiments.
