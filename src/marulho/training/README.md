@@ -16,9 +16,15 @@ matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
 decision.
 
-No replacement candidate is currently implemented. The next candidate must use
-`language_protocol.py` and earn survival against the active Transformer before
-it can be installed in `MarulhoBrain`.
+**`language_organism.py`** — the experimental distributed predictive candidate.
+Every block sends the same normalized input to bounded exact attention and a
+population of small recurrent units in parallel. Units communicate through two
+shared workspace slots; each layer also owns a bounded latent episodic store.
+Unit and episodic write gates receive delayed counterfactual future-loss targets
+on sampled training steps. The 8,192-vocabulary matched configuration has
+20,971,120 parameters versus 20,976,128 for the Transformer. Causal scan/step,
+all-gradient, counterfactual-credit, generation, and populated checkpoint tests
+pass. It is not installed in `MarulhoBrain` and has no quality result yet.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

@@ -49,8 +49,10 @@ unseen semantic generation.
 The next hypothesis is broader than another sequence mixer: a distributed
 predictive system with parallel exact and recurrent state, bounded episodic
 memory, multiple learning timescales, and routing trained by counterfactual
-future usefulness. It is specified as a falsifiable research direction in
-`RESEARCH.md`; it is not implemented capability.
+future usefulness. The first correctness-tested reference is implemented at
+20,971,120 parameters, within 0.024% of the baseline. It is specified as a
+falsifiable research direction in `RESEARCH.md`; it is not installed capability
+or language-quality evidence.
 
 ## Current Evidence
 
@@ -295,6 +297,8 @@ code.
 - `src/marulho/training/language_model.py`: active language model contract.
 - `src/marulho/training/language_transformer.py`: causal Transformer state
   block and streaming KV state.
+- `src/marulho/training/language_organism.py`: experimental parallel predictive
+  units, episodic state, counterfactual utility, generation, and checkpointing.
 - `src/marulho/data/language_tokenizer.py`: byte and BPE tokenizers.
 - `src/marulho/evaluation/language_training_experiment.py`: maintained
   training/evaluation runner.
