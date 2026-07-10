@@ -139,6 +139,20 @@ continual curricula around replay/consolidation. If it cannot, compare
 parameter-isolated adapters and PMRM-style surprise-selected episodic binding
 against the same label-safe benchmark.
 
+Replay preserved the mixed holdout and learned the candidate task: after a
+roughly 20% relation / 80% fresh-general mixture, candidate accuracy reached
+98.0% and mixed loss slightly improved from 3.2534 to 3.2485. A stricter
+256-case free-generation audit prevented a false promotion. Exact free answers
+improved from 0% to 44.9%, with property at 93.8% and event order at 75%, but
+ownership reached only 10.9% and container persistence remained 0%. Original
+open prompts also picked up benchmark-template contamination.
+
+Decision: keep the 251.66M-token mixed checkpoint active and reject the replay
+candidate. Next compare a frozen-base low-rank residual adapter on the same
+replay benchmark. This isolates relation learning from the general weights; if
+free binding still fails, move to PMRM-style selective episodic binding rather
+than another generic-data or full-weight fine-tune.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -150,8 +164,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Test budgeted relation-plus-general replay from the active checkpoint,
-   requiring relation gains and bounded general-loss regression together.
+3. Test a frozen-base low-rank relation adapter against the replay result,
+   requiring free binding and unchanged general language together.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

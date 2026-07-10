@@ -76,6 +76,31 @@ curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
+The replay-controlled relation run and strict free-generation audits are stored
+locally at:
+
+- `reports/language_scaling/relation-replay-21m-16m-20260710.json`
+- `reports/language_scaling/active-251m-free-binding-audit-20260710.json`
+- `reports/language_scaling/relation-replay-21m-free-binding-audit-20260710.json`
+
+| Metric | Active base | Replay candidate |
+| --- | ---: | ---: |
+| Candidate relation accuracy | 47.7% | 98.0% |
+| Exact free relation accuracy | 0.0% | 44.9% |
+| Free container persistence | 0.0% | 0.0% |
+| Free ownership transfer | 0.0% | 10.9% |
+| Free property persistence | 0.0% | 93.8% |
+| Free event order | 0.0% | 75.0% |
+| Mixed-language loss | 3.2534 | 3.2485 |
+
+Replay prevents scalar-loss forgetting and improves free answers, but it does
+not solve ownership/container binding and contaminates open generation with Q/A
+templates. The candidate is rejected. The branch is
+`replay_improves_candidate_ranking_not_free_binding`; next test a frozen-base
+low-rank adapter before selective episodic memory.
+
+### Narrow relation fine-tune
+
 The 2026-07-10 controlled relation-binding falsification is stored locally at:
 
 `reports/language_scaling/relation-binding-21m-16m-20260710.json`

@@ -308,6 +308,24 @@ compare parameter isolation and PMRM-style surprise-selected episodic binding
 under equal memory/compute budgets. Event order remains a separate causal
 blocker and must not be hidden by perfect static-binding subtasks.
 
+The relation-plus-general replay run used an approximately 20/80 input mixture.
+It preserved mixed-language loss (3.2534 to 3.2485) and raised candidate-ranking
+accuracy to 98.0%, including 92.2% event order. A subsequent label-safe greedy
+audit exposed the remaining gap: exact free-answer accuracy rose from 0% to
+44.9%, but ownership reached only 10.9% and container persistence remained 0%.
+Property reached 93.8% and event order 75%. Open general prompts also inherited
+procedural Q/A template fragments.
+
+Decision: `replay_improves_candidate_ranking_not_free_binding`.
+
+The replay candidate is rejected; the 251,658,240-token mixed checkpoint stays
+active. Next test a frozen-base low-rank residual adapter on the same replay
+mixture and audits. This asks whether parameter isolation can translate latent
+candidate knowledge into free answers without altering general weights. If it
+fails, compare PMRM-style surprise-selected episodic binding under explicit
+memory/latency budgets. Do not call multiple-choice accuracy alone relation
+competence.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -332,8 +350,8 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Test budgeted relation-plus-general replay from the active 21M checkpoint,
-   requiring relation retention and bounded general-language forgetting.
+4. Test a frozen-base low-rank relation adapter against the replay baseline,
+   requiring free relation generation and unchanged general language.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.
