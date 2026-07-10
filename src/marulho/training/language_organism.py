@@ -86,7 +86,8 @@ def _validate_config(config: DistributedLanguageConfig) -> None:
         or int(config.state_update_interval) <= 0
     ):
         raise ValueError(
-            "workspace_slots, episodic_slots, and state_update_interval must be positive"
+            "workspace_slots, episodic_slots, and state_update_interval "
+            "must be positive"
         )
     if int(config.context_length) < 2 or int(config.mlp_dim) < int(config.width):
         raise ValueError("context_length and mlp_dim are too small")
@@ -900,31 +901,25 @@ class MarulhoDistributedLanguageModel(nn.Module):
             and float(self.config.utility_loss_weight) > 0.0
             and float(self.config.counterfactual_rate) > 0.0
             and int(targets.shape[1]) > 1
-            and float(torch.rand((), device=self.device).detach().cpu().item())
+            and float(torch.rand(()).item())
             < float(self.config.counterfactual_rate)
         )
         if should_probe:
             layer_index = int(
-                torch.randint(
-                    int(self.config.layers), (), device=self.device
-                ).detach().cpu().item()
+                torch.randint(int(self.config.layers), ()).item()
             )
             token_index = int(
-                torch.randint(
-                    int(targets.shape[1]) - 1, (), device=self.device
-                ).detach().cpu().item()
+                torch.randint(int(targets.shape[1]) - 1, ()).item()
             )
             episode_probe = bool(
-                float(torch.rand((), device=self.device).detach().cpu().item())
+                float(torch.rand(()).item())
                 < float(self.config.episode_counterfactual_fraction)
             )
             unit_group = None
             kind = "episode" if episode_probe else "unit"
             if not episode_probe:
                 unit_group = int(
-                    torch.randint(
-                        int(self.config.unit_groups), (), device=self.device
-                    ).detach().cpu().item()
+                    torch.randint(int(self.config.unit_groups), ()).item()
                 )
             intervention = _Intervention(
                 layer_index=layer_index,
@@ -972,24 +967,32 @@ class MarulhoDistributedLanguageModel(nn.Module):
                 "token_index": token_index,
                 "unit_group": unit_group,
                 "horizon": horizon_end - token_index,
-                "mean_target": float(utility_target.detach().mean().cpu().item()),
+                "mean_target": (
+                    float(utility_target.detach().mean().cpu().item())
+                    if return_evidence
+                    else 0.0
+                ),
             }
         loss = language_loss + float(self.config.utility_loss_weight) * utility_loss
-        evidence = {
-            "surface": "marulho_distributed_cross_entropy_utility.v1",
-            "sampled_vocab_training": False,
-            "full_vocab_logits_materialized": True,
-            "target_token_count": int(targets.numel()),
-            "language_loss": float(language_loss.detach().cpu().item()),
-            "utility_loss": float(utility_loss.detach().cpu().item()),
-            "utility_loss_weight": float(self.config.utility_loss_weight),
-            "counterfactual": counterfactual,
-            "external_llm_used": False,
-        }
+        evidence = (
+            {
+                "surface": "marulho_distributed_cross_entropy_utility.v1",
+                "sampled_vocab_training": False,
+                "full_vocab_logits_materialized": True,
+                "target_token_count": int(targets.numel()),
+                "language_loss": float(language_loss.detach().cpu().item()),
+                "utility_loss": float(utility_loss.detach().cpu().item()),
+                "utility_loss_weight": float(self.config.utility_loss_weight),
+                "counterfactual": counterfactual,
+                "external_llm_used": False,
+            }
+            if return_evidence
+            else {}
+        )
         return {
             "loss": loss,
             "loss_kind": "full_vocab_cross_entropy_plus_counterfactual_utility",
-            "loss_evidence": evidence if return_evidence else {},
+            "loss_evidence": evidence,
             "state": result["state"],
             "telemetry": result["telemetry"],
         }

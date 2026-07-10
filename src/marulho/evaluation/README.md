@@ -68,6 +68,17 @@ Their code and rejected checkpoint are deleted after the 16.78M-token result;
 compact local reports retain the measured loss, relation, generation, state,
 throughput, and CUDA evidence.
 
+**`language_organism_falsification.py`** — compares one fresh matched Transformer
+with the distributed predictive-organism candidate. It deterministically samples
+newline-aligned ranges spread across every source corpus, packs only the batches
+the frozen schedule needs, and deletes its temporary cache after the report by
+default. Both arms share tokenizer, selected windows, order, tokens, optimizer,
+hardware, relation/general evaluation, and model seed. The report additionally
+records counterfactual utility targets, exact/population mixing, unit activity,
+episodic writes/usage, runtime-state bytes, throughput, peak CUDA allocation,
+gradient coverage, and the anti-promotion boundary. A one-step real-data smoke
+passed; no quality result exists yet.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

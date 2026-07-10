@@ -302,6 +302,8 @@ code.
 - `src/marulho/data/language_tokenizer.py`: byte and BPE tokenizers.
 - `src/marulho/evaluation/language_training_experiment.py`: maintained
   training/evaluation runner.
+- `src/marulho/evaluation/language_organism_falsification.py`: matched fresh
+  Transformer/organism training with bounded corpus sampling and utility evidence.
 - `src/marulho/evaluation/language_scaling_experiment.py`: matched local
   model-size/token-budget curves and provisional scaling-law fit.
 - `src/marulho/evaluation/language_generation_coherence.py`: unseen
