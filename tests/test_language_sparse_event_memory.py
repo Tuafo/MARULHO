@@ -120,10 +120,14 @@ def test_v2_counterfactual_credit_reaches_router_and_specialists() -> None:
         counterfactual_probe=True,
     )
     assert result["training_aux"]["counterfactual"]["ran"] is True
+    assert result["training_aux"]["counterfactual"]["mean_advantage_spread"] > 0.0
     assert torch.isfinite(result["loss"])
     result["loss"].backward()
     assert model.event_memory.router.weight.grad is not None
     assert torch.isfinite(model.event_memory.router.weight.grad).all()
+    assert bool(
+        (model.event_memory.router.weight.grad.abs().sum(dim=1) > 0).all()
+    )
     assert model.event_memory.down.grad is not None
     assert model.event_memory.up.grad is not None
     assert model.event_memory.residual_scale.grad is not None

@@ -371,10 +371,16 @@ def run_sparse_event_falsification(
     output_path: str | Path,
     config: SparseEventFalsificationConfig = SparseEventFalsificationConfig(),
     device: str = "auto",
+    arm_names: Sequence[str] = ("exact_only", "dense", "random", "utility"),
+    baseline_report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if len(general_train_paths) != 2 or len(general_eval_paths) != 2:
         raise ValueError("Exactly two general train and two eval sources are required")
     resolved = _resolve_device(device)
+    valid_arms = ("exact_only", "dense", "random", "utility")
+    requested_arms = tuple(dict.fromkeys(str(name) for name in arm_names))
+    if not requested_arms or any(name not in valid_arms for name in requested_arms):
+        raise ValueError("arm_names must contain valid unique v2 arm names")
     tokenizer = _load_tokenizer(Path(tokenizer_checkpoint_path))
     cases = _load_cases(Path(relation_cases_path))
     steps = math.ceil(config.token_budget / (config.batch_size * config.sequence_length))
@@ -439,10 +445,10 @@ def run_sparse_event_falsification(
     probes = build_probe_schedule(
         steps=steps, rate=config.counterfactual_rate, seed=config.seed + 91_337
     )
-    arms = []
-    for name in ("exact_only", "dense", "random", "utility"):
+    executed_arms = []
+    for name in requested_arms:
         print(f"[sparse-v2] starting {name}", flush=True)
-        arms.append(_run_arm(
+        executed_arms.append(_run_arm(
             name,
             tokenizer=tokenizer,
             relation_batches=relation_split.train,
@@ -456,12 +462,38 @@ def run_sparse_event_falsification(
         ))
         print(
             f"[sparse-v2] completed {name}: loss "
-            f"{arms[-1]['heldout']['heldout_loss']:.4f}, free "
-            f"{arms[-1]['relation']['generation_exact_accuracy']:.3f}",
+            f"{executed_arms[-1]['heldout']['heldout_loss']:.4f}, free "
+            f"{executed_arms[-1]['relation']['generation_exact_accuracy']:.3f}",
             flush=True,
         )
         if resolved.type == "cuda":
             torch.cuda.empty_cache()
+    source_selections = {
+        "relation": relation_selection,
+        "general_train": [row for _text, row in train_samples],
+        "general_eval": [row for _text, row in eval_samples],
+    }
+    reused_report: dict[str, Any] | None = None
+    combined = {str(row["name"]): row for row in executed_arms}
+    if baseline_report_path is not None:
+        baseline_path = Path(baseline_report_path)
+        reused_report = json.loads(baseline_path.read_text(encoding="utf-8"))
+        if reused_report.get("surface") != SURFACE:
+            raise ValueError("Baseline report surface does not match v2 runner")
+        if dict(reused_report.get("configuration") or {}) != asdict(config):
+            raise ValueError("Baseline report configuration does not match this run")
+        if dict(reused_report.get("source_selections") or {}) != source_selections:
+            raise ValueError("Baseline report source selections do not match this run")
+        if str(reused_report["tokenizer"]["hash"]) != tokenizer.vocabulary_hash():
+            raise ValueError("Baseline report tokenizer does not match this run")
+        for row in reused_report["arms"]:
+            combined.setdefault(str(row["name"]), row)
+    arms = [combined[name] for name in valid_arms if name in combined]
+    decision = (
+        sparse_event_decision(arms)
+        if len(arms) == len(valid_arms)
+        else "incomplete_matched_comparison"
+    )
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
@@ -473,11 +505,7 @@ def run_sparse_event_falsification(
             "vocab_size": tokenizer.vocab_size,
             "hash": tokenizer.vocabulary_hash(),
         },
-        "source_selections": {
-            "relation": relation_selection,
-            "general_train": [row for _text, row in train_samples],
-            "general_eval": [row for _text, row in eval_samples],
-        },
+        "source_selections": source_selections,
         "schedule": {
             "steps": steps,
             "processed_tokens": steps * config.batch_size * config.sequence_length,
@@ -486,7 +514,16 @@ def run_sparse_event_falsification(
             "identical_for_all_arms": True,
         },
         "arms": arms,
-        "decision": sparse_event_decision(arms),
+        "arms_executed_this_run": list(requested_arms),
+        "reused_control_report": (
+            None
+            if baseline_report_path is None
+            else {
+                "path": str(baseline_report_path),
+                "sha256": _sha256_file(Path(baseline_report_path)),
+            }
+        ),
+        "decision": decision,
         "quality_boundary": {
             "promotes_runtime_installation": False,
             "promotes_unseen_generation": False,
@@ -511,6 +548,13 @@ def main() -> int:
     parser.add_argument("--token-budget", type=int, default=16_777_216)
     parser.add_argument("--train-sample-mib", type=int, default=64)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
+    parser.add_argument(
+        "--arm",
+        action="append",
+        choices=("exact_only", "dense", "random", "utility"),
+        default=[],
+    )
+    parser.add_argument("--baseline-report", type=Path)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     run_sparse_event_falsification(
@@ -526,6 +570,8 @@ def main() -> int:
             sample_bytes_per_eval_source=max(1, args.eval_sample_mib) * 1024 * 1024,
         ),
         device=args.device,
+        arm_names=tuple(args.arm) or ("exact_only", "dense", "random", "utility"),
+        baseline_report_path=args.baseline_report,
     )
     return 0
 

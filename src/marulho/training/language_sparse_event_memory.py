@@ -126,10 +126,13 @@ class SparseEventMemorySidecar(nn.Module):
         return torch.tanh(output) * scale
 
     def _dense_residual(self, summary: torch.Tensor) -> torch.Tensor:
+        return self._all_residuals(summary).mean(dim=1)
+
+    def _all_residuals(self, summary: torch.Tensor) -> torch.Tensor:
         latent = torch.einsum("bw,nwr->bnr", summary, self.down)
         outputs = torch.einsum("bnr,nrw->bnw", F.silu(latent), self.up)
         outputs = torch.tanh(outputs) * self.residual_scale.view(1, -1, 1)
-        return outputs.mean(dim=1)
+        return outputs
 
     def forward(
         self,
@@ -165,6 +168,16 @@ class SparseEventMemorySidecar(nn.Module):
         outputs: list[torch.Tensor] = []
         score_rows: list[torch.Tensor] = []
         active_rows: list[torch.Tensor] = []
+        candidate_rows: list[torch.Tensor] = []
+        router_rows: list[torch.Tensor] = []
+        current_candidates = torch.zeros(
+            int(batch_size), self.specialists, self.width,
+            device=hidden.device, dtype=hidden.dtype,
+        )
+        current_router_scores = torch.zeros(
+            int(batch_size), self.specialists,
+            device=hidden.device, dtype=hidden.dtype,
+        )
         selected_counts = torch.zeros(
             self.specialists, device=hidden.device, dtype=torch.long
         )
@@ -179,13 +192,26 @@ class SparseEventMemorySidecar(nn.Module):
             if collect_evidence:
                 score_rows.append(current_score.unsqueeze(1).expand(-1, take))
                 active_rows.append(current_active.unsqueeze(1).expand(-1, take))
+                candidate_rows.append(
+                    current_candidates.unsqueeze(1).expand(-1, take, -1, -1)
+                )
+                router_rows.append(
+                    current_router_scores.unsqueeze(1).expand(-1, take, -1)
+                )
             pending_sum = pending_sum + segment.sum(dim=1)
             pending_count += take
             if pending_count == self.interval:
                 summary = pending_sum / float(self.interval)
                 scores = self.router(summary)
+                all_residuals = (
+                    self._all_residuals(summary) if collect_evidence else None
+                )
                 if self.selection_mode == "dense":
-                    current_residual = self._dense_residual(summary)
+                    current_residual = (
+                        all_residuals.mean(dim=1)
+                        if all_residuals is not None
+                        else self._dense_residual(summary)
+                    )
                     current_score = scores.mean(dim=-1)
                     current_active = torch.ones(
                         int(batch_size), device=hidden.device, dtype=torch.bool
@@ -194,7 +220,14 @@ class SparseEventMemorySidecar(nn.Module):
                     executed_specialists += int(batch_size) * self.specialists
                 else:
                     selected = self._select(scores)
-                    current_residual = self._sparse_residual(summary, selected)
+                    current_residual = (
+                        all_residuals.gather(
+                            1,
+                            selected.view(-1, 1, 1).expand(-1, 1, self.width),
+                        ).squeeze(1)
+                        if all_residuals is not None
+                        else self._sparse_residual(summary, selected)
+                    )
                     current_score = scores.gather(1, selected.unsqueeze(1)).squeeze(1)
                     current_active = torch.ones(
                         int(batch_size), device=hidden.device, dtype=torch.bool
@@ -203,6 +236,10 @@ class SparseEventMemorySidecar(nn.Module):
                         selected, minlength=self.specialists
                     )
                     executed_specialists += int(batch_size)
+                if collect_evidence:
+                    assert all_residuals is not None
+                    current_candidates = all_residuals
+                    current_router_scores = scores
                 completed_events += int(batch_size)
                 pending_sum = torch.zeros_like(pending_sum)
                 pending_count = 0
@@ -211,6 +248,8 @@ class SparseEventMemorySidecar(nn.Module):
             {
                 "predicted_utility": torch.cat(score_rows, dim=1),
                 "residual_active": torch.cat(active_rows, dim=1),
+                "candidate_residuals": torch.cat(candidate_rows, dim=1),
+                "router_scores": torch.cat(router_rows, dim=1),
             }
             if collect_evidence
             else {}
@@ -345,6 +384,7 @@ class MarulhoSparseEventLanguageModel(MarulhoLanguageModel):
         )
         utility_loss = language_loss.new_zeros(())
         mean_target = 0.0
+        mean_advantage_spread = 0.0
         if should_probe:
             exact_logits = self.lm_head(result["exact_hidden"])
             exact_losses = F.cross_entropy(
@@ -352,29 +392,49 @@ class MarulhoSparseEventLanguageModel(MarulhoLanguageModel):
                 targets.reshape(-1),
                 reduction="none",
             ).view_as(targets)
-            augmented_losses = F.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]),
-                targets.reshape(-1),
-                reduction="none",
-            ).view_as(targets)
             evidence = result["sidecar_evidence"]
             active = evidence["residual_active"]
-            utility_target = (
-                exact_losses - augmented_losses - float(self.config.compute_cost)
-            ).detach()
+            candidate_targets: list[torch.Tensor] = []
+            candidates = evidence["candidate_residuals"]
+            for specialist_index in range(int(self.config.specialist_count)):
+                candidate_logits = self.lm_head(
+                    result["exact_hidden"] + candidates[:, :, specialist_index]
+                )
+                candidate_losses = F.cross_entropy(
+                    candidate_logits.reshape(-1, candidate_logits.shape[-1]),
+                    targets.reshape(-1),
+                    reduction="none",
+                ).view_as(targets)
+                candidate_targets.append(
+                    exact_losses
+                    - candidate_losses
+                    - float(self.config.compute_cost)
+                )
+            utility_target = torch.stack(candidate_targets, dim=-1).detach()
             if bool(active.any()):
-                predicted = evidence["predicted_utility"][active]
+                predicted = evidence["router_scores"][active]
                 target = utility_target[active]
-                utility_loss = F.mse_loss(predicted, target)
+                centered_prediction = predicted - predicted.mean(
+                    dim=-1, keepdim=True
+                )
+                centered_target = target - target.mean(dim=-1, keepdim=True)
+                utility_loss = F.mse_loss(centered_prediction, centered_target)
                 mean_target = float(target.mean().detach().cpu())
+                mean_advantage_spread = float(
+                    (target.max(dim=-1).values - target.min(dim=-1).values)
+                    .mean()
+                    .detach()
+                    .cpu()
+                )
         loss = language_loss + float(self.config.utility_loss_weight) * utility_loss
         counterfactual = {
             "ran": should_probe,
             "mean_target": mean_target,
+            "mean_advantage_spread": mean_advantage_spread,
             "compute_cost": float(self.config.compute_cost),
         }
         loss_evidence = {
-            "surface": "marulho_sparse_event_loss.v1",
+            "surface": "marulho_sparse_event_loss.v2",
             "language_loss": float(language_loss.detach().cpu()),
             "utility_loss": float(utility_loss.detach().cpu()),
             "counterfactual": counterfactual,
