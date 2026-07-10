@@ -38,7 +38,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v9"
+SURFACE = "marulho_transformer_scaling_experiment.v10"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -94,8 +94,6 @@ class LanguageScalingExperimentConfig:
     retain_best_checkpoint_only: bool = True
     device: str = "auto"
     resume_checkpoint_path: str | None = None
-    output_adapter_rank: int = 0
-    train_output_adapter_only: bool = False
 
 
 def _seed_everything(seed: int) -> None:
@@ -116,7 +114,6 @@ def _arm_training_config(
         state_dim=int(arm.width),
         state_layers=int(arm.layers),
         attention_heads=int(arm.heads),
-        output_adapter_rank=max(0, int(config.output_adapter_rank)),
         transformer_context_length=int(config.transformer_context_length),
         transformer_mlp_ratio=float(arm.mlp_ratio),
         sequence_length=int(config.sequence_length),
@@ -344,54 +341,14 @@ def _run_arm(
     _seed_everything(config.seed)
     arm_config = _arm_training_config(arm, config)
     expected_model_config = _model_config(tokenizer, arm_config)
-    model_upgraded_with_output_adapter = False
     if initial_model is None:
         model = MarulhoLanguageModel(expected_model_config).to(device)
     else:
         if asdict(initial_model.config) != asdict(expected_model_config):
-            initial_shape = asdict(initial_model.config)
-            expected_shape = asdict(expected_model_config)
-            initial_rank = int(initial_shape.pop("output_adapter_rank", 0))
-            expected_rank = int(expected_shape.pop("output_adapter_rank", 0))
-            initial_shape.pop("output_adapter_scale", None)
-            expected_shape.pop("output_adapter_scale", None)
-            can_upgrade_adapter = (
-                bool(config.train_output_adapter_only)
-                and initial_rank == 0
-                and expected_rank > 0
-                and initial_shape == expected_shape
+            raise ValueError(
+                "Resume checkpoint model config does not match the selected arm"
             )
-            if not can_upgrade_adapter:
-                raise ValueError(
-                    "Resume checkpoint model config does not match the selected arm"
-                )
-            model = MarulhoLanguageModel(expected_model_config)
-            incompatible = model.load_state_dict(
-                initial_model.state_dict(),
-                strict=False,
-            )
-            expected_missing = {
-                "output_adapter_down.weight",
-                "output_adapter_up.weight",
-            }
-            if (
-                set(incompatible.missing_keys) != expected_missing
-                or incompatible.unexpected_keys
-            ):
-                raise ValueError("Output adapter upgrade changed non-adapter model state")
-            model_upgraded_with_output_adapter = True
-            model = model.to(device)
-        else:
-            model = initial_model.to(device)
-    if bool(config.train_output_adapter_only):
-        if model.output_adapter_down is None or model.output_adapter_up is None:
-            raise ValueError("Adapter-only training requires output_adapter_rank > 0")
-        for parameter in model.parameters():
-            parameter.requires_grad_(False)
-        for parameter in model.output_adapter_down.parameters():
-            parameter.requires_grad_(True)
-        for parameter in model.output_adapter_up.parameters():
-            parameter.requires_grad_(True)
+        model = initial_model.to(device)
     parameter_inventory = _parameter_inventory(model)
     optimizer, fused = _optimizer(model, arm_config)
     checkpoint_metadata = dict(resume_metadata or {})
@@ -401,8 +358,7 @@ def _run_arm(
     training_state = checkpoint_metadata.get("training_state")
     optimizer_state_restored = False
     if (
-        not model_upgraded_with_output_adapter
-        and isinstance(training_state, Mapping)
+        isinstance(training_state, Mapping)
         and isinstance(training_state.get("optimizer_state"), Mapping)
     ):
         optimizer.load_state_dict(dict(training_state["optimizer_state"]))
@@ -626,10 +582,6 @@ def _run_arm(
             "state_restored": bool(optimizer_state_restored),
             "batch_order_state_restored": bool(batch_order_state_restored),
             "schedule_policy": "new_phase_cosine",
-            "train_output_adapter_only": bool(config.train_output_adapter_only),
-            "model_upgraded_with_output_adapter": bool(
-                model_upgraded_with_output_adapter
-            ),
         },
         "continuation": {
             "resume_checkpoint_path": (
@@ -641,9 +593,6 @@ def _run_arm(
             "prior_optimizer_steps": int(prior_optimizer_steps),
             "optimizer_state_restored": bool(optimizer_state_restored),
             "batch_order_state_restored": bool(batch_order_state_restored),
-            "model_upgraded_with_output_adapter": bool(
-                model_upgraded_with_output_adapter
-            ),
             "cumulative_update_tokens": int(prior_update_tokens + update_tokens),
             "cumulative_optimizer_steps": int(prior_optimizer_steps + step),
         },
@@ -1091,8 +1040,6 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--resume-checkpoint", type=Path, default=None)
-    parser.add_argument("--output-adapter-rank", type=int, default=0)
-    parser.add_argument("--train-output-adapter-only", action="store_true")
     parser.add_argument("--retain-all-checkpoints", action="store_true")
     args = parser.parse_args()
     config = LanguageScalingExperimentConfig(
@@ -1118,8 +1065,6 @@ def main() -> int:
             if args.resume_checkpoint is None
             else str(args.resume_checkpoint)
         ),
-        output_adapter_rank=max(0, int(args.output_adapter_rank)),
-        train_output_adapter_only=bool(args.train_output_adapter_only),
     )
     report = run_language_scaling_experiment(
         output_path=args.output,

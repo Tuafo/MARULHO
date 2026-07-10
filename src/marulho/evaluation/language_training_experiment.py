@@ -56,8 +56,6 @@ class LanguageTrainingExperimentConfig:
     transformer_mlp_ratio: float = 4.0
     transformer_dropout: float = 0.0
     tie_embeddings: bool = True
-    output_adapter_rank: int = 0
-    output_adapter_scale: float = 1.0
     sequence_length: int = 256
     stride: int = 128
     batch_size: int = 8
@@ -134,8 +132,6 @@ def _model_config(
         transformer_mlp_ratio=float(config.transformer_mlp_ratio),
         transformer_dropout=float(config.transformer_dropout),
         tie_embeddings=bool(config.tie_embeddings),
-        output_adapter_rank=max(0, int(config.output_adapter_rank)),
-        output_adapter_scale=float(config.output_adapter_scale),
     )
 
 
@@ -306,11 +302,6 @@ def _parameter_inventory(model: MarulhoLanguageModel) -> dict[str, int]:
         "embedding_parameters": model.token_embedding.weight.numel(),
         "transformer_parameters": sum(
             parameter.numel() for parameter in model.state_block.parameters()
-        ),
-        "output_adapter_parameters": sum(
-            parameter.numel()
-            for name, parameter in model.named_parameters()
-            if name.startswith("output_adapter_")
         ),
         "tied_embedding_head": int(
             model.lm_head.weight.data_ptr() == model.token_embedding.weight.data_ptr()

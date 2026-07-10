@@ -156,26 +156,6 @@ def test_transformer_checkpoint_restores_tied_weights_and_generation(tmp_path) -
     assert sampled_first["generation_decode"]["sampling_seed"] == 23
 
 
-def test_zero_initialized_output_adapter_preserves_base_logits() -> None:
-    torch.manual_seed(31)
-    base = MarulhoLanguageModel(_config(vocab_size=64)).eval()
-    adapted = MarulhoLanguageModel(
-        _config(vocab_size=64, output_adapter_rank=8)
-    ).eval()
-    incompatible = adapted.load_state_dict(base.state_dict(), strict=False)
-
-    assert set(incompatible.missing_keys) == {
-        "output_adapter_down.weight",
-        "output_adapter_up.weight",
-    }
-    assert incompatible.unexpected_keys == []
-    input_ids = torch.randint(0, 64, (2, 7))
-    assert torch.equal(
-        base(input_ids, collect_telemetry=False)["logits"],
-        adapted(input_ids, collect_telemetry=False)["logits"],
-    )
-
-
 def test_rejected_recurrent_language_config_is_not_accepted() -> None:
     config = _config(state_core="gru")
     try:

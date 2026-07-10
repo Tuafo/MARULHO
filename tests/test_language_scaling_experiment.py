@@ -279,28 +279,3 @@ def test_scaling_experiment_resumes_owned_training_state(tmp_path: Path) -> None
     _, _, metadata = load_language_model_checkpoint(second_checkpoint)
     assert metadata["cumulative_update_tokens"] == 32
     assert "optimizer_state" in metadata["training_state"]
-
-    adapter = run_language_scaling_experiment(
-        output_path=tmp_path / "adapter.json",
-        corpus_paths=(corpus,),
-        eval_corpus_paths=(eval_corpus,),
-        prompts=("Adapter prompt",),
-        config=LanguageScalingExperimentConfig(
-            **{
-                **base_config.__dict__,
-                "resume_checkpoint_path": str(first_checkpoint),
-                "output_adapter_rank": 4,
-                "train_output_adapter_only": True,
-            }
-        ),
-    )
-    adapter_arm = adapter["arms"][0]
-    assert adapter_arm["model_config"]["output_adapter_rank"] == 4
-    assert adapter_arm["parameter_inventory"]["output_adapter_parameters"] == 128
-    assert adapter_arm["parameter_inventory"]["trainable_parameters"] == 128
-    assert adapter_arm["optimizer"]["state_restored"] is False
-    assert adapter_arm["optimizer"]["model_upgraded_with_output_adapter"] is True
-    adapter_model, _, _ = load_language_model_checkpoint(
-        adapter["selection"]["selected_checkpoint"]
-    )
-    assert adapter_model.config.output_adapter_rank == 4

@@ -148,10 +148,21 @@ ownership reached only 10.9% and container persistence remained 0%. Original
 open prompts also picked up benchmark-template contamination.
 
 Decision: keep the 251.66M-token mixed checkpoint active and reject the replay
-candidate. Next compare a frozen-base low-rank residual adapter on the same
-replay benchmark. This isolates relation learning from the general weights; if
-free binding still fails, move to PMRM-style selective episodic binding rather
-than another generic-data or full-weight fine-tune.
+candidate. This result motivated the subsequently falsified output-adapter
+comparison and the move to PMRM-style selective episodic binding.
+
+The frozen-base output-adapter line is now falsified and deleted. Rank 32
+trained 32,768 parameters and reached 83.2% candidate / 3.1% exact free
+accuracy. Rank 128 trained 131,072 parameters and reached 84.4% / 2.3% despite
+~151k training tokens/s, ~681 MiB peak allocated VRAM, and only +0.0227 mixed
+loss regression. More rank did not translate latent ranking into free binding.
+
+Decision: `retire_output_adapter_test_selective_episodic_binding`. The next
+architecture is PMRM-inspired selective episodic memory: compare
+surprise-selected writes with budget-matched random and recency controls,
+measure exact retrieval/free relation output, memory growth, latency, and
+general-language retention. The failed adapter code and checkpoints are not
+maintained.
 
 ## Research Objective
 
@@ -164,8 +175,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Test a frozen-base low-rank relation adapter against the replay result,
-   requiring free binding and unchanged general language together.
+3. Test surprise-selected episodic binding against random/recency controls
+   under equal memory and compute budgets.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint

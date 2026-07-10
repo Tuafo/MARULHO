@@ -56,11 +56,6 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
-The relation runner's `--output-adapter-rank` mode upgrades a rank-zero
-checkpoint with a zero-initialized residual adapter and freezes the base. It
-uses a fresh adapter-only optimizer while retaining the base model/tokenizer
-exactly, making parameter isolation directly comparable to full-weight replay.
-
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
@@ -101,8 +96,14 @@ locally at:
 Replay prevents scalar-loss forgetting and improves free answers, but it does
 not solve ownership/container binding and contaminates open generation with Q/A
 templates. The candidate is rejected. The branch is
-`replay_improves_candidate_ranking_not_free_binding`; next test a frozen-base
-low-rank adapter before selective episodic memory.
+`replay_improves_candidate_ranking_not_free_binding`.
+
+Frozen-base output adapters were then falsified and removed. Rank 32 reached
+83.2% candidate / 3.1% exact free accuracy; rank 128 reached 84.4% / 2.3%.
+Rank 128 trained only 131,072 parameters at ~151k tokens/s with a +0.0227 mixed
+loss delta, but capability did not improve with rank and remained far below
+full replay's 44.9% free accuracy. The branch is
+`retire_output_adapter_test_selective_episodic_binding`.
 
 ### Narrow relation fine-tune
 

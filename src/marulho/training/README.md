@@ -33,12 +33,6 @@ sampling over the full checkpoint vocabulary. Both use the bounded per-layer
 KV state and the same repetition controls; every result reports its exact
 policy, temperature, top-p threshold, and seed.
 
-An optional zero-initialized residual output adapter sits after Transformer
-hidden state and before the tied language head. Rank zero is the base model.
-Adapter experiments may freeze every base parameter and train only the two
-bottleneck matrices; zero initialization preserves base logits exactly before
-training, and adapter rank/state are checkpoint-owned.
-
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

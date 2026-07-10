@@ -443,7 +443,6 @@ def run_relation_binding_falsification(
     cases_path: str | Path,
     general_eval_corpus_paths: Sequence[str | Path],
     replay_corpus_paths: Sequence[str | Path] = (),
-    output_adapter_rank: int = 0,
     train_document_count: int = 200_000,
     eval_cases_per_kind: int = 64,
     token_budgets: Sequence[int] = (4_194_304, 8_388_608, 16_777_216),
@@ -509,8 +508,6 @@ def run_relation_binding_falsification(
             seed=int(seed),
             device=str(resolved_device),
             resume_checkpoint_path=str(checkpoint),
-            output_adapter_rank=max(0, int(output_adapter_rank)),
-            train_output_adapter_only=int(output_adapter_rank) > 0,
         ),
     )
     candidate_checkpoint = Path(
@@ -561,8 +558,6 @@ def run_relation_binding_falsification(
             "correct_index_metrics_only": True,
             "replay_enabled": bool(replay_corpus_paths),
             "replay_corpus_paths": [str(path) for path in replay_corpus_paths],
-            "output_adapter_rank": max(0, int(output_adapter_rank)),
-            "train_output_adapter_only": int(output_adapter_rank) > 0,
         },
         "relation_before": before,
         "relation_after": after,
@@ -597,7 +592,6 @@ def main() -> int:
     parser.add_argument("--cases-output", type=Path, required=True)
     parser.add_argument("--general-eval-corpus", action="append", type=Path, required=True)
     parser.add_argument("--replay-corpus", action="append", type=Path, default=[])
-    parser.add_argument("--output-adapter-rank", type=int, default=0)
     parser.add_argument("--train-documents", type=int, default=200_000)
     parser.add_argument("--eval-cases-per-kind", type=int, default=64)
     parser.add_argument("--token-budget", action="append", type=int, default=[])
@@ -611,7 +605,6 @@ def main() -> int:
         cases_path=args.cases_output,
         general_eval_corpus_paths=tuple(args.general_eval_corpus),
         replay_corpus_paths=tuple(args.replay_corpus),
-        output_adapter_rank=max(0, int(args.output_adapter_rank)),
         train_document_count=max(1, int(args.train_documents)),
         eval_cases_per_kind=max(1, int(args.eval_cases_per_kind)),
         token_budgets=tuple(args.token_budget) or (4_194_304, 8_388_608, 16_777_216),

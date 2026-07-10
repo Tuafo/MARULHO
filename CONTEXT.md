@@ -319,12 +319,26 @@ procedural Q/A template fragments.
 Decision: `replay_improves_candidate_ranking_not_free_binding`.
 
 The replay candidate is rejected; the 251,658,240-token mixed checkpoint stays
-active. Next test a frozen-base low-rank residual adapter on the same replay
-mixture and audits. This asks whether parameter isolation can translate latent
-candidate knowledge into free answers without altering general weights. If it
-fails, compare PMRM-style surprise-selected episodic binding under explicit
+active. This result motivated the subsequently falsified output-adapter test and
+the move to PMRM-style surprise-selected episodic binding under explicit
 memory/latency budgets. Do not call multiple-choice accuracy alone relation
 competence.
+
+Frozen-base residual output adapters were tested at rank 32 and rank 128, then
+removed. Rank 32 used 32,768 trainable parameters and reached 83.2% candidate /
+3.1% exact free accuracy. Rank 128 used 131,072 trainable parameters and reached
+84.4% / 2.3%. Rank 128 sustained ~151k training tokens/s at ~681 MiB peak
+allocated VRAM with only +0.0227 mixed-loss regression, but increasing rank did
+not improve free binding and remained far below full replay's 44.9%.
+
+Decision: `retire_output_adapter_test_selective_episodic_binding`.
+
+The adapter architecture, CLI, tests, and local candidates are retired rather
+than carried as compatibility debris. The active base remains the
+251,658,240-token mixed checkpoint. Next implement PMRM-inspired selective
+episodic writes/retrieval and compare surprise, random, and recency policies at
+equal slot/byte/read/write budgets. Measure strict free binding, general loss,
+memory growth, retrieval latency, and throughput together.
 
 ## Retired Language Concepts
 
@@ -341,6 +355,7 @@ The following are not maintained language paths:
 - quality-repair sweeps that optimize old prompt gates without solving unseen
   continuation;
 - old SNN language readout ledgers as a generation architecture.
+- frozen residual output adapters for relation binding.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -350,8 +365,8 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Test a frozen-base low-rank relation adapter against the replay baseline,
-   requiring free relation generation and unchanged general language.
+4. Test surprise-selected episodic binding against random/recency controls at
+   equal memory and compute budgets.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.
