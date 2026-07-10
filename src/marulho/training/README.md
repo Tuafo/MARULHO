@@ -15,7 +15,8 @@ bounded per-layer KV state for incremental decoding.
 - token embeddings and tied full-vocabulary LM head;
 - full-vocabulary next-token cross-entropy;
 - greedy generation with repetition and no-repeat controls;
-- stratified fixed-window train/eval splits;
+- tensor-indexed stratified fixed-window train/eval splits whose contract hashes
+  are computed on CPU before one-way device transfer;
 - heldout loss and perplexity;
 - atomic Transformer checkpoint save/load.
 

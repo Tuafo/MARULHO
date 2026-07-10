@@ -402,50 +402,78 @@ def build_language_model_splits(
     if step <= 0:
         raise ValueError("stride must be positive")
 
-    def _windows(source_texts: Sequence[str], *, label: str) -> list[list[int]]:
-        token_ids: list[int] = []
+    def _token_stream(
+        source_texts: Sequence[str],
+        *,
+        label: str,
+    ) -> tuple[torch.Tensor, int]:
+        token_chunks: list[torch.Tensor] = []
         for text in source_texts:
-            token_ids.extend(
-                tokenizer.encode(str(text), add_bos=True, add_eos=True)
+            encoded = tokenizer.encode(str(text), add_bos=True, add_eos=True)
+            token_chunks.append(
+                torch.tensor(encoded, dtype=torch.long, device="cpu")
             )
-        if len(token_ids) < window_length:
+            del encoded
+        if not token_chunks:
+            raise ValueError(f"No {label} texts were provided")
+        token_ids = (
+            token_chunks[0]
+            if len(token_chunks) == 1
+            else torch.cat(token_chunks)
+        )
+        if int(token_ids.numel()) < window_length:
             raise ValueError(
                 f"Not enough {label} tokens to build a next-token language split"
             )
-        return [
-            token_ids[offset : offset + window_length]
-            for offset in range(0, len(token_ids) - window_length + 1, step)
-        ]
+        window_count = 1 + (int(token_ids.numel()) - window_length) // step
+        return token_ids, window_count
 
-    train_source_windows = _windows(texts, label="training")
+    train_token_ids, train_source_window_count = _token_stream(
+        texts,
+        label="training",
+    )
     if eval_texts is not None:
-        train_windows = train_source_windows
-        eval_windows = _windows(eval_texts, label="evaluation")
-        windows = [*train_windows, *eval_windows]
+        eval_token_ids, eval_source_window_count = _token_stream(
+            eval_texts,
+            label="evaluation",
+        )
+        train_window_count = train_source_window_count
+        eval_window_count = eval_source_window_count
+        train_window_offset = 0
+        eval_window_offset = 0
+        window_count = train_window_count + eval_window_count
         split_strategy = "explicit_text_sets"
-    elif len(train_source_windows) == 1:
-        train_windows = train_source_windows
-        eval_windows = train_source_windows
-        windows = train_source_windows
+    elif train_source_window_count == 1:
+        eval_token_ids = train_token_ids
+        train_window_count = 1
+        eval_window_count = 1
+        train_window_offset = 0
+        eval_window_offset = 0
+        window_count = 1
         split_strategy = "shared_single_window"
     else:
-        windows = train_source_windows
         eval_count = max(
             1,
-            min(len(windows) - 1, math.ceil(len(windows) * eval_fraction)),
+            min(
+                train_source_window_count - 1,
+                math.ceil(train_source_window_count * eval_fraction),
+            ),
         )
-        train_windows = windows[:-eval_count]
-        eval_windows = windows[-eval_count:]
+        eval_token_ids = train_token_ids
+        train_window_count = train_source_window_count - eval_count
+        eval_window_count = eval_count
+        train_window_offset = 0
+        eval_window_offset = train_window_count
+        window_count = train_source_window_count
         split_strategy = "contiguous_tail_fraction"
     selection = str(window_selection).strip().lower()
     if selection not in {"stratified", "prefix"}:
         raise ValueError("window_selection must be 'stratified' or 'prefix'")
 
     def _limit(
-        rows: Sequence[Sequence[int]],
+        source_count: int,
         max_batches: int | None,
-    ) -> tuple[list[Sequence[int]], dict[str, Any]]:
-        source_count = len(rows)
+    ) -> tuple[list[int], dict[str, Any]]:
         maximum = source_count if not max_batches or int(max_batches) <= 0 else min(
             source_count,
             int(max_batches) * batch_size,
@@ -461,7 +489,7 @@ def build_language_model_splits(
                 round(index * (source_count - 1) / float(maximum - 1))
                 for index in range(maximum)
             ]
-        return [rows[index] for index in indices], {
+        return indices, {
             "source_window_count": source_count,
             "selected_window_count": len(indices),
             "first_selected_index": indices[0] if indices else None,
@@ -471,27 +499,36 @@ def build_language_model_splits(
             ),
         }
 
-    train_before = len(train_windows)
-    eval_before = len(eval_windows)
-    train_selected, train_selection = _limit(train_windows, max_train_batches)
-    eval_selected, eval_selection = _limit(eval_windows, max_eval_batches)
+    train_before = train_window_count
+    eval_before = eval_window_count
+    train_selected, train_selection = _limit(
+        train_window_count,
+        max_train_batches,
+    )
+    eval_selected, eval_selection = _limit(
+        eval_window_count,
+        max_eval_batches,
+    )
     target_device = torch.device(device or "cpu")
 
     def _pack(
-        rows: Sequence[Sequence[int]],
+        token_ids: torch.Tensor,
+        relative_window_indices: Sequence[int],
+        *,
+        window_offset: int,
     ) -> tuple[tuple[LanguageBatch, ...], str]:
         batches: list[LanguageBatch] = []
         digest = hashlib.sha256()
-        for offset in range(0, len(rows), batch_size):
-            chunk = rows[offset : offset + batch_size]
-            input_ids = torch.tensor(
-                [row[:-1] for row in chunk],
+        token_offsets = torch.arange(window_length, dtype=torch.long)
+        for offset in range(0, len(relative_window_indices), batch_size):
+            relative_indices = relative_window_indices[offset : offset + batch_size]
+            starts = torch.tensor(
+                [window_offset + int(index) for index in relative_indices],
                 dtype=torch.long,
-            )
-            target_ids = torch.tensor(
-                [row[1:] for row in chunk],
-                dtype=torch.long,
-            )
+            ) * step
+            windows = token_ids[starts.unsqueeze(1) + token_offsets.unsqueeze(0)]
+            input_ids = windows[:, :-1].contiguous()
+            target_ids = windows[:, 1:].contiguous()
             digest.update(input_ids.contiguous().numpy().tobytes())
             digest.update(target_ids.contiguous().numpy().tobytes())
             batches.append(
@@ -502,8 +539,16 @@ def build_language_model_splits(
             )
         return tuple(batches), digest.hexdigest()
 
-    train_batches, train_split_hash = _pack(train_selected)
-    eval_batches, eval_split_hash = _pack(eval_selected)
+    train_batches, train_split_hash = _pack(
+        train_token_ids,
+        train_selected,
+        window_offset=train_window_offset,
+    )
+    eval_batches, eval_split_hash = _pack(
+        eval_token_ids,
+        eval_selected,
+        window_offset=eval_window_offset,
+    )
     report = {
         "surface": "marulho_transformer_train_eval_split.v2",
         "owned_by_marulho": True,
@@ -517,7 +562,7 @@ def build_language_model_splits(
         ),
         "split_strategy": split_strategy,
         "explicit_eval_texts": eval_texts is not None,
-        "window_count": len(windows),
+        "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,
         "window_selection": selection,
