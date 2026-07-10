@@ -13,6 +13,7 @@ from typing import Any, Sequence
 import torch
 
 from marulho.data.language_tokenizer import (
+    BPE_TRAINING_CHUNK_CHARACTERS,
     ByteLevelLanguageTokenizer,
     BytePairLanguageTokenizer,
     LanguageTokenizer,
@@ -31,7 +32,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_training_experiment.v2"
+SURFACE = "marulho_transformer_training_experiment.v3"
 ARTIFACT_KIND = "marulho_transformer_training_experiment"
 
 DEFAULT_CORPUS = (
@@ -410,7 +411,7 @@ def run_language_training_experiment(
                 collect_environment=False,
             )
         loss_delta = float(eval_after["heldout_loss"]) - float(eval_before["heldout_loss"])
-        corpus_tokens = tokenizer.encode(corpus, add_bos=False, add_eos=False)
+        corpus_token_count = int(split.report["train_text_token_count"])
         report = {
             "artifact_kind": ARTIFACT_KIND,
             "surface": SURFACE,
@@ -427,12 +428,14 @@ def run_language_training_experiment(
                 "surface": tokenizer.state_dict().get("surface"),
                 "vocabulary_hash": tokenizer.vocabulary_hash(),
                 "vocab_size": int(tokenizer.vocab_size),
-                "corpus_token_count": len(corpus_tokens),
+                "corpus_token_count": corpus_token_count,
                 "corpus_utf8_byte_count": len(corpus.encode("utf-8")),
-                "bytes_per_token": len(corpus.encode("utf-8")) / max(1, len(corpus_tokens)),
+                "bytes_per_token": len(corpus.encode("utf-8"))
+                / max(1, corpus_token_count),
                 "vocabulary_trained_by_marulho": bool(
                     tokenizer.state_dict().get("vocabulary_trained_by_marulho", False)
                 ),
+                "training_chunk_characters": BPE_TRAINING_CHUNK_CHARACTERS,
             },
             "corpus": {
                 "source": "default_inline" if corpus_path is None else str(corpus_path),

@@ -3,7 +3,38 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
+from typing import (
+    Any,
+    Iterable,
+    Iterator,
+    Mapping,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
+
+
+BPE_TRAINING_CHUNK_CHARACTERS = 64 * 1024
+LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS = 1024 * 1024
+
+
+def iter_language_corpus_chunks(
+    texts: Iterable[str],
+    *,
+    max_characters: int,
+) -> Iterator[str]:
+    maximum = max(1, int(max_characters))
+    for raw_text in texts:
+        text = str(raw_text)
+        cursor = 0
+        while cursor < len(text):
+            end = min(len(text), cursor + maximum)
+            if end < len(text):
+                boundary = text.rfind("\n\n", cursor + 1, end)
+                if boundary > cursor:
+                    end = boundary + 2
+            yield text[cursor:end]
+            cursor = end
 
 
 @dataclass(frozen=True)
@@ -296,7 +327,13 @@ class BytePairLanguageTokenizer:
             initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
             max_token_length=max(2, int(max_token_length)),
         )
-        tokenizer.train_from_iterator((str(text) for text in texts), trainer=trainer)
+        tokenizer.train_from_iterator(
+            iter_language_corpus_chunks(
+                texts,
+                max_characters=BPE_TRAINING_CHUNK_CHARACTERS,
+            ),
+            trainer=trainer,
+        )
         return cls(tokenizer.to_str(pretty=False))
 
     @property

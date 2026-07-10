@@ -13,6 +13,8 @@ from typing import Any, Sequence
 import torch
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import BPE_TRAINING_CHUNK_CHARACTERS
+
 from marulho.evaluation.language_training_experiment import (
     LanguageTrainingExperimentConfig,
     _build_tokenizer,
@@ -35,7 +37,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v4"
+SURFACE = "marulho_transformer_scaling_experiment.v5"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -771,6 +773,7 @@ def run_language_scaling_experiment(
             "vocab_size": int(tokenizer.vocab_size),
             "vocabulary_hash": tokenizer.vocabulary_hash(),
             "vocabulary_trained_by_marulho": True,
+            "training_chunk_characters": BPE_TRAINING_CHUNK_CHARACTERS,
         },
         "split": split.report,
         "prompts": prompt_rows,

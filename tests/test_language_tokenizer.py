@@ -5,6 +5,7 @@ import torch
 from marulho.data.language_tokenizer import (
     ByteLevelLanguageTokenizer,
     BytePairLanguageTokenizer,
+    iter_language_corpus_chunks,
     load_language_tokenizer_state,
 )
 from marulho.training.language_model import (
@@ -19,6 +20,15 @@ CORPUS = (
     "MARULHO learns language continuously. Café data remains reversible.\n"
     "Replay protects prior knowledge while checkpoints make mutation rollbackable.\n"
 ) * 64
+
+
+def test_language_corpus_chunks_reconstruct_text_at_document_boundaries() -> None:
+    text = "first document\n\nsecond document is longer\n\nthird"
+    chunks = list(iter_language_corpus_chunks((text,), max_characters=24))
+
+    assert "".join(chunks) == text
+    assert len(chunks) >= 2
+    assert max(len(chunk) for chunk in chunks) <= 24
 
 
 def test_marulho_bpe_tokenizer_is_lossless_compressed_and_checkpoint_owned() -> None:

@@ -17,7 +17,9 @@ from torch import nn
 import torch.nn.functional as F
 
 from marulho.data.language_tokenizer import (
+    LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS,
     LanguageTokenizer,
+    iter_language_corpus_chunks,
     load_language_tokenizer_state,
 )
 from marulho.training.language_transformer import MarulhoCausalTransformerStateBlock
@@ -410,12 +412,29 @@ def build_language_model_splits(
         token_chunks: list[torch.Tensor] = []
         text_token_count = 0
         for text in source_texts:
-            encoded = tokenizer.encode(str(text), add_bos=True, add_eos=True)
-            text_token_count += max(0, len(encoded) - 2)
-            token_chunks.append(
-                torch.tensor(encoded, dtype=torch.long, device="cpu")
+            chunks = iter(
+                iter_language_corpus_chunks(
+                    (str(text),),
+                    max_characters=LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS,
+                )
             )
-            del encoded
+            current = next(chunks, None)
+            first = True
+            while current is not None:
+                following = next(chunks, None)
+                encoded = tokenizer.encode(
+                    current,
+                    add_bos=first,
+                    add_eos=following is None,
+                )
+                special_count = int(first) + int(following is None)
+                text_token_count += max(0, len(encoded) - special_count)
+                token_chunks.append(
+                    torch.tensor(encoded, dtype=torch.long, device="cpu")
+                )
+                del encoded
+                current = following
+                first = False
         if not token_chunks:
             raise ValueError(f"No {label} texts were provided")
         token_ids = (
@@ -575,7 +594,7 @@ def build_language_model_splits(
         window_offset=eval_window_offset,
     )
     report = {
-        "surface": "marulho_transformer_train_eval_split.v5",
+        "surface": "marulho_transformer_train_eval_split.v6",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "sequence_length": int(sequence_length),
@@ -593,6 +612,9 @@ def build_language_model_splits(
         "eval_token_stream_count": int(eval_token_ids.numel()),
         "split_hash_format": "selected_windows_int64_row_major.v1",
         "storage_device": str(target_device),
+        "source_encoding_chunk_characters": (
+            LANGUAGE_SOURCE_ENCODING_CHUNK_CHARACTERS
+        ),
         "window_count": window_count,
         "train_window_count_before_limit": train_before,
         "eval_window_count_before_limit": eval_before,

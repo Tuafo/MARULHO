@@ -44,6 +44,9 @@ audio, event-camera style input, and multimodal streams.
   hash, and normalization policy are embedded in the model checkpoint. The
   Rust `tokenizers` package is an execution dependency only: MARULHO loads no
   external tokenizer or language-model checkpoint.
+- BPE training and source encoding consume bounded text chunks, preferring
+  blank-line document boundaries and preserving the exact concatenated source.
+  Corpus size must not become one monolithic Rust tokenizer allocation.
 - Hugging Face text sources may expose structured rows instead of a single
   `text` column. `StreamingCorpusLoader` flattens role/content `messages` rows
   and accepts comma-separated `text_field` values such as
