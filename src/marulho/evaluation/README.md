@@ -153,6 +153,31 @@ recurrent workspace. That reference model now exists under
 `src/marulho/training/language_pmrm.py`; the active Transformer remains the
 matched baseline until the new model produces quality evidence.
 
+The first integrated 269,568-token screen is local at
+`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`:
+
+| Arm | General loss | Candidate relation | Exact free | Train tokens/s | Peak GiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Transformer | 7.4972 | 30.5% | 0.0% | 76,519 | 2.41 |
+| PMRM surprise | 7.6460 | 25.0% | 0.0% | 2,997 | 9.45 |
+| PMRM no memory | 7.6999 | 27.7% | 0.0% | 4,070 | 9.04 |
+| PMRM random | 7.6418 | 25.0% | 0.0% | 2,973 | 9.45 |
+| PMRM recency | 7.6387 | 21.5% | 0.0% | 2,999 | 9.45 |
+| PMRM temporal only | 7.6309 | 23.4% | 0.0% | 4,212 | 6.31 |
+| PMRM associative only | 7.7484 | 32.8% | 0.0% | 3,477 | 8.66 |
+| PMRM workspace x1 | 7.6823 | 23.4% | 0.0% | 3,794 | 7.52 |
+
+The full PMRM used 20,977,792 parameters versus 20,976,128 for the Transformer;
+the shared schedule contained 5 relation, 11 FineWeb-Edu, and 10 Cosmopedia
+steps. At this budget every free score is zero, temporal-only has the best PMRM
+loss, and two workspace iterations beat one. These are routing signals only.
+
+The memory-policy comparison is invalid for H2 because observed permanent writes
+were not matched: 6,404 surprise, 5,647 random, and 10,224 recency. The runner
+now uses one completed 16-event causal block per permanent write for all three
+policies. No screening checkpoint was saved. Branch:
+`repair_equal_write_budget_rerun_pmrm_policy_screen`.
+
 ### Narrow relation fine-tune
 
 The 2026-07-10 controlled relation-binding falsification is stored locally at:

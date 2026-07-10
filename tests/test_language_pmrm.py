@@ -88,7 +88,9 @@ def test_pmrm_sparse_columns_leave_inactive_state_unchanged() -> None:
 
 
 def test_pmrm_episode_is_written_only_after_next_observation() -> None:
-    model = MarulhoPMRMLanguageModel(_config(episodic_policy="surprise")).eval()
+    model = MarulhoPMRMLanguageModel(
+        _config(episodic_policy="surprise", episodic_write_interval=1)
+    ).eval()
     first = model.step(torch.tensor([7]), collect_telemetry=False)
     assert int(first["state"]["episodes_valid"].sum().item()) == 0
     assert int(first["state"]["episodic_writes"].item()) == 0
@@ -99,6 +101,20 @@ def test_pmrm_episode_is_written_only_after_next_observation() -> None:
     assert int(second["state"]["episodes_valid"].sum().item()) == 1
     assert int(second["state"]["episodic_considered"].item()) == 1
     assert int(second["state"]["episodic_writes"].item()) == 1
+
+
+def test_pmrm_budget_matched_policies_commit_equal_writes() -> None:
+    token_ids = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8]])
+    writes = {}
+    for policy in ("surprise", "random", "recency"):
+        torch.manual_seed(31)
+        model = MarulhoPMRMLanguageModel(
+            _config(episodic_policy=policy, episodic_write_interval=2)
+        ).eval()
+        result = model(token_ids)
+        writes[policy] = result["telemetry"]["episodic_write_count"]
+        assert result["telemetry"]["episodic_write_interval"] == 2
+    assert writes == {"surprise": 3, "random": 3, "recency": 3}
 
 
 def test_pmrm_budget_and_compute_ledger_are_explicit() -> None:

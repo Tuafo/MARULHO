@@ -41,6 +41,7 @@ class PMRMLanguageConfig:
     episodic_policy: str = "surprise"
     episodic_slots: int = 16
     episodic_reads: int = 2
+    episodic_write_interval: int = 16
     workspace_registers: int = 2
     workspace_layers: int = 3
     workspace_iterations: int = 2
@@ -72,6 +73,8 @@ def _validate_config(config: PMRMLanguageConfig) -> None:
         raise ValueError("episodic_slots must be positive")
     if not 1 <= int(config.episodic_reads) <= int(config.episodic_slots):
         raise ValueError("episodic_reads must be within the episodic slot budget")
+    if int(config.episodic_write_interval) < 1:
+        raise ValueError("episodic_write_interval must be positive")
     if (
         int(config.workspace_registers) < 1
         or int(config.workspace_layers) < 1
@@ -232,6 +235,20 @@ class MarulhoPMRMLanguageModel(nn.Module):
             "write_pointer": torch.zeros(
                 (batch,), device=target_device, dtype=torch.long
             ),
+            "write_candidate_key": zeros(assoc),
+            "write_candidate_value": zeros(dim),
+            "write_candidate_score": torch.full(
+                (batch,),
+                float("-inf"),
+                device=target_device,
+                dtype=target_dtype,
+            ),
+            "write_candidate_valid": torch.zeros(
+                (batch,), device=target_device, dtype=torch.bool
+            ),
+            "write_interval_progress": torch.zeros(
+                (batch,), device=target_device, dtype=torch.long
+            ),
             "pending_key": zeros(assoc),
             "pending_value": zeros(dim),
             "pending_prediction": zeros(dim),
@@ -338,53 +355,92 @@ class MarulhoPMRMLanguageModel(nn.Module):
             else:
                 priority = state["step_index"].to(dtype=torch.float32)
             priority = priority.to(dtype=state["episodes_score"].dtype)
-
-            valid = state["episodes_valid"]
-            has_free = ~valid.all(dim=1)
-            first_free = (~valid).to(dtype=torch.long).argmax(dim=1)
-            minimum_scores = torch.where(
-                valid,
-                state["episodes_score"],
-                torch.full_like(state["episodes_score"], float("inf")),
-            )
-            minimum_index = minimum_scores.argmin(dim=1)
-            minimum_value = minimum_scores.gather(1, minimum_index.unsqueeze(1)).squeeze(1)
-            if policy in {"recency", "full"}:
-                destination = torch.remainder(
-                    state["write_pointer"], int(self.config.episodic_slots)
-                )
+            if policy == "full":
+                selected_key = state["pending_key"]
+                selected_value = state["pending_value"]
+                selected_score = priority
                 should_write = pending
+                candidate_valid = state["write_candidate_valid"]
+                interval_progress = state["write_interval_progress"]
             else:
-                destination = torch.where(has_free, first_free, minimum_index)
-                should_write = pending & (has_free | (priority > minimum_value))
+                replace_candidate = pending & (
+                    ~state["write_candidate_valid"]
+                    | (priority > state["write_candidate_score"])
+                )
+                if policy == "recency":
+                    replace_candidate = pending
+                selected_key = torch.where(
+                    replace_candidate.unsqueeze(1),
+                    state["pending_key"],
+                    state["write_candidate_key"],
+                )
+                selected_value = torch.where(
+                    replace_candidate.unsqueeze(1),
+                    state["pending_value"],
+                    state["write_candidate_value"],
+                )
+                selected_score = torch.where(
+                    replace_candidate,
+                    priority,
+                    state["write_candidate_score"],
+                )
+                candidate_valid = state["write_candidate_valid"] | pending
+                interval_progress = state["write_interval_progress"] + pending.to(
+                    dtype=torch.long
+                )
+                should_write = candidate_valid & (
+                    interval_progress >= int(self.config.episodic_write_interval)
+                )
 
-        slot_mask = F.one_hot(
-            destination,
-            num_classes=int(self.config.episodic_slots),
-        ).to(dtype=torch.bool)
-        slot_mask = slot_mask & should_write.unsqueeze(1)
+            destination = torch.remainder(
+                state["write_pointer"], int(self.config.episodic_slots)
+            )
+
+        slot_mask = F.one_hot(destination, num_classes=int(self.config.episodic_slots))
+        slot_mask = slot_mask.to(dtype=torch.bool) & should_write.unsqueeze(1)
         next_state["episodes_key"] = torch.where(
             slot_mask.unsqueeze(-1),
-            state["pending_key"].unsqueeze(1),
+            selected_key.unsqueeze(1),
             state["episodes_key"],
         )
         next_state["episodes_value"] = torch.where(
             slot_mask.unsqueeze(-1),
-            state["pending_value"].unsqueeze(1),
+            selected_value.unsqueeze(1),
             state["episodes_value"],
         )
         next_state["episodes_score"] = torch.where(
             slot_mask,
-            priority.unsqueeze(1),
+            selected_score.unsqueeze(1),
             state["episodes_score"],
         )
         next_state["episodes_valid"] = state["episodes_valid"] | slot_mask
         next_state["episodic_writes"] = (
             state["episodic_writes"] + should_write.to(dtype=torch.long)
         )
-        if policy in {"recency", "full"}:
-            next_state["write_pointer"] = state["write_pointer"] + should_write.to(
-                dtype=torch.long
+        next_state["write_pointer"] = state["write_pointer"] + should_write.to(
+            dtype=torch.long
+        )
+        if policy != "full":
+            next_state["write_candidate_key"] = torch.where(
+                should_write.unsqueeze(1),
+                torch.zeros_like(selected_key),
+                selected_key,
+            )
+            next_state["write_candidate_value"] = torch.where(
+                should_write.unsqueeze(1),
+                torch.zeros_like(selected_value),
+                selected_value,
+            )
+            next_state["write_candidate_score"] = torch.where(
+                should_write,
+                torch.full_like(selected_score, float("-inf")),
+                selected_score,
+            )
+            next_state["write_candidate_valid"] = candidate_valid & ~should_write
+            next_state["write_interval_progress"] = torch.where(
+                should_write,
+                torch.zeros_like(interval_progress),
+                interval_progress,
             )
         return next_state
 
@@ -573,6 +629,11 @@ class MarulhoPMRMLanguageModel(nn.Module):
             "episodes_score",
             "episodes_valid",
             "write_pointer",
+            "write_candidate_key",
+            "write_candidate_value",
+            "write_candidate_score",
+            "write_candidate_valid",
+            "write_interval_progress",
         }
         column_keys = {"temporal", "associative", "column_usage"}
         return {
@@ -582,6 +643,9 @@ class MarulhoPMRMLanguageModel(nn.Module):
             "owned_by_marulho": True,
             "fusion_kind": self.config.fusion_kind,
             "episodic_policy": self.config.episodic_policy,
+            "episodic_write_interval": int(
+                self.config.episodic_write_interval
+            ),
             "fixed_column_count": int(self.config.column_count),
             "active_columns_per_event": int(self.config.active_columns),
             "dense_router_scoring_reported": True,

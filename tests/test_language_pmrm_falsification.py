@@ -69,12 +69,26 @@ def test_pmrm_decision_requires_matched_quality_not_throughput() -> None:
         "training": {"processed_tokens": 4_200_000},
         "general_holdout": {"after": {"heldout_loss": 3.1}},
         "relation": {"generation_exact_accuracy": 0.65},
+        "runtime_telemetry": {
+            "episodic_write_count": 10,
+            "episodic_read_count": 20,
+        },
     }
-    assert pmrm_falsification_decision((transformer, pmrm)) == (
+    random = {
+        **pmrm,
+        "name": "pmrm-random",
+        "relation": {"generation_exact_accuracy": 0.50},
+    }
+    recency = {
+        **pmrm,
+        "name": "pmrm-recency",
+        "relation": {"generation_exact_accuracy": 0.55},
+    }
+    assert pmrm_falsification_decision((transformer, pmrm, random, recency)) == (
         "scale_integrated_pmrm"
     )
     pmrm["relation"]["generation_exact_accuracy"] = 0.55
-    assert pmrm_falsification_decision((transformer, pmrm)) == (
+    assert pmrm_falsification_decision((transformer, pmrm, random, recency)) == (
         "continue_successive_halving_or_redesign_systems_path"
     )
 

@@ -199,6 +199,26 @@ coherent PMRM recurrent competitor, evaluated both end-to-end and through
 matched temporal-only, associative-only, memory-policy, routing, and workspace
 ablations. PMRM itself remains untested until that system exists.
 
+The first integrated PMRM screen now exists. Eight fresh 20.98M-parameter arms
+shared the checkpoint tokenizer, a hashed 20% relation / 40% FineWeb-Edu / 40%
+Cosmopedia schedule, and 269,568 update tokens. The matched Transformer reached
+loss 7.4972 at 76,519 tokens/s. Full PMRM-surprise reached 7.6460 at 2,997
+tokens/s; temporal-only was the best PMRM loss at 7.6309, associative-only was
+7.7484, and reducing the workspace from two iterations to one regressed loss to
+7.6823. Every arm remained at 0% strict free relation generation, so this is
+screening evidence only. PMRM used 9.45 GiB peak allocated VRAM versus 2.41 GiB
+for the Transformer training arm.
+
+The screen also found an invalid H2 comparison: surprise, random, and recency
+had equal slots/reads but different permanent write counts. Their loss ordering
+therefore cannot select a memory policy. The code now closes this confound with
+one causal permanent write per 16-event block for every policy: surprise keeps
+the highest-error past event, random a reservoir sample, and recency the last.
+The compact exploratory report remains at
+`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`; no
+screening checkpoint was retained. Decision:
+`repair_equal_write_budget_rerun_pmrm_policy_screen`.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional

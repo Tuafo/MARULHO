@@ -32,6 +32,13 @@ uses the same one-event implementation. Surprise writes use the prior column
 prediction, keeping memory causal without serializing the expensive workspace
 through the scan.
 
+Budget-matched surprise, random, and recency policies commit exactly one hidden
+event per completed `episodic_write_interval`. Surprise retains the maximum
+prior-prediction error within the past block, random retains the maximum of a
+deterministic random priority (a reservoir sample), and recency retains the last
+event. The candidate buffer is tensor-only runtime state and is checkpointed;
+it is not readable as episodic memory until the block closes.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

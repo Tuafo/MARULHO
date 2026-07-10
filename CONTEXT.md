@@ -137,7 +137,10 @@ only or associative-only result is a control, not PMRM validation.
 using explicit surprise/utility and byte/write/read budgets. A write becomes
 visible only to later events. Compare no memory, full token storage, random,
 recency, surprise, and non-promotable oracle policies. Prepending retrieved text
-is retired and does not implement this concept.
+is retired and does not implement this concept. Budget-matched policies select
+one permanent memory from each completed 16-event block: highest causal
+prediction error for surprise, a deterministic reservoir sample for random, and
+the final event for recency. Incomplete blocks do not write.
 
 **Recurrent Workspace** — a small set of latent registers repeatedly reads
 active columns and retrieved episodes through weight-shared updates. Every
@@ -396,6 +399,24 @@ coherent PMRM competitor next, preserve the Transformer as its matched baseline,
 and diagnose the integrated result through in-place ablations rather than
 parallel compatibility paths.
 
+The first integrated screen trained eight fresh 20.98M-parameter arms for
+269,568 identical scheduled tokens. The Transformer reached general loss 7.4972
+at 76,519 training tokens/s and 2.41 GiB peak allocated VRAM. Full PMRM-surprise
+reached 7.6460 at 2,997 tokens/s and 9.45 GiB. Temporal-only was the best PMRM
+loss at 7.6309; associative-only reached 7.7484; one workspace iteration reached
+7.6823 versus 7.6460 for two. All arms produced 0% exact free relation answers.
+This is screening, not PMRM support or falsification.
+
+The initial memory-policy rows were confounded: surprise wrote 6,404 permanent
+episodes, random 5,647, and recency 10,224 despite matched slots and reads. The
+report is retained at
+`reports/language_scaling/pmrm-integrated-screening-262k-20260710.json`, but its
+policy ordering is non-promotable. No checkpoints were retained. The corrected
+block selector now guarantees equal permanent write counts before the policy
+screen is rerun.
+
+Decision: `repair_equal_write_budget_rerun_pmrm_policy_screen`.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -427,10 +448,13 @@ must not present them as active capability.
    strict free relation generation.
 5. Build one integrated PMRM v0: fixed persistent columns, dual temporal and
    associative state, internal episodic memory, and recurrent workspace.
-6. Run the complete model and matched in-place ablations against the active
-   Transformer on relation generation, real-language loss, memory, and speed.
-7. Fit the first defensible local scaling law only for architectures that
+6. Use the first integrated screen to expose temporal dominance, workspace
+   benefit, severe systems cost, and unequal memory writes without promoting it.
+7. Rerun surprise, random, and recency with identical causal block write/read
+   budgets; keep the Transformer and temporal-only routing controls.
+8. Continue only non-dominated arms through successive halving, then fit the
+   first defensible local scaling law only for architectures that
    survive the pilot, using repeated seeds near a branch boundary.
-8. Rebuild continual learning, exact resume, and retention measurement.
-9. Re-establish sustained 524,288-token generation from the same checkpoint.
-10. Add grounded causal experiments, then scale, redesign, or retire.
+9. Rebuild continual learning, exact resume, and retention measurement.
+10. Re-establish sustained 524,288-token generation from the same checkpoint.
+11. Add grounded causal experiments, then scale, redesign, or retire.

@@ -81,6 +81,7 @@ class PMRMFalsificationConfig:
     associative_dim: int = 64
     episodic_slots: int = 16
     episodic_reads: int = 2
+    episodic_write_interval: int = 16
     workspace_registers: int = 2
     workspace_layers: int = 3
     workspace_mlp_dim: int = 1712
@@ -194,6 +195,7 @@ def _build_model(
             episodic_policy=str(arm.episodic_policy),
             episodic_slots=int(config.episodic_slots),
             episodic_reads=int(config.episodic_reads),
+            episodic_write_interval=int(config.episodic_write_interval),
             workspace_registers=int(config.workspace_registers),
             workspace_layers=int(config.workspace_layers),
             workspace_iterations=int(arm.workspace_iterations),
@@ -301,12 +303,30 @@ def pmrm_falsification_decision(
         int(pmrm["training"]["processed_tokens"]),
         int(transformer["training"]["processed_tokens"]),
     )
+    policy_controls = [
+        completed[name]
+        for name in ("pmrm-random", "pmrm-recency")
+        if name in completed
+    ]
+    policy_budgets_equal = len(policy_controls) == 2 and all(
+        int(row["runtime_telemetry"]["episodic_write_count"])
+        == int(pmrm["runtime_telemetry"]["episodic_write_count"])
+        and int(row["runtime_telemetry"]["episodic_read_count"])
+        == int(pmrm["runtime_telemetry"]["episodic_read_count"])
+        for row in policy_controls
+    )
+    surprise_beats_controls = policy_budgets_equal and all(
+        free_accuracy
+        > float(row["relation"]["generation_exact_accuracy"])
+        for row in policy_controls
+    )
     if (
         token_count >= int(minimum_finalist_tokens)
         and free_accuracy >= 0.60
         and free_accuracy >= transformer_free + 0.10
         and general_margin <= 0.15
         and parameter_delta <= 0.005
+        and surprise_beats_controls
     ):
         return "scale_integrated_pmrm"
     if general_margin > 0.50 and free_accuracy <= transformer_free:
@@ -667,6 +687,34 @@ def run_pmrm_falsification(
                 )
                 - float(transformer["relation"]["generation_exact_accuracy"]),
             }
+    memory_policy_rows = {
+        name: {
+            "episodic_write_count": int(
+                completed[name]["runtime_telemetry"].get("episodic_write_count", 0)
+            ),
+            "episodic_read_count": int(
+                completed[name]["runtime_telemetry"].get("episodic_read_count", 0)
+            ),
+            "general_heldout_loss": float(
+                completed[name]["general_holdout"]["after"]["heldout_loss"]
+            ),
+            "candidate_relation_accuracy": float(
+                completed[name]["relation"]["accuracy"]
+            ),
+            "free_relation_accuracy": float(
+                completed[name]["relation"]["generation_exact_accuracy"]
+            ),
+        }
+        for name in ("pmrm-surprise", "pmrm-random", "pmrm-recency")
+        if name in completed
+    }
+    policy_counts = list(memory_policy_rows.values())
+    policy_budgets_equal = len(policy_counts) == 3 and len(
+        {
+            (row["episodic_write_count"], row["episodic_read_count"])
+            for row in policy_counts
+        }
+    ) == 1
     decision = pmrm_falsification_decision(arm_reports)
     report = {
         "artifact_kind": ARTIFACT_KIND,
@@ -735,6 +783,18 @@ def run_pmrm_falsification(
         },
         "arms": arm_reports,
         "comparisons": comparisons,
+        "memory_policy_comparison": {
+            "policies": memory_policy_rows,
+            "observed_write_read_budgets_equal": policy_budgets_equal,
+            "surprise_beats_random_and_recency_on_free_accuracy": (
+                policy_budgets_equal
+                and memory_policy_rows["pmrm-surprise"]["free_relation_accuracy"]
+                > max(
+                    memory_policy_rows["pmrm-random"]["free_relation_accuracy"],
+                    memory_policy_rows["pmrm-recency"]["free_relation_accuracy"],
+                )
+            ),
+        },
         "success_criteria": {
             "minimum_finalist_tokens": 4_194_304,
             "minimum_free_relation_accuracy": 0.60,
@@ -775,6 +835,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=144)
     parser.add_argument("--eval-batches", type=int, default=16)
     parser.add_argument("--relation-eval-batch-size", type=int, default=64)
+    parser.add_argument("--episodic-write-interval", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=3.0e-4)
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--save-checkpoints", action="store_true")
@@ -795,6 +856,7 @@ def main() -> int:
             batch_size=max(1, int(args.batch_size)),
             eval_batches=max(1, int(args.eval_batches)),
             relation_eval_batch_size=max(1, int(args.relation_eval_batch_size)),
+            episodic_write_interval=max(1, int(args.episodic_write_interval)),
             learning_rate=float(args.learning_rate),
             seed=int(args.seed),
             save_checkpoints=bool(args.save_checkpoints),
