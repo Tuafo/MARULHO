@@ -72,6 +72,7 @@ class DeltaFalsificationConfig:
     gradient_clip: float = 1.0
     precision: str = "bfloat16"
     seed: int = 1337
+    model_seed: int = 1337
     model_width: int = 512
     model_layers: int = 4
     attention_heads: int = 8
@@ -458,9 +459,9 @@ def _run_arm(
     config: DeltaFalsificationConfig,
     device: torch.device,
 ) -> dict[str, Any]:
-    torch.manual_seed(config.seed)
+    torch.manual_seed(config.model_seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config.seed)
+        torch.cuda.manual_seed_all(config.model_seed)
     model = _build_model(
         arm, vocab_size=int(tokenizer.vocab_size), config=config
     ).to(device)
@@ -544,7 +545,7 @@ def _run_arm(
             sample.input_ids, collect_telemetry=True
         )["telemetry"]
     checkpoint_path: Path | None = None
-    if config.save_checkpoints:
+    if config.save_checkpoints and arm.architecture == "delta":
         checkpoint_path = output_path.with_name(
             f"{output_path.stem}-{arm.name}-checkpoint.pt"
         )
@@ -887,6 +888,7 @@ def main() -> int:
     parser.add_argument("--relation-eval-batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=3.0e-4)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--model-seed", type=int)
     parser.add_argument("--save-checkpoints", action="store_true")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
@@ -907,6 +909,11 @@ def main() -> int:
             relation_eval_batch_size=max(1, int(args.relation_eval_batch_size)),
             learning_rate=float(args.learning_rate),
             seed=int(args.seed),
+            model_seed=(
+                int(args.model_seed)
+                if args.model_seed is not None
+                else int(args.seed)
+            ),
             save_checkpoints=bool(args.save_checkpoints),
         ),
         schedule_cache_path=args.schedule_cache,

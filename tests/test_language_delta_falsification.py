@@ -109,3 +109,23 @@ def test_frozen_schedule_cache_is_content_addressed(tmp_path: Path) -> None:
     assert second["cache_hit"] is True
     assert first["contract_hash"] == second["contract_hash"]
     assert first["schedule"] == second["schedule"]
+
+    different_initialization = DeltaFalsificationConfig(
+        token_budget=32,
+        sequence_length=4,
+        batch_size=2,
+        eval_batches=2,
+        seed=23,
+        model_seed=99,
+    )
+    third = _load_or_build_schedule(
+        tokenizer=tokenizer,
+        relation_corpus=relation,
+        general_train=(train,),
+        general_eval=(evaluate,),
+        config=different_initialization,
+        step_count=4,
+        cache_path=cache,
+    )
+    assert third["cache_hit"] is True
+    assert third["contract_hash"] == first["contract_hash"]
