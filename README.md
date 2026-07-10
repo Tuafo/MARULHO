@@ -47,27 +47,29 @@ interventions rather than text correlations alone.
 
 ## Current Evidence
 
-The 2026-07-10 compute-normalized run trained fresh 21M- and 63M-parameter
-models with the same 8,192-token MARULHO BPE, two FineWeb-Edu training shards,
-disjoint later-offset holdout, optimizer, prompts, and seed.
+The 2026-07-10 equal-time run selected the 21M model over the 63M model on the
+RTX 3060: loss 4.0942 versus 4.6129 after 565.9 versus 560.8 seconds. A fresh
+21M run then measured a three-point unique-data curve over 57.96M available
+FineWeb-Edu BPE tokens and a disjoint holdout:
 
-| Parameters | Update tokens | Heldout loss | Train time | Train tokens/s |
+| Update tokens | Repeated | Heldout loss | Perplexity | Train time |
 | ---: | ---: | ---: | ---: | ---: |
-| 20,976,128 | 20,541,440 | 4.4234 | 283.6 s | 72,435 |
-| 20,976,128 | 41,083,648 | 4.0942 | 565.9 s | 72,598 |
-| 62,924,544 | 8,388,608 | 5.0050 | 280.3 s | 29,924 |
-| 62,924,544 | 16,777,216 | 4.6129 | 560.8 s | 29,914 |
+| 16,777,216 | 0 | 4.5754 | 97.07 | 232.6 s |
+| 33,554,432 | 0 | 4.1328 | 62.35 | 462.8 s |
+| 50,331,648 | 0 | 3.9889 | 54.00 | 693.9 s |
 
-Final training times differ by only 0.9 percent. The 21M model wins by 0.5187
-heldout loss at the same RTX 3060 time, and its half-time result already beats
-the 63M model's full-time loss. The current branch is therefore to scale data
-at 21M, not to grow the dense model.
+The final point uses 0.87 unique corpus epochs with zero repeated updates. This
+is still not a quality promotion: continuations are more prompt-related, but
+remain repetitive, sometimes malformed, and incoherent. The marginal loss gain
+also contracts sharply in the last interval.
 
-This is still not a quality promotion. Prose structure improved, but unseen
-continuations remain repetitive, sometimes malformed, and weakly tied to their
-prompts. The next run needs more unique clean data so repeated-corpus learning
-cannot be mistaken for scaling. The evidence artifact is local at
-`reports/language_scaling/fineweb-edu-wallclock-21m-vs-63m-20260710.json`.
+The next experiment is a TinyStories coherence diagnostic, not a retreat to a
+toy objective. The [TinyStories paper](https://arxiv.org/abs/2305.07759) reports
+coherent multi-paragraph English from models smaller than MARULHO on a
+restricted corpus. If MARULHO fails the same kind of task, the base recipe needs
+redesign; if it passes, general-corpus scale and curriculum are the blocker. The
+current evidence artifact is local at
+`reports/language_scaling/fineweb-edu-21m-50m-unique-20260710.json`.
 
 ## Research Objective
 
@@ -79,15 +81,16 @@ The priority order is:
 
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
-2. Scale unique clean data at the current 21M local-compute optimum.
-3. Measure a local scaling law across model size, data, and compute instead of
+2. Falsify the current coherence recipe on a bounded small-model benchmark.
+3. Scale or redesign the 21M base from that result.
+4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
-4. Add adaptive episodic memory only after the base language checkpoint
+5. Add adaptive episodic memory only after the base language checkpoint
    qualifies.
-5. Demonstrate sequential-domain learning with bounded forgetting.
-6. Restore checkpoint fidelity, measured active compute, and a 524,288-token
+6. Demonstrate sequential-domain learning with bounded forgetting.
+7. Restore checkpoint fidelity, measured active compute, and a 524,288-token
    sustained run from that same quality-qualified checkpoint.
-7. Test grounded object identity, action binding, and intervention transfer.
+8. Test grounded object identity, action binding, and intervention transfer.
 
 The initial scaling model is the standard decomposition
 `L(N,D) = E + A/N^alpha + B/D^beta`, measured locally over multiple parameter

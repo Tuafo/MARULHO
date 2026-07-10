@@ -174,35 +174,37 @@ direct measurements.
 
 ## Current Evidence State
 
-The compute-normalized general-corpus run dated 2026-07-10 trained fresh
-20,976,128- and 62,924,544-parameter Transformers with the same MARULHO-owned
-8,192-token BPE, two provenance-recorded FineWeb-Edu shards, later-offset
-2,000-document holdout, optimizer, prompts, and seed. Per-arm token budgets used
-the 2.4487 throughput ratio observed in the preceding equal-token experiment.
+The equal-time experiment first selected the 20,976,128-parameter model over
+the 62,924,544-parameter model: heldout loss 4.0942 versus 4.6129 after 565.9
+versus 560.8 synchronized training seconds. The smaller model processes about
+2.43 times more tokens per second on the RTX 3060.
 
-| Model | Update tokens | Unique | Repeated | Heldout loss | Train time | Tokens/s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 20,976,128 | 10,272,768 | 10,272,768 | 0 | 4.8623 | 141.6 s | 72,563 |
-| 20,976,128 | 20,541,440 | 20,541,440 | 0 | 4.4234 | 283.6 s | 72,435 |
-| 20,976,128 | 41,083,648 | 27,181,824 | 13,901,824 | 4.0942 | 565.9 s | 72,598 |
-| 62,924,544 | 4,194,304 | 4,194,304 | 0 | 5.5085 | 140.3 s | 29,895 |
-| 62,924,544 | 8,388,608 | 8,388,608 | 0 | 5.0050 | 280.3 s | 29,924 |
-| 62,924,544 | 16,777,216 | 16,777,216 | 0 | 4.6129 | 560.8 s | 29,914 |
+The subsequent unique-data curve trained a fresh 20,976,128-parameter model
+with a MARULHO-owned 8,192-token BPE over three provenance-recorded FineWeb-Edu
+shards and the same disjoint later-offset holdout:
 
-Final synchronized training times differ by only 0.9 percent. The smaller
-model wins by 0.5187 heldout loss at the same local training time; even its
-20.5M-token point beats the larger model's full-time result in about half the
-time. The unequal-token grid is intentionally not fitted as a scaling law.
+| Update tokens | Unique | Repeated | Heldout loss | Perplexity | Train time | Tokens/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16,777,216 | 16,777,216 | 0 | 4.5754 | 97.07 | 232.6 s | 72,125 |
+| 33,554,432 | 33,554,432 | 0 | 4.1328 | 62.35 | 462.8 s | 72,498 |
+| 50,331,648 | 50,331,648 | 0 | 3.9889 | 54.00 | 693.9 s | 72,531 |
 
-Decision: `scale_data_at_compute_optimal_smaller_model`.
+The selected stream contains 57,963,348 BPE tokens, so the final point is 0.87
+unique corpus epochs with no repeated update tokens. The loss curve improves,
+but the interval gain contracts from 0.4426 to 0.1439. Unseen continuations are
+more prompt-related yet still repetitive, sometimes malformed, and causally
+incoherent.
 
-Interpretation: 21M parameters is the current RTX 3060 compute-optimal size in
-the measured range. Diverse general text and more updates improve prose shape,
-but continuations remain repetitive, sometimes malformed, and weakly
-conditioned on their prompts. Language quality is still blocked. The immediate
-work is more unique clean data at 21M, not a larger dense model. Continual
-learning, adaptive memory, structural plasticity, and the 524,288-token gate
-remain downstream of a quality-qualified checkpoint.
+Decision: `continue_data_scaling_at_selected_model_size`; language quality is
+not promoted.
+
+Interpretation: 21M parameters remains the local compute optimum in the tested
+range, but more raw general data alone has not established coherent language.
+The next bounded falsification is a TinyStories coherence diagnostic. Published
+work reports coherent multi-paragraph English from smaller Transformers on that
+restricted corpus. Success would isolate general-corpus scale and curriculum as
+the blocker; failure would force a tokenizer, optimization, or decoding recipe
+redesign. TinyStories cannot itself qualify general language.
 
 ## Retired Language Concepts
 
@@ -227,12 +229,13 @@ must not present them as active capability.
 
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
-3. Scale unique clean general-language data at 21M until the
-   quality curve bends or unseen text qualifies.
-4. Fit the first defensible local size/data scaling law with at least three
+3. Run the 21M TinyStories diagnostic to falsify the coherence recipe.
+4. If it passes, scale higher-quality general-language data; if it fails,
+   redesign the base recipe before spending more general-corpus compute.
+5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
-5. If quality qualifies, test surprise-selected episodic memory.
-6. Rebuild continual learning and retention measurement.
-7. Re-establish sustained 524,288-token generation from the same checkpoint.
-8. Add grounded causal experiments.
-9. Scale, redesign, or retire each mechanism from evidence.
+6. If quality qualifies, test surprise-selected episodic memory.
+7. Rebuild continual learning and retention measurement.
+8. Re-establish sustained 524,288-token generation from the same checkpoint.
+9. Add grounded causal experiments.
+10. Scale, redesign, or retire each mechanism from evidence.
