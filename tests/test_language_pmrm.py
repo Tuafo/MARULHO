@@ -59,7 +59,7 @@ def test_pmrm_step_scan_and_resume_are_exact() -> None:
         state = step["state"]
     assert state is not None
     torch.testing.assert_close(
-        scan["logits"], torch.stack(logits, dim=1), rtol=0.0, atol=0.0
+        scan["logits"], torch.stack(logits, dim=1), rtol=1.0e-4, atol=1.0e-7
     )
     _assert_state_equal(scan["state"], state)
 

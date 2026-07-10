@@ -106,7 +106,7 @@ def _banned_ngram_tokens(
 ) -> torch.Tensor:
     size = max(0, int(ngram_size))
     tokens = _valid_generated_tokens(token_ids, vocab_size=vocab_size)
-    if size <= 0 or int(tokens.numel()) < size - 1:
+    if size <= 0 or int(tokens.numel()) < size:
         return tokens.new_empty(0)
     if size == 1:
         return torch.unique(tokens)
@@ -125,6 +125,20 @@ def _apply_decode_controls(
     repetition_penalty: float,
     no_repeat_ngram_size: int,
 ) -> tuple[torch.Tensor, dict[str, int]]:
+    if logits.ndim == 2 and generated_ids.ndim == 2 and int(logits.shape[0]) > 1:
+        rows = [
+            _apply_decode_controls(
+                logits[index],
+                generated_ids[index],
+                repetition_penalty=repetition_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+            )
+            for index in range(int(logits.shape[0]))
+        ]
+        return torch.stack([row[0] for row in rows], dim=0), {
+            key: sum(row[1][key] for row in rows)
+            for key in rows[0][1]
+        }
     adjusted = logits.clone()
     vocab_size = int(adjusted.shape[-1])
     generated = _valid_generated_tokens(generated_ids, vocab_size=vocab_size)
@@ -372,6 +386,9 @@ class MarulhoLanguageModel(nn.Module):
             repetition_count = 0
             banned_count = 0
             fallback_count = 0
+            finished = torch.zeros(
+                generated.shape[0], device=self.device, dtype=torch.bool
+            )
             for _ in range(max(0, int(max_new_tokens))):
                 controlled, control = _apply_decode_controls(
                     next_logits,
@@ -418,9 +435,16 @@ class MarulhoLanguageModel(nn.Module):
                         )
                 else:
                     next_id = torch.argmax(controlled, dim=-1, keepdim=True)
+                if eos_id is not None:
+                    next_id = torch.where(
+                        finished.unsqueeze(1),
+                        torch.full_like(next_id, int(eos_id)),
+                        next_id,
+                    )
+                    finished = finished | (next_id[:, 0] == int(eos_id))
                 generated = torch.cat((generated, next_id), dim=1)
                 new_token_count += 1
-                if eos_id is not None and bool(torch.all(next_id == int(eos_id)).item()):
+                if eos_id is not None and bool(finished.all().item()):
                     break
                 result = self.forward_step(next_id, state, collect_telemetry=False)
                 state = result["state"]

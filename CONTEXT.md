@@ -124,7 +124,9 @@ a fixed pool of persistent columns, dual temporal/associative state updates,
 internal episodic write/retrieval, recurrent workspace computation, and a
 language head. The reference implementation lives in
 `src/marulho/training/language_pmrm.py`; it is correctness-tested but remains
-unvalidated until matched end-to-end evidence exists.
+unvalidated until matched end-to-end evidence exists. The matched runner is
+`src/marulho/evaluation/language_pmrm_falsification.py`; it initializes both
+architectures from scratch and reuses only the active checkpoint's tokenizer.
 
 **Dual-State Column** — one persistent column owns a selective temporal state
 and an editable delta-rule associative matrix. Parallel and both serial fusion

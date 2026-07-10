@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -365,6 +365,15 @@ def evaluate_relation_binding_cases(
                 "label_used_for_generation": False,
             }
         )
+    return _relation_rows_report(rows, evaluation_mode="serial", batch_size=1)
+
+
+def _relation_rows_report(
+    rows: Sequence[dict[str, Any]],
+    *,
+    evaluation_mode: str,
+    batch_size: int,
+) -> dict[str, Any]:
     kind_accuracy = {
         kind: sum(row["correct"] for row in rows if row["kind"] == kind)
         / max(1, sum(row["kind"] == kind for row in rows))
@@ -391,8 +400,132 @@ def evaluate_relation_binding_cases(
         "generation_kind_accuracy": generation_kind_accuracy,
         "prediction_uses_correct_index": False,
         "correct_index_metrics_only": True,
+        "evaluation_mode": str(evaluation_mode),
+        "evaluation_batch_size": int(batch_size),
         "rows": rows,
     }
+
+
+@torch.no_grad()
+def evaluate_relation_binding_cases_batched(
+    model,
+    tokenizer,
+    cases: Sequence[RelationCase],
+    *,
+    batch_size: int = 64,
+) -> dict[str, Any]:
+    """Label-safe relation evaluation with length-grouped model execution."""
+
+    model.eval()
+    size = max(1, int(batch_size))
+    prompt_ids = [
+        tokenizer.encode(case.prompt, add_bos=True, add_eos=False)
+        for case in cases
+    ]
+    candidate_losses: list[list[float]] = [
+        [float("nan")] * len(case.candidates) for case in cases
+    ]
+    candidate_groups: dict[
+        int, list[tuple[int, int, list[int], list[int], int]]
+    ] = defaultdict(list)
+    for case_index, case in enumerate(cases):
+        prompt = prompt_ids[case_index]
+        for candidate_index, candidate in enumerate(case.candidates):
+            candidate_ids = tokenizer.encode(
+                f" {candidate}", add_bos=False, add_eos=True
+            )
+            combined = prompt + candidate_ids
+            if len(combined) > int(model.context_length):
+                raise ValueError("Relation case exceeds checkpoint context length")
+            inputs = combined[:-1]
+            targets = combined[1:]
+            candidate_groups[len(inputs)].append(
+                (
+                    case_index,
+                    candidate_index,
+                    inputs,
+                    targets,
+                    len(prompt) - 1,
+                )
+            )
+    for entries in candidate_groups.values():
+        for start in range(0, len(entries), size):
+            chunk = entries[start : start + size]
+            inputs = torch.tensor(
+                [entry[2] for entry in chunk],
+                dtype=torch.long,
+                device=model.device,
+            )
+            targets = torch.tensor(
+                [entry[3] for entry in chunk],
+                dtype=torch.long,
+                device=model.device,
+            )
+            logits = model.forward(inputs, collect_telemetry=False)["logits"]
+            token_losses = F.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                targets.reshape(-1),
+                reduction="none",
+            ).reshape(targets.shape)
+            for row_index, entry in enumerate(chunk):
+                answer_start = int(entry[4])
+                candidate_losses[entry[0]][entry[1]] = float(
+                    token_losses[row_index, answer_start:].mean().detach().cpu().item()
+                )
+
+    continuations = [""] * len(cases)
+    prompt_groups: dict[int, list[int]] = defaultdict(list)
+    for case_index, tokens in enumerate(prompt_ids):
+        prompt_groups[len(tokens)].append(case_index)
+    for indices in prompt_groups.values():
+        for start in range(0, len(indices), size):
+            chunk_indices = indices[start : start + size]
+            prompts = torch.tensor(
+                [prompt_ids[index] for index in chunk_indices],
+                dtype=torch.long,
+                device=model.device,
+            )
+            generation = model.generate(
+                prompts,
+                max_new_tokens=32,
+                eos_id=tokenizer.eos_id,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=3,
+            )
+            generated = generation["generated_ids"].detach().cpu()
+            prompt_length = int(prompts.shape[1])
+            for row_index, case_index in enumerate(chunk_indices):
+                continuations[case_index] = tokenizer.decode(
+                    [int(value) for value in generated[row_index, prompt_length:].tolist()]
+                )
+
+    rows: list[dict[str, Any]] = []
+    for case_index, case in enumerate(cases):
+        losses = candidate_losses[case_index]
+        predicted_index = min(range(len(losses)), key=losses.__getitem__)
+        continuation = continuations[case_index]
+        expected_answer = case.candidates[int(case.correct_index)]
+        generation_exact = _normalized_answer(expected_answer) in _normalized_answer(
+            continuation
+        )
+        rows.append(
+            {
+                "case_id": case.case_id,
+                "kind": case.kind,
+                "candidate_losses": losses,
+                "predicted_index": int(predicted_index),
+                "correct": bool(predicted_index == int(case.correct_index)),
+                "label_used_for_prediction": False,
+                "generation_continuation": continuation,
+                "generation_exact_answer_match": bool(generation_exact),
+                "label_used_for_generation": False,
+            }
+        )
+    return _relation_rows_report(
+        rows,
+        evaluation_mode="length_grouped_batched",
+        batch_size=size,
+    )
 
 
 def relation_binding_branch_decision(

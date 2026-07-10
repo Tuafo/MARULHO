@@ -155,8 +155,8 @@ class MarulhoPMRMLanguageModel(nn.Module):
         self.associative_erase = nn.Linear(dim, assoc)
         self.associative_decay_logits = nn.Parameter(torch.zeros(columns, assoc))
         self.associative_readout = nn.Linear(assoc, dim, bias=False)
-        self.temporal_to_associative = nn.Linear(dim, dim, bias=False)
-        self.associative_to_temporal = nn.Linear(dim, dim, bias=False)
+        self.temporal_bridge = nn.Linear(dim, dim, bias=False)
+        self.associative_bridge = nn.Linear(dim, dim, bias=False)
         self.relation_projection = nn.Linear(dim, dim, bias=False)
         self.dual_fusion = nn.Linear(dim * 2, dim, bias=False)
 
@@ -519,7 +519,7 @@ class MarulhoPMRMLanguageModel(nn.Module):
             )
             associative_read = self._aggregate(associative_columns, route_weights)
             temporal, temporal_columns = self._temporal_update(
-                event + self.associative_to_temporal(associative_read),
+                event + self.associative_bridge(associative_read),
                 temporal,
                 active,
             )
@@ -530,11 +530,14 @@ class MarulhoPMRMLanguageModel(nn.Module):
             temporal_read = self._aggregate(temporal_columns, route_weights)
             associative_source = event
             if kind == "temporal_then_associative":
-                associative_source = event + self.temporal_to_associative(temporal_read)
+                associative_source = event + self.temporal_bridge(temporal_read)
             associative, associative_columns = self._associative_update(
                 associative_source, associative, active
             )
             associative_read = self._aggregate(associative_columns, route_weights)
+            if kind == "dual_parallel":
+                temporal_read = self.temporal_bridge(temporal_read)
+                associative_read = self.associative_bridge(associative_read)
             fused = self.dual_fusion(torch.cat((temporal_read, associative_read), dim=-1))
         return temporal, associative, event + fused
 
@@ -625,12 +628,10 @@ class MarulhoPMRMLanguageModel(nn.Module):
             "total_runtime_state_bytes_per_batch": sum(state_bytes.values()),
         }
 
-    def step(
+    def _core_step(
         self,
         token_ids: torch.Tensor,
         state: Mapping[str, torch.Tensor] | None = None,
-        *,
-        collect_telemetry: bool = True,
     ) -> dict[str, Any]:
         tokens = token_ids.to(device=self.device, dtype=torch.long).reshape(-1)
         batch = int(tokens.shape[0])
@@ -656,8 +657,6 @@ class MarulhoPMRMLanguageModel(nn.Module):
             self.episodic_gate(torch.cat((fused, retrieved), dim=-1))
         )
         fused_with_memory = fused + episode_gate * retrieved
-        workspace, hidden = self._workspace_step(fused_with_memory, retrieved)
-        logits = self.lm_head(hidden)
 
         next_state = dict(current)
         next_state.update(
@@ -669,8 +668,8 @@ class MarulhoPMRMLanguageModel(nn.Module):
                 "pending_key": F.normalize(self.episodic_key(fused), dim=-1).to(
                     dtype=current["pending_key"].dtype
                 ),
-                "pending_value": hidden.to(dtype=current["pending_value"].dtype),
-                "pending_prediction": hidden.to(
+                "pending_value": fused.to(dtype=current["pending_value"].dtype),
+                "pending_prediction": fused.to(
                     dtype=current["pending_prediction"].dtype
                 ),
                 "pending_valid": torch.ones(
@@ -696,7 +695,25 @@ class MarulhoPMRMLanguageModel(nn.Module):
             }
         )
         return {
-            "logits": logits,
+            "workspace_input": fused_with_memory,
+            "retrieved": retrieved,
+            "state": next_state,
+        }
+
+    def step(
+        self,
+        token_ids: torch.Tensor,
+        state: Mapping[str, torch.Tensor] | None = None,
+        *,
+        collect_telemetry: bool = True,
+    ) -> dict[str, Any]:
+        core = self._core_step(token_ids, state)
+        _, hidden = self._workspace_step(
+            core["workspace_input"], core["retrieved"]
+        )
+        next_state = core["state"]
+        return {
+            "logits": self.lm_head(hidden),
             "hidden": hidden,
             "state": next_state,
             "telemetry": self._telemetry(next_state) if collect_telemetry else {},
@@ -739,21 +756,28 @@ class MarulhoPMRMLanguageModel(nn.Module):
             raise ValueError("PMRM scan exceeds the configured training context")
         runtime_ids = input_ids.to(device=self.device, dtype=torch.long)
         state = initial_state
-        logits: list[torch.Tensor] = []
-        hidden: list[torch.Tensor] = []
+        workspace_inputs: list[torch.Tensor] = []
+        retrieved_values: list[torch.Tensor] = []
         for time_index in range(int(runtime_ids.shape[1])):
-            result = self.step(
-                runtime_ids[:, time_index],
-                state,
-                collect_telemetry=False,
-            )
-            state = result["state"]
-            logits.append(result["logits"])
-            hidden.append(result["hidden"])
+            core = self._core_step(runtime_ids[:, time_index], state)
+            state = core["state"]
+            workspace_inputs.append(core["workspace_input"])
+            retrieved_values.append(core["retrieved"])
         assert state is not None
+        batch, time = runtime_ids.shape
+        workspace_input = torch.stack(workspace_inputs, dim=1).reshape(
+            int(batch) * int(time), int(self.config.state_dim)
+        )
+        retrieved = torch.stack(retrieved_values, dim=1).reshape(
+            int(batch) * int(time), int(self.config.state_dim)
+        )
+        _, flat_hidden = self._workspace_step(workspace_input, retrieved)
+        hidden = flat_hidden.reshape(
+            int(batch), int(time), int(self.config.state_dim)
+        )
         return {
-            "logits": torch.stack(logits, dim=1),
-            "hidden": torch.stack(hidden, dim=1),
+            "logits": self.lm_head(hidden),
+            "hidden": hidden,
             "state": state,
             "telemetry": self._telemetry(state) if collect_telemetry else {},
         }
@@ -875,6 +899,9 @@ class MarulhoPMRMLanguageModel(nn.Module):
             repetition_count = 0
             banned_count = 0
             fallback_count = 0
+            finished = torch.zeros(
+                generated.shape[0], device=self.device, dtype=torch.bool
+            )
             for _ in range(max(0, int(max_new_tokens))):
                 controlled, control = _apply_decode_controls(
                     next_logits,
@@ -913,11 +940,16 @@ class MarulhoPMRMLanguageModel(nn.Module):
                         )
                 else:
                     next_id = torch.argmax(controlled, dim=-1, keepdim=True)
+                if eos_id is not None:
+                    next_id = torch.where(
+                        finished.unsqueeze(1),
+                        torch.full_like(next_id, int(eos_id)),
+                        next_id,
+                    )
+                    finished = finished | (next_id[:, 0] == int(eos_id))
                 generated = torch.cat((generated, next_id), dim=1)
                 new_token_count += 1
-                if eos_id is not None and bool(
-                    torch.all(next_id == int(eos_id)).item()
-                ):
+                if eos_id is not None and bool(finished.all().item()):
                     break
                 step_result = self.forward_step(
                     next_id, state, collect_telemetry=False

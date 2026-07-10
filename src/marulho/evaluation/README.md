@@ -56,6 +56,14 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
+**`language_pmrm_falsification.py`** — initializes a fresh 21M Transformer and
+parameter-matched integrated PMRM arms from the same checkpoint-owned tokenizer,
+then feeds every arm the identical relation/general batch schedule. It reports
+real-language loss, label-safe batched candidate and free relation generation,
+active/total parameters, routes, messages, episodic reads/writes/bytes,
+workspace iterations, wall time, throughput, CUDA memory, and failures. Pilot
+arms are screening evidence and cannot install a runtime model.
+
 **`language_grounding_support.py`** — records whether prompt/source terms and
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.

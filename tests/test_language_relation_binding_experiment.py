@@ -5,6 +5,7 @@ from marulho.evaluation.language_relation_binding_experiment import (
     KINDS,
     _heldout_signature,
     evaluate_relation_binding_cases,
+    evaluate_relation_binding_cases_batched,
     materialize_relation_binding_benchmark,
     relation_binding_branch_decision,
 )
@@ -61,6 +62,42 @@ def test_relation_prediction_scores_candidates_without_reading_label(
     assert all(row["label_used_for_prediction"] is False for row in report["rows"])
     assert all(row["label_used_for_generation"] is False for row in report["rows"])
     assert 0.0 <= report["generation_exact_accuracy"] <= 1.0
+
+
+def test_batched_relation_evaluation_matches_serial_predictions(
+    tmp_path: Path,
+) -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=16,
+            state_dim=16,
+            state_layers=1,
+            attention_heads=4,
+            transformer_context_length=512,
+            transformer_mlp_ratio=2.0,
+        )
+    ).eval()
+    _, _, cases = materialize_relation_binding_benchmark(
+        corpus_path=tmp_path / "relations.txt",
+        cases_path=tmp_path / "relations.json",
+        train_document_count=8,
+        eval_cases_per_kind=2,
+        seed=29,
+    )
+    serial = evaluate_relation_binding_cases(model, tokenizer, cases)
+    batched = evaluate_relation_binding_cases_batched(
+        model, tokenizer, cases, batch_size=8
+    )
+
+    assert batched["evaluation_mode"] == "length_grouped_batched"
+    assert [row["predicted_index"] for row in batched["rows"]] == [
+        row["predicted_index"] for row in serial["rows"]
+    ]
+    assert [row["generation_continuation"] for row in batched["rows"]] == [
+        row["generation_continuation"] for row in serial["rows"]
+    ]
 
 
 def test_relation_branch_prioritizes_catastrophic_forgetting() -> None:

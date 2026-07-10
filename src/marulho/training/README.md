@@ -25,6 +25,13 @@ produce temporal-only, associative-only, fusion, memory-policy, and workspace
 ablations without parallel implementations. It does not import the grounded
 SNN/column runtime and cannot be installed by `MarulhoBrain`.
 
+The causal column/memory scan remains sequential. The per-event recurrent
+workspace is scratch state, so training flattens all scanned event summaries
+and executes workspace layers in large batched tensors; streaming generation
+uses the same one-event implementation. Surprise writes use the prior column
+prediction, keeping memory causal without serializing the expensive workspace
+through the scan.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
