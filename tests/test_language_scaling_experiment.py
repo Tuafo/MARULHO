@@ -104,7 +104,7 @@ def test_single_arm_is_a_data_curve_not_a_size_decision(tmp_path: Path) -> None:
     report = run_language_scaling_experiment(
         output_path=tmp_path / "curve.json",
         corpus_paths=(corpus,),
-        eval_corpus_path=eval_corpus,
+        eval_corpus_paths=(eval_corpus,),
         prompts=("An absent prompt",),
         config=LanguageScalingExperimentConfig(
             tokenizer_vocab_size=512,
@@ -149,6 +149,11 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
         * 32,
         encoding="utf-8",
     )
+    second_eval_corpus = tmp_path / "second-eval.txt"
+    second_eval_corpus.write_text(
+        "Another independent evaluation source remains unseen. " * 32,
+        encoding="utf-8",
+    )
     second_corpus = tmp_path / "second-corpus.txt"
     second_corpus.write_text(
         (
@@ -162,7 +167,7 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     report = run_language_scaling_experiment(
         output_path=output,
         corpus_paths=(corpus, second_corpus),
-        eval_corpus_path=eval_corpus,
+        eval_corpus_paths=(eval_corpus, second_eval_corpus),
         prompts=("This prompt is absent",),
         config=LanguageScalingExperimentConfig(
             tokenizer_vocab_size=512,
@@ -192,11 +197,18 @@ def test_scaling_experiment_selects_and_retains_only_best_checkpoint(
     assert report["failed_arm_count"] == 0
     assert report["external_llm_used"] is False
     assert report["split"]["split_strategy"] == "explicit_text_sets"
+    assert report["split"]["eval_source_text_count"] == 2
     assert report["split"]["storage_device"] == "cpu"
     assert report["corpus"]["source_count"] == 2
     assert report["corpus"]["sources"][0]["path"] == str(corpus)
     assert report["corpus"]["sources"][1]["path"] == str(second_corpus)
-    assert report["corpus"]["explicit_eval_path"] == str(eval_corpus)
+    assert report["corpus"]["explicit_eval_source_count"] == 2
+    assert report["corpus"]["explicit_eval_sources"][0]["path"] == str(
+        eval_corpus
+    )
+    assert report["corpus"]["explicit_eval_sources"][1]["path"] == str(
+        second_eval_corpus
+    )
     assert report["prompts"][0]["exact_prompt_absent_from_corpus"] is True
     assert report["scaling_law"]["available"] is False
     assert report["quality_boundary"]["promotes_generation_quality_claim"] is False
@@ -236,7 +248,7 @@ def test_scaling_experiment_resumes_owned_training_state(tmp_path: Path) -> None
     first = run_language_scaling_experiment(
         output_path=tmp_path / "first.json",
         corpus_paths=(corpus,),
-        eval_corpus_path=eval_corpus,
+        eval_corpus_paths=(eval_corpus,),
         prompts=("Absent prompt",),
         config=base_config,
     )
@@ -245,7 +257,7 @@ def test_scaling_experiment_resumes_owned_training_state(tmp_path: Path) -> None
     second = run_language_scaling_experiment(
         output_path=tmp_path / "second.json",
         corpus_paths=(corpus,),
-        eval_corpus_path=eval_corpus,
+        eval_corpus_paths=(eval_corpus,),
         prompts=("Another absent prompt",),
         config=LanguageScalingExperimentConfig(
             **{

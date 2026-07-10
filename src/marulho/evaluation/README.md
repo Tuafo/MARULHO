@@ -14,8 +14,9 @@ checkpoint/report output.
 **`language_scaling_experiment.py`** — trains a matched model-size grid over
 shared token budgets, records heldout curves, throughput, peak VRAM, unseen
 generations, OOM failures, and a provisional fitted `L(N,D)` law. It retains
-only the best checkpoint by default. An optional explicit evaluation corpus
-keeps later-offset holdout documents entirely outside training. Its separate
+only the best checkpoint by default. Repeated `--eval-corpus` arguments keep
+multiple provenance-recorded holdout sources entirely outside tokenizer
+training and gradient updates. Its separate
 `empirical_wall_clock` budget basis applies recorded per-arm throughput
 multipliers, reports unique and repeated updates, and rejects the comparison
 when actual training times differ by more than 15 percent. Unequal-token runs

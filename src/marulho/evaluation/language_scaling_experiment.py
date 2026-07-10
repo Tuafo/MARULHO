@@ -38,7 +38,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v8"
+SURFACE = "marulho_transformer_scaling_experiment.v9"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -629,7 +629,7 @@ def run_language_scaling_experiment(
     *,
     output_path: str | Path,
     corpus_paths: Sequence[str | Path],
-    eval_corpus_path: str | Path | None = None,
+    eval_corpus_paths: Sequence[str | Path] = (),
     prompts: Sequence[str] = DEFAULT_PROMPTS,
     config: LanguageScalingExperimentConfig | None = None,
 ) -> dict[str, Any]:
@@ -664,12 +664,8 @@ def run_language_scaling_experiment(
     if not source_paths:
         raise ValueError("At least one training corpus path is required")
     corpora = tuple(_read_corpus(path) for path in source_paths)
-    eval_corpus_file = (
-        None if eval_corpus_path is None else Path(eval_corpus_path)
-    )
-    eval_corpus = (
-        None if eval_corpus_file is None else _read_corpus(eval_corpus_file)
-    )
+    eval_corpus_files = tuple(Path(path) for path in eval_corpus_paths)
+    eval_corpora = tuple(_read_corpus(path) for path in eval_corpus_files)
     device = _resolve_device(cfg.device)
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     previous_matmul_precision = torch.get_float32_matmul_precision()
@@ -693,7 +689,7 @@ def run_language_scaling_experiment(
     split = build_language_model_splits(
         corpora,
         tokenizer,
-        eval_texts=None if eval_corpus is None else [eval_corpus],
+        eval_texts=None if not eval_corpora else list(eval_corpora),
         sequence_length=int(cfg.sequence_length),
         eval_fraction=float(cfg.eval_fraction),
         stride=int(cfg.stride),
@@ -907,18 +903,20 @@ def run_language_scaling_experiment(
             "source_count": len(source_paths),
             "utf8_bytes": sum(len(corpus.encode("utf-8")) for corpus in corpora),
             "bpe_tokens": corpus_token_count,
-            "explicit_eval_path": (
-                None if eval_corpus_file is None else str(eval_corpus_file)
-            ),
-            "explicit_eval_sha256": (
-                None
-                if eval_corpus_file is None
-                else _sha256_file(eval_corpus_file)
-            ),
-            "explicit_eval_utf8_bytes": (
-                0
-                if eval_corpus is None
-                else len(eval_corpus.encode("utf-8"))
+            "explicit_eval_sources": [
+                {
+                    "path": str(path),
+                    "sha256": _sha256_file(path),
+                    "utf8_bytes": len(corpus.encode("utf-8")),
+                    "row_provenance_report_expected": str(
+                        path.with_suffix(".json")
+                    ),
+                }
+                for path, corpus in zip(eval_corpus_files, eval_corpora)
+            ],
+            "explicit_eval_source_count": len(eval_corpus_files),
+            "explicit_eval_utf8_bytes": sum(
+                len(corpus.encode("utf-8")) for corpus in eval_corpora
             ),
         },
         "tokenizer": {
@@ -1014,7 +1012,7 @@ def _parse_arm(value: str) -> ScalingArmConfig:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", action="append", type=Path, required=True)
-    parser.add_argument("--eval-corpus", type=Path, default=None)
+    parser.add_argument("--eval-corpus", action="append", type=Path, default=[])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arm", action="append", type=_parse_arm, default=[])
     parser.add_argument("--token-budget", action="append", type=int, default=[])
@@ -1070,7 +1068,7 @@ def main() -> int:
     report = run_language_scaling_experiment(
         output_path=args.output,
         corpus_paths=tuple(args.corpus),
-        eval_corpus_path=args.eval_corpus,
+        eval_corpus_paths=tuple(args.eval_corpus),
         prompts=tuple(args.prompt) or DEFAULT_PROMPTS,
         config=config,
     )
