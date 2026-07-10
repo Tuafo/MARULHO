@@ -20,6 +20,8 @@ decision.
 Every block sends the same normalized input to bounded exact attention and a
 population of small recurrent units in parallel. Units communicate through two
 shared workspace slots; each layer also owns a bounded latent episodic store.
+Exact proposals run per token while persistent unit/episode state updates after
+each causal 24-token event chunk, avoiding a token-by-token GPU recurrence.
 Unit and episodic write gates receive delayed counterfactual future-loss targets
 on sampled training steps. The 8,192-vocabulary matched configuration has
 20,971,120 parameters versus 20,976,128 for the Transformer. Causal scan/step,

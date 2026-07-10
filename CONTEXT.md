@@ -135,7 +135,9 @@ not by raw surprise, similarity, or traffic balance. `RESEARCH.md` is the living
 hypothesis notebook. The first 20,971,120-parameter PyTorch reference lives in
 `src/marulho/training/language_organism.py`. It has causal scan/step equality,
 full finite gradient coverage, bounded tensor-only state, counterfactual credit,
-generation, and strict checkpoint tests. It is not installed or quality-promoted.
+generation, and strict checkpoint tests. Exact paths operate per token; unit and
+episodic state update causally every 24 tokens. It is not installed or
+quality-promoted.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

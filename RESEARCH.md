@@ -246,9 +246,10 @@ discard facts whose value appears much later.
 
 ### 5. Learning at four rates
 
-1. **Token rate:** activity and recurrent state change every token.
-2. **Event rate:** episodic slots and fast weights change when predicted utility
-   is high.
+1. **Token rate:** exact attention and unit proposals change every token.
+2. **Event rate:** predictive state, episodic slots, and fast weights change
+   after a causal token chunk when predicted utility is high. The initial
+   reference uses 24-token events; learned boundaries remain a later hypothesis.
 3. **Consolidation rate:** replay distills repeatedly useful episodes into slow
    weights while measuring old-domain retention.
 4. **Structural rate:** units become dormant, split, or are retired only when a

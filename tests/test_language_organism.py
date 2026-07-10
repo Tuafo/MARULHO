@@ -30,6 +30,7 @@ def _tiny_config(vocab_size: int, **overrides: object) -> DistributedLanguageCon
         "unit_groups": 4,
         "workspace_slots": 2,
         "episodic_slots": 4,
+        "state_update_interval": 4,
         "mlp_dim": 64,
         "counterfactual_rate": 0.0,
     }

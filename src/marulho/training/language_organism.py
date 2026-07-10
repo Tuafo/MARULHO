@@ -45,6 +45,7 @@ class DistributedLanguageConfig:
     unit_groups: int = 8
     workspace_slots: int = 2
     episodic_slots: int = 16
+    state_update_interval: int = 24
     mlp_dim: int = 1592
     dropout: float = 0.0
     minimum_utility_gate: float = 0.1
@@ -79,8 +80,14 @@ def _validate_config(config: DistributedLanguageConfig) -> None:
         raise ValueError("attention head dimension must be even for rotary positions")
     if int(config.unit_groups) <= 1 or int(config.width) % int(config.unit_groups) != 0:
         raise ValueError("width must be divisible by at least two unit_groups")
-    if int(config.workspace_slots) <= 0 or int(config.episodic_slots) <= 0:
-        raise ValueError("workspace_slots and episodic_slots must be positive")
+    if (
+        int(config.workspace_slots) <= 0
+        or int(config.episodic_slots) <= 0
+        or int(config.state_update_interval) <= 0
+    ):
+        raise ValueError(
+            "workspace_slots, episodic_slots, and state_update_interval must be positive"
+        )
     if int(config.context_length) < 2 or int(config.mlp_dim) < int(config.width):
         raise ValueError("context_length and mlp_dim are too small")
     for name, value in (
@@ -122,6 +129,7 @@ class _PredictiveUnitPopulation(nn.Module):
         self.unit_dim = self.width // self.unit_groups
         self.workspace_slots = int(config.workspace_slots)
         self.episodic_slots = int(config.episodic_slots)
+        self.state_update_interval = int(config.state_update_interval)
         self.minimum_utility_gate = float(config.minimum_utility_gate)
         self.episode_usage_decay = float(config.episode_usage_decay)
 
@@ -202,6 +210,31 @@ class _PredictiveUnitPopulation(nn.Module):
                 device=device,
                 dtype=dtype,
             ),
+            "pending_unit_sum": torch.zeros(
+                int(batch_size),
+                self.unit_groups,
+                self.unit_dim,
+                device=device,
+                dtype=dtype,
+            ),
+            "pending_unit_weight": torch.zeros(
+                int(batch_size),
+                self.unit_groups,
+                device=device,
+                dtype=dtype,
+            ),
+            "pending_episode_sum": torch.zeros(
+                int(batch_size),
+                self.width,
+                device=device,
+                dtype=dtype,
+            ),
+            "pending_episode_weight": torch.zeros(
+                int(batch_size),
+                device=device,
+                dtype=dtype,
+            ),
+            "pending_count": torch.zeros((), device=device, dtype=torch.long),
         }
 
     def _episode_read(
@@ -213,10 +246,10 @@ class _PredictiveUnitPopulation(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         query = F.normalize(self.episode_query(current), dim=-1, eps=1.0e-6)
         normalized_keys = F.normalize(keys, dim=-1, eps=1.0e-6)
-        similarity = torch.einsum("bd,bsd->bs", query, normalized_keys)
-        availability = torch.log(usage.clamp_min(1.0e-4))
+        similarity = torch.einsum("btd,bsd->bts", query, normalized_keys)
+        availability = torch.log(usage.clamp_min(1.0e-4)).unsqueeze(1)
         weights = torch.softmax(similarity + availability, dim=-1)
-        read = torch.einsum("bs,bsd->bd", weights, values)
+        read = torch.einsum("bts,bsd->btd", weights, values)
         return read, weights, similarity
 
     def _episode_update(
@@ -225,13 +258,12 @@ class _PredictiveUnitPopulation(nn.Module):
         keys: torch.Tensor,
         values: torch.Tensor,
         usage: torch.Tensor,
-        similarity: torch.Tensor,
-        utility_gate: torch.Tensor,
-        *,
-        disable_write: bool,
+        strength: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         new_key = F.normalize(self.episode_key(current), dim=-1, eps=1.0e-6)
         new_value = self.episode_value(current)
+        normalized_keys = F.normalize(keys, dim=-1, eps=1.0e-6)
+        similarity = torch.einsum("bd,bsd->bs", new_key, normalized_keys)
         content_weights = torch.softmax(similarity / 0.25, dim=-1)
         allocation_weights = torch.softmax(-usage / 0.25, dim=-1)
         novelty = torch.sigmoid(4.0 * (0.30 - similarity.max(dim=-1).values))
@@ -239,10 +271,6 @@ class _PredictiveUnitPopulation(nn.Module):
             novelty.unsqueeze(-1) * allocation_weights
             + (1.0 - novelty.unsqueeze(-1)) * content_weights
         )
-        strength = torch.sigmoid(self.episode_write(current)).squeeze(-1)
-        strength = strength * utility_gate
-        if disable_write:
-            strength = torch.zeros_like(strength)
         erase = write_weights * strength.unsqueeze(-1)
         keys = keys * (1.0 - erase.unsqueeze(-1))
         keys = keys + erase.unsqueeze(-1) * new_key.unsqueeze(1)
@@ -272,6 +300,19 @@ class _PredictiveUnitPopulation(nn.Module):
         episode_usage = state["episode_usage"].to(
             device=inputs.device, dtype=inputs.dtype
         )
+        pending_unit_sum = state["pending_unit_sum"].to(
+            device=inputs.device, dtype=inputs.dtype
+        )
+        pending_unit_weight = state["pending_unit_weight"].to(
+            device=inputs.device, dtype=inputs.dtype
+        )
+        pending_episode_sum = state["pending_episode_sum"].to(
+            device=inputs.device, dtype=inputs.dtype
+        )
+        pending_episode_weight = state["pending_episode_weight"].to(
+            device=inputs.device, dtype=inputs.dtype
+        )
+        pending_count = int(state["pending_count"].detach().cpu().item())
         retention = torch.sigmoid(self.retention_logits).to(dtype=inputs.dtype)
 
         outputs: list[torch.Tensor] = []
@@ -282,27 +323,33 @@ class _PredictiveUnitPopulation(nn.Module):
         episode_writes: list[torch.Tensor] = []
         relevance_rows: list[torch.Tensor] = []
 
-        for token_index in range(int(time_steps)):
-            current = inputs[:, token_index]
+        start = 0
+        while start < int(time_steps):
+            segment_length = min(
+                self.state_update_interval - pending_count,
+                int(time_steps) - start,
+            )
+            end = start + segment_length
+            current = inputs[:, start:end]
             projected = self.unit_input(current).view(
-                int(batch_size), self.unit_groups, self.unit_dim
+                int(batch_size), segment_length, self.unit_groups, self.unit_dim
             )
             recurrent = torch.einsum(
                 "bgd,gde->bge", units, self.recurrent_weight
-            )
+            ).unsqueeze(1)
             broadcast_scores = torch.einsum(
                 "bgd,kd->bkg", units, self.workspace_queries
             ) / math.sqrt(float(self.unit_dim))
             broadcast_weights = torch.softmax(broadcast_scores, dim=-1)
             workspace = torch.einsum("bkg,bgd->bkd", broadcast_weights, units)
             read_scores = torch.einsum(
-                "bgd,bkd->bgk", projected, workspace
+                "btgd,bkd->btgk", projected, workspace
             ) / math.sqrt(float(self.unit_dim))
             workspace_message = torch.einsum(
-                "bgk,bkd->bgd", torch.softmax(read_scores, dim=-1), workspace
+                "btgk,bkd->btgd", torch.softmax(read_scores, dim=-1), workspace
             )
 
-            episode_read, _read_weights, similarity = self._episode_read(
+            episode_read, _read_weights, _similarity = self._episode_read(
                 current,
                 episode_keys,
                 episode_values,
@@ -312,7 +359,7 @@ class _PredictiveUnitPopulation(nn.Module):
                 projected
                 + recurrent
                 + workspace_message
-                + episode_read.unsqueeze(1)
+                + episode_read.unsqueeze(2)
                 + self.recurrent_bias
             )
             utility_prediction = (
@@ -324,21 +371,19 @@ class _PredictiveUnitPopulation(nn.Module):
             write_gate = torch.sigmoid(self.unit_write(current)) * utility_gate
 
             selected_unit: int | None = None
-            selected_here = (
+            selected_here = bool(
                 intervention is not None
                 and int(intervention.layer_index) == int(layer_index)
-                and int(intervention.token_index) == int(token_index)
+                and start <= int(intervention.token_index) < end
             )
             if selected_here and intervention.kind == "unit":
                 selected_unit = int(intervention.unit_group or 0)
                 unit_mask = torch.ones_like(write_gate)
-                unit_mask[:, selected_unit] = 0.0
+                local_token = int(intervention.token_index) - start
+                unit_mask[:, local_token, selected_unit] = 0.0
                 write_gate = write_gate * unit_mask
 
-            units = units + (1.0 - retention.unsqueeze(0)) * write_gate.unsqueeze(
-                -1
-            ) * (candidate - units)
-            unit_values = torch.einsum("bgd,gdw->bgw", units, self.unit_output)
+            unit_values = torch.einsum("btgd,gdw->btgw", candidate, self.unit_output)
             relevance = torch.softmax(
                 self.unit_relevance(current) + utility_prediction,
                 dim=-1,
@@ -346,9 +391,10 @@ class _PredictiveUnitPopulation(nn.Module):
             contributions = relevance.unsqueeze(-1) * unit_values
             if selected_unit is not None:
                 contribution_mask = torch.ones_like(relevance)
-                contribution_mask[:, selected_unit] = 0.0
+                local_token = int(intervention.token_index) - start
+                contribution_mask[:, local_token, selected_unit] = 0.0
                 contributions = contributions * contribution_mask.unsqueeze(-1)
-            population_output = contributions.sum(dim=1)
+            population_output = contributions.sum(dim=2)
 
             episode_prediction = self.episode_utility(
                 torch.cat((current, episode_read), dim=-1)
@@ -359,48 +405,93 @@ class _PredictiveUnitPopulation(nn.Module):
             population_output = population_output + (
                 episode_gate.unsqueeze(-1) * self.episode_output(episode_read)
             )
-            disable_episode_write = bool(
-                selected_here
-                and intervention is not None
-                and intervention.kind == "episode"
+            episode_write = (
+                torch.sigmoid(self.episode_write(current)).squeeze(-1)
+                * episode_gate
             )
-            (
-                episode_keys,
-                episode_values,
-                episode_usage,
-                episode_write_strength,
-            ) = self._episode_update(
-                current,
-                episode_keys,
-                episode_values,
-                episode_usage,
-                similarity,
-                episode_gate,
-                disable_write=disable_episode_write,
+            if selected_here and intervention.kind == "episode":
+                episode_mask = torch.ones_like(episode_write)
+                episode_mask[:, int(intervention.token_index) - start] = 0.0
+                episode_write = episode_write * episode_mask
+
+            pending_unit_sum = pending_unit_sum + (
+                write_gate.unsqueeze(-1) * candidate
+            ).sum(dim=1)
+            pending_unit_weight = pending_unit_weight + write_gate.sum(dim=1)
+            pending_episode_sum = pending_episode_sum + (
+                episode_write.unsqueeze(-1) * current
+            ).sum(dim=1)
+            pending_episode_weight = (
+                pending_episode_weight + episode_write.sum(dim=1)
             )
+            pending_count += segment_length
+
+            if pending_count == self.state_update_interval:
+                target_units = pending_unit_sum / pending_unit_weight.clamp_min(
+                    1.0e-6
+                ).unsqueeze(-1)
+                mean_unit_write = (
+                    pending_unit_weight / float(self.state_update_interval)
+                ).clamp(min=0.0, max=1.0)
+                units = units + (
+                    (1.0 - retention.unsqueeze(0))
+                    * mean_unit_write.unsqueeze(-1)
+                    * (target_units - units)
+                )
+                episode_summary = pending_episode_sum / (
+                    pending_episode_weight.clamp_min(1.0e-6).unsqueeze(-1)
+                )
+                episode_strength = (
+                    pending_episode_weight / float(self.state_update_interval)
+                ).clamp(min=0.0, max=1.0)
+                (
+                    episode_keys,
+                    episode_values,
+                    episode_usage,
+                    _summary_strength,
+                ) = self._episode_update(
+                    episode_summary,
+                    episode_keys,
+                    episode_values,
+                    episode_usage,
+                    episode_strength,
+                )
+                pending_unit_sum = torch.zeros_like(pending_unit_sum)
+                pending_unit_weight = torch.zeros_like(pending_unit_weight)
+                pending_episode_sum = torch.zeros_like(pending_episode_sum)
+                pending_episode_weight = torch.zeros_like(pending_episode_weight)
+                pending_count = 0
 
             outputs.append(population_output)
             unit_utilities.append(utility_prediction)
             episode_utilities.append(episode_prediction)
             unit_gates.append(utility_gate)
             episode_gates.append(episode_gate)
-            episode_writes.append(episode_write_strength)
+            episode_writes.append(episode_write)
             relevance_rows.append(relevance)
+            start = end
 
-        output = torch.stack(outputs, dim=1)
+        output = torch.cat(outputs, dim=1)
         evidence = {
-            "unit_utility": torch.stack(unit_utilities, dim=1),
-            "episode_utility": torch.stack(episode_utilities, dim=1),
-            "unit_gate": torch.stack(unit_gates, dim=1),
-            "episode_gate": torch.stack(episode_gates, dim=1),
-            "episode_write": torch.stack(episode_writes, dim=1),
-            "unit_relevance": torch.stack(relevance_rows, dim=1),
+            "unit_utility": torch.cat(unit_utilities, dim=1),
+            "episode_utility": torch.cat(episode_utilities, dim=1),
+            "unit_gate": torch.cat(unit_gates, dim=1),
+            "episode_gate": torch.cat(episode_gates, dim=1),
+            "episode_write": torch.cat(episode_writes, dim=1),
+            "unit_relevance": torch.cat(relevance_rows, dim=1),
         }
         next_state = {
             "units": units,
             "episode_keys": episode_keys,
             "episode_values": episode_values,
             "episode_usage": episode_usage,
+            "pending_unit_sum": pending_unit_sum,
+            "pending_unit_weight": pending_unit_weight,
+            "pending_episode_sum": pending_episode_sum,
+            "pending_episode_weight": pending_episode_weight,
+            "pending_count": torch.as_tensor(
+                pending_count, device=inputs.device, dtype=torch.long
+            ),
         }
         return output, next_state, evidence
 
@@ -555,6 +646,11 @@ class _DistributedPredictiveStateBlock(nn.Module):
                     "episode_keys",
                     "episode_values",
                     "episode_usage",
+                    "pending_unit_sum",
+                    "pending_unit_weight",
+                    "pending_episode_sum",
+                    "pending_episode_weight",
+                    "pending_count",
                 )
             }
             hidden, layer_next, evidence = layer(
@@ -596,6 +692,7 @@ class _DistributedPredictiveStateBlock(nn.Module):
             "unit_dim": int(self.config.width) // int(self.config.unit_groups),
             "workspace_slots": int(self.config.workspace_slots),
             "episodic_slots_per_layer": int(self.config.episodic_slots),
+            "state_update_interval": int(self.config.state_update_interval),
             "context_length": int(self.config.context_length),
             "kv_cache_tokens": cache_tokens,
             "attention_backend": "torch_scaled_dot_product_attention",
