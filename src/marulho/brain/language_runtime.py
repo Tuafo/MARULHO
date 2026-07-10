@@ -1,99 +1,45 @@
+"""Brain-owned adapter for the active MARULHO Transformer language model."""
+
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import torch
 
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
-from marulho.training.language_checkpoint_evolution import (
-    LanguageCheckpointEvolutionConfig,
-    run_language_checkpoint_evolution,
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
 )
-from marulho.training.language_continual_learning import (
-    LanguageContinualLearningConfig,
-    run_language_continual_learning_window,
+from marulho.evaluation.language_sustained_runtime_evidence import (
+    run_language_sustained_runtime_evidence,
 )
 from marulho.training.language_model import (
-    LanguageBatch,
     LanguageModelConfig,
     MarulhoLanguageModel,
     load_language_model_state,
 )
-from marulho.training.language_structural_plasticity import (
-    LanguageStructuralPlasticityConfig,
-    apply_language_structural_plasticity_transaction,
-    build_language_structural_column_split_proposal,
-    build_language_structural_deep_sleep_proposal,
-    build_language_structural_memory_slot_expansion_proposal,
-    build_language_structural_merge_proposal,
-    build_language_structural_prune_proposal,
-    build_language_structural_plasticity_proposal,
-    build_language_structural_retire_proposal,
-    build_language_structural_route_bank_expansion_proposal,
-    build_language_structural_synapse_bundle_proposal,
-)
-
-
-def _validate_runtime_vocab_policy(
-    model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
-) -> dict[str, Any]:
-    model_vocab_size = int(model.config.vocab_size)
-    tokenizer_vocab_size = int(tokenizer.vocab_size)
-    generation_vocab_size = int(model.config.generation_vocab_size)
-    if generation_vocab_size <= 0:
-        generation_vocab_size = model_vocab_size
-    if model_vocab_size < tokenizer_vocab_size:
-        raise ValueError("Language model vocab size is smaller than tokenizer state")
-    if generation_vocab_size > model_vocab_size:
-        raise ValueError("Language model generation vocab size exceeds model vocab size")
-    padded_vocab_rows = max(0, model_vocab_size - tokenizer_vocab_size)
-    if padded_vocab_rows > 0 and generation_vocab_size != tokenizer_vocab_size:
-        raise ValueError(
-            "Padded-vocab brain language runtime requires generation_vocab_size "
-            "to match the tokenizer vocab size"
-        )
-    return {
-        "surface": "marulho_brain_language_runtime_vocab_policy.v1",
-        "model_vocab_size": model_vocab_size,
-        "tokenizer_vocab_size": tokenizer_vocab_size,
-        "generation_vocab_size": generation_vocab_size,
-        "padded_vocab_rows": padded_vocab_rows,
-        "padded_vocab_decode_policy": (
-            "limit_generation_to_tokenizer_vocab_rows"
-            if padded_vocab_rows > 0
-            else "full_tokenizer_vocab_generation"
-        ),
-    }
 
 
 class BrainLanguageModelRuntime:
-    """Brain-owned adapter for the training-owned MARULHO LM head."""
+    """Own one Transformer checkpoint inside the brain lifecycle."""
 
-    surface = "marulho_brain_language_model_runtime.v1"
+    surface = "marulho_brain_transformer_runtime.v2"
 
     def __init__(
         self,
         model: MarulhoLanguageModel,
-        tokenizer: ByteLevelLanguageTokenizer,
+        tokenizer: LanguageTokenizer,
         *,
         evaluation_report: Mapping[str, Any] | None = None,
-        learning_reports: Sequence[Mapping[str, Any]] = (),
-        structural_reports: Sequence[Mapping[str, Any]] = (),
-        checkpoint_evolution_reports: Sequence[Mapping[str, Any]] = (),
         checkpoint_installation_reports: Sequence[Mapping[str, Any]] = (),
     ) -> None:
-        self.vocab_policy = _validate_runtime_vocab_policy(model, tokenizer)
+        if int(model.config.vocab_size) != int(tokenizer.vocab_size):
+            raise ValueError("Brain language model and tokenizer vocabularies must match")
         self.model = model
         self.tokenizer = tokenizer
         self.evaluation_report = dict(evaluation_report or {})
-        self.learning_reports = [dict(report) for report in learning_reports][-16:]
-        self.structural_reports = [dict(report) for report in structural_reports][-16:]
-        self.checkpoint_evolution_reports = [
-            dict(report) for report in checkpoint_evolution_reports
-        ][-16:]
         self.checkpoint_installation_reports = [
             dict(report) for report in checkpoint_installation_reports
         ][-16:]
@@ -111,121 +57,52 @@ class BrainLanguageModelRuntime:
         self.model.to(torch.device(device))
         self.model.eval()
 
-    def set_recurrent_gradient_horizon(self, horizon: int) -> dict[str, Any]:
-        requested_horizon = int(horizon)
-        if requested_horizon < 0:
-            raise ValueError("recurrent_gradient_horizon must be non-negative")
-        previous_config_horizon = int(self.model.config.recurrent_gradient_horizon)
-        previous_state_block_horizon = int(
-            getattr(
-                self.model.state_block,
-                "recurrent_gradient_horizon",
-                previous_config_horizon,
-            )
-        )
-        self.model.config = replace(
-            self.model.config,
-            recurrent_gradient_horizon=requested_horizon,
-        )
-        self.model.state_block.recurrent_gradient_horizon = requested_horizon
-        self.model.eval()
-        return {
-            "surface": "marulho_brain_language_recurrent_horizon_config.v1",
-            "requested_recurrent_gradient_horizon": requested_horizon,
-            "previous_recurrent_gradient_horizon": previous_config_horizon,
-            "previous_state_block_recurrent_gradient_horizon": (
-                previous_state_block_horizon
-            ),
-            "current_recurrent_gradient_horizon": int(
-                self.model.config.recurrent_gradient_horizon
-            ),
-            "current_state_block_recurrent_gradient_horizon": int(
-                self.model.state_block.recurrent_gradient_horizon
-            ),
-            "applied": True,
-            "mutates_language_model_config": True,
-            "mutates_language_model_weights": False,
-            "checkpointed_on_next_brain_save": True,
-            "active_language_path": self.active_language_path,
-            "runtime_owner": "MarulhoBrain",
-            "owned_by_marulho": True,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "service_owned_cognition": False,
-            "device": str(self.device),
-        }
-
     @torch.no_grad()
     def generate(
         self,
         prompt: str | None,
         *,
         max_tokens: int,
-        generation_repetition_penalty: float = 1.0,
-        generation_no_repeat_ngram_size: int = 0,
+        generation_repetition_penalty: float = 1.1,
+        generation_no_repeat_ngram_size: int = 3,
     ) -> dict[str, Any]:
         prompt_text = str(prompt or "")
-        limit = max(0, int(max_tokens))
-        repetition_penalty = max(1.0, float(generation_repetition_penalty))
-        no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
         prompt_ids = torch.tensor(
             self.tokenizer.encode(prompt_text, add_bos=True, add_eos=False),
             dtype=torch.long,
             device=self.device,
         )
-        model_generation = self.model.generate(
+        result = self.model.generate(
             prompt_ids,
-            max_new_tokens=limit,
+            max_new_tokens=max(0, int(max_tokens)),
             eos_id=self.tokenizer.eos_id,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
+            repetition_penalty=max(1.0, float(generation_repetition_penalty)),
+            no_repeat_ngram_size=max(0, int(generation_no_repeat_ngram_size)),
         )
-        generated_ids = [
-            int(token_id)
-            for token_id in model_generation["generated_ids"][0].detach().cpu().tolist()
-        ]
-        prompt_token_count = int(prompt_ids.numel())
-        continuation_ids = generated_ids[prompt_token_count:]
-        text = self.tokenizer.decode(generated_ids)
-        continuation_text = self.tokenizer.decode(continuation_ids)
+        ids = [int(value) for value in result["generated_ids"][0].cpu().tolist()]
+        prompt_count = int(prompt_ids.numel())
+        continuation = ids[prompt_count:]
         return {
-            "surface": "marulho_brain_language_model_generation.v1",
-            "language_model_surface": model_generation["surface"],
-            "text": text,
-            "continuation_text": continuation_text,
-            "available": bool(generated_ids),
-            "prompt": prompt,
-            "prompt_token_count": prompt_token_count,
-            "generated_token_count": len(generated_ids),
-            "emitted_tokens": int(model_generation["new_token_count"]),
-            "max_tokens": limit,
-            "generated_token_ids": generated_ids,
-            "continuation_token_ids": continuation_ids,
-            "generation_decode": dict(model_generation.get("generation_decode") or {}),
+            "surface": "marulho_brain_transformer_generation.v2",
+            "language_model_surface": result["surface"],
+            "text": self.tokenizer.decode(ids),
+            "continuation_text": self.tokenizer.decode(continuation),
+            "available": bool(ids),
+            "prompt": prompt_text,
+            "prompt_token_count": prompt_count,
+            "generated_token_count": len(ids),
+            "emitted_tokens": int(result["new_token_count"]),
+            "generated_token_ids": ids,
+            "continuation_token_ids": continuation,
+            "generation_decode": result["generation_decode"],
             "active_language_path": self.active_language_path,
-            "transition_readout_fallback_used": False,
-            "fallback_language_path": "local_transition_readout",
             "owned_by_marulho": True,
-            "external_dependency": False,
             "external_llm_used": False,
-            "thought_loop_used": False,
-            "cortex_used": False,
             "loads_external_checkpoint": False,
-            "checkpointed_language_components": True,
             "tokenizer_hash": self.tokenizer.vocabulary_hash(),
-            "vocab_size": self.tokenizer.vocab_size,
+            "vocab_size": int(self.tokenizer.vocab_size),
             "model_vocab_size": int(self.model.config.vocab_size),
-            "generation_vocab_size": int(self.model.generation_vocab_size),
-            "recurrent_gradient_horizon": int(
-                self.model.config.recurrent_gradient_horizon
-            ),
-            "state_block_recurrent_gradient_horizon": int(
-                self.model.state_block.recurrent_gradient_horizon
-            ),
-            "vocab_policy": dict(self.vocab_policy),
-            "device": str(self.device),
-            "heldout_loss": self.evaluation_report.get("heldout_loss"),
-            "heldout_perplexity": self.evaluation_report.get("heldout_perplexity"),
+            "state_core": "transformer",
         }
 
     def generate_sustained(
@@ -234,353 +111,100 @@ class BrainLanguageModelRuntime:
         output_path: str | Path,
         target_tokens: int,
         checkpoint_path: str | Path | None = None,
-        checkpoint_metadata: Mapping[str, Any] | None = None,
         prompt: str = "MARULHO",
-        tick_tokens: int = 128,
-        quantum_tokens: int = 16,
         timeout_seconds: float = 600.0,
-        generation_repetition_penalty: float = 1.15,
+        generation_repetition_penalty: float = 1.1,
         generation_no_repeat_ngram_size: int = 3,
-        collect_environment: bool = False,
     ) -> dict[str, Any]:
-        from marulho.evaluation.language_sustained_runtime_evidence import (
-            run_language_sustained_runtime_evidence,
-        )
-
-        report = run_language_sustained_runtime_evidence(
+        return run_language_sustained_runtime_evidence(
             self.model,
             self.tokenizer,
             output_path=output_path,
-            target_tokens=int(target_tokens),
+            target_tokens=max(0, int(target_tokens)),
             checkpoint_path=checkpoint_path,
-            checkpoint_metadata=checkpoint_metadata,
             prompt=prompt,
-            tick_tokens=int(tick_tokens),
-            quantum_tokens=int(quantum_tokens),
             timeout_seconds=float(timeout_seconds),
-            stop_on_eos=False,
             generation_repetition_penalty=float(generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
-            collect_environment=bool(collect_environment),
         )
-        tail_ids = [int(token_id) for token_id in list(report.get("generated_tail_ids") or [])]
-        execution = (
-            report.get("execution_evidence")
-            if isinstance(report.get("execution_evidence"), Mapping)
-            else {}
-        )
-        return {
-            "surface": "marulho_brain_language_model_sustained_generation.v1",
-            "language_model_surface": report.get("surface"),
-            "report_path": str(output_path),
-            "report_status": report.get("report_status"),
-            "success": bool(report.get("success", False)),
-            "target_tokens": int(report.get("target_tokens", 0) or 0),
-            "token_delta": int(report.get("token_delta", 0) or 0),
-            "elapsed_seconds": float(report.get("elapsed_seconds", 0.0) or 0.0),
-            "tokens_per_second": float(report.get("tokens_per_second", 0.0) or 0.0),
-            "failure_reason": report.get("failure_reason"),
-            "active_language_path": self.active_language_path,
-            "owned_by_marulho": True,
-            "external_dependency": False,
-            "external_llm_used": False,
-            "thought_loop_used": False,
-            "cortex_used": False,
-            "loads_external_checkpoint": False,
-            "checkpointed_language_components": True,
-            "tokenizer_hash": self.tokenizer.vocabulary_hash(),
-            "vocab_size": self.tokenizer.vocab_size,
-            "model_vocab_size": int(self.model.config.vocab_size),
-            "generation_vocab_size": int(self.model.generation_vocab_size),
-            "vocab_policy": dict(self.vocab_policy),
-            "device": str(self.device),
-            "generated_tail_ids": tail_ids,
-            "generated_tail_text": self.tokenizer.decode(tail_ids) if tail_ids else "",
-            "execution_evidence": dict(execution),
-        }
+
+    def record_checkpoint_installation(self, report: Mapping[str, Any]) -> None:
+        self.checkpoint_installation_reports.append(dict(report))
+        self.checkpoint_installation_reports = self.checkpoint_installation_reports[-16:]
 
     def summary(self) -> dict[str, Any]:
+        parameters = sum(parameter.numel() for parameter in self.model.parameters())
         return {
             "surface": self.surface,
-            "available": True,
+            "installed": True,
             "active_language_path": self.active_language_path,
-            "owned_by_marulho": True,
-            "external_dependency": False,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "checkpointed_language_components": True,
+            "state_core": "transformer",
+            "model_config": asdict(self.model.config),
+            "parameter_count": parameters,
+            "tokenizer_surface": self.tokenizer.state_dict().get("surface"),
             "tokenizer_hash": self.tokenizer.vocabulary_hash(),
-            "vocab_size": self.tokenizer.vocab_size,
-            "model_vocab_size": int(self.model.config.vocab_size),
-            "generation_vocab_size": int(self.model.generation_vocab_size),
-            "recurrent_gradient_horizon": int(
-                self.model.config.recurrent_gradient_horizon
-            ),
-            "state_block_recurrent_gradient_horizon": int(
-                self.model.state_block.recurrent_gradient_horizon
-            ),
-            "vocab_policy": dict(self.vocab_policy),
-            "device": str(self.device),
-            "heldout_evaluation_available": bool(self.evaluation_report),
-            "heldout_loss": self.evaluation_report.get("heldout_loss"),
-            "heldout_perplexity": self.evaluation_report.get("heldout_perplexity"),
-            "continual_learning_window_count": len(self.learning_reports),
-            "last_continual_learning": (
-                dict(self.learning_reports[-1]) if self.learning_reports else None
-            ),
-            "structural_transaction_count": len(self.structural_reports),
-            "last_structural_transaction": (
-                dict(self.structural_reports[-1]) if self.structural_reports else None
-            ),
-            "checkpoint_evolution_count": len(self.checkpoint_evolution_reports),
-            "last_checkpoint_evolution": (
-                dict(self.checkpoint_evolution_reports[-1])
-                if self.checkpoint_evolution_reports
-                else None
-            ),
-            "checkpoint_installation_count": len(
+            "vocab_size": int(self.tokenizer.vocab_size),
+            "evaluation_report": dict(self.evaluation_report),
+            "checkpoint_installation_reports": list(
                 self.checkpoint_installation_reports
             ),
-            "last_checkpoint_installation": (
-                dict(self.checkpoint_installation_reports[-1])
-                if self.checkpoint_installation_reports
-                else None
-            ),
+            "continual_learning_enabled": False,
+            "structural_plasticity_enabled": False,
+            "owned_by_marulho": True,
+            "external_llm_used": False,
+            "loads_external_checkpoint": False,
+            "device": str(self.device),
         }
 
     @classmethod
     def empty_summary(cls) -> dict[str, Any]:
         return {
             "surface": cls.surface,
-            "available": False,
-            "active_language_path": "local_transition_readout",
+            "installed": False,
+            "active_language_path": None,
+            "state_core": None,
+            "continual_learning_enabled": False,
+            "structural_plasticity_enabled": False,
             "owned_by_marulho": True,
-            "external_dependency": False,
             "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "checkpointed_language_components": False,
-            "recurrent_gradient_horizon": None,
-            "state_block_recurrent_gradient_horizon": None,
         }
 
     def to_state(self) -> dict[str, Any]:
         return {
             "surface": self.surface,
-            "active_language_path": self.active_language_path,
-            "tokenizer": self.tokenizer.state_dict(),
-            "tokenizer_hash": self.tokenizer.vocabulary_hash(),
-            "vocab_policy": dict(self.vocab_policy),
             "config": asdict(self.model.config),
             "model_state": {
-                key: value.detach().cpu()
-                for key, value in self.model.state_dict().items()
+                key: value.detach().cpu() for key, value in self.model.state_dict().items()
             },
+            "tokenizer": self.tokenizer.state_dict(),
             "evaluation_report": dict(self.evaluation_report),
-            "learning_reports": [dict(report) for report in self.learning_reports],
-            "structural_reports": [dict(report) for report in self.structural_reports],
-            "checkpoint_evolution_reports": [
-                dict(report) for report in self.checkpoint_evolution_reports
-            ],
-            "checkpoint_installation_reports": [
-                dict(report) for report in self.checkpoint_installation_reports
-            ],
+            "checkpoint_installation_reports": list(
+                self.checkpoint_installation_reports
+            ),
             "owned_by_marulho": True,
             "external_llm_used": False,
-            "loads_external_checkpoint": False,
         }
-
-    def record_checkpoint_installation(
-        self,
-        report: Mapping[str, Any],
-    ) -> None:
-        self.checkpoint_installation_reports.append(dict(report))
-        self.checkpoint_installation_reports = self.checkpoint_installation_reports[-16:]
-
-    def learn_continual_window(
-        self,
-        *,
-        new_batches: Sequence[LanguageBatch],
-        old_eval_batches: Sequence[LanguageBatch],
-        new_eval_batches: Sequence[LanguageBatch],
-        replay_batches: Sequence[LanguageBatch] = (),
-        config: LanguageContinualLearningConfig | None = None,
-    ) -> dict[str, Any]:
-        report = run_language_continual_learning_window(
-            self.model,
-            new_batches=new_batches,
-            old_eval_batches=old_eval_batches,
-            new_eval_batches=new_eval_batches,
-            replay_batches=replay_batches,
-            config=config,
-        )
-        self.evaluation_report = dict(report["new_domain_after"])
-        self.learning_reports.append(dict(report))
-        self.learning_reports = self.learning_reports[-16:]
-        return report
-
-    def propose_structural_plasticity(
-        self,
-        *,
-        routing_evidence: Mapping[str, Any],
-        learning_evidence: Mapping[str, Any] | None = None,
-        config: LanguageStructuralPlasticityConfig | None = None,
-        mutation_kind: str = "growth",
-    ) -> dict[str, Any]:
-        if str(mutation_kind) in {"column_split", "split"}:
-            return build_language_structural_column_split_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) == "retire":
-            return build_language_structural_retire_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) in {"route_bank", "route_bank_expansion"}:
-            return build_language_structural_route_bank_expansion_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) in {"synapse_bundle", "synapse_bundle_growth"}:
-            return build_language_structural_synapse_bundle_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) in {"memory_slot", "memory_slot_expansion"}:
-            return build_language_structural_memory_slot_expansion_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) in {"deep_sleep", "sleep"}:
-            return build_language_structural_deep_sleep_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) == "merge":
-            return build_language_structural_merge_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        if str(mutation_kind) == "prune":
-            return build_language_structural_prune_proposal(
-                self.model,
-                routing_evidence=routing_evidence,
-                learning_evidence=learning_evidence,
-                config=config,
-            )
-        return build_language_structural_plasticity_proposal(
-            self.model,
-            routing_evidence=routing_evidence,
-            learning_evidence=learning_evidence,
-            config=config,
-        )
-
-    def apply_structural_plasticity(
-        self,
-        proposal: Mapping[str, Any],
-        *,
-        eval_batches: Sequence[LanguageBatch],
-        checkpoint_path: str,
-        operator_approved: bool,
-        config: LanguageStructuralPlasticityConfig | None = None,
-    ) -> dict[str, Any]:
-        candidate, report = apply_language_structural_plasticity_transaction(
-            self.model,
-            proposal,
-            eval_batches=eval_batches,
-            checkpoint_path=checkpoint_path,
-            operator_approved=operator_approved,
-            config=config,
-        )
-        if bool(report.get("applied")):
-            self.model = candidate.to(self.device)
-            self.model.eval()
-            self.evaluation_report = dict(report["evaluation"]["candidate"])
-        self.structural_reports.append(dict(report))
-        self.structural_reports = self.structural_reports[-16:]
-        return report
-
-    def evolve_checkpoint(
-        self,
-        *,
-        eval_batches: Sequence[LanguageBatch],
-        child_train_batches: Sequence[LanguageBatch],
-        child_new_eval_batches: Sequence[LanguageBatch],
-        checkpoint_dir: str,
-        replay_batches: Sequence[LanguageBatch] = (),
-        config: LanguageCheckpointEvolutionConfig | None = None,
-        learning_config: LanguageContinualLearningConfig | None = None,
-        structural_config: LanguageStructuralPlasticityConfig | None = None,
-    ) -> dict[str, Any]:
-        _child, report = run_language_checkpoint_evolution(
-            self.model,
-            self.tokenizer,
-            eval_batches=eval_batches,
-            child_train_batches=child_train_batches,
-            child_new_eval_batches=child_new_eval_batches,
-            replay_batches=replay_batches,
-            checkpoint_dir=checkpoint_dir,
-            config=config,
-            learning_config=learning_config,
-            structural_config=structural_config,
-        )
-        self.checkpoint_evolution_reports.append(dict(report))
-        self.checkpoint_evolution_reports = self.checkpoint_evolution_reports[-16:]
-        return report
 
     @classmethod
     def from_state(
         cls,
         state: Mapping[str, Any],
         *,
-        device: torch.device | str,
+        device: torch.device | str = "cpu",
     ) -> "BrainLanguageModelRuntime":
-        tokenizer = ByteLevelLanguageTokenizer.load_state_dict(state["tokenizer"])
-        config = LanguageModelConfig(**dict(state["config"]))
-        model = MarulhoLanguageModel(config)
+        if state.get("surface") != cls.surface:
+            raise ValueError("Rejected legacy brain language runtime state")
+        tokenizer = load_language_tokenizer_state(state["tokenizer"])
+        model = MarulhoLanguageModel(LanguageModelConfig(**dict(state["config"])))
         load_language_model_state(model, state["model_state"])
         runtime = cls(
             model,
             tokenizer,
-            evaluation_report=(
-                state.get("evaluation_report")
-                if isinstance(state.get("evaluation_report"), Mapping)
-                else None
+            evaluation_report=state.get("evaluation_report"),
+            checkpoint_installation_reports=state.get(
+                "checkpoint_installation_reports",
+                (),
             ),
-            learning_reports=[
-                item
-                for item in list(state.get("learning_reports") or [])
-                if isinstance(item, Mapping)
-            ],
-            structural_reports=[
-                item
-                for item in list(state.get("structural_reports") or [])
-                if isinstance(item, Mapping)
-            ],
-            checkpoint_evolution_reports=[
-                item
-                for item in list(state.get("checkpoint_evolution_reports") or [])
-                if isinstance(item, Mapping)
-            ],
-            checkpoint_installation_reports=[
-                item
-                for item in list(state.get("checkpoint_installation_reports") or [])
-                if isinstance(item, Mapping)
-            ],
         )
         runtime.to_device(device)
         return runtime

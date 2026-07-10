@@ -16,12 +16,12 @@ def _model(tokenizer: ByteLevelLanguageTokenizer) -> MarulhoLanguageModel:
     return MarulhoLanguageModel(
         LanguageModelConfig(
             vocab_size=tokenizer.vocab_size,
-            embedding_dim=12,
-            state_dim=20,
-            expert_count=2,
-            active_expert_count=1,
-            route_candidate_count=2,
-            expert_hidden_dim=24,
+            embedding_dim=16,
+            state_dim=16,
+            state_layers=1,
+            attention_heads=4,
+            transformer_context_length=64,
+            transformer_mlp_ratio=2.0,
         )
     )
 
@@ -54,7 +54,7 @@ def test_language_grounding_support_report_passes_source_term_gate(tmp_path) -> 
     assert report["promotion_gate"]["grounding_support_available"] is True
     assert report["promotion_gate"]["source_term_coverage_gate_passed"] is True
     assert report["promotion_gate"]["promotes_generation_quality_claim"] is False
-    assert report["generation"]["active_language_path"] == "marulho_lm_head"
+    assert report["generation"]["active_language_path"] == "marulho_transformer"
     assert report["generation"]["external_llm_used"] is False
     assert report["generation"]["new_token_count"] == 0
     assert report["generation"]["unsupported_generated_terms"] == []

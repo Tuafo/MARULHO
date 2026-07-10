@@ -27,8 +27,6 @@ def _config(**overrides) -> LanguageModelConfig:
         "transformer_mlp_ratio": 2.0,
         "transformer_dropout": 0.0,
         "tie_embeddings": True,
-        "expert_count": 0,
-        "active_expert_count": 1,
     }
     values.update(overrides)
     return LanguageModelConfig(**values)
@@ -131,3 +129,13 @@ def test_transformer_checkpoint_restores_tied_weights_and_generation(tmp_path) -
     generated = restored.generate(prompt, max_new_tokens=4, eos_id=tokenizer.eos_id)
     assert generated["new_token_count"] >= 1
     assert generated["external_llm_used"] is False
+
+
+def test_rejected_recurrent_language_config_is_not_accepted() -> None:
+    config = _config(state_core="gru")
+    try:
+        MarulhoLanguageModel(config)
+    except ValueError as error:
+        assert "only state_core='transformer'" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("recurrent language configuration was accepted")

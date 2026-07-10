@@ -151,11 +151,15 @@ def test_language_generation_coherence_report_records_prompt_continuation_loss()
     tokenizer = ByteLevelLanguageTokenizer()
     source_text = "MARULHO learns runtime evidence from local source windows."
     model = MarulhoLanguageModel(
-        LanguageModelConfig(
-            vocab_size=tokenizer.vocab_size,
-            embedding_dim=8,
-            state_dim=12,
-        )
+            LanguageModelConfig(
+                vocab_size=tokenizer.vocab_size,
+                embedding_dim=16,
+                state_dim=16,
+                state_layers=1,
+                attention_heads=4,
+                transformer_context_length=128,
+                transformer_mlp_ratio=2.0,
+            )
     )
 
     report = run_language_generation_coherence_report(

@@ -133,7 +133,7 @@ def run_language_grounding_support_report(
         coverage_gate_passed
         and bool(generation["owned_by_marulho"])
         and not bool(generation["external_llm_used"])
-        and str(generation["active_language_path"]) == "marulho_lm_head"
+        and str(generation["active_language_path"]) == "marulho_transformer"
     )
     diagnostics = GroundingDiagnostics(
         kind="lm_source_term_support",

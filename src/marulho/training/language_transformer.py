@@ -89,18 +89,15 @@ class MarulhoCausalSelfAttention(nn.Module):
         *,
         past_key: torch.Tensor | None,
         past_value: torch.Tensor | None,
-        position_offset: int,
+        position_offset: int | torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, time_steps, _ = value.shape
         query, key, current_value = self.qkv(value).chunk(3, dim=-1)
         query = self._heads(query)
         key = self._heads(key)
         current_value = self._heads(current_value)
-        positions = torch.arange(
-            int(position_offset),
-            int(position_offset) + int(time_steps),
-            device=value.device,
-        )
+        positions = torch.arange(int(time_steps), device=value.device)
+        positions = positions + torch.as_tensor(position_offset, device=value.device)
         query, key = _apply_rotary(query, key, positions)
 
         usable_past_key: torch.Tensor | None = None
@@ -197,7 +194,7 @@ class MarulhoTransformerBlock(nn.Module):
         *,
         past_key: torch.Tensor | None,
         past_value: torch.Tensor | None,
-        position_offset: int,
+        position_offset: int | torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         attention, next_key, next_value = self.attention(
             self.attention_norm(value),
@@ -353,17 +350,13 @@ class MarulhoCausalTransformerStateBlock(nn.Module):
         )
         position_value = current_state.get("position")
         position_offset = (
-            int(position_value.detach().cpu().item())
+            position_value.to(device=inputs.device, dtype=torch.long)
             if isinstance(position_value, torch.Tensor)
-            else 0
+            else torch.zeros((), device=inputs.device, dtype=torch.long)
         )
         hidden = self.input_projection(inputs)
         next_state: dict[str, torch.Tensor] = {
-            "position": torch.tensor(
-                position_offset + int(time_steps),
-                device=inputs.device,
-                dtype=torch.long,
-            )
+            "position": position_offset + int(time_steps)
         }
         cache_tokens = 0
         for layer_index, layer in enumerate(self.layers):

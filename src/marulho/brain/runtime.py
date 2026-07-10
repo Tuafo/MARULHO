@@ -21,15 +21,11 @@ from marulho.brain.language_runtime import BrainLanguageModelRuntime
 from marulho.brain.sources import BrainPattern, BrainSourceBuffer
 from marulho.brain.trace import BrainTrace
 from marulho.config.model_config import MarulhoConfig
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
-from marulho.training.language_checkpoint_evolution import LanguageCheckpointEvolutionConfig
-from marulho.training.language_continual_learning import LanguageContinualLearningConfig
+from marulho.data.language_tokenizer import LanguageTokenizer
 from marulho.training.language_model import (
-    LanguageBatch,
     MarulhoLanguageModel,
     load_language_model_checkpoint,
 )
-from marulho.training.language_structural_plasticity import LanguageStructuralPlasticityConfig
 from marulho.training.model import MarulhoModel
 from marulho.training.trainer import MarulhoTrainer
 
@@ -162,7 +158,7 @@ class MarulhoBrain:
     def install_language_model(
         self,
         model: MarulhoLanguageModel,
-        tokenizer: ByteLevelLanguageTokenizer,
+        tokenizer: LanguageTokenizer,
         *,
         evaluation_report: Mapping[str, Any] | None = None,
         checkpoint_installation_report: Mapping[str, Any] | None = None,
@@ -454,216 +450,6 @@ class MarulhoBrain:
             report["language_model"] = self._language_runtime.summary()
         return report
 
-    def learn_language_window(
-        self,
-        *,
-        new_batches: Sequence[LanguageBatch],
-        old_eval_batches: Sequence[LanguageBatch],
-        new_eval_batches: Sequence[LanguageBatch],
-        replay_batches: Sequence[LanguageBatch] = (),
-        config: LanguageContinualLearningConfig | None = None,
-    ) -> dict[str, Any]:
-        if self._language_runtime is None:
-            raise RuntimeError("MARULHO language model runtime is not installed")
-        report = self._language_runtime.learn_continual_window(
-            new_batches=new_batches,
-            old_eval_batches=old_eval_batches,
-            new_eval_batches=new_eval_batches,
-            replay_batches=replay_batches,
-            config=config,
-        )
-        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
-        trace = self._append_trace(
-            BrainTrace(
-                step=self._step + 1,
-                event="language_learn",
-                device=self._device_string(),
-                token_count=int(self.trainer.token_count),
-                queued_tokens=len(self._source_buffer),
-                executor=self._executor_name(),
-                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
-                active_language_path=self._active_language_path(),
-                cuda_available=bool(torch.cuda.is_available()),
-                checkpoint_path=self._checkpoint_path_string(),
-                source=self._last_source,
-                note=str(gate.get("status") or report.get("status") or ""),
-            )
-        )
-        return {
-            "surface": "marulho_brain_language_learning_window.v1",
-            "active_language_path": self._active_language_path(),
-            "owned_by_marulho": True,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "report": report,
-            "trace": trace,
-        }
-
-    def set_language_recurrent_gradient_horizon(self, horizon: int) -> dict[str, Any]:
-        if self._language_runtime is None:
-            raise RuntimeError("MARULHO language model runtime is not installed")
-        report = self._language_runtime.set_recurrent_gradient_horizon(int(horizon))
-        trace = self._append_trace(
-            BrainTrace(
-                step=self._step + 1,
-                event="language_configure",
-                device=self._device_string(),
-                token_count=int(self.trainer.token_count),
-                queued_tokens=len(self._source_buffer),
-                executor=self._executor_name(),
-                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
-                active_language_path=self._active_language_path(),
-                cuda_available=bool(torch.cuda.is_available()),
-                checkpoint_path=self._checkpoint_path_string(),
-                source=self._last_source,
-                note="brain-owned recurrent gradient horizon override",
-            )
-        )
-        return {
-            "surface": "marulho_brain_language_recurrent_horizon_override.v1",
-            "active_language_path": self._active_language_path(),
-            "runtime_owner": "MarulhoBrain",
-            "owned_by_marulho": True,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "service_owned_cognition": False,
-            "status_read_mutation": False,
-            "report": report,
-            "trace": trace,
-            "applied": bool(report.get("applied", False)),
-            "mutates_language_model_config": bool(
-                report.get("mutates_language_model_config", False)
-            ),
-            "mutates_language_model_weights": bool(
-                report.get("mutates_language_model_weights", True)
-            ),
-            "requested_recurrent_gradient_horizon": int(
-                report.get("requested_recurrent_gradient_horizon", int(horizon))
-            ),
-            "current_recurrent_gradient_horizon": int(
-                report.get("current_recurrent_gradient_horizon", int(horizon))
-            ),
-            "current_state_block_recurrent_gradient_horizon": int(
-                report.get(
-                    "current_state_block_recurrent_gradient_horizon",
-                    int(horizon),
-                )
-            ),
-        }
-
-    def propose_language_structure(
-        self,
-        *,
-        routing_evidence: Mapping[str, Any],
-        learning_evidence: Mapping[str, Any] | None = None,
-        config: LanguageStructuralPlasticityConfig | None = None,
-        mutation_kind: str = "growth",
-    ) -> dict[str, Any]:
-        if self._language_runtime is None:
-            raise RuntimeError("MARULHO language model runtime is not installed")
-        return self._language_runtime.propose_structural_plasticity(
-            routing_evidence=routing_evidence,
-            learning_evidence=learning_evidence,
-            config=config,
-            mutation_kind=mutation_kind,
-        )
-
-    def apply_language_structure(
-        self,
-        proposal: Mapping[str, Any],
-        *,
-        eval_batches: Sequence[LanguageBatch],
-        checkpoint_path: str | Path,
-        operator_approved: bool,
-        config: LanguageStructuralPlasticityConfig | None = None,
-    ) -> dict[str, Any]:
-        if self._language_runtime is None:
-            raise RuntimeError("MARULHO language model runtime is not installed")
-        report = self._language_runtime.apply_structural_plasticity(
-            proposal,
-            eval_batches=eval_batches,
-            checkpoint_path=str(checkpoint_path),
-            operator_approved=operator_approved,
-            config=config,
-        )
-        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
-        trace = self._append_trace(
-            BrainTrace(
-                step=self._step + 1,
-                event="language_structure",
-                device=self._device_string(),
-                token_count=int(self.trainer.token_count),
-                queued_tokens=len(self._source_buffer),
-                executor=self._executor_name(),
-                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
-                active_language_path=self._active_language_path(),
-                cuda_available=bool(torch.cuda.is_available()),
-                checkpoint_path=self._checkpoint_path_string(),
-                source=self._last_source,
-                note=str(gate.get("status") or report.get("status") or ""),
-            )
-        )
-        return {
-            "surface": "marulho_brain_language_structural_transaction.v1",
-            "active_language_path": self._active_language_path(),
-            "owned_by_marulho": True,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "report": report,
-            "trace": trace,
-        }
-
-    def evolve_language_checkpoint(
-        self,
-        *,
-        eval_batches: Sequence[LanguageBatch],
-        child_train_batches: Sequence[LanguageBatch],
-        child_new_eval_batches: Sequence[LanguageBatch],
-        checkpoint_dir: str | Path,
-        replay_batches: Sequence[LanguageBatch] = (),
-        config: LanguageCheckpointEvolutionConfig | None = None,
-        learning_config: LanguageContinualLearningConfig | None = None,
-        structural_config: LanguageStructuralPlasticityConfig | None = None,
-    ) -> dict[str, Any]:
-        if self._language_runtime is None:
-            raise RuntimeError("MARULHO language model runtime is not installed")
-        report = self._language_runtime.evolve_checkpoint(
-            eval_batches=eval_batches,
-            child_train_batches=child_train_batches,
-            child_new_eval_batches=child_new_eval_batches,
-            replay_batches=replay_batches,
-            checkpoint_dir=str(checkpoint_dir),
-            config=config,
-            learning_config=learning_config,
-            structural_config=structural_config,
-        )
-        gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
-        trace = self._append_trace(
-            BrainTrace(
-                step=self._step + 1,
-                event="language_checkpoint_evolution",
-                device=self._device_string(),
-                token_count=int(self.trainer.token_count),
-                queued_tokens=len(self._source_buffer),
-                executor=self._executor_name(),
-                route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
-                active_language_path=self._active_language_path(),
-                cuda_available=bool(torch.cuda.is_available()),
-                checkpoint_path=self._checkpoint_path_string(),
-                source=self._last_source,
-                note=str(gate.get("status") or report.get("status") or ""),
-            )
-        )
-        return {
-            "surface": "marulho_brain_language_checkpoint_evolution.v1",
-            "active_language_path": self._active_language_path(),
-            "owned_by_marulho": True,
-            "external_llm_used": False,
-            "loads_external_checkpoint": False,
-            "report": report,
-            "trace": trace,
-        }
-
     def feed(self, text: str, *, source: str = "operator", learn: bool = False) -> dict[str, Any]:
         patterns = self._patterns_from_text(text, source=source, learn=bool(learn))
         added = self._source_buffer.extend(patterns)
@@ -832,12 +618,9 @@ class MarulhoBrain:
         output_path: str | Path,
         target_tokens: int,
         prompt: str = "MARULHO",
-        tick_tokens: int = DEFAULT_BRAIN_TICK_TOKENS,
-        quantum_tokens: int = DEFAULT_BRAIN_QUANTUM_TOKENS,
         timeout_seconds: float = 600.0,
-        generation_repetition_penalty: float = 1.15,
+        generation_repetition_penalty: float = 1.1,
         generation_no_repeat_ngram_size: int = 3,
-        collect_environment: bool = False,
     ) -> dict[str, Any]:
         if self._language_runtime is None:
             raise RuntimeError("MARULHO language model runtime is not installed")
@@ -845,18 +628,10 @@ class MarulhoBrain:
             output_path=output_path,
             target_tokens=int(target_tokens),
             checkpoint_path=self.checkpoint_path,
-            checkpoint_metadata={
-                "source": "marulho_brain_generate_sustained_language",
-                "runtime_owner": "MarulhoBrain",
-                "brain_checkpoint_path": self._checkpoint_path_string(),
-            },
             prompt=prompt,
-            tick_tokens=int(tick_tokens),
-            quantum_tokens=int(quantum_tokens),
             timeout_seconds=float(timeout_seconds),
             generation_repetition_penalty=float(generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
-            collect_environment=bool(collect_environment),
         )
         generation.update(
             {
@@ -887,7 +662,7 @@ class MarulhoBrain:
                 route_vote_mode=str(self.trainer.config.predictive_route_vote_mode),
                 active_language_path=self._active_language_path(),
                 cuda_available=bool(torch.cuda.is_available()),
-                generation_after=str(generation.get("generated_tail_text", "")),
+                generation_after=str(generation.get("continuation_text", "")),
                 checkpoint_path=self._checkpoint_path_string(),
                 source=self._last_source,
                 note=str(generation.get("report_status") or generation.get("failure_reason") or ""),
@@ -896,13 +671,13 @@ class MarulhoBrain:
         generation["trace"] = trace
         self._last_generation = {
             "surface": generation["surface"],
-            "text": str(generation.get("generated_tail_text", "")),
+            "text": str(generation.get("continuation_text", "")),
             "available": bool(generation.get("success", False)),
             "active_language_path": self._active_language_path(),
             "external_llm_used": False,
             "thought_loop_used": False,
             "cortex_used": False,
-            "report_path": generation.get("report_path"),
+            "report_path": generation.get("output_path"),
         }
         return generation
 

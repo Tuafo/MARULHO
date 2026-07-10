@@ -12,19 +12,15 @@ below records local ownership rules and machinery-specific runtime rules.
 - [brain](brain/README.md): main `MarulhoBrain` runtime owner and compact trace.
 - [core](core/README.md): local SNN tensor mechanisms and mutation algorithms.
 - [data](data/README.md): source loaders and sparse encoder boundaries.
-- [semantics](semantics/README.md): grounded readout, concepts, and language evidence.
-- [training](training/README.md): trainer-owned CUDA, checkpoint, sequence, and replay execution.
+- [semantics](semantics/README.md): grounded concepts and evidence.
+- [training](training/README.md): Transformer, trainer, and checkpoint execution.
 - [service](service/README.md): thin HTTP/UI adapter and composition root.
 - [consolidation](consolidation/README.md): CPU archival memory and replay records.
 - [retrieval](retrieval/README.md): exact tensor routing caches and candidate search.
-- [evaluation](evaluation/README.md): benchmarks, gates, and validation evidence.
+- [evaluation](evaluation/README.md): language experiments and validation evidence.
 - [interaction](interaction/README.md): operator-facing response shaping.
 - [reporting](reporting/README.md): human-readable summaries over evidence.
 - [config](config/README.md): model/runtime presets and configuration boundaries.
-
-## Cross-Cutting Design
-
-- [Autonomous continual language runtime](../../docs/autonomous-continual-language-runtime.md): maintained architecture lock for the MARULHO-owned next-token language model target, including ownership, Runtime Truth, tokenizer, selective spiking state, GPU/Triton-first execution, routed columns, replay, structural plasticity, checkpoint mutation, Triton kernels, evaluation gates, and scale ladder.
 
 ## Documentation Rule
 

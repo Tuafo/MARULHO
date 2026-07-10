@@ -49,11 +49,13 @@ def test_language_checkpoint_round_trips_bpe_tokenizer(tmp_path) -> None:
     model = MarulhoLanguageModel(
         LanguageModelConfig(
             vocab_size=tokenizer.vocab_size,
-            embedding_dim=12,
+            embedding_dim=16,
             state_dim=16,
-            state_core="gru",
-            expert_count=0,
-            active_expert_count=1,
+            state_core="transformer",
+            state_layers=1,
+            attention_heads=4,
+            transformer_context_length=64,
+            transformer_mlp_ratio=2.0,
         )
     ).eval()
     prompt = torch.tensor(
