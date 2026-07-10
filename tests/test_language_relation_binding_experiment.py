@@ -6,6 +6,7 @@ from marulho.evaluation.language_relation_binding_experiment import (
     _heldout_signature,
     evaluate_relation_binding_cases,
     materialize_relation_binding_benchmark,
+    relation_binding_branch_decision,
 )
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
@@ -58,3 +59,11 @@ def test_relation_prediction_scores_candidates_without_reading_label(
     assert report["prediction_uses_correct_index"] is False
     assert report["correct_index_metrics_only"] is True
     assert all(row["label_used_for_prediction"] is False for row in report["rows"])
+
+
+def test_relation_branch_prioritizes_catastrophic_forgetting() -> None:
+    assert relation_binding_branch_decision(
+        accuracy_before=0.45,
+        accuracy_after=0.88,
+        general_loss_delta=5.4,
+    ) == "relation_learned_but_catastrophic_forgetting_test_replay"

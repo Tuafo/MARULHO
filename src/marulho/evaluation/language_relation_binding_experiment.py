@@ -352,6 +352,22 @@ def evaluate_relation_binding_cases(
     }
 
 
+def relation_binding_branch_decision(
+    *,
+    accuracy_before: float,
+    accuracy_after: float,
+    general_loss_delta: float,
+) -> str:
+    relation_gain = float(accuracy_after) - float(accuracy_before)
+    if relation_gain >= 0.25 and float(general_loss_delta) > 0.15:
+        return "relation_learned_but_catastrophic_forgetting_test_replay"
+    if float(accuracy_after) >= 0.80 and float(general_loss_delta) <= 0.15:
+        return "transformer_learns_relations_redesign_curriculum"
+    if relation_gain >= 0.25:
+        return "extend_relation_curriculum_before_memory"
+    return "test_episodic_binding_or_larger_capacity"
+
+
 def run_relation_binding_falsification(
     *,
     checkpoint_path: str | Path,
@@ -447,12 +463,11 @@ def run_relation_binding_falsification(
     general_loss_after = float(arm["final_heldout_loss"])
     relation_gain = float(after["accuracy"]) - float(before["accuracy"])
     general_loss_delta = general_loss_after - general_loss_before
-    if float(after["accuracy"]) >= 0.80 and general_loss_delta <= 0.15:
-        decision = "transformer_learns_relations_redesign_curriculum"
-    elif relation_gain >= 0.25:
-        decision = "extend_relation_curriculum_before_memory"
-    else:
-        decision = "test_episodic_binding_or_larger_capacity"
+    decision = relation_binding_branch_decision(
+        accuracy_before=float(before["accuracy"]),
+        accuracy_after=float(after["accuracy"]),
+        general_loss_delta=general_loss_delta,
+    )
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,

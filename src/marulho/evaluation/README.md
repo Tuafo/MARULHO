@@ -69,6 +69,31 @@ curriculum role rather than a diagnostic-only label.
 
 ## Current Branch Decision
 
+The 2026-07-10 controlled relation-binding falsification is stored locally at:
+
+`reports/language_scaling/relation-binding-21m-16m-20260710.json`
+
+| Metric | Before | After 16.78M relation tokens |
+| --- | ---: | ---: |
+| Overall relation accuracy | 47.7% | 87.9% |
+| Container persistence | 20.3% | 100.0% |
+| Ownership transfer | 92.2% | 100.0% |
+| Property persistence | 48.4% | 100.0% |
+| Event order | 29.7% | 51.6% |
+| Mixed-language loss | 3.2534 | 8.7139 |
+
+Candidate likelihood never reads the correct index; labels are metrics-only.
+The result proves static relation learnability but also catastrophic forgetting.
+The relation candidate is rejected and the 251,658,240-token mixed checkpoint
+remains active. The branch is
+`relation_learned_but_catastrophic_forgetting_test_replay`.
+
+Next run a budgeted relation-plus-general replay mixture from the active base.
+Require relation gain and bounded mixed-language loss together; keep event order
+separate from the static-binding aggregate.
+
+### Mixed-data continuation
+
 The active 2026-07-10 mixed-data continuation is stored locally at:
 
 `reports/language_scaling/mixed-cosmopedia-fineweb-21m-251m-continuation-20260710.json`

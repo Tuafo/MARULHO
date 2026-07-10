@@ -286,6 +286,28 @@ relations, redesign curriculum; if it cannot, test PMRM-like episodic binding or
 larger capacity against the same benchmark. Do not continue generic token scale
 without resolving this branch.
 
+The controlled relation-binding falsification used 200,000 procedural training
+documents and 256 compositionally held-out cases. Candidate answers were scored
+before the correct index was used for metrics. After 16.78M relation-phase
+tokens, total accuracy improved from 47.7% to 87.9%. Container, ownership, and
+property accuracy reached 100%; event-order accuracy improved only from 29.7%
+to 51.6%.
+
+This is evidence that the 21M Transformer can represent static bindings under a
+focused objective. It is not a promotable checkpoint: unchanged mixed-language
+loss regressed from 3.2534 to 8.7139, and free generation remained unreliable.
+The candidate is rejected for catastrophic forgetting; the 251,658,240-token
+mixed checkpoint remains active.
+
+Decision: `relation_learned_but_catastrophic_forgetting_test_replay`.
+
+Next compare a budgeted relation-plus-general replay mixture from the active
+base. Require both held-out relation gain and bounded mixed-language loss. If
+replay succeeds, continue toward consolidation/replay policies; if it fails,
+compare parameter isolation and PMRM-style surprise-selected episodic binding
+under equal memory/compute budgets. Event order remains a separate causal
+blocker and must not be hidden by perfect static-binding subtasks.
+
 ## Retired Language Concepts
 
 The following are not maintained language paths:
@@ -310,8 +332,8 @@ must not present them as active capability.
 1. Clean and validate the Transformer-only runtime.
 2. Select 21M as the current compute-optimal size from equal-time evidence.
 3. Pass the 21M TinyStories coherence falsification.
-4. Run the controlled relation-binding falsification from the active 21M
-   checkpoint and measure general-loss retention.
+4. Test budgeted relation-plus-general replay from the active 21M checkpoint,
+   requiring relation retention and bounded general-language forgetting.
 5. Fit the first defensible local size/data scaling law with at least three
    model sizes and repeated seeds near a branch boundary.
 6. If quality qualifies, test surprise-selected episodic memory.

@@ -124,6 +124,21 @@ step is a controlled, compositionally held-out relation-binding falsification:
 determine whether this Transformer can learn persistent entities/events before
 spending more compute on generic text or adding episodic memory.
 
+The controlled relation falsification answered that question. From the active
+base, 16.78M narrow relation tokens moved candidate-likelihood accuracy from
+47.7% to 87.9%: container, ownership, and property tasks reached 100%, while
+event order reached only 51.6%. This proves the 21M Transformer has capacity for
+static binding under a focused objective. But the branch is rejected as a
+checkpoint: mixed-language loss catastrophically regressed from 3.2534 to
+8.7139, and free generation remained unreliable. The active checkpoint stays
+the 251.66M-token mixed model.
+
+Decision: test a budgeted relation-plus-general replay mixture from the active
+base. If replay preserves general loss while retaining relation gains, build
+continual curricula around replay/consolidation. If it cannot, compare
+parameter-isolated adapters and PMRM-style surprise-selected episodic binding
+against the same label-safe benchmark.
+
 ## Research Objective
 
 MARULHO aims to find a local architecture that is better than a conventional
@@ -135,8 +150,8 @@ The priority order is:
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
 2. Preserve the coherence-qualified 21M recipe.
-3. Falsify entity/event relation binding on compositionally held-out cases from
-   the active 251.66M-token checkpoint, while measuring general-loss retention.
+3. Test budgeted relation-plus-general replay from the active checkpoint,
+   requiring relation gains and bounded general-loss regression together.
 4. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
 5. Add adaptive episodic memory only after the base language checkpoint
