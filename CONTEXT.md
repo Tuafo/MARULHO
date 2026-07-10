@@ -174,19 +174,31 @@ direct measurements.
 
 ## Current Evidence State
 
-The matched BPE CUDA pilot dated 2026-07-10 compared a four-layer dense GRU and
-the MARULHO Transformer on the same 4,096-token BPE vocabulary and corpus.
+The first general-corpus scale run dated 2026-07-10 trained fresh 20,976,128-
+and 62,924,544-parameter Transformers on a MARULHO-owned 8,192-token BPE over
+21,459,997 FineWeb-Edu training tokens. Evaluation used a separate later-offset
+2,000-document corpus, not a tail split from the training file.
 
-- Transformer: 5,249,280 parameters, heldout loss 6.0762, 38,269.5 train
-  tokens/s after 4,194,304 update tokens.
-- GRU: 3,812,352 parameters, heldout loss 6.6979, 18,590.3 train tokens/s after
-  4,194,304 update tokens.
-- Transformer at 1,048,576 update tokens already beat the GRU final loss.
-- Diverse unseen generation remains 0/4.
+| Model | Update tokens | Heldout loss | Perplexity | Train tokens/s |
+| --- | ---: | ---: | ---: | ---: |
+| 20,976,128 | 4,194,304 | 5.6115 | 273.56 | 70,624 |
+| 20,976,128 | 8,388,608 | 5.0759 | 160.11 | 71,587 |
+| 20,976,128 | 16,777,216 | 4.7018 | 110.15 | 72,210 |
+| 62,924,544 | 4,194,304 | 5.5344 | 253.27 | 29,388 |
+| 62,924,544 | 8,388,608 | 5.0236 | 151.96 | 29,321 |
+| 62,924,544 | 16,777,216 | 4.6177 | 101.26 | 29,490 |
 
-Decision: `retire_recurrent_language_base_scale_transformer`.
+The larger model is best at equal tokens, but its final advantage is only
+0.0841 loss while the smaller model trains about 2.45 times faster. Increasing
+data from 4.2M to 16.8M tokens improves the larger model by 0.9167 loss, 10.89
+times the equal-token size gain.
 
-Interpretation: the Transformer is the selected base, but language quality is
+Decision: `scale_data_at_selected_model_size`, with a compute-normalized size
+comparison required before treating 62.9M parameters as locally optimal.
+
+Interpretation: diverse general text removed the earlier competitive-
+programming mode collapse, but the continuations remain repetitive,
+contradictory, and weakly conditioned on their prompts. Language quality is
 still blocked. Continual learning, adaptive memory, structural plasticity, and
 the 524,288-token sustained gate must be rebuilt from a later
 quality-qualified checkpoint.
@@ -213,10 +225,13 @@ must not present them as active capability.
 ## Decision Order
 
 1. Clean and validate the Transformer-only runtime.
-2. Run a larger quality experiment and record heldout curves plus unseen text.
-3. Fit the first local size/data scaling grid.
-4. If quality qualifies, test surprise-selected episodic memory.
-5. Rebuild continual learning and retention measurement.
-6. Re-establish sustained 524,288-token generation from the same checkpoint.
-7. Add grounded causal experiments.
-8. Scale, redesign, or retire each mechanism from evidence.
+2. Compare model sizes at equal RTX 3060 wall-clock or training compute.
+3. Scale clean general-language data at the compute-optimal size until the
+   quality curve bends or unseen text qualifies.
+4. Fit the first defensible local size/data scaling law with at least three
+   model sizes and repeated seeds near a branch boundary.
+5. If quality qualifies, test surprise-selected episodic memory.
+6. Rebuild continual learning and retention measurement.
+7. Re-establish sustained 524,288-token generation from the same checkpoint.
+8. Add grounded causal experiments.
+9. Scale, redesign, or retire each mechanism from evidence.

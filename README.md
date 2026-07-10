@@ -47,16 +47,27 @@ interventions rather than text correlations alone.
 
 ## Current Evidence
 
-The 2026-07-10 BPE CUDA pilot trained the first architecture checkpoint on a
-12.3 MB local corpus:
+The 2026-07-10 general-corpus run trained fresh 21M- and 63M-parameter models
+with an 8,192-token MARULHO BPE. Training used 21.46M encoded FineWeb-Edu
+tokens; evaluation used a disjoint later-offset 2,000-document corpus.
 
-| Parameters | BPE vocabulary | Update tokens | Heldout loss | Train tokens/s |
-| ---: | ---: | ---: | ---: | ---: |
-| 5,249,280 | 4,096 | 4,194,304 | 6.0762 | 38,269.5 |
+| Parameters | Update tokens | Heldout loss | Train tokens/s |
+| ---: | ---: | ---: | ---: |
+| 20,976,128 | 4,194,304 | 5.6115 | 70,624 |
+| 20,976,128 | 16,777,216 | 4.7018 | 72,210 |
+| 62,924,544 | 4,194,304 | 5.5344 | 29,388 |
+| 62,924,544 | 16,777,216 | 4.6177 | 29,490 |
 
-This is not a quality promotion. Diverse unseen generation is still `0/4`, so
-the current blocker is language quality. The evidence artifact is local at
-`reports/language_architecture_bakeoff/nvidia-open-bpe-transformer-pilot-20260710.json`.
+The 63M model wins at equal tokens, but only by 0.0841 loss while running about
+2.45 times slower. Adding data produced 10.89 times more loss improvement than
+adding parameters over this range. Diverse data eliminated the earlier
+competitive-programming template collapse, but generation is still repetitive
+and weakly prompt-conditioned. This is not a quality promotion.
+
+The next decision is compute-normalized: determine whether the faster 21M model
+can beat the 63M model when both receive the same RTX 3060 time or approximate
+training compute. The evidence artifact is local at
+`reports/language_scaling/fineweb-edu-19m-vs-60m-16m-20260710.json`.
 
 ## Research Objective
 
@@ -68,14 +79,16 @@ The priority order is:
 
 1. Produce coherent unseen multi-sentence language and a reliable heldout
    quality curve.
-2. Measure a local scaling law across model size, data, and compute instead of
+2. Select model size by equal local wall-clock or training compute, then scale
+   clean data at that size.
+3. Measure a local scaling law across model size, data, and compute instead of
    extrapolating from one small run.
-3. Add adaptive episodic memory only after the base language checkpoint
+4. Add adaptive episodic memory only after the base language checkpoint
    qualifies.
-4. Demonstrate sequential-domain learning with bounded forgetting.
-5. Restore checkpoint fidelity, measured active compute, and a 524,288-token
+5. Demonstrate sequential-domain learning with bounded forgetting.
+6. Restore checkpoint fidelity, measured active compute, and a 524,288-token
    sustained run from that same quality-qualified checkpoint.
-6. Test grounded object identity, action binding, and intervention transfer.
+7. Test grounded object identity, action binding, and intervention transfer.
 
 The initial scaling model is the standard decomposition
 `L(N,D) = E + A/N^alpha + B/D^beta`, measured locally over multiple parameter
@@ -140,10 +153,11 @@ Example bounded local run:
 
 ```powershell
 python -m marulho.evaluation.language_training_experiment `
-  --corpus reports/language_curriculum/nvidia-open-repair-preview-128x-20260706.txt `
+  --corpus reports/language_curriculum/fineweb-edu-train-20k-20260710.txt `
+  --eval-corpus reports/language_curriculum/fineweb-edu-eval-2k-offset20k-20260710.txt `
   --output reports/language_training/local-transformer.json `
   --tokenizer-kind bpe `
-  --tokenizer-vocab-size 4096 `
+  --tokenizer-vocab-size 8192 `
   --device auto
 ```
 
