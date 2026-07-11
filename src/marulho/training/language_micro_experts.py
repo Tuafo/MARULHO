@@ -139,6 +139,18 @@ class MarulhoProductKeyMicroExpertBlock(nn.Module):
         )
         self._mode_name = str(config.mode)
         self._reset_new_parameters()
+        self.register_buffer(
+            "fixed_query_weight",
+            self.query_projection.weight.detach().clone(),
+        )
+        self.register_buffer(
+            "fixed_first_subkeys",
+            self.first_subkeys.detach().clone(),
+        )
+        self.register_buffer(
+            "fixed_second_subkeys",
+            self.second_subkeys.detach().clone(),
+        )
 
     def _reset_new_parameters(self) -> None:
         for value in (
@@ -163,14 +175,16 @@ class MarulhoProductKeyMicroExpertBlock(nn.Module):
         value: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         learned = (self.mode_id == _MODE_IDS["learned_router"]).to(value.dtype)
-        query = self.query_projection(value)
-        query = query.detach() + learned * (query - query.detach())
-        first = self.first_subkeys.detach() + learned * (
-            self.first_subkeys - self.first_subkeys.detach()
+        query_weight = self.fixed_query_weight + learned * (
+            self.query_projection.weight - self.fixed_query_weight
         )
-        second = self.second_subkeys.detach() + learned * (
-            self.second_subkeys - self.second_subkeys.detach()
+        first = self.fixed_first_subkeys + learned * (
+            self.first_subkeys - self.fixed_first_subkeys
         )
+        second = self.fixed_second_subkeys + learned * (
+            self.second_subkeys - self.fixed_second_subkeys
+        )
+        query = F.linear(value, query_weight)
         batch, time, _ = value.shape
         query = query.view(batch, time, self.retrieval_heads, self.width)
         query = query * query.pow(2).mean(dim=-1, keepdim=True).add(1.0e-6).rsqrt()

@@ -83,6 +83,23 @@ def test_micro_expert_modes_share_parameter_objects_and_are_deterministic() -> N
     assert not torch.equal(rows["fixed_random"], rows["token_hash"])
 
 
+def test_fixed_random_router_uses_immutable_initialization_buffers() -> None:
+    torch.manual_seed(19)
+    model = _model(mode="fixed_random").eval()
+    input_ids = torch.tensor([[2, 7, 11, 3, 19, 5]], dtype=torch.long)
+    with torch.no_grad():
+        expected = model(input_ids, collect_telemetry=False)["logits"]
+        layer = model.state_block.expert_layer
+        layer.query_projection.weight.add_(100.0)
+        layer.first_subkeys.sub_(50.0)
+        layer.second_subkeys.mul_(20.0)
+        actual = model(input_ids, collect_telemetry=False)["logits"]
+        model.set_micro_expert_mode("learned_router")
+        learned = model(input_ids, collect_telemetry=False)["logits"]
+    torch.testing.assert_close(actual, expected)
+    assert not torch.equal(learned, expected)
+
+
 @pytest.mark.parametrize("mode", MICRO_EXPERT_MODES)
 def test_only_learned_mode_updates_router_and_routed_modes_update_experts(
     mode: str,
