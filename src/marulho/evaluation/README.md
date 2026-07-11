@@ -66,7 +66,11 @@ before survival. The first complete report is local at
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json`.
 It selects token-hash for fresh-seed replication at loss 4.5388 / 29.7% strict
 free relation versus the Transformer's 4.6143 / 10.2%; learned routing collapsed
-to 9.5% pool usage and did not improve loss.
+to 9.5% pool usage and did not improve loss. The replication report is local at
+`reports/language_scaling/micro-experts-v10-replication-seed7331-16m-20260711.json`.
+Token-hash repeats the loss win at 4.5372 versus 4.5990 and beats Transformer free
+generation 34.4% versus 31.6%, but misses the shared-only behavior margin by one
+of 256 cases. Decision: `redesign_v10_disjoint_loss_and_behavior_signals`.
 
 The retired depth-connection v9 evidence is local at
 `reports/language_scaling/depth-connections-v9-falsification-16m-20260711.json`

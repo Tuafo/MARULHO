@@ -271,8 +271,16 @@ was 4.6143/4.6166/4.6134/4.5388/4.6118 and strict free relation was
 used 68.5% of the pool, gave 69.7% of expert rows final gradients, ran at 114.1k
 tokens/s versus 129.6k, and peaked at 2.05 GB. Learned routing received full
 router gradients but collapsed to 9.5% pool usage and did not improve loss.
-Decision: `replicate_v10_token_hash_without_learned_router_claim`. V10 is not a
-runtime path or checkpoint format until this fixed-route result replicates.
+The fresh-seed comparison repeats the structural loss result:
+Transformer/shared-only/frozen-random/token-hash/learned loss is
+4.5990/4.6088/4.6071/4.5372/4.6085 and free relation is
+31.6%/32.4%/32.4%/34.4%/32.4%. Token-hash beats the Transformer on both metrics
+again, but its 1.95-point behavior gain over shared-only is one case below the
+predeclared 2.0-point margin. The formal decision is therefore
+`redesign_v10_disjoint_loss_and_behavior_signals`, not promotion. Learned routing
+also collapses again to 8.9% pool usage. The replicated insight advances to a
+pruned hash-only durability candidate; product-key queries and learned routing do
+not.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

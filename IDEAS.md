@@ -196,6 +196,17 @@ gradients but used only 9.5% of the pool, exposing specialization collapse rathe
 than a dead implementation. The current claim is narrow: stable token-indexed
 micro-capacity may help; learned organization has failed this seed.
 
+Fresh-seed replication confirms the important part without clearing the whole
+gate. Token-hash again reaches loss 4.5372 versus Transformer 4.5990 and strict
+free relation 34.4% versus 31.6%; shared-only is 4.6088 / 32.4%. Thus token-hash
+repeats its general-loss gain and beats the Transformer behaviorally, but its
+five-case behavior advantage over shared-only is 1.95 points, just below the
+predeclared 2.0-point margin. The formal result remains redesign. Learned routing
+again collapses, now to 8.9% pool usage, and is retired. The next falsifier must
+delete query projection, product keys, and unused routing modes, retain only the
+stable token-indexed singleton functions, verify equivalence to the winning arm,
+and test durability at a larger budget.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

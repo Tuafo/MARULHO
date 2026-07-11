@@ -102,7 +102,10 @@ the first 16.79M-token run selected token-hash for replication at loss 4.5388 /
 29.7% strict free relation versus the Transformer's 4.6143 / 10.2%. Learned
 routing reached 4.6118 / 29.3% and collapsed to 9.5% pool usage, so this is a
 fixed-partition capacity result, not a learned-router result. No checkpoint is
-saved before fresh-seed replication.
+saved. A fresh seed repeats token-hash loss at 4.5372 versus the Transformer's
+4.5990 and free generation at 34.4% versus 31.6%, but misses the behavior margin
+over shared-only by one of 256 cases. V10 is not promoted: learned routing is
+rejected, and the fixed-hash mechanism moves into a pruned durability candidate.
 
 ## Current Evidence
 
