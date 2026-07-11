@@ -238,14 +238,53 @@ has gradient, rank is 502, and both general holdouts pass. Recurrent output
 changes on only 7.17% of source-answer swaps versus mean's 23.48%, directly
 suggesting overwrite rather than insufficient scalar scale.
 
-V19b tests that single diagnosis under the same 32-KiB budget. Segment one owns
-slots 0-7 and segment two owns slots 8-15; each writes independently and the
-query sees their concatenation. It adds no parameters and removes both averaging
-and recurrent overwrite. This is a fixed organization control, not a claim that
-two segments solve open-ended memory. It advances only if it beats mean and
-recurrence by five points on candidate, free, and paired behavior, stays within
-ten paired points of exact, and preserves both general holdouts. Failure retires
-the current memory-token interface rather than adding a gate between the banks.
+V19b closes that diagnosis negatively. Fixed segment banks reach
+85.9/31.6/31.44% candidate/free/paired accuracy, versus recurrence's
+84.0/30.1/30.13% and exact history's 87.1/49.6/47.60%. Separation restores the
+mean arm's source-change rate but gains only 1.31 paired points over recurrence.
+Its state is active, rank 447, effective rank 27.51, fully reached by gradient,
+and language-retentive. The central loss is therefore not merely recurrent
+overwrite, slot collapse, scalar scale, or insufficient capacity for four facts.
+The fixed latent bottleneck preserves enough evidence to rank supplied answers
+but not enough exact binding to generate them. Retire the interface and delete
+its live code.
+
+## Exact episodic pointer memory — next falsifier
+
+The repeated exact-versus-latent gap changes the memory job. Long-term state
+should initially preserve raw episodes and compress **addresses**, not content.
+A completed source segment writes:
+
+```text
+small source-only key + exact token span + time/provenance
+```
+
+The later question produces a read key. A fixed active budget retrieves one or
+two raw spans and places them inside the ordinary local causal window. Archive
+size may grow on host or disk, while GPU state, retrieved tokens, and per-query
+attention stay bounded. This is closer to an owned episodic index than a latent
+sidecar: exact local attention still performs language and binding after the
+selector chooses evidence.
+
+Do not begin with another learned router. First run a read-only retrieval audit
+over paired relation episodes:
+
+- random and most-recent episodes establish chance and temporal controls;
+- BPE token overlap/TF-IDF tests whether explicit names already identify the
+  useful source;
+- frozen V11 pooled and query-position representations test whether the cortex
+  already exposes a usable semantic key;
+- all-history is the active-token upper bound;
+- a metrics-only oracle reports headroom and never enters prediction.
+
+Writes see source tokens only. Reads may see the question but not its answer,
+candidates, or correct source index. The audit advances only if a non-oracle
+fixed key retrieves the target source reliably across identical-question source
+swaps and unseen entity compositions. A later language screen must then train
+the same cortex from exact reset with retrieved raw tokens and prove free
+generation, not only retrieval recall or candidate ranking. If fixed keys fail,
+train one selector on disjoint source/query pairs and compare it with lexical
+retrieval; do not hide target labels inside the evaluation path.
 
 ## Contradiction-driven causal compilation — later grounded hypothesis
 

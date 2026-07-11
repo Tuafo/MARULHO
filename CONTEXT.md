@@ -501,16 +501,30 @@ for exact, while recurrent effective rank is 24.16 versus mean's 29.30.
 Decision: `retire_v19_joint_memory_tokens_insufficient_source_following`. No
 checkpoint exists.
 
-V19b is one bounded overwrite falsifier, not a retuning sweep. It divides the
-same sixteen tokens into two fixed eight-slot segment banks and concatenates
-them for the query instead of averaging or rewriting a shared state. This adds
-no parameters, keeps 32 KiB per stream, shortens each source pass from 128 to
-112 positions, and preserves segment identity. The seven-arm exact-reset screen
-retains V19's controls and schedule. Partitioned state must beat both mean and
-recurrence by at least five paired/free/candidate points, stay within ten paired
-points of exact history, and preserve both general holdouts. Focused contracts
-and a discarded seven-arm CUDA smoke pass; no V19b quality claim exists before
-the decisive run.
+V19b closes the overwrite explanation without rescuing the interface. Its
+retained report is
+`reports/language_scaling/v19b-partitioned-memory-800step-20260711.json`
+(SHA-256
+`efb24df8e4c9fe1c1fe89a398ffcf753f2c03b730300a6181c2949303d417a73`).
+Two fixed eight-slot segment banks concatenate into the same sixteen-token,
+32-KiB state. Candidate/free/paired accuracy reaches
+85.9/31.6/31.44%, only 1.9/1.5/1.31 points above recurrence and still 16.16
+paired points below exact history. Output changes on 24.19% of source swaps,
+matching mean's source sensitivity but not exact's behavior. All partition
+parameters receive nonzero gradients, matrix rank is 447, effective rank is
+27.51, and the two general holdouts remain inside the guard at +0.0740/+0.0848
+loss. Decision: `retire_v19b_partitioned_memory_insufficient_source_following`.
+No checkpoint exists. The model, runner, and tests are deleted; do not add a
+gate, more slot layouts, or a longer schedule to this interface.
+
+The next memory hypothesis preserves content instead of repeatedly compressing
+it. A source-only write stores exact episode tokens plus a small retrieval key
+and provenance. At query time, a bounded selector retrieves a fixed number of
+raw episodes into the local exact-attention window. Archival storage may grow,
+but active tokens and compute remain bounded. Before training, a read-only audit
+must compare random, recency, lexical overlap, and frozen-cortex keys against an
+all-history upper bound and a metrics-only oracle. Only a label-safe selector
+with sufficient target-source recall earns a language screen.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

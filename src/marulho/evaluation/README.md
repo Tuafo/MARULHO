@@ -316,21 +316,26 @@ by 17.47 paired points, and changes output on only 7.17% of source swaps versus
 `retire_v19_joint_memory_tokens_insufficient_source_following`. No checkpoint
 exists.
 
-The live v2 preflight adds V19b's same-budget partition control. Two source
-segments independently write eight dedicated tokens each; the query receives
-their sixteen-token concatenation. It adds no parameters, keeps the exact same
-32-KiB state, and prevents both averaging collisions and recurrent overwrite.
-All original controls remain exact-reset under the same relation/general replay.
-Partitioning must beat mean and recurrence by five points on candidate, free,
-and paired behavior, remain within ten paired points of exact history, and keep
-both general losses within +0.10. Focused tests and a discarded seven-arm CUDA
-smoke pass; no quality or checkpoint claim exists before the full run.
+The final V19b report is
+`reports/language_scaling/v19b-partitioned-memory-800step-20260711.json`
+(SHA-256
+`efb24df8e4c9fe1c1fe89a398ffcf753f2c03b730300a6181c2949303d417a73`).
+Two independent eight-token segment banks retain the same 32-KiB budget and
+reach 85.9/31.6/31.44% candidate/free/paired accuracy. That improves recurrence
+by only 1.9/1.5/1.31 points and remains 16.16 paired points behind exact history.
+The partition is active, rank 447, fully reached by gradient, and keeps both
+general losses within +0.085. Decision:
+`retire_v19b_partitioned_memory_insufficient_source_following`. No checkpoint
+exists. The runner, model interface, tests, and smoke report are deleted; the two
+compact full reports retain the evidence.
 
-Run the maintained preflight with:
-
-```powershell
-python -m marulho.evaluation.language_joint_memory_token_preflight --help
-```
+The next preflight audits exact episodic retrieval before training another
+memory architecture. Source-only writes retain raw token spans plus small keys;
+question-only reads retrieve a fixed number of spans into local exact attention.
+Random, recency, lexical overlap, and frozen-cortex keys must be compared with
+all-history and a metrics-only oracle. Retrieval recall is only an admission
+gate; a surviving policy must later improve paired free generation under exact
+model resets and bounded active tokens.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
