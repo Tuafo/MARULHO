@@ -344,6 +344,22 @@ positive. It must lower realized heldout loss by at least 0.02 on both corpora,
 beat a baseline-always policy, preserve equal active compute, and show noncollapsed
 selection. Failure retires the gate even though oracle opportunity exists.
 
+That prediction test fails. The linear gate cannot fit useful route structure:
+its best training threshold still loses 0.0205 and its FineWeb-Edu/Cosmopedia
+heldout gains are -0.0381/-0.0334. The MLP fits training (+0.1126) but overfits,
+reversing to -0.0757 combined heldout gain. Both choose harmful alternatives
+more often than helpful ones. The parent is frozen and hash-identical, evaluation
+selection never reads targets, and no artifact is saved. Decision:
+`retire_v12_gate_cannot_predict_counterfactual_utility`.
+
+The insight is narrower than “routing cannot work.” Equal-compute alternatives
+contain oracle wins, but in this frozen random route bank the identity of a win
+is not stable enough to predict from the local causal manifold. Counterfactual
+regret may be idiosyncratic noise or require co-adapted experts, a richer state,
+or direct execution feedback over time. Do not tune the same gate on the seen
+holdouts. Preserve the audit as a constraint for a future memory gate, delete the
+failed predictor, and move to the orthogonal long-context training ablation.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

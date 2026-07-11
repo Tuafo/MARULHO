@@ -327,6 +327,18 @@ hashes are unchanged. Decision: `train_v12_counterfactual_gate`. This admits onl
 training a small causal utility predictor on disjoint training contexts. Oracle
 selection uses targets and is never an inference route or promotion claim.
 
+The disjoint-data utility-gate test rejects the simple V12 realization. A
+2,052-parameter linear gate underfits even its 18,432 training examples (realized
+gain -0.0205) and worsens FineWeb-Edu/Cosmopedia heldout loss by
+0.0381/0.0334. A 33,028-parameter MLP fits training counterfactuals (+0.1126) but
+reverses to -0.0757 combined heldout gain. Harmful alternative selections exceed
+helpful ones for both gates. Parent parameters remain frozen and hash-identical;
+evaluation routes use no targets, and no gate artifact is saved. Decision:
+`retire_v12_gate_cannot_predict_counterfactual_utility`. Oracle route regret is
+real but not predictably accessible from the causal pre-expert hidden state with
+this fixed route bank. The failed trainer/tests are deleted; the read-only audit
+and compact negative report remain.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

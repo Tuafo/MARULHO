@@ -138,6 +138,14 @@ hashes, and label-safe prediction paths pass. This admits training a tiny causal
 gate to predict route utility from hidden state; the oracle itself cannot run at
 inference and does not promote V11/V12.
 
+The actual gate-learning test is negative. The linear gate underfits and worsens
+FineWeb-Edu/Cosmopedia loss by 0.0381/0.0334. The small MLP learns the training
+counterfactuals (+0.1126) but overfits and loses 0.0757 on combined holdouts.
+The frozen parent remains bit-identical, evaluation routing is label-safe, and no
+gate checkpoint is saved. V12's simple utility predictor is retired and its code
+deleted. The next independent ablation targets the current 72-token training
+window rather than tuning on failed routing holdouts.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the
