@@ -228,6 +228,14 @@ staged schedule, and improves throughout the long training trace. The result
 promotes V11 to checkpoint fidelity and unseen generation. It does not yet prove
 continual learning, general coherence, or a superior scaling law.
 
+Checkpoint fidelity now passes without pretending BF16/Inductor training is
+bit-identical across long runs. An independent exact-recipe hash arm reaches
+loss 3.8738 and 30.9% strict free relation, which still re-passes the original
+fixed margins against both qualified controls. The strict 154.3 MiB checkpoint
+reloads the complete token-hash model, tied weights, tokenizer hash, ownership,
+and qualification record. The next falsifier is source-held-out continuation
+and genuinely unseen multi-sentence generation from that reloaded artifact.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

@@ -118,7 +118,13 @@ quality values are discarded. The 67.11M-token durability run then passes:
 token-hash reaches loss 3.8747 / 35.9% strict free relation versus Transformer
 3.8951 / 19.1% and shared-only 3.9088 / 25.8%, while retaining 96.0% of
 Transformer throughput. V11 now advances to strict checkpoint and genuinely
-unseen-generation qualification; it is not installed at runtime yet.
+unseen-generation qualification. An independent exact-recipe hash run reaches
+loss 3.8738 / 30.9% strict free relation and re-passes the unchanged joint gate
+against both qualified controls. Its 154.3 MiB strict checkpoint reloads all
+36.18M parameters, tied weights, tokenizer identity, and ownership metadata:
+`reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`
+(SHA-256 `6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`).
+V11 is not installed at runtime until genuinely unseen generation passes.
 
 ## Current Evidence
 

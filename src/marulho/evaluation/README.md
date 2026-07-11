@@ -66,6 +66,20 @@ At 67,112,064 tokens, token-hash reaches loss 3.8747 / 35.9% strict free relatio
 versus Transformer 3.8951 / 19.1% and shared-only 3.9088 / 25.8%, retaining 96.0%
 of Transformer throughput. Decision:
 `promote_v11_hash_for_checkpoint_and_unseen_generation`.
+The runner can then execute only `token_hash` with `--qualification-report` and
+`--checkpoint-output`. This independent run must preserve the exact token count,
+common initialization, configuration, schedule, and tokenizer, then re-pass the
+unchanged joint loss/behavior/throughput gate against the qualified controls;
+long BF16/Inductor trajectories and discontinuous greedy exact-match scores are
+not required to be bit-identical. The checkpoint reproduction report is
+`reports/language_scaling/hashed-micro-v11-checkpoint-reproduction-seed2026-67m-20260711.json`.
+It reaches loss 3.8738 / 30.9% strict free relation and saves the 154.3 MiB
+strict artifact at
+`reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`
+with SHA-256
+`6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`.
+A fresh strict load restores model, tokenizer, tied weights, and qualification
+metadata. This admits unseen generation, not runtime installation.
 
 **`language_micro_expert_falsification.py`** — the active uninstalled v10
 comparison runner. It compares the Transformer with shared-only, frozen-random product-key,

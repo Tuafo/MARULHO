@@ -146,19 +146,26 @@ model stores 36,180,480 parameters; its 1,581,056 theoretical replacement-path
 multiplies per token are 50.26% of the dense MLP before gather overhead. The
 shared-only and token-hash modes reuse one graph. Exact tensor transfer proves
 the hash path is functionally equivalent to V10's winning control. This remains
-falsifier-only pending larger-budget durability. Its CUDA/Inductor smoke compiles
+an uninstalled experimental path pending unseen-generation qualification. Its CUDA/Inductor smoke compiles
 the pruned candidate in 22.8s, peaks at 1.70 GB, and measures 124.2k token-hash
 tokens/s; the two-step quality values are discarded. The 67.11M-token run passes
 both controls at loss 3.8747 / 35.9% strict free relation and advances the model
-to checkpoint qualification.
+to checkpoint qualification. An independent exact-recipe checkpoint run reaches
+loss 3.8738 / 30.9% and retains the same fixed joint margins.
 
 The experimental checkpoint surface is
 `marulho_hashed_micro_expert_language_checkpoint.v1`. It owns the exact V11
 configuration, strict tensor state, tied embeddings, tokenizer state and hash,
 ownership flags, and qualification metadata. Atomic save and strict load reject
 wrong surfaces, tokenizer mismatches, shared-only mode, missing tensors, and
-untied restoration. The installed Transformer loader remains separate until V11
-also passes unseen generation.
+untied restoration. The qualified local artifact is
+`reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`,
+154.3 MiB with SHA-256
+`6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`.
+A fresh strict load restores 36,180,480 parameters, token-hash mode, tied
+weights, the 8,192-token vocabulary and tokenizer hash, and ownership metadata.
+The installed Transformer loader remains separate until V11 passes unseen
+generation.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

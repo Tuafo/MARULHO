@@ -300,8 +300,17 @@ relation is 19.1%/25.8%/35.9%. Token-hash sustains 125.2k tokens/s versus the
 Transformer's 130.4k, peaks at 2.70 GB including the 1.07 GB staged schedule,
 passes parity and all gradients, and beats both controls on both required
 margins. Decision: `promote_v11_hash_for_checkpoint_and_unseen_generation`.
-This promotes checkpoint and unseen-generation qualification, not runtime
-installation.
+An independent hash-only reproduction on the exact configuration, schedule,
+tokenizer, token count, and initialization reaches loss 3.8738 and 30.9% strict
+free relation. It therefore re-passes the original fixed joint gate against the
+qualified Transformer and shared-only controls. The resulting 154.3 MiB strict
+checkpoint is
+`reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`
+(SHA-256 `6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`).
+A fresh strict reload restores all 36,180,480 parameters, token-hash mode, the
+8,192-token vocabulary and tokenizer hash, tied embedding/head weights, and
+MARULHO ownership. This promotes checkpoint fidelity and admits genuinely
+unseen-generation qualification, not runtime installation.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
