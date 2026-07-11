@@ -610,6 +610,30 @@ test must co-train the cortex on causal selected/off/random document contexts so
 it can learn how to use or ignore retrieved evidence; it still needs a disjoint
 likelihood win and anchored generation before any checkpoint or runtime claim.
 
+V23 tests that co-adaptation and fails promotion while preserving a real source-
+use signal. The retained report is
+`reports/language_scaling/v23-joint-document-retrieval-800step-20260711.json`
+(SHA-256
+`5b0010dbb3361362ec174b067efaf93e783c7860cb54db1e5dae23532a45cb6e`).
+Off/random-one/lexical-one/oracle-one disjoint document loss is
+3.2274/3.2454/3.2083/3.1857. Oracle gains +0.0417 over off with 95% interval
++0.0112 to +0.0743, so the joint interface is learnable. Lexical gains +0.0192,
+but its interval is -0.0049 to +0.0481. Within the lexical-trained model, true
+history beats a guaranteed distractor by +0.0833 with interval +0.0580 to
++0.1108; random training is significantly worse than off. The cortex therefore
+learns to use source identity, but the selector includes the target in only
+69.92% of eval cases and the aggregate win remains heterogeneous.
+
+Retention independently blocks the branch. Lexical FineWeb-Edu/Cosmopedia
+general loss regresses +0.1200/+0.1346, both above the +0.10 limit. Eight free
+continuations reach only 3.13% expected token-position accuracy and 19.17%
+unique-target-token recall. Decision:
+`retire_v23_lexical_retrieval_breaks_general_language`; no checkpoint exists.
+The next bounded redesign increases ordinary replay to 50% and trains lexical
+top-two beside top-one and equal-token random-two. Top-two raises target
+inclusion and must learn to ignore its extra distractor; it survives only with a
+significant two-corpus likelihood win, source use, and restored retention.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

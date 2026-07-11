@@ -345,6 +345,21 @@ exact evidence and ignore distraction. A survivor must improve disjoint
 likelihood, source-anchored free generation, and general retention together
 before a strict cortex/archive/index checkpoint exists.
 
+V23 answers half of that question. Oracle training gains 0.0417 over off, and a
+lexical-trained cortex assigns 0.0833 more loss advantage to true history than a
+guaranteed distractor. Random context hurts. Co-adaptation therefore creates
+real source use. The branch still fails: lexical's +0.0192 matched gain has an
+interval crossing zero, top-one finds the target only 69.92% of the time,
+general loss regresses 0.1200/0.1346, and free continuation stays weak.
+
+The next experiment changes two coupled bottlenecks rather than simply adding
+steps. A 50/50 document/general schedule restores more ordinary language, while
+lexical top-two raises evidence recall. Off, random-two, lexical-one,
+lexical-two, and oracle-one receive exact resets. Lexical-two must beat both
+top-one and random-two, prove true evidence beats two wrong spans, and preserve
+each general source. Failure retires raw prompt-style document memory and forces
+a separate reader/cross-attention interface rather than another replay tweak.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a

@@ -72,6 +72,7 @@ when they express a measurable computational role and can beat matched controls.
 | V21 language screen | Lexical top-two reaches 51.6% free exact and 52.0% paired source-following versus all-history at 39.5% and 38.0%; it reads 96 instead of 192 source tokens | Advance exact episodic retrieval to causal document streams |
 | V22 document audit | Oracle-one improves loss by 0.0341, but lexical-one's 75.0% retrieval recall yields only +0.0017 and top-two hurts; wrong episodes are about three times as costly as correct episodes are useful | Replace unconditional top-k with a calibration-frozen retrieve-or-abstain gate |
 | V22b abstention audit | The frozen gate transfers at 97.84% precision and gains 0.0356 loss, but always-on lexical gains 0.0388 on the same cases | Retire detached correctness gating and co-train the cortex to interpret selected evidence |
+| V23 joint document screen | Oracle and true-vs-wrong tests prove learned source use, but lexical's +0.0192 interval crosses zero and general loss regresses +0.1200/+0.1346 | Reject the 75/25 top-one curriculum; run one balanced top-two falsifier |
 
 V21 also keeps both general-language holdouts within the preregistered 0.10 loss
 regression bound and uses about 0.90 GiB peak allocation versus all-history's
@@ -103,10 +104,10 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Jointly train fresh matched off, random-one, and lexical-one cortex arms on
-   causal replay-document contexts with ordinary next-token loss.
-2. Compare them once on disjoint FineWeb-Edu and Cosmopedia likelihood,
-   source-anchored generation, and general retention.
+1. Jointly train exact-reset off, random-two, lexical-one, lexical-two, and
+   oracle-one arms with a 50/50 document/general schedule.
+2. Require top-two to beat top-one and random-two on disjoint FineWeb-Edu and
+   Cosmopedia likelihood, true-vs-wrong evidence use, and general retention.
 3. If a selected-evidence arm survives, save one cortex-plus-archive checkpoint
    and test strict reload/rollback.
 4. Re-run genuinely unseen Base-Language Qualification from that artifact.

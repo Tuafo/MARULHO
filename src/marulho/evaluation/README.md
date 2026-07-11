@@ -455,6 +455,26 @@ lower bound. Neither general holdout may regress by more than 0.10. A pass
 advances only to anchored free-generation review; the runner saves no checkpoint
 and makes no speed or base-quality claim.
 
+The V23 report is
+`reports/language_scaling/v23-joint-document-retrieval-800step-20260711.json`
+(SHA-256
+`5b0010dbb3361362ec174b067efaf93e783c7860cb54db1e5dae23532a45cb6e`).
+Off/random-one/lexical-one/oracle-one disjoint loss is
+3.2274/3.2454/3.2083/3.1857. Oracle's matched gain is +0.0417 with 95% interval
++0.0112 to +0.0743. Lexical gains +0.0192, but its interval is -0.0049 to
++0.0481 and target inclusion is 69.92%. The lexical-trained model nevertheless
+uses evidence: true history beats a guaranteed distractor by +0.0833 with
+interval +0.0580 to +0.1108. All 28 model parameter tensors receive nonzero
+gradient.
+
+Lexical general retention fails independently at +0.1200 FineWeb-Edu and
++0.1346 Cosmopedia. Eight free continuations reach 3.13% expected token-position
+accuracy and 19.17% unique-target-token recall. Decision:
+`retire_v23_lexical_retrieval_breaks_general_language`; no checkpoint is saved.
+The next and final raw-context test uses 50% ordinary replay and compares
+lexical top-two with top-one and equal-token random-two. A failure there moves
+document memory behind a separate reader rather than another curriculum tweak.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

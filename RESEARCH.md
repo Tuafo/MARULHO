@@ -136,6 +136,12 @@ one word with it.
     gains more at 0.0388. The gate removes useful low-margin evidence and misses
     its preregistered advantage. Detached abstention is retired; the next test
     co-adapts the cortex to selected and distracting document contexts.
+19. V23 demonstrates co-adapted source use without a promotable system. Oracle
+    gains 0.0417 over off, and true history beats a distractor by 0.0833 inside
+    the lexical-trained model. Lexical's aggregate +0.0192 interval still
+    crosses zero, target inclusion is 69.92%, and general loss regresses
+    0.1200/0.1346. The next bounded test combines top-two recall with 50% general
+    replay; another failure ends raw prompt-style document memory.
 
 ## Provisional scaling diagnosis
 
@@ -269,9 +275,11 @@ has a language-specific purpose.
   binding. V22 shows that true general-document episodes help but retrieval
   errors are asymmetrically costly. V22b then shows that same-document
   confidence does not predict marginal utility well enough to improve on
-  always-read lexical selection. The next interface jointly trains the cortex
-  on selected/off/random causal contexts; no checkpoint/index contract is built
-  until it wins on disjoint likelihood and anchored generation.
+  always-read lexical selection. V23 co-training creates genuine source use but
+  loses retention and lacks a significant aggregate win. The final raw-context
+  interface test pairs top-two selection with 50% general replay; no checkpoint/
+  index contract is built until it wins on disjoint likelihood, retention, and
+  anchored generation.
 
 ### Multiple learning timescales
 
