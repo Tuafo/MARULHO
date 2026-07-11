@@ -37,6 +37,16 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
+**`language_dynamical_memory_falsification.py`** — the active v7 replacement
+experiment. It compares the frozen Transformer with memory-off, single-scale,
+multiscale always-write, multiscale fixed-random-write, and multiscale
+learned-write controls at 20.977M parameters. The exact schedule is staged once;
+all five memory arms reload exact initial tensors into one compiled model object
+and receive fresh optimizers. Reports are resumable after every arm. The CUDA
+smoke compiled one candidate graph instead of five, avoided four redundant
+compiles, passed parity at 0.000040, and verified distinct gate telemetry. Smoke
+losses do not promote the model.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone

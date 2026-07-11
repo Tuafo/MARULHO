@@ -577,6 +577,30 @@ modular/Hopfield/column language code is deleted. Heterogeneous columns remain a
 possible future grounded hypothesis only after a base model earns sufficient
 language quality; they were not part of v6.
 
+## V7 hypothesis: gated multiscale dynamical memory
+
+V7 keeps the four-layer attention path and inserts four fixed-stable rotating
+memory banks between layers two and three. MLP hidden widths shrink from 2048 to
+1920 to hold the total at 20.977M versus the 20.976M control. Decays of
+0.50/0.875/0.96875/0.9921875 provide different state horizons; a content gate
+controls writes. This is an attention-recurrence hybrid, not a claim that linear
+recurrence is new. LRU, Mamba, HGRN, Griffin, and the recall failures measured by
+Zoology are the closest constraints on the design.
+
+The first unrolled implementation was computationally rejected: 258.3 seconds to
+compile and 63.7k tokens/s. The same fixed recurrence is now evaluated during
+training as grouped causal convolutions and during generation as a one-token
+recurrent update. The two forms match with nonzero prior state. First compile fell
+to 67.6 seconds, compiled/eager loss delta was 0.000261, and 20 steady updates
+reached 114.1k tokens/s. The matched runner then reused one graph across five
+controls in a CUDA smoke, avoiding four compiles and passing parity at 0.000040.
+
+The full decision compares Transformer, memory-off, single-scale, multiscale
+always-write, fixed-random-write, and learned-write arms on the frozen 16.79M
+schedule. Learned multiscale memory must beat every control by at least 0.005
+loss and two strict-free points. Any first positive is replicated before scale;
+no checkpoint exists before survival.
+
 ## Retired ideas
 
 - SNN or GRU language recurrence as the active language core.

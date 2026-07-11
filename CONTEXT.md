@@ -208,9 +208,13 @@ The first 20.977M core now keeps all four attention layers and inserts four
 fixed-stable rotating banks between layers two and three. Five memory modes share
 one parameter graph; causality, streaming equivalence, finite long state, full
 gradient coverage, generation, and 0.1%-match tests pass. It remains uninstalled
-until the matched runner decides it. The initial 72-step Python recurrence was
-rejected after a 258.3-second compile and 63.7k tokens/s. An exactly equivalent
-grouped causal-convolution form reduced first compile to 67.6 seconds and reached
+until the matched runner decides it. The runner compares the Transformer plus
+five exact-reset memory controls, writes resumable evidence after every arm, and
+reuses one candidate loss graph; its CUDA smoke avoided four redundant compiles
+and passed eager/compiled parity at 0.000040. The initial 72-step Python
+recurrence was rejected after a 258.3-second compile and 63.7k tokens/s. An
+exactly equivalent grouped causal-convolution form reduced first compile to 67.6
+seconds and reached
 114.1k tokens/s, including optimizer updates, while retaining a 0.000261
 compiled/eager loss delta. One candidate graph can be reused across all controls.
 

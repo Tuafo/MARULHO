@@ -64,7 +64,9 @@ the failed model, runner, and tests are deleted.
 The next architecture direction is a single strong language interface with
 several small, stable, multiscale dynamical memories and a prediction-utility
 write gate. `IDEAS.md` defines the controls and kill conditions; geometry is
-used first as a diagnostic rather than assumed to be capability.
+used as a diagnostic rather than assumed to be capability. The 20.977M v7 core
+and six-arm matched runner now exist but remain uninstalled and unpromoted until
+the full-budget evidence is complete.
 
 ## Current Evidence
 
