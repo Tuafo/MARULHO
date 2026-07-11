@@ -135,41 +135,59 @@ and [mHC](https://arxiv.org/abs/2512.24880) without multiplying streams. A 2026
 [stream-collapse analysis](https://arxiv.org/abs/2606.03483) remains a warning
 against promoting a larger multi-stream variant without stronger evidence.
 
-### 4. Sparse shared-core micro-experts — research candidate
+### 4. Product-key singleton micro-experts — active V10 design
 
-Replace each monolithic feed-forward transformation with a dense shared path
-plus several small sparse expert residuals. All tokens retain the same attention
-and vocabulary interface; the units add conditional capacity rather than
-becoming separate language models. This directly tests the user's micro-to-macro
-intuition in the part of a Transformer that naturally decomposes by token.
+V10 tests the micro-to-macro idea inside one language model without creating
+separate little language models. It replaces the dense MLP in one middle
+Transformer block with two cooperating parts:
 
-The first falsifier needs more than learned routing versus a small dense model:
+- a 1024-wide shared SwiGLU path that every token uses;
+- a pool of 16,384 singleton experts, where each expert is one learned input
+  vector, one nonlinearity, and one learned output vector.
 
-- compare at both equal active FLOPs and equal wall-clock, while reporting total
-  parameters and optimizer/VRAM cost;
-- include shared-only, fixed-random, token-hash, and learned top-k routing;
-- keep expert capacity and dispatch counts identical across routing controls;
-- report router load, entropy, expert gradient coverage, active parameters, and
-  specialization, but promote only heldout loss and free generation;
-- preserve one dense residual path so a bad early router cannot delete basic
-  language computation;
-- compare against a dense model with similar total parameters when it fits, so
-  sparsity is not credited for capacity that dense scaling would use better.
+Four independent query heads use a 128 x 128 product-key index and retrieve two
+experts each, so only eight singleton functions are active for a token. Product
+keys reduce routing from an exhaustive 16,384-way search to two 128-way searches
+per head. Query normalization is per-token rather than batch normalization so
+routes remain causal and full-forward generation can equal streaming generation.
+The target model stores about 37.3M parameters, but the shared path, query
+projection, key search, and eight active experts require roughly 92% of the
+baseline dense MLP multiplies in the replaced block before top-k overhead. The
+remaining three Transformer blocks stay unchanged.
 
-Kill the line if learned routing does not beat random/hash routing, if experts
-collapse to interchangeable functions, or if dispatch overhead erases the
-active-compute benefit on the RTX 3060. Even a win would establish a useful
-conditional-compute substrate, not yet a new theory of cognition.
+This design replaces an earlier coarse eight-MLP-expert sketch. Conventional
+expert-choice routing depends on other tokens in the batch and therefore breaks
+MARULHO's streaming contract. Token-choice routing for full MLP experts requires
+dynamic grouped dispatch that is poorly matched to a single RTX 3060. Singleton
+experts can instead be gathered and combined with fixed-shape tensor operations,
+making the causal scientific test practical on local hardware.
 
-Relevant constraints are already known. [DeepSeekMoE](https://arxiv.org/abs/2401.06066)
-combines fine-grained routed experts with shared experts;
-[PEER](https://arxiv.org/abs/2407.04153) retrieves from very large pools of tiny
-experts; and [OLMoE](https://arxiv.org/abs/2409.02060) provides open routing and
-specialization evidence at much larger scale. A 2026
-[counterfactual routing audit](https://arxiv.org/abs/2605.07260) finds that
-standard routers often miss better equal-compute routes on fragile tokens. That
-warning matches MARULHO v2's learned-selector failure and makes random/hash and
-counterfactual controls mandatory.
+The exact-reset candidate graph must compare:
+
+- shared-only, with expert work computed but its residual contribution zeroed;
+- fixed-random product-key routing, with the initial router frozen;
+- deterministic token-hash routing, with no learned selector;
+- learned product-key routing.
+
+All expert vectors train in the routed controls; labels remain metrics-only and
+cannot affect route selection. Reports must include total and active parameters,
+theoretical work, observed throughput, peak VRAM, used-expert fraction, routing
+unevenness, per-head duplication, routing entropy, router gradients, expert-row
+gradient coverage, and expert-vector diversity. Those measurements explain the
+mechanism; heldout loss and strict free generation select the branch. Learned
+routing must beat shared-only, random, hash, and the Transformer. A fixed router
+may replicate without a learned-routing claim. No checkpoint exists before a
+replicated survivor.
+
+[PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
+single-neuron experts as the closest prior architecture; V10 is a small-scale,
+causal, controlled test rather than a novelty claim for those primitives.
+[DeepSeekMoE](https://arxiv.org/abs/2401.06066) supports retaining a shared path,
+while [OLMoE](https://arxiv.org/abs/2409.02060) shows specialization only at much
+larger scale. A 2026 [counterfactual routing audit](https://arxiv.org/abs/2605.07260)
+finds that standard routers often miss better equal-compute routes on fragile
+tokens. That warning matches MARULHO v2 and makes the fixed routing controls
+mandatory.
 
 ### 5. Gated multiscale dynamical memory — v7 retired
 
@@ -339,12 +357,10 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    win reverses in the 67.11M-token durability comparison.
 3. Completed: run and retire V9 after two seeds show a replicated small loss
    signal but no joint win over identity and fixed controls.
-4. Add a read-only neural-manifold diagnostic to the maintained Transformer and
-   every future survivor. Use it to explain results, never to promote a model.
-5. Research and cost a shared-core sparse micro-expert candidate, then run
-   shared-only, random, hash, and learned routing in one matched harness. Share
-   data and compiled graphs where mathematically identical; never share weights,
-   optimizer state, or labels.
+4. Implement and run V10 product-key singleton micro-experts with shared-only,
+   frozen-random, token-hash, and learned routing on one exact-reset graph.
+5. Add a read-only neural-manifold diagnostic to the maintained Transformer and
+   V10. Use it to explain results, never to promote a model.
 6. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
