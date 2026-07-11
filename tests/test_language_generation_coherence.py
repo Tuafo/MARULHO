@@ -9,6 +9,7 @@ from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_generation_coherence import (
     SURFACE,
     LanguageGenerationPromptCase,
+    _source_continuation_loss_case,
     auto_source_prompt_cases,
     run_language_generation_coherence_report,
 )
@@ -214,6 +215,47 @@ def test_auto_source_prompt_cases_anchor_to_source_and_skip_headers() -> None:
     assert all(not case.prompt_text.startswith("###") for case in cases)
     assert all(case.prompt_text != "I'm ready to" for case in cases)
     assert cases[0].source_text == source_text
+
+
+def test_auto_source_prompt_cases_stream_and_skip_oversized_prompts() -> None:
+    huge = "x" * 256
+    source_text = (
+        f"{huge} second third.\n"
+        "Compact heldout prose continues with useful evidence.\n"
+    )
+    cases = auto_source_prompt_cases(
+        source_text,
+        limit=1,
+        max_prompt_chars=64,
+    )
+    assert len(cases) == 1
+    assert cases[0].prompt_text == "Compact heldout prose"
+
+
+def test_source_continuation_loss_clips_to_model_context() -> None:
+    torch.manual_seed(91)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            embedding_dim=16,
+            state_dim=16,
+            state_layers=1,
+            attention_heads=4,
+            transformer_context_length=16,
+            transformer_mlp_ratio=2.0,
+        )
+    )
+    case = LanguageGenerationPromptCase(
+        prompt_text="MARULHO",
+        source_text="MARULHO learns from a long heldout continuation safely.",
+        max_new_tokens=64,
+    )
+    report = _source_continuation_loss_case(model, tokenizer, case)
+    assert report["enabled"] is True
+    assert report["model_context_length"] == 16
+    assert report["continuation_clipped_to_context"] is True
+    assert report["prompt_token_count"] + report["evaluated_token_count"] <= 17
 
 
 def test_language_generation_coherence_report_blocks_unsupported_generation() -> None:

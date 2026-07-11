@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import io
 from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
@@ -93,6 +94,7 @@ def auto_source_prompt_cases(
     min_printable_fraction: float = 0.95,
     min_distinct_bigram_fraction: float = 0.20,
     max_token_run_length: int = 8,
+    max_prompt_chars: int = 160,
 ) -> tuple[LanguageGenerationPromptCase, ...]:
     requested = max(0, int(limit))
     if requested <= 0:
@@ -100,34 +102,36 @@ def auto_source_prompt_cases(
     exclusions = _prompt_exclusion_keys(exclude_prompt_cases)
     prompts: list[str] = []
     seen: set[str] = set()
-    lines = [
-        line.strip()
-        for line in str(source_text).splitlines()
-        if line.strip() and not line.lstrip().startswith("###")
-    ]
-    chunks: list[str] = []
-    for line in lines:
-        chunks.extend(
-            chunk.strip()
-            for chunk in re.split(r"(?<=[.!?])\s+", line)
-            if chunk.strip()
-        )
-    for chunk in chunks:
-        token_matches = list(re.finditer(r"\S+", chunk))
-        if len(token_matches) < 3:
+    for raw_line in io.StringIO(str(source_text)):
+        line = raw_line.strip()
+        if not line or line.lstrip().startswith("###"):
             continue
-        span_count = min(3, len(token_matches) - 2)
-        for start_index in range(span_count):
-            start = token_matches[start_index].start()
-            stop = token_matches[start_index + 2].end()
-            prompt = chunk[start:stop].strip()
-            key = prompt.casefold()
-            if not prompt or key in seen or _is_excluded_prompt(prompt, exclusions):
+        for chunk in (
+            part.strip() for part in re.split(r"(?<=[.!?])\s+", line)
+            if part.strip()
+        ):
+            token_matches = list(re.finditer(r"\S+", chunk))
+            if len(token_matches) < 3:
                 continue
-            if prompt not in source_text:
-                continue
-            seen.add(key)
-            prompts.append(prompt)
+            span_count = min(3, len(token_matches) - 2)
+            for start_index in range(span_count):
+                start = token_matches[start_index].start()
+                stop = token_matches[start_index + 2].end()
+                prompt = chunk[start:stop].strip()
+                key = prompt.casefold()
+                if (
+                    not prompt
+                    or len(prompt) > max(1, int(max_prompt_chars))
+                    or key in seen
+                    or _is_excluded_prompt(prompt, exclusions)
+                ):
+                    continue
+                if prompt not in source_text:
+                    continue
+                seen.add(key)
+                prompts.append(prompt)
+                if len(prompts) >= requested:
+                    break
             if len(prompts) >= requested:
                 break
         if len(prompts) >= requested:
@@ -257,6 +261,8 @@ def _source_continuation_loss_case(
         "prompt_token_count": 0,
         "decode_vocab_only": True,
         "full_model_vocab_logits_materialized": None,
+        "model_context_length": None,
+        "continuation_clipped_to_context": False,
     }
     if not hasattr(model, "forward"):
         return {**base, "reason": "model_forward_unavailable"}
@@ -267,16 +273,36 @@ def _source_continuation_loss_case(
     continuation_text = str(case.source_text)[
         source_index + len(str(case.prompt_text)) :
     ]
-    continuation_ids = tokenizer.encode(continuation_text, add_eos=False)[
-        : max(0, int(case.max_new_tokens))
-    ]
     if not prompt_ids:
         return {**base, "reason": "empty_prompt_tokens"}
+    context_length = int(
+        getattr(
+            model,
+            "context_length",
+            getattr(getattr(model, "config", None), "transformer_context_length", 0),
+        )
+        or 0
+    )
+    requested_continuation_tokens = max(0, int(case.max_new_tokens))
+    maximum_continuation_tokens = requested_continuation_tokens
+    if context_length > 0:
+        maximum_continuation_tokens = min(
+            maximum_continuation_tokens,
+            max(0, context_length + 1 - len(prompt_ids)),
+        )
+    continuation_ids = tokenizer.encode(continuation_text, add_eos=False)[
+        :maximum_continuation_tokens
+    ]
     if not continuation_ids:
         return {
             **base,
-            "reason": "empty_source_continuation_tokens",
+            "reason": (
+                "prompt_exhausts_model_context"
+                if context_length > 0 and maximum_continuation_tokens <= 0
+                else "empty_source_continuation_tokens"
+            ),
             "prompt_token_count": int(len(prompt_ids)),
+            "model_context_length": context_length or None,
         }
     combined_ids = prompt_ids + continuation_ids
     input_ids = torch.tensor([combined_ids[:-1]], dtype=torch.long)
@@ -331,6 +357,10 @@ def _source_continuation_loss_case(
                 "perplexity_capped": perplexity_capped,
                 "evaluated_token_count": int(targets.numel()),
                 "prompt_token_count": int(len(prompt_ids)),
+                "model_context_length": context_length or None,
+                "continuation_clipped_to_context": bool(
+                    maximum_continuation_tokens < requested_continuation_tokens
+                ),
                 "source_continuation_token_count": int(len(continuation_ids)),
                 "continuation_target_start_index": int(continuation_start),
                 "generation_vocab_size": generation_vocab_size,
