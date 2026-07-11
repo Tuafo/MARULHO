@@ -634,6 +634,26 @@ top-two beside top-one and equal-token random-two. Top-two raises target
 inclusion and must learn to ignore its extra distractor; it survives only with a
 significant two-corpus likelihood win, source use, and restored retention.
 
+V24 restores retention but rejects top-two. The retained report is
+`reports/language_scaling/v24-balanced-top2-document-retrieval-800step-20260711.json`
+(SHA-256
+`340e397a4b90d035c26ab30ce849e42d670def6386dd12d5fcfe1be5692e700d`).
+Off/random-two/lexical-one/lexical-two/oracle-two loss is
+3.1261/3.1281/3.1006/3.1070/3.0946. Lexical-two includes the target in 82.42%
+of cases, below its 85% gate, and gains +0.0191 with interval -0.0046 to
++0.0443. It is 0.0064 worse than lexical-one. True-plus-distractor still beats
+two wrong spans by +0.0802 with a positive interval, and general regression is
+only +0.0677, so failure is added distraction rather than lost source use or
+forgetting. Decision: `retire_v24_balanced_top_two_no_joint_language_win`.
+
+The lexical-one control is a new positive that cannot be discarded: it gains
++0.0255 over off with interval +0.0036 to +0.0513, true history beats wrong
+history by +0.0682, and general regression is +0.0701. V24 did not include an
+equal-token balanced random-one arm and did not preregister lexical-one for
+promotion. The next test is therefore one fresh-seed replication of balanced
+top-one against off, random-one, and oracle-one. Top-two is retired. A top-one
+replication must win both corpora and source-use controls before any checkpoint.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

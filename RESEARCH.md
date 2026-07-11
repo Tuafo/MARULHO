@@ -142,6 +142,11 @@ one word with it.
     crosses zero, target inclusion is 69.92%, and general loss regresses
     0.1200/0.1346. The next bounded test combines top-two recall with 50% general
     replay; another failure ends raw prompt-style document memory.
+20. V24 shows that replay balance fixes forgetting but top-two does not fix
+    retrieval. Lexical-two is 0.0064 worse than top-one despite strong source use.
+    The lexical-one control itself gains 0.0255 over off with a positive interval
+    and preserves general loss. Because balanced random-one was absent, one
+    fresh-seed top-one replication is required before promotion or retirement.
 
 ## Provisional scaling diagnosis
 
@@ -276,10 +281,11 @@ has a language-specific purpose.
   errors are asymmetrically costly. V22b then shows that same-document
   confidence does not predict marginal utility well enough to improve on
   always-read lexical selection. V23 co-training creates genuine source use but
-  loses retention and lacks a significant aggregate win. The final raw-context
-  interface test pairs top-two selection with 50% general replay; no checkpoint/
-  index contract is built until it wins on disjoint likelihood, retention, and
-  anchored generation.
+  loses retention and lacks a significant aggregate win. V24 restores retention
+  but rejects top-two distraction; its lexical-one control is significant. The
+  final raw-context decision is a fresh balanced top-one replication against
+  equal-token random-one. No checkpoint/index contract is built until it wins on
+  disjoint likelihood, retention, and anchored generation.
 
 ### Multiple learning timescales
 

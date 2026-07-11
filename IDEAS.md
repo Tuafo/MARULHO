@@ -360,6 +360,20 @@ top-one and random-two, prove true evidence beats two wrong spans, and preserve
 each general source. Failure retires raw prompt-style document memory and forces
 a separate reader/cross-attention interface rather than another replay tweak.
 
+V24 rejects the top-two candidate: higher inclusion reaches only 82.42%, and the
+extra distractor makes it 0.0064 worse than lexical-one. Balanced replay does
+repair general retention. More importantly, lexical-one unexpectedly becomes a
+credible positive control: +0.0255 over off with a positive paired interval,
++0.0682 true-vs-wrong source use, and +0.0701 general regression. It lacks the
+balanced random-one comparison required to attribute that win to selection.
+
+One fresh-seed top-one replication is now justified. Off, random-one,
+lexical-one, and oracle-one use 50/50 replay and identical resets. If lexical-one
+beats off and random-one with positive paired evidence on both corpora, exact
+episodic memory survives as a sparse one-record interface. If it fails, raw
+prompt-style memory is retired and the next architecture gets a separate
+reader/cross-attention path. No more top-k or replay-ratio sweeps follow.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a

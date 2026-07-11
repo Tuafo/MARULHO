@@ -491,6 +491,24 @@ spans by +0.02 with a positive lower bound, and neither general source may
 regress by more than 0.10. A pass advances to anchored review only; a failure
 retires raw prompt-style document memory in favor of a separate reader.
 
+The V24 report is
+`reports/language_scaling/v24-balanced-top2-document-retrieval-800step-20260711.json`
+(SHA-256
+`340e397a4b90d035c26ab30ce849e42d670def6386dd12d5fcfe1be5692e700d`).
+Off/random-two/lexical-one/lexical-two/oracle-two loss is
+3.1261/3.1281/3.1006/3.1070/3.0946. Lexical-two target inclusion is 82.42%; its
++0.0191 gain has interval -0.0046 to +0.0443 and it is 0.0064 worse than
+lexical-one. True-plus-distractor beats two wrong spans by +0.0802, while general
+regression falls inside the gate at +0.0677. Decision:
+`retire_v24_balanced_top_two_no_joint_language_win`.
+
+Lexical-one is a significant control result: +0.0255 over off with interval
++0.0036 to +0.0513, +0.0682 true-vs-wrong source use, and +0.0701 general
+regression. Because V24 lacks a balanced random-one arm, the live runner next
+becomes a fresh-seed top-one replication with off/random-one/lexical-one/
+oracle-one. Top-two is not maintained. A failed replication retires raw context
+memory; a pass advances to anchored review before checkpointing.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
