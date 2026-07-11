@@ -475,6 +475,22 @@ The next and final raw-context test uses 50% ordinary replay and compares
 lexical top-two with top-one and equal-token random-two. A failure there moves
 document memory behind a separate reader rather than another curriculum tweak.
 
+The live `language_joint_document_retrieval_screen.py` now owns V24 and no
+longer maintains the failed V23 configuration. V24 restores the same 1B-token
+V11 state for off, random-two, lexical-one, lexical-two, and non-promotable
+oracle-two. Its 800 steps are split 50/50 between causal document targets and
+ordinary general replay. The candidate reads two 48-token spans; oracle-two
+contains the planted target plus one distractor, while wrong-two contains two
+distractors, keeping the 96-token source budget matched.
+
+Oracle-two must beat off by +0.02 with a positive paired bootstrap lower bound.
+Lexical-two must include the target in at least 85% of eval cases, beat off by
++0.01 with a positive lower bound, and beat both random-two and separately
+trained lexical-one by +0.005. True-plus-distractor context must beat two wrong
+spans by +0.02 with a positive lower bound, and neither general source may
+regress by more than 0.10. A pass advances to anchored review only; a failure
+retires raw prompt-style document memory in favor of a separate reader.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

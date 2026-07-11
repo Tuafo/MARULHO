@@ -134,7 +134,12 @@ def test_training_schedule_keeps_target_and_distractors_in_same_corpus() -> None
                 split.cases[index].source_index == split.cases[target].source_index
                 for index in group
             )
-    assert set(schedule.rankings) == {"random1", "lexical1", "oracle1"}
+    assert set(schedule.rankings) == {
+        "random2",
+        "lexical1",
+        "lexical2",
+        "oracle2",
+    }
 
 
 def test_document_task_batch_matches_zero_or_one_episode_budget() -> None:
@@ -148,7 +153,13 @@ def test_document_task_batch_matches_zero_or_one_episode_budget() -> None:
         facts_per_query=4,
         seed=3,
     )
-    for mode, source_tokens in (("off", 0), ("random1", 8), ("lexical1", 8), ("oracle1", 8)):
+    for mode, source_tokens in (
+        ("off", 0),
+        ("random2", 16),
+        ("lexical1", 8),
+        ("lexical2", 16),
+        ("oracle2", 16),
+    ):
         retrieved, query, targets, mask = document_task_batch(
             split,
             schedule,
@@ -186,11 +197,17 @@ def test_evaluation_schedule_has_label_safe_lexical_and_metrics_only_oracle() ->
     )
     assert groups.shape == (8, 4)
     assert targets.shape == (8,)
-    assert set(rankings) == {"random1", "lexical1", "oracle1", "wrong1"}
-    oracle = selected_slots_for_mode("oracle1", rankings)
+    assert set(rankings) == {
+        "random2",
+        "lexical1",
+        "lexical2",
+        "oracle2",
+        "wrong2",
+    }
+    oracle = selected_slots_for_mode("oracle2", rankings)
     assert oracle is not None
     assert torch.equal(oracle[:, 0], targets)
-    wrong = selected_slots_for_mode("wrong1", rankings)
+    wrong = selected_slots_for_mode("wrong2", rankings)
     assert wrong is not None
     assert not bool((wrong[:, 0] == targets).any())
 
@@ -211,9 +228,10 @@ def _decision_rows(
 ) -> dict[str, dict]:
     losses = {
         "off": 3.0,
-        "random1": 2.99,
-        "lexical1": 3.0 - lexical_gain,
-        "oracle1": 3.0 - oracle_gain,
+        "random2": 2.99,
+        "lexical1": 2.98,
+        "lexical2": 3.0 - lexical_gain,
+        "oracle2": 3.0 - oracle_gain,
     }
     rows = {}
     for mode in ARM_NAMES:
@@ -228,7 +246,7 @@ def _decision_rows(
             "evaluation": {
                 "primary": {
                     "heldout_loss": losses[mode],
-                    "target_inclusion": 0.8 if mode == "lexical1" else 1.0,
+                    "target_inclusion": 0.9 if mode == "lexical2" else 1.0,
                 },
                 "source_use": {"true_over_wrong": _gain(true_wrong_gain)},
             },
@@ -243,10 +261,10 @@ def test_decision_requires_oracle_learnability_source_use_and_retention() -> Non
     ) == ADVANCE_DECISION
     assert joint_document_decision(
         _decision_rows(oracle_gain=0.005), train_steps=512, config=config
-    ) == "retire_v23_document_task_not_learnable_with_oracle_history"
+    ) == "retire_v24_document_task_not_learnable_with_oracle_history"
     assert joint_document_decision(
         _decision_rows(true_wrong_gain=0.005), train_steps=512, config=config
-    ) == "retire_v23_joint_lexical_context_no_disjoint_source_use_win"
+    ) == "retire_v24_balanced_top_two_no_joint_language_win"
     assert joint_document_decision(
         _decision_rows(general_delta=0.11), train_steps=512, config=config
-    ) == "retire_v23_lexical_retrieval_breaks_general_language"
+    ) == "retire_v24_lexical_two_breaks_general_language"
