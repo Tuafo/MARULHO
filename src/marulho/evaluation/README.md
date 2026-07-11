@@ -413,22 +413,30 @@ threshold. The next audit must calibrate retrieval or abstention on separate
 replay documents, freeze the threshold, and evaluate once against equal-write-
 rate controls on the disjoint V22 documents.
 
-`language_confidence_gated_document_retrieval_audit.py` preregisters V22b. It
-samples 256 causal cases from each replay corpus for calibration, then freezes
-one lexical top-one-minus-top-two margin threshold before loading 128 cases from
-each disjoint eval corpus. Calibration uses same-document identity but never the
-future continuation or language loss. The selected threshold maximizes coverage
-subject to at least 95% global precision, 90% precision per corpus, 25% global
-coverage, and 15% coverage per corpus.
+The deleted V22b confidence-gate audit sampled 256 causal cases from each replay
+corpus, froze one lexical top-one-minus-top-two margin threshold, and then loaded
+128 cases from each disjoint eval corpus. Calibration used same-document
+identity but never the future continuation or language loss. Lexical, random,
+recency, and non-promotable oracle selection shared the exact gate mask.
 
-Evaluation either prepends one 48-token episode or abstains. Lexical, random,
-recency, and non-promotable oracle selection share the exact lexical gate mask,
-so active cases and source-token budgets match. Advancement requires at least
-90% transferred precision and 20% coverage, a +0.005 paired loss gain with a
-positive 4,096-sample bootstrap lower bound, +0.0025 over both equal-write-rate
-controls and the always-read lexical arm, and no source regression. A pass only
-admits joint training and anchored-generation evaluation; it does not save or
-install a checkpoint.
+The retained report is
+`reports/language_scaling/v22b-confidence-gated-document-retrieval-20260711.json`
+(SHA-256
+`189966d147b10a6ff1a5b003e86ced389f8b562e23635213b73101d510476aa8`).
+Calibration freezes margin 0.055112 at 51.76% coverage and 95.09% precision. It
+transfers to 54.30% coverage and 97.84% precision. Gated lexical improves loss
+by +0.0356 with 95% interval +0.0180 to +0.0552; matched random/recency gates
+regress by 0.0375/0.0307. Always-on lexical nevertheless improves by +0.0388,
+making the gate 0.0032 worse rather than the required 0.0025 better. Decision:
+`retire_v22b_fixed_confidence_gate_insufficient_language_gain`.
+
+The result separates address correctness from predictive utility. A detached
+same-document gate removes useful low-margin episodes as well as harmful ones,
+and the earlier V12 frozen-bank utility predictor already failed disjoint
+transfer. The V22b runner and tests are deleted. The next experiment may reuse
+the causal V22 document builder but must co-train fresh cortex arms on off,
+random, and lexical contexts, then require disjoint likelihood and anchored
+generation together before saving a checkpoint.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

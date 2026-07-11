@@ -589,6 +589,27 @@ falsifier must calibrate a retrieve-or-abstain rule on separate training
 documents, freeze it, and evaluate it on these disjoint documents before any
 joint training, archive checkpoint, or runtime integration.
 
+V22b freezes that abstention policy and rejects it. The retained report is
+`reports/language_scaling/v22b-confidence-gated-document-retrieval-20260711.json`
+(SHA-256
+`189966d147b10a6ff1a5b003e86ced389f8b562e23635213b73101d510476aa8`).
+Replay calibration selects margin 0.055112 at 51.76% coverage and 95.09%
+precision. On the untouched 256-document evaluation it transfers to 54.30%
+coverage and 97.84% precision. Gated lexical retrieval improves paired loss by
++0.0356 with 95% interval +0.0180 to +0.0552; equal-mask random and recency
+controls regress by 0.0375 and 0.0307. However, always-on lexical-one improves
+by +0.0388 on the same cases, so the gate is 0.0032 worse instead of at least
+0.0025 better. Decision:
+`retire_v22b_fixed_confidence_gate_insufficient_language_gain`.
+
+Lexical margin predicts same-document retrieval correctness, but that label is
+not the same as marginal predictive utility. This repeats V12's warning against
+training another detached utility predictor on a frozen choice bank. The
+confidence-gate runner and tests are deleted. The next admissible exact-memory
+test must co-train the cortex on causal selected/off/random document contexts so
+it can learn how to use or ignore retrieved evidence; it still needs a disjoint
+likelihood win and anchored generation before any checkpoint or runtime claim.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

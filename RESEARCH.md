@@ -130,6 +130,12 @@ one word with it.
     reads lose 0.1050. High lexical margin raises precision to 95.3% at 50%
     coverage. Retrieval therefore needs calibrated abstention, not a larger
     fixed top-k.
+18. V22b shows that correctness confidence is transferable but is the wrong
+    optimization target. The frozen lexical gate reaches 97.84% precision and
+    gains 0.0356 loss, while equal-mask controls lose; always-on lexical still
+    gains more at 0.0388. The gate removes useful low-margin evidence and misses
+    its preregistered advantage. Detached abstention is retired; the next test
+    co-adapts the cortex to selected and distracting document contexts.
 
 ## Provisional scaling diagnosis
 
@@ -261,9 +267,11 @@ has a language-specific purpose.
   append-only episode archive retains exact token spans, provenance, and compact
   retrieval keys. V21 validates this division of labor on controlled relation
   binding. V22 shows that true general-document episodes help but retrieval
-  errors are asymmetrically costly, so the next interface selects zero or one
-  span through a calibration-frozen confidence gate. No checkpoint/index
-  contract is built until that gate wins on disjoint documents.
+  errors are asymmetrically costly. V22b then shows that same-document
+  confidence does not predict marginal utility well enough to improve on
+  always-read lexical selection. The next interface jointly trains the cortex
+  on selected/off/random causal contexts; no checkpoint/index contract is built
+  until it wins on disjoint likelihood and anchored generation.
 
 ### Multiple learning timescales
 

@@ -328,14 +328,22 @@ overall, because correct reads gain 0.0372 while wrong reads lose 0.1050.
 Top-two and all-history add more harmful distraction. The useful primitive is
 therefore not merely `retrieve(key)` but `retrieve_or_abstain(key, confidence)`.
 
-The next falsifier learns no language weights. It calibrates lexical/frozen-key
-margin thresholds on separate replay documents, freezes the policy, and tests
-the disjoint evaluation set once. At equal write rate, random and recency gates
-must remain controls. If a confidence gate cannot turn high-margin precision
-into a significant loss win on both sources, retire fixed-key prompt retrieval
-for general documents and move selection inside joint cortex training. A
-survivor still owes anchored generation and a strict cortex/archive/index
-checkpoint before promotion.
+V22b confirms that confidence transfers but rejects detached abstention. A
+replay-calibrated lexical margin gate reaches 97.84% precision at 54.30% coverage
+and a significant +0.0356 loss gain. Yet always-on lexical-one gains +0.0388 on
+the same cases, so the gate removes useful low-confidence reads along with bad
+ones. “Same document” is an address label, not a direct estimate of predictive
+utility. V12 already showed that a small frozen-bank utility predictor can fit
+training counterfactuals and reverse on disjoint data; repeating that recipe is
+not the next move.
+
+The next falsifier moves adaptation into the cortex. Fresh matched off,
+random-one, lexical-one, and possibly mixed lexical/off arms train on causal
+replay-document contexts with ordinary next-token loss, then face untouched
+documents. The question is whether a co-adapted cortex can learn to use relevant
+exact evidence and ignore distraction. A survivor must improve disjoint
+likelihood, source-anchored free generation, and general retention together
+before a strict cortex/archive/index checkpoint exists.
 
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
