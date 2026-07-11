@@ -95,6 +95,15 @@ useful systems result remains maintained: compiled post-step projection removed
 the eager slowdown, and the generic Windows Inductor compatibility and
 compile-amortized reporting stay available for future candidates.
 
+`language_dynamical_memory.py` is the uninstalled v7 experiment core. It keeps
+all four causal-attention layers, narrows each SwiGLU hidden width from 2048 to
+1920, and spends the recovered parameters on four fixed-stable rotating memory
+banks inserted between layers two and three. Content gates control writes at
+four decay horizons. Memory-off, single-scale, always-write, fixed-random-write,
+and learned multiscale modes share the exact same 20.977M parameter objects. The
+core is not checkpoint-promotable until its matched full-budget controls qualify
+it.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

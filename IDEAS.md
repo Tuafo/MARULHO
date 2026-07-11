@@ -77,6 +77,22 @@ Why this is plausible:
   decoders, or entire language models;
 - geometric constraints make stability measurable rather than rhetorical.
 
+The closest existing families constrain the novelty claim. [Linear Recurrent
+Units](https://arxiv.org/abs/2303.06349) show how diagonal stable recurrences can
+train well; [Mamba](https://arxiv.org/abs/2312.00752) makes state transitions
+input-selective; [HGRN](https://arxiv.org/abs/2311.04823) assigns increasing
+memory horizons across layers; and [Griffin](https://arxiv.org/abs/2402.19427)
+mixes gated recurrences with local attention. MARULHO is not claiming those
+primitives as new. Its test is whether several small fixed-stable memories with
+controlled writes can add useful temporal organization without replacing or
+duplicating the strong language path.
+
+[Zoology](https://arxiv.org/abs/2312.04927) is the strongest warning: much of the
+real-language gap for efficient recurrent/convolutional models comes from
+associative recall, while attention-recurrence hybrids recover most of it. That
+is why the first MARULHO candidate keeps all four attention layers and treats
+memory as a middle organ rather than an attention-free backbone.
+
 Why a pure reservoir is not the plan:
 
 - [Reservoir Computing as a Language Model](https://arxiv.org/abs/2507.15779)

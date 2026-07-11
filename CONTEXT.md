@@ -198,12 +198,17 @@ and tests are deleted; the local full report retains evidence.
 
 **Multiscale Gated Dynamical Memory Hypothesis** — retain one capable language
 interface and attach several small recurrent state organs with different stable
-time horizons. An exact multiresolution split supplies fast/medium/slow streams;
-a learned gate writes only when state improves future prediction. The decisive
+time horizons. Fixed decay/rotation banks create fast/medium/slow state streams;
+a learned gate controls writes through future prediction loss. The decisive
 controls are no memory, fixed random memory, shuffled scales, always-write,
 random-write, learned gate, and fully trainable recurrence at matched parameters
 and tokens. Geometry, perturbation decay, gate entropy, active compute, and state
 bytes diagnose the mechanism; heldout loss and strict free behavior decide it.
+The first 20.977M core now keeps all four attention layers and inserts four
+fixed-stable rotating banks between layers two and three. Five memory modes share
+one parameter graph; causality, streaming equivalence, finite long state, full
+gradient coverage, generation, and 0.1%-match tests pass. It remains uninstalled
+until the matched runner decides it.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
