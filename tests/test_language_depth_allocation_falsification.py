@@ -44,6 +44,16 @@ def test_v8_schedule_is_exact_and_reproducible() -> None:
     assert sum(kind == "relation" for kind, _index in first) == 323
     assert all(index >= 0 for _kind, index in first)
 
+    changed = build_matched_schedule(
+        step_count=1619,
+        relation_fraction=0.20,
+        relation_batch_count=400,
+        general_batch_counts=(700, 700),
+        seed=7331,
+    )
+    assert changed != first
+    assert sum(kind == "relation" for kind, _index in changed) == 323
+
 
 def test_v8_decision_requires_loss_and_free_generation() -> None:
     arms = [

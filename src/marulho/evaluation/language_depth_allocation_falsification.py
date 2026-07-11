@@ -892,6 +892,8 @@ def main() -> int:
     parser.add_argument("--token-budget", type=int, default=16_777_216)
     parser.add_argument("--train-sample-mib", type=int, default=64)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
+    parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--model-seed", type=int, default=1337)
     parser.add_argument("--arm", action="append", choices=ARM_NAMES, default=[])
     parser.add_argument(
         "--execution-backend",
@@ -915,6 +917,8 @@ def main() -> int:
             sample_bytes_per_eval_source=max(1, args.eval_sample_mib)
             * 1024
             * 1024,
+            seed=int(args.seed),
+            model_seed=int(args.model_seed),
             execution_backend=args.execution_backend,
         ),
         device=args.device,
