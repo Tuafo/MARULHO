@@ -164,6 +164,14 @@ and cosine phase from the exact qualified model; this fact is recorded, and
 optimizer state is not persisted or claimed to resume. The resulting artifact
 is an unseen-generation candidate, not a quality-promoted or runtime checkpoint.
 
+The current candidate contains 251,662,464 cumulative update tokens at heldout
+loss 3.4865. It is
+`reports/language_scaling/hashed-micro-v11-general-continuation-251m-candidate-20260711.pt`,
+154.3 MiB with SHA-256
+`fbf874923ebce6f4d36497f52a622dc8e222e01672b60876c910941af3fc1894`.
+Strict reload restores all model/tokenizer identity and qualification metadata;
+the artifact remains uninstalled because unseen coherence is still blocked.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

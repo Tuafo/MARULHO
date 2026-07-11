@@ -105,6 +105,19 @@ unpromoted and must pass the same unseen-generation suite; optimizer state is
 not claimed to persist. A two-step CUDA smoke passed the full path and its report
 was deleted because it has no quality value.
 
+The full continuation report is
+`reports/language_scaling/hashed-micro-v11-general-continuation-251m-20260711.json`.
+It adds exactly 184,550,400 tokens, reaches 251,662,464 cumulative tokens, and
+improves heldout loss 3.8709 to 3.4865 / perplexity 47.99 to 32.67 at 124.9k
+tokens/s. The strict candidate is
+`reports/language_scaling/hashed-micro-v11-general-continuation-251m-candidate-20260711.pt`
+with SHA-256
+`fbf874923ebce6f4d36497f52a622dc8e222e01672b60876c910941af3fc1894`.
+Frozen relation candidate/free behavior falls 95.7% to 32.8% / 30.9% to 0% with
+no replay. The repeated unseen reports improve prompt-local loss but remain 0/8;
+V11 ties the local 251M Transformer on FineWeb loss and trails on Cosmopedia.
+Decision: `retain_v11_checkpoint_redesign_token_only_routing_before_more_scaling`.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

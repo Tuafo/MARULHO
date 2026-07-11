@@ -118,6 +118,16 @@ source-prefix gate. Decode controls improve Cosmopedia bigram diversity from
 the same architecture on general language toward roughly 251M cumulative tokens
 before another quality decision; memory and runtime installation remain paused.
 
+The 251.66M-token continuation now improves heldout loss 3.8709 to 3.4865 at
+124.9k tokens/s. Prompt-local FineWeb-Edu/Cosmopedia loss improves to
+4.0272/3.3689. V11 ties the local 251M Transformer on FineWeb loss with much
+higher diversity, but trails its 3.2047 Cosmopedia loss; both pass 0/8 source
+gates. The phase also forgets frozen relations catastrophically (95.7% to 32.8%
+candidate ranking, 30.9% to 0% free generation). The strict candidate is retained
+for research, not installed. The next branch redesigns token-only routing for
+causal context sensitivity and tests longer training context at matched compute
+before another large scale run.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the

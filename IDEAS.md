@@ -248,6 +248,25 @@ not another memory mechanism: extend the same V11 checkpoint to the existing
 ~251M-token Transformer comparison point, then use the curve and repeated unseen
 texts to decide whether fixed micro-capacity scales or should be redesigned.
 
+The 251.66M point answers that question narrowly. V11 scales productively:
+heldout loss drops 3.8709 to 3.4865, FineWeb-Edu prompt loss 4.3092 to 4.0272,
+and Cosmopedia 3.6194 to 3.3689. It ties the local 251M Transformer on FineWeb
+loss and is more diverse, but trails on Cosmopedia (3.3689 versus 3.2047); both
+models still pass zero of eight source gates. A fixed token hash therefore looks
+like a useful lexical-capacity primitive, not a complete replacement for
+contextual computation. The same token always reaches the same singleton
+functions even when its meaning changes. The next hypothesis should retain a
+stable token-hash anchor while adding a causal context/manifold code without
+learned top-k competition. Separately test 256-token training sequences, because
+the current model is only optimized on 72-token windows despite supporting 256
+at runtime.
+
+General-only scaling also exposes the future continual-learning target cleanly:
+relation candidate accuracy falls 95.7% to 32.8% and free relation generation
+30.9% to 0%. Do not add replay or memory before the context-sensitive base branch
+is tested; later mechanisms must recover this capability without losing the new
+general-language curve.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

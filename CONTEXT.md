@@ -298,6 +298,21 @@ the same checkpoint toward roughly 251M cumulative general-language tokens,
 then repeat heldout and unseen-generation comparison before runtime, continual
 memory, or architectural promotion.
 
+That continuation now completes at exactly 251,662,464 cumulative tokens.
+Heldout loss improves 3.8709 to 3.4865 (perplexity 47.99 to 32.67) at 124.9k
+tokens/s, and the strict 154.3 MiB candidate reloads with SHA-256
+`fbf874923ebce6f4d36497f52a622dc8e222e01672b60876c910941af3fc1894`.
+FineWeb-Edu/Cosmopedia prompt-local loss improves from 4.3092/3.6194 to
+4.0272/3.3689. Against the local 251M Transformer, V11 ties FineWeb loss and has
+higher diversity, but trails Cosmopedia loss 3.3689 versus 3.2047. Both models
+still pass zero of eight source gates and direct review remains below coherent
+base-language qualification. The general-only phase also catastrophically
+forgets relations: candidate accuracy 95.7% to 32.8%, free generation 30.9% to
+0%. Decision: `retain_v11_checkpoint_redesign_token_only_routing_before_more_scaling`.
+Keep V11 as the strongest sparse base evidence, but test context-sensitive
+routing and longer training context at matched compute before another large
+scale run. Runtime and continual-memory work remain blocked.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing
