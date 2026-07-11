@@ -179,6 +179,13 @@ routing must beat shared-only, random, hash, and the Transformer. A fixed router
 may replicate without a learned-routing claim. No checkpoint exists before a
 replicated survivor.
 
+The CUDA/Inductor mechanism smoke passed after replacing two hash constants that
+exceeded Triton's inferred int32 range. One candidate graph served all four
+controls, avoiding three redundant compilations. Candidate modes stayed within
+0.97% steady throughput, peaked at 1.80 GB, and one evaluation batch touched
+roughly 60-69% of the pool with exactly eight assignments per token. These facts
+admit the full falsifier; the two-step losses are discarded.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

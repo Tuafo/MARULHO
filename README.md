@@ -96,7 +96,9 @@ theoretical work in the replaced MLP is 91.9% of the dense baseline before
 routing overhead. Shared-only, frozen-random, token-hash, and learned routing
 reuse the same parameter objects. Causality, streaming equivalence, generation,
 common initialization, fixed active granularity, and gradient isolation pass;
-language quality and GPU cost have not been measured yet.
+a CUDA/Inductor smoke also passed one-graph candidate reuse at 1.80 GB peak with
+all candidate modes within 0.97% throughput. Its two-step scores are discarded;
+language quality has not been measured yet.
 
 ## Current Evidence
 

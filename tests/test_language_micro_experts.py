@@ -144,6 +144,17 @@ def test_only_learned_mode_updates_router_and_routed_modes_update_experts(
         assert expert_grad == 0.0
     else:
         assert expert_grad > 0.0
+    report = model.final_gradient_report()
+    assert report["mode"] == mode
+    assert report["shared_nonzero_gradient_elements"] > 0
+    if mode == "learned_router":
+        assert report["router_nonzero_gradient_elements"] > 0
+    else:
+        assert report["router_nonzero_gradient_elements"] == 0
+    if mode == "shared_only":
+        assert report["expert_rows_with_nonzero_gradient"] == 0
+    else:
+        assert report["expert_rows_with_nonzero_gradient"] > 0
 
 
 @pytest.mark.parametrize("mode", MICRO_EXPERT_MODES)

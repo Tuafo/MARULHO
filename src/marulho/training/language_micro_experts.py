@@ -620,6 +620,66 @@ class MarulhoProductKeyMicroExpertLanguageModel(MarulhoLanguageModel):
         }
 
     @torch.no_grad()
+    def final_gradient_report(self) -> dict[str, Any]:
+        layer = self.state_block.expert_layer
+
+        def tensor_row(name: str, value: torch.Tensor) -> dict[str, Any]:
+            gradient = value.grad
+            return {
+                "name": name,
+                "parameters": int(value.numel()),
+                "received_gradient": gradient is not None,
+                "nonzero_gradient_elements": (
+                    int(torch.count_nonzero(gradient).cpu())
+                    if gradient is not None
+                    else 0
+                ),
+            }
+
+        router_rows = [
+            tensor_row("query_projection", layer.query_projection.weight),
+            tensor_row("first_subkeys", layer.first_subkeys),
+            tensor_row("second_subkeys", layer.second_subkeys),
+        ]
+        expert_rows = [
+            tensor_row("expert_input", layer.expert_input.weight),
+            tensor_row("expert_output", layer.expert_output.weight),
+        ]
+        active_expert_masks = []
+        for value in (layer.expert_input.weight, layer.expert_output.weight):
+            if value.grad is None:
+                active_expert_masks.append(
+                    torch.zeros(
+                        layer.expert_pool_size,
+                        device=value.device,
+                        dtype=torch.bool,
+                    )
+                )
+            else:
+                active_expert_masks.append(value.grad.abs().sum(dim=-1) > 0)
+        active_union = active_expert_masks[0] | active_expert_masks[1]
+        shared_rows = [
+            tensor_row("shared_gate_up", layer.shared_gate_up.weight),
+            tensor_row("shared_down", layer.shared_down.weight),
+        ]
+        return {
+            "surface": "marulho_micro_expert_final_gradient_report.v1",
+            "mode": layer._mode_name,
+            "router": router_rows,
+            "router_nonzero_gradient_elements": sum(
+                int(row["nonzero_gradient_elements"]) for row in router_rows
+            ),
+            "experts": expert_rows,
+            "expert_rows_with_nonzero_gradient": int(active_union.sum().cpu()),
+            "expert_row_gradient_fraction": float(active_union.float().mean().cpu()),
+            "shared": shared_rows,
+            "shared_nonzero_gradient_elements": sum(
+                int(row["nonzero_gradient_elements"]) for row in shared_rows
+            ),
+            "external_llm_used": False,
+        }
+
+    @torch.no_grad()
     def routing_report(
         self,
         input_ids: torch.Tensor,

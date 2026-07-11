@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 
 import torch
 
+from marulho.evaluation.language_geometry import transformer_depth_geometry_report
 from marulho.evaluation.language_matched_support import (
     MatchedLanguageDataConfig,
     PreparedMatchedLanguageData,
@@ -76,6 +77,7 @@ class MicroExpertFalsificationConfig:
     experts_per_head: int = 2
     hash_seed: int = 10_729
     routing_vector_samples: int = 256
+    geometry_max_samples: int = 4096
     execution_backend: str = "eager"
     compile_loss_tolerance: float = 1.0e-3
 
@@ -167,22 +169,34 @@ def _diagnostics(
     input_ids: torch.Tensor,
     *,
     max_vector_samples: int,
+    geometry_max_samples: int,
 ) -> dict[str, Any]:
-    if not isinstance(model, MarulhoProductKeyMicroExpertLanguageModel):
-        return {}
     precision = (
         torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         if model.device.type == "cuda"
         else nullcontext()
     )
     with precision:
-        routing = model.routing_report(
+        geometry = transformer_depth_geometry_report(
+            model,
             input_ids,
-            max_vector_samples=max_vector_samples,
+            max_samples=geometry_max_samples,
         )
+        routing = (
+            model.routing_report(
+                input_ids,
+                max_vector_samples=max_vector_samples,
+            )
+            if isinstance(model, MarulhoProductKeyMicroExpertLanguageModel)
+            else None
+        )
+    if not isinstance(model, MarulhoProductKeyMicroExpertLanguageModel):
+        return {"depth_geometry": geometry}
     return {
         "active_parameters": model.active_parameter_report(),
+        "final_gradients": model.final_gradient_report(),
         "routing": routing,
+        "depth_geometry": geometry,
     }
 
 
@@ -574,6 +588,7 @@ def run_micro_expert_falsification(
                         active_model,
                         input_ids,
                         max_vector_samples=config.routing_vector_samples,
+                        geometry_max_samples=config.geometry_max_samples,
                     ),
                     extra_row={
                         "micro_expert_mode": (

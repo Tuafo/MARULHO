@@ -133,7 +133,10 @@ multiplies per token, 91.9% of the dense MLP's 3,145,728 before retrieval
 overhead. Shared-only, fixed-random, token-hash, and learned-router modes reuse
 the same parameters; only learned routing passes gradients to query/key
 parameters, while all routed modes train selected expert vectors. This module is
-falsifier-only and cannot be loaded by the active checkpoint path.
+falsifier-only and cannot be loaded by the active checkpoint path. Frozen-random
+routing reads immutable initialization buffers so AdamW decay cannot silently
+change its router. The CUDA/Inductor mechanism smoke compiled one shared
+candidate graph and peaked at 1.80 GB.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

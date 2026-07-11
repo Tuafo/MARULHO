@@ -259,9 +259,14 @@ before top-k and gather overhead. Shared-only, frozen-random, token-hash, and
 learned-router modes reuse one parameter graph. Causality, full/streaming
 equivalence, owned generation, bit-identical common Transformer initialization,
 fixed eight-expert activation, and mode-specific router/expert gradients pass.
-V10 is not a runtime path or checkpoint format until a routed mode beats the
-Transformer and every routing control on heldout loss and strict free generation
-and then replicates.
+A CUDA/Inductor mechanism smoke compiled one Transformer graph and one candidate
+graph instead of five separate graphs. Candidate controls stayed within 0.97%
+steady throughput, peaked at 1.80 GB, and used 60-69% of the 16,384-expert pool
+in one evaluation batch; immutable random routing, token-hash uniqueness, compile
+parity, and common initialization passed. The two-step quality values and smoke
+report are discarded. V10 is not a runtime path or checkpoint format until a
+routed mode beats the Transformer and every routing control on heldout loss and
+strict free generation and then replicates.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
