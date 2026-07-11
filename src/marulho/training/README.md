@@ -178,6 +178,13 @@ training, generation, checkpoint loading, or runtime. Forcing the installed hash
 is exactly logit-identical; counterfactual reports must prove parameter hashes
 unchanged and keep target labels out of route construction.
 
+Counterfactual utility gates remain separate audit artifacts. They contain only
+feature normalization, a linear or small MLP utility predictor, route-bank
+offsets, a training-selected threshold, and parent-checkpoint identity. They do
+not contain language weights and cannot be loaded by either language checkpoint
+or runtime surfaces before integrated V12 causality, quality, and throughput
+tests pass.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

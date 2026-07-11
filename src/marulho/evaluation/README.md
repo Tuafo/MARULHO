@@ -140,6 +140,17 @@ are zero, and pool coverage is 95–97%. Decision:
 `train_v12_counterfactual_gate`. This is permission to test whether a label-safe
 gate can predict the oracle opportunity, not permission to use oracle routes.
 
+**`language_counterfactual_utility_gate.py`** — freezes V11 and collects causal
+pre-expert hidden states plus detached exact route-loss vectors from the two
+general training corpora. A linear gate and a 64-wide MLP regress each
+alternative's gain over the installed route. Route thresholds are selected on
+training examples only; evaluation uses the separate FineWeb-Edu/Cosmopedia
+holdouts and chooses from hidden state without targets. A gate must improve
+realized loss by at least 0.02 on each source and select alternatives on at least
+5% of tokens. Only then is a small atomic gate artifact saved for integrated V12
+falsification; it is never a full model checkpoint. The tiny CUDA smoke passed
+the frozen/label-safe pipeline, correctly saved no failing gate, and was deleted.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
