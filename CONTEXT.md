@@ -441,19 +441,18 @@ implementation, so no sparse-compute claim is made. Decision:
 `redesign_v16_retain_small_banks_reject_clock_claim`. The synthetic model and
 runner are deleted.
 
-V17 is the current uninstalled language experiment. It inserts eight all-active
-32-wide GRU groups after V11 layer 1, concatenates their 256 state features, and
-returns them through one zero-initialized residual projection. Every group reads
-the same 512-wide language representation; recurrent mixing stays inside each
-group. Its exact-reset controls are V11/off, the identical grouped parameters
-applied independently to each token, and one dense 256-wide GRU. Attachment is
-exactly logit-identical before training, no router or label enters the state
-path, and ordinary next-token cross-entropy is the only objective. CUDA uses
-the same partial-Inductor/cached-cuDNN-GRU boundary for all arms because tracing
-through the GRU as one full graph has an impractical compile cost. A run below
-33,554,432 tokens per arm is mechanically diagnostic and cannot promote V17.
-Only a grouped loss gain of at least 0.02 over all three controls with bounded
-relation regret advances it to a 67M-token durability run.
+V17 tests whether V16's small-bank organization transfers to language and finds
+that it does not. Eight all-active 32-wide GRUs, the identical parameters used
+token-locally, a dense 256-wide GRU, and V11/off each receive 33,556,480 exact-
+schedule tokens from the one-billion-token parent. Off/local/grouped/dense loss
+is 3.0788569/3.0790505/3.0789700/3.0786710. Grouped relation accuracy is 46.9%
+versus 45.3/45.3/45.7%, but its loss is worse than off and dense and misses the
+predeclared 0.02 joint margin. The grouped state is active, full-rank, receives
+complete gradients, and runs at 97.8k tokens/s versus off's 121.9k, so the
+negative is not explained by a dead organ or failed execution. Decision:
+`retire_v17_grouped_recurrence_no_language_gain`. No checkpoint exists; the
+model, partial-compile path, runner, and tests are deleted. Independent small
+units remain a synthetic-memory observation, not an admitted language design.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

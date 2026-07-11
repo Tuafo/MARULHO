@@ -196,18 +196,13 @@ write falls to 0.082, no write exceeds 0.5, and its advantage over off is only
 or tests remain. The retained report identifies the rejected mechanism without
 keeping dead training code.
 
-`language_grouped_recurrent_state.py` is the current uninstalled V17 candidate.
-It keeps the complete V11 token-hash language path and inserts one residual
-state organ after middle layer 1. The grouped form contains eight independent
-32-wide GRUs that all observe the same 512-wide hidden stream; their 256 outputs
-are concatenated for one shared linear readout. The dense control has the same
-256-float state width, while the local control uses the exact grouped parameters
-without recurrence across tokens. The organ owns no vocabulary, router,
-external model, semantic labels, auxiliary loss, or checkpoint format. Its
-zero-initialized readout preserves exact parent logits before training, and its
-streaming state consists only of the eight recurrent vectors in addition to the
-ordinary bounded Transformer KV cache. It is not installed and must be deleted
-if its matched V17 language screen fails.
+The V17 grouped-recurrent state is retired and deleted. Eight independent
+32-wide GRUs remain tied with exact V11/off, their equal-parameter token-local
+control, and a larger dense 256-wide GRU after 33.56M tokens per arm. The state
+is active, full-rank, label-free, and fully trained, but does not improve
+heldout language loss and costs about 20% throughput. No grouped-recurrent model,
+runner, checkpoint, loader, compatibility surface, or partial-compile exception
+remains. Small recurrent banks are not a maintained language option.
 
 `forward_with_forced_expert_ids(...)` is a read-only V11 audit surface. It
 requires explicit `[batch,time,head,slot]` pool indices and is not used by normal

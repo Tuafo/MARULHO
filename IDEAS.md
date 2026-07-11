@@ -166,15 +166,15 @@ groups. First require exact attachment, streaming equivalence, full gradients,
 and viable CUDA throughput; then use a bounded matched language screen before a
 67M-token durability run.
 
-The implementation is now mechanically admitted. The zero readout preserves
-exact parent logits for off, local, grouped, and dense attachments; recurrent
-parameters receive gradients when active; and a CUDA smoke sustains roughly
-97.6k grouped tokens/s versus 118.9k off at about 2.26 versus 1.98 GB peak
-allocated memory. These are execution checks, not quality evidence. Full-graph
-GRU tracing was rejected after an unbounded compile path; every V17 arm instead
-uses the same reported partial-Inductor boundary with cuDNN owning the GRU. The
-33.55M-token-per-arm floor is enforced in code so smoke loss cannot decide the
-branch.
+V17 gives the required language answer. Across 33.56M tokens per arm,
+off/local/grouped/dense loss is 3.0788569/3.0790505/3.0789700/3.0786710. The
+grouped state is active and full-rank, all recurrent parameters receive
+gradients, relation accuracy rises slightly, and CUDA throughput remains viable;
+yet grouped is worse than off and dense and effectively tied with local. The
+synthetic V16 result therefore does not transfer through this optional residual
+language organ. Small independent units alone are not the missing principle.
+Decision: `retire_v17_grouped_recurrence_no_language_gain`; implementation and
+candidate-only execution path are deleted.
 
 ## Ranked directions
 
@@ -864,13 +864,13 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
     multiscale-bank advantage over a same-state-byte flat GRU.
 12. Completed: V16 shows that seven independent token-rate banks, not clocks or
     averaging, drive the replicated recall and length-generalization win.
-13. In progress: the all-active grouped recurrent organ passes attachment,
-    gradient, streaming, CUDA-throughput, and compile-parity admission. Run the
-    33.55M-token off/local/dense/grouped language screen.
-14. Use read-only state geometry and group ablations to explain that branch; they
-    never promote a model.
-15. Run 67M-token durability and unseen generation only after the bounded grouped
-    language screen wins.
+13. Completed: V17's grouped recurrence is active and well-conditioned but ties
+    off/local/dense language controls; delete it and do not run durability.
+14. Next: target the actual long-range semantic-persistence bottleneck with a
+    structural dependency on compressed inter-segment state, not another
+    optional residual sidecar.
+15. Require a cheap causal-memory preflight and a matched language screen before
+    any 67M-token durability or unseen-generation run.
 16. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.

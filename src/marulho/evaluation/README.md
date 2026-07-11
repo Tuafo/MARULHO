@@ -261,18 +261,20 @@ for flat, ruling out global rank as an explanation. Decision:
 `redesign_v16_retain_small_banks_reject_clock_claim`. Clock, averaging, and
 synthetic-runner code are deleted.
 
-**`language_grouped_recurrent_experiment.py`** is the active bounded V17
-language screen. It starts every arm from the strict one-billion-token V11
-checkpoint and compares exact V11/off, an equal-parameter token-local transform,
-a dense 256-wide GRU, and eight independent 32-wide GRU groups. All arms receive
-the same general-only batches, optimizer recipe, heldout windows, and relation
-guard. The grouped arm must improve heldout loss by at least 0.02 over every
-control without more than 0.02 relation-accuracy regret. At least 33,554,432
-tokens per arm are mandatory; smaller invocations return
-`diagnostic_v17_below_screen_budget` and cannot advance the branch. Inductor is
-partial-graph by design here: Transformer regions compile while the GRU remains
-an optimized cuDNN boundary, and the report records this execution contract and
-eager/compiled loss parity. No V17 checkpoint is written by this screen.
+The deleted V17 grouped-recurrent screen is retained only at
+`reports/language_scaling/v17-grouped-recurrent-33m-20260711.json` (SHA-256
+`fe164f90b342759eb281e6c98e7696155082baea906e37e9809c6f8d35133d91`).
+Exact V11/off, equal-parameter token-local, eight independent 32-wide GRUs, and
+one dense 256-wide GRU each receive 33,556,480 general-language tokens from the
+strict one-billion-token V11 parent. Their loss is respectively
+3.0788569/3.0790505/3.0789700/3.0786710; relation accuracy is
+45.3/45.3/46.9/45.7%. Grouped misses its 0.02 loss margin against every control
+and is slightly worse than off and dense. Attachment is exact, compiled/eager
+loss parity passes, active recurrent parameters receive complete gradients, and
+the grouped state is full-rank with nonzero residuals. Grouped throughput is
+97.8k tokens/s versus off's 121.9k. Decision:
+`retire_v17_grouped_recurrence_no_language_gain`. No checkpoint exists, and the
+model, runner, tests, and candidate-only partial-compile path are deleted.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

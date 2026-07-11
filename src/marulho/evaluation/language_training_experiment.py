@@ -227,8 +227,6 @@ def _prepare_language_loss_backend(
     model: MarulhoLanguageModel,
     example_batch: LanguageBatch,
     config: LanguageTrainingExperimentConfig,
-    *,
-    compile_fullgraph: bool = True,
 ):
     def eager_loss(
         input_ids: torch.Tensor, target_ids: torch.Tensor
@@ -247,17 +245,11 @@ def _prepare_language_loss_backend(
         "requested_backend": backend,
         "effective_backend": backend,
         "ordinary_step_backend": (
-            (
-                "torch_compile_inductor_fullgraph"
-                if compile_fullgraph
-                else "torch_compile_inductor_partial_graph"
-            )
+            "torch_compile_inductor_fullgraph"
             if backend == "inductor"
             else "pytorch_eager"
         ),
-        "compile_fullgraph": bool(
-            backend == "inductor" and compile_fullgraph
-        ),
+        "compile_fullgraph": backend == "inductor",
         "compile_dynamic_shapes": False,
         "compile_seconds": 0.0,
         "compile_peak_cuda_memory_bytes": 0,
@@ -300,7 +292,7 @@ def _prepare_language_loss_backend(
     compiled_loss = torch.compile(
         eager_loss,
         backend="inductor",
-        fullgraph=bool(compile_fullgraph),
+        fullgraph=True,
         dynamic=False,
     )
     torch.cuda.reset_peak_memory_stats(model.device)
