@@ -138,7 +138,12 @@ class MarulhoHashedMicroExpertBlock(nn.Module):
         self.mode_id.fill_(_MODE_IDS[mode])
         self._mode_name = str(mode)
 
-    def _hash_routes(self, route_ids: torch.Tensor) -> torch.Tensor:
+    def hash_routes(
+        self,
+        route_ids: torch.Tensor,
+        *,
+        hash_seed: int | None = None,
+    ) -> torch.Tensor:
         token = route_ids.to(dtype=torch.long).unsqueeze(-1).unsqueeze(-1)
         heads = torch.arange(
             self.routing_heads,
@@ -154,7 +159,7 @@ class MarulhoHashedMicroExpertBlock(nn.Module):
             token * 1_315_423_911
             + (heads + 1) * 1_103_515_245
             + (slots + 1) * 1_013_904_223
-            + self.hash_seed,
+            + (self.hash_seed if hash_seed is None else int(hash_seed)),
             self.expert_pool_size,
         )
 
@@ -162,8 +167,26 @@ class MarulhoHashedMicroExpertBlock(nn.Module):
         self,
         value: torch.Tensor,
         route_ids: torch.Tensor,
+        forced_expert_ids: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        selected_ids = self.route_observer(self._hash_routes(route_ids))
+        selected_ids = (
+            self.hash_routes(route_ids)
+            if forced_expert_ids is None
+            else forced_expert_ids.to(device=value.device, dtype=torch.long)
+        )
+        expected_shape = (
+            *route_ids.shape,
+            self.routing_heads,
+            self.experts_per_head,
+        )
+        if tuple(selected_ids.shape) != expected_shape:
+            raise ValueError("forced_expert_ids must match [batch, time, head, slot]")
+        if forced_expert_ids is not None and selected_ids.numel() and (
+            int(selected_ids.min().item()) < 0
+            or int(selected_ids.max().item()) >= self.expert_pool_size
+        ):
+            raise ValueError("forced_expert_ids must index the expert pool")
+        selected_ids = self.route_observer(selected_ids)
         input_vectors = self.expert_input(selected_ids)
         activations = torch.einsum("btd,bthkd->bthk", value, input_vectors)
         activations = F.silu(activations) / float(self.experts_per_head)
@@ -180,6 +203,7 @@ class MarulhoHashedMicroExpertBlock(nn.Module):
         past_key: torch.Tensor | None,
         past_value: torch.Tensor | None,
         position_offset: int | torch.Tensor,
+        forced_expert_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         attention, next_key, next_value = self.attention(
             self.attention_norm(value),
@@ -191,7 +215,11 @@ class MarulhoHashedMicroExpertBlock(nn.Module):
         mlp_input = self.mlp_norm(value)
         gate, up = self.shared_gate_up(mlp_input).chunk(2, dim=-1)
         shared = self.shared_down(F.silu(gate) * up)
-        experts = self._micro_expert_output(mlp_input, route_ids)
+        experts = self._micro_expert_output(
+            mlp_input,
+            route_ids,
+            forced_expert_ids,
+        )
         return value + self.dropout(shared + experts), next_key, next_value
 
 
@@ -308,6 +336,7 @@ class MarulhoHashedMicroExpertStateBlock(nn.Module):
         state: Mapping[str, torch.Tensor] | None = None,
         *,
         collect_telemetry: bool = True,
+        forced_expert_ids: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, Any]]:
         if inputs.ndim != 3:
             raise ValueError("V11 state block expects [batch, time, input_dim]")
@@ -346,6 +375,7 @@ class MarulhoHashedMicroExpertStateBlock(nn.Module):
                 hidden, next_key, next_value = layer(
                     hidden,
                     route_ids=route_ids,
+                    forced_expert_ids=forced_expert_ids,
                     **kwargs,
                 )
             else:
@@ -445,6 +475,36 @@ class MarulhoHashedMicroExpertLanguageModel(MarulhoLanguageModel):
                 "external_llm_used": False,
                 "owned_by_marulho": True,
                 "vocab_size": int(self.config.vocab_size),
+            },
+        }
+
+    def forward_with_forced_expert_ids(
+        self,
+        input_ids: torch.Tensor,
+        forced_expert_ids: torch.Tensor,
+    ) -> dict[str, Any]:
+        """Read-only audit forward with explicit V11 expert assignments."""
+
+        if input_ids.ndim != 2:
+            raise ValueError("V11 forced-route forward expects [batch, time] ids")
+        runtime_ids = input_ids.to(device=self.device, dtype=torch.long)
+        hidden, state, telemetry = self.state_block(
+            self.token_embedding(runtime_ids),
+            runtime_ids,
+            None,
+            collect_telemetry=False,
+            forced_expert_ids=forced_expert_ids,
+        )
+        return {
+            "logits": self.lm_head(hidden),
+            "state": state,
+            "telemetry": {
+                **telemetry,
+                "forced_expert_ids": True,
+                "forced_routes_labels_used": False,
+                "promotion_metric": False,
+                "external_llm_used": False,
+                "owned_by_marulho": True,
             },
         }
 

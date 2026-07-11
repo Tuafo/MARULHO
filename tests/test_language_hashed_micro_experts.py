@@ -97,6 +97,46 @@ def test_hashed_routing_is_unique_label_free_and_fixed_granularity(mode: str) ->
     assert report["promotion_metric"] is False
 
 
+def test_forced_route_audit_matches_baseline_and_changes_only_requested_route() -> None:
+    torch.manual_seed(75)
+    model = _model().eval()
+    input_ids = torch.randint(0, 96, (3, 12))
+    layer = model.state_block.expert_layer
+    baseline_routes = layer.hash_routes(input_ids)
+    alternative_routes = baseline_routes.clone()
+    alternative_routes[:, -1] = layer.hash_routes(
+        input_ids[:, -1:],
+        hash_seed=layer.hash_seed + 17,
+    )[:, 0]
+    with torch.no_grad():
+        baseline = model(input_ids, collect_telemetry=False)["logits"]
+        forced_baseline = model.forward_with_forced_expert_ids(
+            input_ids,
+            baseline_routes,
+        )["logits"]
+        alternative = model.forward_with_forced_expert_ids(
+            input_ids,
+            alternative_routes,
+        )["logits"]
+    torch.testing.assert_close(forced_baseline, baseline)
+    torch.testing.assert_close(alternative[:, :-1], baseline[:, :-1])
+    assert not torch.equal(alternative[:, -1], baseline[:, -1])
+
+
+def test_forced_route_audit_rejects_wrong_shape_or_pool_index() -> None:
+    model = _model().eval()
+    input_ids = torch.randint(0, 96, (2, 8))
+    with pytest.raises(ValueError, match="batch, time, head, slot"):
+        model.forward_with_forced_expert_ids(
+            input_ids,
+            torch.zeros(2, 8, dtype=torch.long),
+        )
+    routes = model.state_block.expert_layer.hash_routes(input_ids)
+    routes[0, 0, 0, 0] = model.state_block.expert_layer.expert_pool_size
+    with pytest.raises(ValueError, match="expert pool"):
+        model.forward_with_forced_expert_ids(input_ids, routes)
+
+
 def test_hashed_active_parameter_report_reflects_pruning() -> None:
     model = _model()
     report = model.active_parameter_report()
