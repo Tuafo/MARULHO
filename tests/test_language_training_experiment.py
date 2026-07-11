@@ -7,6 +7,7 @@ import pytest
 from marulho.evaluation.language_training_experiment import (
     SURFACE,
     LanguageTrainingExperimentConfig,
+    _prepare_triton_compiler_compatibility,
     run_language_training_experiment,
 )
 from marulho.training.language_model import load_language_model_checkpoint
@@ -59,6 +60,15 @@ def test_transformer_training_experiment_trains_and_restores(tmp_path) -> None:
     assert report["training"]["peak_cuda_memory_bytes"] == 0
     assert report["training"]["execution"]["effective_backend"] == "eager"
     assert report["training"]["execution"]["compile_seconds"] == 0.0
+    assert report["training"]["execution"]["triton_compiler_compatibility"] == {
+        "platform": report["training"]["execution"][
+            "triton_compiler_compatibility"
+        ]["platform"],
+        "required": False,
+        "applied": False,
+        "source": None,
+        "requested": False,
+    }
     assert report["training"]["end_to_end_seconds_including_compile"] == (
         report["training"]["elapsed_seconds"]
     )
@@ -120,3 +130,14 @@ def test_transformer_training_rejects_inductor_without_cuda(tmp_path) -> None:
                 device="cpu",
             ),
         )
+
+
+def test_windows_triton_compatibility_has_an_explicit_result() -> None:
+    evidence = _prepare_triton_compiler_compatibility()
+
+    assert evidence["platform"]
+    assert isinstance(evidence["required"], bool)
+    assert isinstance(evidence["applied"], bool)
+    if evidence["applied"]:
+        assert evidence["required"] is True
+        assert evidence["source"] == "triton.runtime.cache"

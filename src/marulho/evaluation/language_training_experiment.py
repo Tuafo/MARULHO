@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 import math
 from pathlib import Path
+import sys
 import time
 from typing import Any, Sequence
 
@@ -186,6 +187,42 @@ def _learning_rate(
     return peak * (minimum_fraction + (1.0 - minimum_fraction) * cosine)
 
 
+def _prepare_triton_compiler_compatibility() -> dict[str, Any]:
+    """Bridge the Triton 3.7 Windows cache-key move for torch.compile.
+
+    Current Triton exposes ``triton_key`` from ``triton.runtime.cache`` while
+    some matching PyTorch Windows builds still import it from
+    ``triton.compiler.compiler``. The alias changes no kernels or numerical
+    behavior; it only restores the compiler's expected import surface.
+    """
+
+    evidence: dict[str, Any] = {
+        "platform": sys.platform,
+        "required": False,
+        "applied": False,
+        "source": None,
+    }
+    if sys.platform != "win32":
+        return evidence
+    try:
+        import triton.compiler.compiler as triton_compiler
+    except ImportError as error:
+        return {**evidence, "error": f"compiler_import_failed:{error}"}
+    if hasattr(triton_compiler, "triton_key"):
+        return {**evidence, "source": "triton.compiler.compiler"}
+    evidence["required"] = True
+    try:
+        from triton.runtime.cache import triton_key
+    except ImportError as error:
+        return {**evidence, "error": f"runtime_cache_import_failed:{error}"}
+    triton_compiler.triton_key = triton_key
+    return {
+        **evidence,
+        "applied": True,
+        "source": "triton.runtime.cache",
+    }
+
+
 def _prepare_language_loss_backend(
     model: MarulhoLanguageModel,
     example_batch: LanguageBatch,
@@ -216,6 +253,13 @@ def _prepare_language_loss_backend(
         "compile_dynamic_shapes": False,
         "compile_seconds": 0.0,
         "compile_peak_cuda_memory_bytes": 0,
+        "triton_compiler_compatibility": {
+            "platform": sys.platform,
+            "required": False,
+            "applied": False,
+            "source": None,
+            "requested": False,
+        },
         "warmup_loss_parity": {
             "performed": False,
             "eager_loss": None,
@@ -233,6 +277,10 @@ def _prepare_language_loss_backend(
         raise RuntimeError("Requested inductor backend requires torch.compile")
     if float(config.compile_loss_tolerance) <= 0.0:
         raise ValueError("compile_loss_tolerance must be positive")
+    evidence["triton_compiler_compatibility"] = {
+        **_prepare_triton_compiler_compatibility(),
+        "requested": True,
+    }
 
     device_batch = example_batch.to(model.device)
     cpu_rng_state = torch.get_rng_state()

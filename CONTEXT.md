@@ -191,7 +191,12 @@ published work reports much faster learning, but its official implementation
 warns that shorter runs see smaller gains and precision details can exaggerate
 them. MARULHO must therefore reproduce or refute the mechanism at context 72,
 16.79M tokens, identical data/optimizer budget, and compile-amortized wall time
-before any scale claim.
+before any scale claim. The 20.988M-parameter candidate core now exists and
+passes causality, streaming-equivalence, full-gradient, projection, generation,
+and 0.1%-match tests; it is experimental rather than the installed language
+path. Its projection audit was removed from the optimizer hot path, and compiled
+projection measured 2.22 ms versus 5.83 ms eager on the local RTX 3060 after an
+11.7-second compile.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
