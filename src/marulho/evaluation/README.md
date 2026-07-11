@@ -50,8 +50,17 @@ the input projection and each block, then reports participation ratio, effective
 rank, RMS, mean-vector norm, and adjacent-depth cosine. It restores model mode,
 does not mutate state, and is never a promotion metric.
 
+**`language_hashed_micro_expert_durability.py`** — the active uninstalled v11
+runner. It compares the Transformer, pruned shared-only, and pruned token-hash at
+a default 67.11M-token budget and independent seed. Shared-only and token-hash
+reload one exact 36,180,480-parameter state and share one compiled graph; the
+20,976,128-parameter Transformer is hash-matched on every unchanged tensor. The
+hash arm must beat both controls by 0.005 heldout loss and 0.02 strict free
+generation while retaining at least half the local throughput. A pass advances
+to checkpoint fidelity and unseen-generation work, not direct runtime install.
+
 **`language_micro_expert_falsification.py`** — the active uninstalled v10
-runner. It compares the Transformer with shared-only, frozen-random product-key,
+comparison runner. It compares the Transformer with shared-only, frozen-random product-key,
 token-hash, and learned product-key routing. The four 37,294,592-parameter
 candidate modes reload one exact state and share one compiled loss graph; the
 20,976,128-parameter Transformer is separately hash-matched on every unchanged
