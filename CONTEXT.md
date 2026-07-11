@@ -312,6 +312,19 @@ A fresh strict reload restores all 36,180,480 parameters, token-hash mode, the
 MARULHO ownership. This promotes checkpoint fidelity and admits genuinely
 unseen-generation qualification, not runtime installation.
 
+The first unseen-generation qualification does not pass. Four FineWeb-Edu
+holdout prompts produce mean source-continuation loss 4.3092 / perplexity 75.04;
+four Cosmopedia prompts reach 3.6194 / 48.48. All eight fail the source-prefix
+gate. The text is grammatical and multi-sentence but generic, repetitive, and
+semantically unstable. Repetition penalty 1.1 plus a three-token no-repeat rule
+raises Cosmopedia distinct-bigram fraction from 0.675 to 0.948 without changing
+loss or prefix agreement, separating a real decode-loop defect from the deeper
+model-quality blocker. Decision:
+`continue_v11_general_language_pretraining_before_runtime_or_memory`. Continue
+the same checkpoint toward roughly 251M cumulative general-language tokens,
+then repeat heldout and unseen-generation comparison before runtime, continual
+memory, or architectural promotion.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

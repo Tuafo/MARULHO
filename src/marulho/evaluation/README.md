@@ -81,6 +81,18 @@ with SHA-256
 A fresh strict load restores model, tokenizer, tied weights, and qualification
 metadata. This admits unseen generation, not runtime installation.
 
+The first strict-checkpoint unseen reports are local at
+`reports/language_scaling/hashed-micro-v11-unseen-fineweb-greedy-20260711.json`,
+`reports/language_scaling/hashed-micro-v11-unseen-cosmopedia-greedy-20260711.json`,
+and
+`reports/language_scaling/hashed-micro-v11-unseen-cosmopedia-controlled-20260711.json`.
+FineWeb-Edu/Cosmopedia mean source loss is 4.3092/3.6194, and zero of eight
+source-anchored cases pass. Repetition penalty 1.1 plus no-repeat 3 raises
+Cosmopedia distinct-bigram fraction from 0.675 to 0.948 without changing source
+loss or prefix agreement. Direct review finds grammatical multi-sentence but
+generic and semantically unstable text. Decision:
+`continue_v11_general_language_pretraining_before_runtime_or_memory`.
+
 **`language_micro_expert_falsification.py`** — the active uninstalled v10
 comparison runner. It compares the Transformer with shared-only, frozen-random product-key,
 token-hash, and learned product-key routing. The four 37,294,592-parameter

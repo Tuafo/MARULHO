@@ -124,7 +124,13 @@ against both qualified controls. Its 154.3 MiB strict checkpoint reloads all
 36.18M parameters, tied weights, tokenizer identity, and ownership metadata:
 `reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`
 (SHA-256 `6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`).
-V11 is not installed at runtime until genuinely unseen generation passes.
+V11 is not installed at runtime. Its first unseen screen generates grammatical
+multi-sentence text but remains generic, repetitive, and semantically unstable:
+FineWeb-Edu/Cosmopedia source loss is 4.3092/3.6194 and all eight prompts miss the
+source-prefix gate. Decode controls improve Cosmopedia bigram diversity from
+0.675 to 0.948 but do not improve loss or source agreement. The branch continues
+the same architecture on general language toward roughly 251M cumulative tokens
+before another quality decision; memory and runtime installation remain paused.
 
 ## Current Evidence
 

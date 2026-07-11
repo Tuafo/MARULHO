@@ -236,6 +236,18 @@ reloads the complete token-hash model, tied weights, tokenizer hash, ownership,
 and qualification record. The next falsifier is source-held-out continuation
 and genuinely unseen multi-sentence generation from that reloaded artifact.
 
+That falsifier now separates three facts. First, the model does generate
+grammatical multi-sentence language, so the architecture is no longer at the
+noise/repetition-only stage. Second, FineWeb-Edu/Cosmopedia source loss of
+4.3092/3.6194 and zero of eight source-prefix passes show that language quality
+is still below qualification. Third, repetition penalty plus no-repeat decoding
+raises Cosmopedia bigram diversity from 0.675 to 0.948 without moving source
+loss or prefix agreement. Decode collapse is therefore real but downstream of a
+larger representation/training deficit. The fastest credible next connection is
+not another memory mechanism: extend the same V11 checkpoint to the existing
+~251M-token Transformer comparison point, then use the curve and repeated unseen
+texts to decide whether fixed micro-capacity scales or should be redesigned.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.
