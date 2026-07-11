@@ -238,8 +238,8 @@ class MarulhoProductKeyMicroExpertBlock(nn.Module):
         ).view(1, 1, 1, -1)
         return torch.remainder(
             token * 1_315_423_911
-            + (heads + 1) * 2_654_435_761
-            + (slots + 1) * 2_246_822_519
+            + (heads + 1) * 1_103_515_245
+            + (slots + 1) * 1_013_904_223
             + self.hash_seed,
             self.expert_pool_size,
         )

@@ -159,6 +159,8 @@ def test_routing_report_is_label_free_and_has_fixed_granularity(mode: str) -> No
     assert 0.0 < report["used_expert_fraction"] <= 1.0
     assert report["routing_unevenness_kl_uniform"] >= 0.0
     assert report["mean_route_weight_entropy"] >= 0.0
+    if mode == "token_hash":
+        assert report["mean_duplicate_experts_per_token"] == 0.0
     assert report["router_uses_labels"] is False
     assert report["promotion_metric"] is False
     assert report["external_llm_used"] is False
