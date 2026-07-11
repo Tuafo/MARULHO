@@ -211,24 +211,15 @@ readable paragraphs but remains generic and can lose topic. Decision:
 `retain_v11_1b_sparse_base_redesign_persistent_semantic_state`. This checkpoint
 is the retained sparse baseline for the next architecture, not a runtime model.
 
-**`language_segment_associative_experiment.py`** — the active V14 matched
-falsifier. It accepts only the strict MARULHO-owned 1B V11 checkpoint, builds one
-exact indexed-host schedule, attaches the same 102,912 new parameters, and exact
-resets four arms: off/V11, parameter-matched local residual, ungated segment
-delta state, and gated segment delta state. Each arm receives an isolated
-compiled graph so inactive mechanisms are not executed. Training remains
-ordinary next-token cross-entropy; labels never select or write memory.
-
-The first gate requires gated-delta heldout loss to beat both off and local by
-at least 0.03 while trailing ungated delta by no more than 0.005. A checkpoint
-saved at that boundary is explicitly provisional and still requires repeated
-source loss and unseen-generation evidence; it is not runtime- or
-quality-promoted. Reports include exact parent/schedule hashes, parameter and
-compute measurements, gradient reachability, gate entropy/frequency, state
-matrix and trajectory rank, perturbation gain, throughput, memory, and all four
-losses. A deleted 20-step CUDA smoke retains 91% of the 1B V11 training rate in
-the gated arm and admits the 67.11M-token-per-arm comparison; its smoke losses
-have no decision value.
+The deleted V14 segment-associative falsifier is retained only at
+`reports/language_scaling/v14-segment-associative-67m-20260711.json` (SHA-256
+`ee20dbb54769845ec60e9564ddc2525c00d432c32b2edec36ab4626204111190`).
+Each exact-reset arm receives 67,112,960 tokens. Off/local/ungated/gated loss is
+3.0746086/3.0745938/3.0746429/3.0746036, relation ranking remains
+48.4%/48.0%/48.4%/48.4%, and free relation generation remains 0%. The gated
+memory receives complete gradients and reaches full matrix rank but learns to
+suppress writing. Decision: `retire_v14_no_segment_state_gain`. No checkpoint,
+model, runner, loader, or compatibility path remains.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

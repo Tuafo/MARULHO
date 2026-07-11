@@ -187,31 +187,14 @@ Attachment/removal parity was exact and no checkpoint was saved, ruling out an
 inference-surface explanation. No future-head training or compatibility path
 remains.
 
-`language_segment_associative_state.py` is the active uninstalled V14
-candidate. It preserves the complete 1B V11 token-hash path and inserts a small
-causal associative organ after the second Transformer layer. Four 8-by-16
-key/value matrices are queried per token and updated from each completed
-32-token segment. The persistent arms apply either an ungated delta correction
-or separate learned write/retention gates; the local control uses the same
-projections without carrying state, and the off control is exact V11. Targets
-never enter the write rule. A zero-initialized output projection makes all four
-attachments bit-exact to the parent before training.
-
-The organ adds 102,912 parameters for 36,283,392 total. Its strict checkpoint
-surface is `marulho_segment_associative_language_checkpoint.v1`, but only a
-gated-delta arm that clears the matched loss gate can be serialized. Atomic save
-and strict load own the V11 configuration, V14 configuration, tokenizer, tied
-weights, complete tensors, and metadata. Read-only diagnostics report
-mode-specific active multiplies, state bytes, residual magnitude, gate
-statistics, final matrix norm/rank, trajectory rank, perturbation gain, and
-gradient reachability without reading labels.
-
-The V14 implementation preflight passes 21 focused tests plus a CUDA diagnostic.
-Mode-specific compiled graphs replace an initial graph that accidentally paid
-for every control path. A deleted 20-step hot smoke measured 117.3k/off,
-118.7k/local, 115.0k/ungated-delta, and 110.6k/gated-delta tokens/s at roughly
-2.0 GB. These are admission measurements only; no V14 quality result or
-checkpoint exists yet.
+The V14 segment-associative state is retired and deleted. Its exact-reset
+67.11M-token arms finish at heldout loss 3.0746086/off, 3.0745938/local,
+3.0746429/ungated delta, and 3.0746036/gated delta. The learned gate receives
+complete parameter gradients and the memory reaches full matrix rank, but mean
+write falls to 0.082, no write exceeds 0.5, and its advantage over off is only
+0.0000050. No checkpoint exists and no V14 model, loader, compatibility surface,
+or tests remain. The retained report identifies the rejected mechanism without
+keeping dead training code.
 
 `forward_with_forced_expert_ids(...)` is a read-only V11 audit surface. It
 requires explicit `[batch,time,head,slot]` pool indices and is not used by normal

@@ -103,20 +103,20 @@ Recent evidence sharpens the bets:
   may test its operational prediction—less-interfering state memories—not install
   “free energy” as an unfalsifiable label.
 
-The ranked consequence is deliberately conditional. V14 is the present test of
-the most immediate connection: a gated, error-correcting associative state. If
-V14 shows a real state advantage but poor temporal resolution, V15 should test
-a **causal dyadic state pyramid**: completed token pairs produce Haar
-approximation/detail coefficients, completed pairs of approximations form the
-next scale, and separate small memories receive those exact bands. Compare raw
-segment averages, fixed Haar bands, shuffled band-to-memory assignments, and a
-learned write gate at matched active compute. If V14 shows no state advantage at
-all, do not hide that failure inside wavelets; first test the dyadic mechanism on
-long-delay retrieval and only admit it to language if it beats a same-size
-gated recurrence. Reservoir topology adaptation, toroidal phase, and free-energy
-objectives remain later arms whose prerequisite problem is respectively
-identified dynamics, genuinely periodic state, and an environment the model can
-act on.
+V14 has now tested and rejected the most immediate connection: a gated,
+error-correcting associative state fed by mean segment summaries. The next
+admissible hypothesis is a **causal dyadic state pyramid**: completed token pairs
+produce Haar approximation/detail coefficients, completed pairs of
+approximations form the next scale, and separate small states receive those
+exact bands. V14 showed no language state advantage, so wavelets must not be
+wrapped around its failed mechanism and sent directly into another 268M-token
+comparison. First test the dyadic mechanism on long-delay retrieval against a
+same-size gated recurrence, with raw averages, fixed Haar bands, and shuffled
+band-to-state assignments. Only a clear memory-capacity and interference win
+admits it to base language. Reservoir topology adaptation, toroidal phase, and
+free-energy objectives remain later arms whose prerequisite problem is
+respectively identified dynamics, genuinely periodic state, and an environment
+the model can act on.
 
 ## Ranked directions
 
@@ -505,7 +505,7 @@ at these horizons creates gradient interference rather than the desired macro
 state; a later semantic-state target must be materially different and tested on
 fresh evidence.
 
-### 7. Causal segment associative state — next V14 falsifier
+### 7. Causal segment associative state — V14 retired
 
 The 1B scale point closes the “just train the small model properly” question
 without closing the architecture question. At 1,000,001,664 cumulative tokens,
@@ -516,7 +516,7 @@ fail grounding. More tokens improve likelihood, not a persistent representation
 of what the paragraph is about. Decision:
 `retain_v11_1b_sparse_base_redesign_persistent_semantic_state`.
 
-V14 should preserve V11's full token path and add one materially different organ:
+V14 preserved V11's full token path and added one materially different organ:
 a bank of small causal associative states updated once per segment. Lower-layer
 tokens form a segment key/value summary. Later segments query matrices containing
 only earlier summaries. A gated delta rule corrects stored values instead of
@@ -532,10 +532,10 @@ shows that feedback latent representations can act as working memory, while
 [Titans](https://arxiv.org/abs/2501.00663) combines attention with longer-lived
 neural memory. [Large Concept Models](https://arxiv.org/abs/2412.08821) support
 the broader need for representations above individual tokens, but rely on an
-external sentence space and trillion-token scale; V14 must learn its segment
-state end-to-end inside MARULHO.
+external sentence space and trillion-token scale; V14 learned its segment state
+end-to-end inside MARULHO.
 
-The required matched arms start from the exact 1B checkpoint and one shared
+The matched arms started from the exact 1B checkpoint and one shared
 67.11M-token schedule:
 
 - ordinary V11 continuation;
@@ -544,13 +544,12 @@ The required matched arms start from the exact 1B checkpoint and one shared
 - causal delta-state read/write without a learned gate;
 - causal delta-state with a learned, label-safe write/erase gate.
 
-All candidate arms reuse one parameter graph and exact initial tensors. Survival
-requires the gated state to improve heldout loss by at least 0.03 over both V11
-and the local residual, avoid regression on either source-continuation loss,
-preserve generation diversity, and show less direct topic drift on the fixed
-prompts. State bytes, matrix rank, gate entropy, write frequency, perturbation
-growth, throughput, and active multiplies explain the result but cannot promote
-it. Failure deletes V14 rather than retuning old V7 decays or V13 loss weights.
+All candidate arms reused one parameter graph and exact initial tensors. The
+predeclared first gate required gated state to improve heldout loss by at least
+0.03 over both V11 and the local residual while staying within 0.005 of ungated
+delta. State bytes, matrix rank, gate entropy, write frequency, perturbation
+growth, throughput, and active multiplies explained the result but could not
+promote it.
 
 The implementation preflight passes. V14 adds 102,912 parameters to the
 36,180,480-parameter V11 parent, uses four 8-by-16 associative matrices, and
@@ -563,6 +562,25 @@ replaced, not excused. Mode-specific compiled graphs now measure 117.3k/off,
 2.0 GB in a 20-step hot smoke. Gated state therefore retains roughly 91% of the
 1B V11 continuation rate and is admitted to the full matched falsifier. The
 smoke losses are discarded and its report is deleted.
+
+The full falsifier is a decisive tie. Every arm receives 67,112,960 tokens on
+the same 6,554-step indexed-host schedule. Off/local/ungated-delta/gated-delta
+heldout losses are 3.0746086/3.0745938/3.0746429/3.0746036. The gated arm gains
+only 0.0000050 over off, loses 0.0000098 to local, and misses the 0.03 gate by
+roughly four orders of magnitude. Relation ranking is 48.4%/48.0%/48.4%/48.4%
+and free relation generation stays 0% in every arm. No checkpoint is saved.
+
+The organ is not dead. Gated-delta gives every associative parameter tensor a
+gradient, produces full matrix rank 8 and trajectory rank 8, and learns mean
+write/retention gates of 0.082/0.826. Yet no write exceeds 0.5, effective matrix
+rank contracts to 2.97, perturbation gain is 0.0018, and the residual RMS is only
+0.00035. Ungated delta keeps rank 8, writes fully, produces a larger 0.00081
+residual, and slightly worsens loss. The model learned to suppress a segment
+summary that carried no useful predictive advantage. Decision:
+`retire_v14_no_segment_state_gain`. The 42.6-minute report is retained at
+`reports/language_scaling/v14-segment-associative-67m-20260711.json` with
+SHA-256 `ee20dbb54769845ec60e9564ddc2525c00d432c32b2edec36ab4626204111190`;
+the model, runner, tests, and checkpoint surface are deleted.
 
 ### 8. Gated multiscale dynamical memory — v7 retired
 
@@ -674,11 +692,12 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-V14 is that comparison in the current language setting. Its gate separately
-controls state retention and delta correction; it reads causal hidden summaries
-and never targets. Gate entropy, write frequency, memory rank, and perturbation
-growth explain behavior, while heldout loss and unseen generation remain the
-selection criteria.
+V14 performed that comparison in the current language setting. Its gate read
+causal hidden summaries, received complete gradients, and separated retention
+from delta correction without targets. It learned to suppress writing and tied
+the off/local controls rather than improving them. This rejects mean-segment
+associative gating, not every possible memory gate. A later gate must receive a
+state whose ungated form first proves useful.
 
 ### 11. Toroidal phase memory — narrow use for time and order
 
@@ -781,14 +800,15 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
    runs at 121.8k tokens/s while removing linear token-budget CUDA storage.
 9. Completed: scale V11 to 1.000B tokens. Likelihood still improves, but fixed
    prompts expose persistent proposition loops and topic drift.
-10. Next: compare V11, a parameter-matched local residual, ungated segment delta
-   state, and gated segment delta state from the exact 1B parent.
-11. Add a read-only neural-manifold diagnostic only when it can explain a branch;
-   it never promotes a model.
-12. Test wavelet-style compression only as a causal old-context mechanism on a
-   task where context exceeds the local attention window, followed by a base
-   language retention guard.
-13. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+10. Completed: V14's local, ungated, and gated segment-state arms tie V11 at
+    67.11M tokens; the active full-rank memory is suppressed and deleted.
+11. Next: preflight a fixed causal Haar/dyadic state against a same-size gated
+    recurrence on long-delay retrieval and interference before language.
+12. Add a read-only neural-manifold diagnostic when it can explain that branch;
+    it never promotes a model.
+13. Admit wavelet-style state to base language only after the preflight wins,
+    then require retention on both source holdouts and unseen generation.
+14. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

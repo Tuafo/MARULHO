@@ -401,18 +401,18 @@ remains productive for likelihood, but the checkpoint is not runtime-qualified.
 The next candidate must add a persistent semantic/topic state under ordinary
 next-token loss, with V11 retained as the matched sparse token-capacity baseline.
 
-The active V14 experiment implements that candidate as a small causal segment
-associative state, not as another decoder or external model. It adds 102,912
-parameters to V11: four 8-by-16 matrices are read per token and updated after
-each completed 32-token segment through either an ungated or gated delta rule.
-Matched off and local-only arms distinguish persistent memory from extra local
-capacity. All modes attach with exact parent logits, labels never enter writes,
-and mode-specific compiled graphs keep inactive controls out of measured work.
-Twenty-one focused tests pass. A deleted 20-step CUDA smoke measures
-117.3k/off, 118.7k/local, 115.0k/delta, and 110.6k/gated tokens/s at about 2.0 GB,
-so the mechanism is admitted to the 67.11M-token-per-arm quality falsifier. This
-is implementation and efficiency evidence, not a V14 quality result; no V14
-checkpoint is promoted or installed.
+V14 tests that persistent-state hypothesis and rejects its implemented form.
+Four exact-reset arms each receive 67,112,960 tokens: V11/off, a
+parameter-matched local residual, ungated segment delta state, and gated segment
+delta state finish at heldout loss 3.0746086/3.0745938/3.0746429/3.0746036.
+Relation ranking stays 48.4%/48.0%/48.4%/48.4% and free relation generation is
+0% throughout. The gated memory is active, full rank, and fully reached by
+gradient, but learns mean write 0.082 with no write above 0.5; its 0.0000050
+loss gain over off is negligible and it trails local. Decision:
+`retire_v14_no_segment_state_gain`. No V14 checkpoint exists. Its live model,
+runner, tests, and checkpoint surface are deleted; only the decisive report
+remains. The next architecture may not reuse mean segment summaries or simply
+retune this gate.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
