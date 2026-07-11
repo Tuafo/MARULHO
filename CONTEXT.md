@@ -469,6 +469,22 @@ candidate ranking and greedy source-absent answers before any contiguous
 general-language screen is admitted. The preflight owns no checkpoint or
 runtime path.
 
+The first V18 run is a retained negative at
+`reports/language_scaling/v18-segment-memory-800step-20260711.json` (SHA-256
+`6141cf272002764c0ae52e5c894937e92fddb9199ac4b3aee01464dcf5f44c89`).
+Off/exact/local/recency/mean/learned candidate accuracy is
+24.2/73.0/72.7/72.3/74.2/72.7%; greedy exact accuracy is
+0.0/18.4/17.2/16.4/19.5/4.7%. Exact history fails its frozen-interface gate,
+and query-local capacity nearly matches it, exposing answer-template shortcuts.
+The learned writer receives complete gradients but collapses to effective rank
+2.01 with state norm 548.3. Decision:
+`retire_v18_frozen_segment_bridge_interface`. V18b does not rewrite that result:
+it adds standard post-write normalization and a harder paired audit over 47
+identical-question groups and 558 differing-answer pairs. Within each pair, all
+distractors and their order remain fixed; only the target source changes. V18b
+must show source-specific behavioral gain over local/simple controls or the
+entire segment-bridge implementation is deleted.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

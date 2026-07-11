@@ -205,6 +205,12 @@ has a language-specific purpose.
   with exact history, recency, and streaming pooling. This tests compression and
   use jointly instead of asking an optional residual to improve already-local
   next-token prediction.
+- **First result:** V18a's exact-history reader barely beats a source-independent
+  local adapter on greedy answers, while the learned slots collapse to effective
+  rank 2.01. Candidate ranking is contaminated by answer-template clues. V18b
+  keeps the negative report, normalizes every learned write, and evaluates
+  identical-question/source-swap pairs. Only source-following behavior can now
+  advance the branch.
 
 ### Explicit read/write memory
 

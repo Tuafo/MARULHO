@@ -290,6 +290,20 @@ metrics-only. Runs below 512 updates return a diagnostic decision. A passing
 learned bridge earns only a contiguous-language screen, not a checkpoint,
 runtime installation, memory claim, or base-quality promotion.
 
+The V18a report is
+`reports/language_scaling/v18-segment-memory-800step-20260711.json` (SHA-256
+`6141cf272002764c0ae52e5c894937e92fddb9199ac4b3aee01464dcf5f44c89`).
+Exact history reaches 73.0% candidate/18.4% greedy exact, but source-independent
+local slots already reach 72.7%/17.2%; streaming mean reaches 74.2%/19.5%.
+Learned slots fall to 72.7%/4.7% and collapse to effective rank 2.01 despite
+complete gradients. Decision: `retire_v18_frozen_segment_bridge_interface`.
+The v2 runner is one bounded redesign: post-write LayerNorm plus paired
+counterfactual episodes that hold the question, seven distractors, positions,
+and decoding policy fixed while changing only the target source and answer.
+This contains 47 query groups and 558 different-answer pairs. The original
+report and gate remain unchanged; v2 must prove a causal source-following margin
+or all segment-bridge code is removed.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

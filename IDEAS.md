@@ -190,6 +190,16 @@ greedy-answer gate. If exact history fails, the frozen interface is wrong. If
 exact wins but slots lose, compression is wrong. Only a learned win earns a
 contiguous general-language experiment.
 
+V18a fails that first gate. Exact history reaches 73.0% candidate ranking and
+18.4% exact greedy answers, but query-local learned slots already reach
+72.7%/17.2%; the candidate set contains answer-style shortcuts. Streaming mean
+is best at 74.2%/19.5%. Learned recurrent slots reach only 72.7%/4.7%, with
+complete gradients but effective rank 2.01 and state norm 548.3. The report is
+not reinterpreted. V18b makes one mechanism correction—post-write LayerNorm—and
+one evaluation correction: for 558 pairs, the question and seven distractors
+stay identical while only the relevant earlier source changes. A query-prior
+adapter must produce the same answer; genuine memory must follow the source.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon

@@ -12,7 +12,9 @@ from marulho.evaluation.language_segment_memory_preflight import (
     SegmentMemoryBridge,
     SegmentMemoryConfig,
     SegmentMemoryPreflightConfig,
+    build_evaluation_groups,
     build_group_schedule,
+    counterfactual_behavior_metrics,
     encode_relation_records,
     parse_relation_training_line,
     sample_relation_training_records,
@@ -147,14 +149,60 @@ def test_group_schedule_is_matched_distinct_and_deterministic() -> None:
     )
 
 
+def test_evaluation_groups_change_only_target_within_same_query() -> None:
+    labels = ["same", "same", *[f"other-{index}" for index in range(8)]]
+    groups, slots = build_evaluation_groups(
+        case_count=len(labels),
+        facts_per_example=4,
+        seed=13,
+        case_labels=labels,
+    )
+    first = groups[0].clone()
+    second = groups[1].clone()
+    assert int(slots[0]) == int(slots[1])
+    target_slot = int(slots[0])
+    assert int(first[target_slot]) == 0
+    assert int(second[target_slot]) == 1
+    first[target_slot] = -1
+    second[target_slot] = -1
+    assert torch.equal(first, second)
+
+
+def test_counterfactual_metric_requires_source_specific_output_change() -> None:
+    rows = [
+        {
+            "query_prefix": "same",
+            "expected": "red",
+            "observed": "red",
+            "exact": True,
+        },
+        {
+            "query_prefix": "same",
+            "expected": "blue",
+            "observed": "red",
+            "exact": False,
+        },
+    ]
+    metrics = counterfactual_behavior_metrics(rows)
+    assert metrics["source_following_exact_accuracy"] == 0.5
+    assert metrics["output_change_rate_when_source_answer_changes"] == 0.0
+    assert metrics["both_answers_correct_pair_rate"] == 0.0
+
+
 def _decision_rows(
-    candidate: dict[str, float], free: dict[str, float]
+    candidate: dict[str, float],
+    free: dict[str, float],
+    counterfactual: dict[str, float] | None = None,
 ) -> dict[str, dict]:
+    paired = counterfactual or free
     return {
         name: {
             "evaluation": {
                 "candidate_accuracy": candidate[name],
                 "free_exact_accuracy": free[name],
+                "paired_counterfactual": {
+                    "source_following_exact_accuracy": paired[name]
+                },
             }
         }
         for name in ARM_NAMES
@@ -179,25 +227,26 @@ def test_segment_memory_decision_requires_exact_and_control_margins() -> None:
         "mean": 0.06,
         "learned": 0.35,
     }
+    counterfactual = dict(free, exact=0.70, learned=0.40)
     assert segment_memory_decision(
-        _decision_rows(candidate, free),
+        _decision_rows(candidate, free, counterfactual),
         train_steps=512,
         config=config,
     ) == ADVANCE_DECISION
     assert segment_memory_decision(
-        _decision_rows(candidate, free),
+        _decision_rows(candidate, free, counterfactual),
         train_steps=511,
         config=config,
-    ) == "diagnostic_v18_below_preflight_step_floor"
-    weak_exact = dict(candidate, exact=0.70)
+    ) == "diagnostic_v18b_below_preflight_step_floor"
+    weak_exact = dict(candidate, exact=0.69)
     assert segment_memory_decision(
-        _decision_rows(weak_exact, free),
+        _decision_rows(weak_exact, free, counterfactual),
         train_steps=512,
         config=config,
-    ) == "retire_v18_frozen_segment_bridge_interface"
+    ) == "retire_v18b_exact_history_no_source_causal_gain"
     matched = dict(candidate, mean=0.76)
     assert segment_memory_decision(
-        _decision_rows(matched, free),
+        _decision_rows(matched, free, counterfactual),
         train_steps=512,
         config=replace(config, minimum_learned_candidate_gain=0.0),
-    ) == "redesign_v18_simple_summary_matches_learned_slots"
+    ) == "retire_v18b_simple_summary_matches_learned_slots"

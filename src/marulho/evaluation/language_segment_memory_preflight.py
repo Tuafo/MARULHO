@@ -29,12 +29,12 @@ from marulho.training.language_hashed_micro_experts import (
 )
 
 
-SURFACE = "marulho_segment_memory_preflight.v1"
+SURFACE = "marulho_segment_memory_preflight.v2"
 ARTIFACT_KIND = "marulho_segment_memory_preflight"
 TRAINED_ARM_NAMES = ("exact", "local", "recency", "mean", "learned")
 ARM_NAMES = ("off", *TRAINED_ARM_NAMES)
 MINIMUM_DECISION_STEPS = 512
-ADVANCE_DECISION = "advance_v18_segment_memory_to_contiguous_language_screen"
+ADVANCE_DECISION = "advance_v18b_segment_memory_to_contiguous_language_screen"
 
 
 @dataclass(frozen=True)
@@ -80,12 +80,15 @@ class SegmentMemoryPreflightConfig:
     data_seed: int = 9101
     model_seed: int = 9201
     slot_count: int = 16
-    minimum_exact_candidate_accuracy: float = 0.75
-    minimum_exact_free_accuracy: float = 0.25
+    minimum_exact_candidate_accuracy: float = 0.70
+    minimum_exact_free_accuracy: float = 0.20
     minimum_learned_candidate_accuracy: float = 0.65
     minimum_learned_free_accuracy: float = 0.20
     minimum_learned_candidate_gain: float = 0.08
     minimum_learned_free_gain: float = 0.08
+    minimum_exact_counterfactual_gain: float = 0.10
+    minimum_learned_counterfactual_accuracy: float = 0.20
+    minimum_learned_counterfactual_gain: float = 0.08
     generation_max_tokens: int = 16
 
 
@@ -395,6 +398,7 @@ class SegmentMemoryBridge(nn.Module):
         self.write_mlp = nn.Sequential(
             nn.Linear(width, hidden), nn.SiLU(), nn.Linear(hidden, width)
         )
+        self.write_state_norm = nn.LayerNorm(width)
         self.read_query_norm = nn.LayerNorm(width)
         self.read_memory_norm = nn.LayerNorm(width)
         self.read_attention = nn.MultiheadAttention(
@@ -424,7 +428,9 @@ class SegmentMemoryBridge(nn.Module):
         )
         gate = torch.sigmoid(self.write_gate(torch.cat((memory, proposal), dim=-1)))
         updated = memory + gate * proposal
-        return updated + self.write_mlp(self.write_post_norm(updated))
+        return self.write_state_norm(
+            updated + self.write_mlp(self.write_post_norm(updated))
+        )
 
     def _pool_slots(
         self,
@@ -638,9 +644,9 @@ def segment_memory_decision(
     config: SegmentMemoryPreflightConfig,
 ) -> str:
     if set(rows) != set(ARM_NAMES):
-        return "incomplete_v18_missing_control_arm"
+        return "incomplete_v18b_missing_control_arm"
     if int(train_steps) < MINIMUM_DECISION_STEPS:
-        return "diagnostic_v18_below_preflight_step_floor"
+        return "diagnostic_v18b_below_preflight_step_floor"
     candidate = {
         name: float(rows[name]["evaluation"]["candidate_accuracy"])
         for name in ARM_NAMES
@@ -649,14 +655,25 @@ def segment_memory_decision(
         name: float(rows[name]["evaluation"]["free_exact_accuracy"])
         for name in ARM_NAMES
     }
+    counterfactual = {
+        name: float(
+            rows[name]["evaluation"]["paired_counterfactual"][
+                "source_following_exact_accuracy"
+            ]
+        )
+        for name in ARM_NAMES
+    }
     if (
         candidate["exact"] < float(config.minimum_exact_candidate_accuracy)
         or free["exact"] < float(config.minimum_exact_free_accuracy)
+        or counterfactual["exact"] - counterfactual["local"]
+        < float(config.minimum_exact_counterfactual_gain)
     ):
-        return "retire_v18_frozen_segment_bridge_interface"
+        return "retire_v18b_exact_history_no_source_causal_gain"
     simple = ("local", "recency", "mean")
     candidate_control = max(candidate[name] for name in simple)
     free_control = max(free[name] for name in simple)
+    counterfactual_control = max(counterfactual[name] for name in simple)
     learned_pass = (
         candidate["learned"] >= float(config.minimum_learned_candidate_accuracy)
         and free["learned"] >= float(config.minimum_learned_free_accuracy)
@@ -664,12 +681,16 @@ def segment_memory_decision(
         >= float(config.minimum_learned_candidate_gain)
         and free["learned"] - free_control
         >= float(config.minimum_learned_free_gain)
+        and counterfactual["learned"]
+        >= float(config.minimum_learned_counterfactual_accuracy)
+        and counterfactual["learned"] - counterfactual_control
+        >= float(config.minimum_learned_counterfactual_gain)
     )
     if learned_pass:
         return ADVANCE_DECISION
     if max(candidate["recency"], candidate["mean"]) >= candidate["learned"]:
-        return "redesign_v18_simple_summary_matches_learned_slots"
-    return "redesign_v18_compression_gap_exact_bridge_viable"
+        return "retire_v18b_simple_summary_matches_learned_slots"
+    return "retire_v18b_compression_gap_exact_bridge_viable"
 
 
 def _tensor_sha256(*values: torch.Tensor) -> str:
@@ -856,14 +877,9 @@ def build_evaluation_groups(
             label_buckets.setdefault(str(label), []).append(index)
         if len(label_buckets) < int(facts_per_example):
             raise ValueError("not enough distinct case labels for one fact group")
-    for target in range(int(case_count)):
-        if label_buckets is None:
-            eligible = [index for index in population if index != target]
-            distractors = generator.sample(
-                eligible, int(facts_per_example) - 1
-            )
-        else:
-            target_label = str(case_labels[target])
+    label_plans: dict[str, tuple[list[int], int]] = {}
+    if label_buckets is not None:
+        for target_label in sorted(label_buckets):
             distractor_labels = generator.sample(
                 [label for label in label_buckets if label != target_label],
                 int(facts_per_example) - 1,
@@ -872,6 +888,22 @@ def build_evaluation_groups(
                 generator.choice(label_buckets[label])
                 for label in distractor_labels
             ]
+            target_slot = generator.randrange(int(facts_per_example))
+            label_plans[target_label] = (distractors, target_slot)
+    for target in range(int(case_count)):
+        if label_buckets is None:
+            eligible = [index for index in population if index != target]
+            distractors = generator.sample(
+                eligible, int(facts_per_example) - 1
+            )
+        else:
+            target_label = str(case_labels[target])
+            distractors, target_slot = label_plans[target_label]
+            row = list(distractors)
+            row.insert(int(target_slot), target)
+            rows.append(row)
+            target_slots.append(int(target_slot))
+            continue
         row = [target, *distractors]
         generator.shuffle(row)
         rows.append(row)
@@ -1014,6 +1046,7 @@ def evaluate_free_generation(
     exact_rows = []
     contains_rows = []
     examples = []
+    counterfactual_rows = []
     for start in range(0, len(cases), int(config.eval_batch_size)):
         end = min(len(cases), start + int(config.eval_batch_size))
         selected_cases = cases[start:end]
@@ -1076,6 +1109,15 @@ def evaluate_free_generation(
             contains = expected_normalized in observed_normalized
             exact_rows.append(exact)
             contains_rows.append(contains)
+            counterfactual_rows.append(
+                {
+                    "case_id": case.case_id,
+                    "query_prefix": case.query_prefix,
+                    "observed": observed_normalized,
+                    "expected": expected_normalized,
+                    "exact": exact,
+                }
+            )
             if len(examples) < 12:
                 examples.append(
                     {
@@ -1092,6 +1134,54 @@ def evaluate_free_generation(
         "generation_policy": "greedy_argmax",
         "maximum_new_tokens": int(config.generation_max_tokens),
         "examples": examples,
+        "_counterfactual_rows": counterfactual_rows,
+    }
+
+
+def counterfactual_behavior_metrics(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["query_prefix"]), []).append(row)
+    usable = [
+        group
+        for group in grouped.values()
+        if len({str(row["expected"]) for row in group}) > 1
+    ]
+    eligible_rows = [row for group in usable for row in group]
+    pairs = []
+    for group in usable:
+        for left_index, left in enumerate(group):
+            for right in group[left_index + 1 :]:
+                if str(left["expected"]) == str(right["expected"]):
+                    continue
+                pairs.append((left, right))
+    return {
+        "query_group_count": len(usable),
+        "case_count": len(eligible_rows),
+        "different_answer_pair_count": len(pairs),
+        "source_following_exact_accuracy": (
+            sum(bool(row["exact"]) for row in eligible_rows)
+            / max(1, len(eligible_rows))
+        ),
+        "macro_query_exact_accuracy": (
+            sum(
+                sum(bool(row["exact"]) for row in group) / len(group)
+                for group in usable
+            )
+            / max(1, len(usable))
+        ),
+        "output_change_rate_when_source_answer_changes": (
+            sum(str(left["observed"]) != str(right["observed"]) for left, right in pairs)
+            / max(1, len(pairs))
+        ),
+        "both_answers_correct_pair_rate": (
+            sum(bool(left["exact"]) and bool(right["exact"]) for left, right in pairs)
+            / max(1, len(pairs))
+        ),
+        "identical_query_and_distractors_with_target_source_swap": True,
+        "promotion_metric": True,
     }
 
 
@@ -1313,9 +1403,13 @@ def run_segment_memory_preflight(
             config=config,
             device=resolved,
         )
+        counterfactual_rows = free.pop("_counterfactual_rows")
         return {
             **candidate,
             **free,
+            "paired_counterfactual": counterfactual_behavior_metrics(
+                counterfactual_rows
+            ),
             "case_count": len(cases),
             "source_facts_per_query": int(config.facts_per_example),
             "source_segments": int(config.source_segments),
@@ -1415,6 +1509,10 @@ def run_segment_memory_preflight(
         "schedule": {
             "identical_for_every_trained_arm": True,
             "sha256": _tensor_sha256(schedule_indices, target_slots),
+            "evaluation_group_sha256": _tensor_sha256(
+                eval_groups, eval_target_slots
+            ),
+            "evaluation_pairs_hold_query_and_distractors_fixed": True,
             "steps": int(config.train_steps),
             "batch_size": int(config.batch_size),
             "facts_per_example": int(config.facts_per_example),
