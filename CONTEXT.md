@@ -654,6 +654,38 @@ promotion. The next test is therefore one fresh-seed replication of balanced
 top-one against off, random-one, and oracle-one. Top-two is retired. A top-one
 replication must win both corpora and source-use controls before any checkpoint.
 
+V25 replicates the top-one likelihood result and then fails anchored generation.
+The retained screen is
+`reports/language_scaling/v25-balanced-top1-replication-800step-20260711.json`
+(SHA-256
+`dafae2ddabbebb62200e2b8758120e30e38c2c0c4e8ca7705e80f36dd114af76`).
+Off/random-one/lexical-one/oracle-one loss is
+3.0877/3.0959/3.0447/3.0112. Lexical gains +0.0430 over off with 95% interval
++0.0204 to +0.0668, beats matched random by 0.0512, and includes the target in
+71.88% of eval cases. Cosmopedia and FineWeb-Edu improve separately by 0.0535
+and 0.0326. True history beats a guaranteed wrong episode by +0.1127 with
+interval +0.0885 to +0.1389. General regression remains bounded at
++0.0657/+0.0823. Decision:
+`advance_v25_replicated_top_one_to_anchored_review`.
+
+The required manual review is retained at
+`reports/language_scaling/v25-anchored-generation-review-20260711.json`
+(SHA-256
+`5e1eb137c2949b60579eab50f5ee91db2183349665a5921497a2e3965afe5d7e`).
+All eight continuations fail. They switch from GPRS to GPL/airplanes, contradict
+the multiple-income premise, restart earlier sections, corrupt technical terms,
+or drift to unrelated sun/Celtic-pyramid text. Expected token-position accuracy
+is 7.81% and unique target-token recall is 21.53%. Final decision:
+`retain_v25_likelihood_signal_redesign_separate_evidence_reader_before_checkpoint`.
+No checkpoint is saved or installed.
+
+Raw episode concatenation is now closed and its live runner/tests are deleted.
+The surviving evidence is architectural: exact top-one memory improves causal
+likelihood and source sensitivity, but ordinary self-attention does not turn it
+into reliable free generation. The next candidate must encode the episode on a
+separate evidence path and inject it through bounded gated cross-attention while
+preserving the local cortex sequence and the same off/random/true controls.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

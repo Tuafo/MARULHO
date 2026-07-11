@@ -22,10 +22,11 @@ There are three different levels of truth:
    Transformer whose replaced feed-forward block contains deterministic hashed
    singleton micro-experts. Its strict checkpoint has trained for 1.0B update
    tokens.
-3. **Selected memory hypothesis:** V21 combines a local V11-style cortex with a
-   growing exact episodic archive and a bounded selector. This passed a
-   controlled relation-binding screen, but it has no promoted checkpoint or
-   runtime integration yet.
+3. **Selected memory direction:** V25 proves that a bounded selector plus one
+   exact archived episode improves disjoint causal likelihood. Raw prepending
+   still fails anchored generation, so the next uninstalled candidate gives
+   evidence a separate gated reader. No memory checkpoint or runtime integration
+   exists yet.
 
 ```mermaid
 flowchart LR
@@ -34,8 +35,9 @@ flowchart LR
     Tok --> Archive["Exact episodic archive<br/>tokens + provenance + compact keys"]
     Prefix["Visible current prefix"] --> Select["Bounded evidence selector"]
     Archive --> Select
-    Select --> Evidence["Top-k older spans"]
-    Evidence --> Local
+    Select --> Evidence["One older exact span"]
+    Evidence --> Reader["Bounded evidence reader<br/>(next falsifier)"]
+    Reader --> Local
     Local --> Output["MARULHO-owned next-token generation"]
     Local --> Save["Atomic checkpoint and rollback"]
     Archive --> Save
@@ -47,6 +49,8 @@ The division of labor is deliberate:
 
 - the cortex learns language and reasons over the small amount of evidence that
   is active now;
+- the evidence reader keeps archived tokens out of the local position stream and
+  injects only a bounded, gated residual;
 - the archive preserves potentially important experience without forcing every
   detail through a fixed-size recurrent state;
 - keys and indexes may be compressed, but valuable episode content stays exact
@@ -54,9 +58,10 @@ The division of labor is deliberate:
 - selection limits active context instead of pretending that an ever-growing
   prompt is free.
 
-The selector is currently lexical TF-IDF, not a learned semantic memory and not
-the intended final answer. It is a clean causal instrument for testing whether
-selecting exact experience is useful before investing in a learned router.
+The validated selector is currently lexical TF-IDF, not a learned semantic
+memory and not the intended final answer. It is a causal instrument that has
+replicated a likelihood win; the separate reader shown above remains a
+hypothesis until it improves anchored generation.
 
 MARULHO is not using an SNN, GRU, cortical-column simulation, Hopfield network,
 or reservoir as its active language core. Those ideas remain available only
@@ -74,6 +79,7 @@ when they express a measurable computational role and can beat matched controls.
 | V22b abstention audit | The frozen gate transfers at 97.84% precision and gains 0.0356 loss, but always-on lexical gains 0.0388 on the same cases | Retire detached correctness gating and co-train the cortex to interpret selected evidence |
 | V23 joint document screen | Oracle and true-vs-wrong tests prove learned source use, but lexical's +0.0192 interval crosses zero and general loss regresses +0.1200/+0.1346 | Reject the 75/25 top-one curriculum; run one balanced top-two falsifier |
 | V24 balanced top-two | Replay restores retention, but top-two is 0.0064 worse than top-one. The lexical-one control gains a significant +0.0255 while retaining general loss | Retire top-two and replicate top-one against balanced random-one |
+| V25 top-one replication | Lexical memory gains +0.0430 over off, beats random, improves both corpora, and retains general loss; all 8 anchored continuations still fail | Preserve the likelihood signal, retire raw concatenation, and build a separate evidence reader |
 
 V21 also keeps both general-language holdouts within the preregistered 0.10 loss
 regression bound and uses about 0.90 GiB peak allocation versus all-history's
@@ -89,7 +95,7 @@ iteration.
 
 The selected direction still has to show all of the following:
 
-- a co-adapted retrieval win on causal, document-disjoint general text;
+- an evidence-reader win on anchored free generation, not only causal loss;
 - lower heldout continuation loss and better source-anchored free generation at
   the same time;
 - a semantic or learned key that transfers beyond relation templates;
@@ -105,10 +111,10 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Replicate exact-reset off, random-one, lexical-one, and oracle-one with fresh
-   training/evaluation seeds and a 50/50 document/general schedule.
-2. Require lexical-one to beat both off and equal-token random-one on disjoint
-   FineWeb-Edu and Cosmopedia likelihood, true-vs-wrong evidence use, and general
+1. Build a bounded gated cross-attention reader that encodes one selected exact
+   episode separately from the local causal token sequence.
+2. Compare gate-zero, shuffled-source, true-source, and raw-context controls on
+   disjoint likelihood, source interventions, anchored generation, and general
    retention.
 3. If a selected-evidence arm survives, save one cortex-plus-archive checkpoint
    and test strict reload/rollback.

@@ -147,6 +147,11 @@ one word with it.
     The lexical-one control itself gains 0.0255 over off with a positive interval
     and preserves general loss. Because balanced random-one was absent, one
     fresh-seed top-one replication is required before promotion or retirement.
+21. V25 replicates exact top-one memory on both corpora: +0.0430 over off with a
+    positive interval, +0.1127 true-vs-wrong source use, and bounded retention.
+    Yet all eight free continuations fail anchored review. Raw concatenation is
+    closed; the next reader must keep evidence separate and improve generation,
+    not merely teacher-forced likelihood.
 
 ## Provisional scaling diagnosis
 
@@ -283,9 +288,11 @@ has a language-specific purpose.
   always-read lexical selection. V23 co-training creates genuine source use but
   loses retention and lacks a significant aggregate win. V24 restores retention
   but rejects top-two distraction; its lexical-one control is significant. The
-  final raw-context decision is a fresh balanced top-one replication against
-  equal-token random-one. No checkpoint/index contract is built until it wins on
-  disjoint likelihood, retention, and anchored generation.
+  final raw-context replication wins likelihood but fails every anchored sample.
+  Exact memory therefore remains promising while raw concatenation is retired.
+  The next interface uses a separate gated evidence reader; no checkpoint/index
+  contract is built until it wins on disjoint likelihood, retention, and
+  anchored generation.
 
 ### Multiple learning timescales
 

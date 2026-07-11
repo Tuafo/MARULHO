@@ -438,7 +438,7 @@ the causal V22 document builder but must co-train fresh cortex arms on off,
 random, and lexical contexts, then require disjoint likelihood and anchored
 generation together before saving a checkpoint.
 
-`language_joint_document_retrieval_screen.py` preregisters V23. It samples
+The deleted joint-document runner preregistered V23. It sampled
 2,048 causal cases from each replay source and 128 cases from each disjoint eval
 source. Off, random-one, lexical-one, and non-promotable oracle-one restore the
 identical 1B-token V11 state, optimizer recipe, 800-step schedule, and 25%
@@ -475,8 +475,8 @@ The next and final raw-context test uses 50% ordinary replay and compares
 lexical top-two with top-one and equal-token random-two. A failure there moves
 document memory behind a separate reader rather than another curriculum tweak.
 
-The live `language_joint_document_retrieval_screen.py` now owns V24 and no
-longer maintains the failed V23 configuration. V24 restores the same 1B-token
+The same temporary runner replaced V23 with V24 rather than maintaining both
+paths. V24 restored the same 1B-token
 V11 state for off, random-two, lexical-one, lexical-two, and non-promotable
 oracle-two. Its 800 steps are split 50/50 between causal document targets and
 ordinary general replay. The candidate reads two 48-token spans; oracle-two
@@ -509,8 +509,8 @@ becomes a fresh-seed top-one replication with off/random-one/lexical-one/
 oracle-one. Top-two is not maintained. A failed replication retires raw context
 memory; a pass advances to anchored review before checkpointing.
 
-The live runner now owns only V25. It changes training/evaluation/model seeds to
-12101/12201/12301 and restores off, random-one, lexical-one, and non-promotable
+Its final V25 configuration changed training/evaluation/model seeds to
+12101/12201/12301 and restored off, random-one, lexical-one, and non-promotable
 oracle-one from the identical parent under the 50/50 schedule. Lexical-one must
 include the target in at least 68% of cases, beat off by +0.01 with a positive
 paired lower bound, beat equal-token random-one by +0.005, and never lose to off
@@ -518,6 +518,32 @@ on either corpus. True history must beat a guaranteed wrong span by +0.02 with a
 positive lower bound, oracle-one must clear +0.02, and each general regression
 must remain at or below +0.10. This is the final raw-context replication; no
 further top-k, seed, threshold, or replay sweep follows a failure.
+
+V25 passes that likelihood gate. The retained report is
+`reports/language_scaling/v25-balanced-top1-replication-800step-20260711.json`
+(SHA-256
+`dafae2ddabbebb62200e2b8758120e30e38c2c0c4e8ca7705e80f36dd114af76`).
+Off/random-one/lexical-one/oracle-one loss is
+3.0877/3.0959/3.0447/3.0112. Lexical's matched gain is +0.0430 with 95% interval
++0.0204 to +0.0668; it beats random by 0.0512, improves Cosmopedia/FineWeb-Edu
+by 0.0535/0.0326, includes the target in 71.88% of cases, and gives true history
++0.1127 over a guaranteed wrong episode. General regression is
++0.0657/+0.0823. Decision: `advance_v25_replicated_top_one_to_anchored_review`.
+
+The manual review is
+`reports/language_scaling/v25-anchored-generation-review-20260711.json`
+(SHA-256
+`5e1eb137c2949b60579eab50f5ee91db2183349665a5921497a2e3965afe5d7e`).
+All eight cases fail the requirement to remain topical, noncontradictory,
+coherent, and free of broken entities/repetitive drift. Automated context is
+7.81% expected token-position accuracy and 21.53% unique-target-token recall.
+Decision:
+`retain_v25_likelihood_signal_redesign_separate_evidence_reader_before_checkpoint`.
+
+The raw-context runner and tests are deleted. Future evidence memory must use a
+separate bounded reader/cross-attention interface and beat gate-zero, shuffled,
+and raw-context controls on anchored generation as well as likelihood. No V25
+checkpoint exists.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

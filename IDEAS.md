@@ -374,6 +374,22 @@ episodic memory survives as a sparse one-record interface. If it fails, raw
 prompt-style memory is retired and the next architecture gets a separate
 reader/cross-attention path. No more top-k or replay-ratio sweeps follow.
 
+V25 replicates the top-one likelihood effect cleanly. Lexical memory gains
+0.0430 over off with a positive interval, beats equal-token random by 0.0512,
+improves both corpora, shows 0.1127 true-vs-wrong source use, and retains general
+loss. This is the strongest real-document memory result so far. It still fails
+the outcome that matters: all eight free continuations drift, contradict, repeat,
+or corrupt entities and terminology. Better teacher-forced likelihood is not
+yet better language.
+
+This closes raw prompt-style memory. The next architecture gives evidence its
+own bounded reader: encode one exact episode separately, let query states attend
+to it through a gated cross-attention residual, and leave local token positions
+untouched. Off, shuffled-source, true-source, and gate-zero controls must share
+the added parameters. The reader survives only if source interventions improve
+both disjoint loss and multi-sentence anchored generation; another likelihood-
+only win is insufficient.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a
