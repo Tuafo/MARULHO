@@ -212,6 +212,90 @@ deleted. The transferable result is that persistent semantic state must be
 jointly shaped with the language cortex and contiguous training distribution;
 post-hoc latent slots cannot recover a binding interface that V11 never learned.
 
+## Contradiction-driven causal compilation — later grounded hypothesis
+
+The useful core of the proposed "Autogenic Causal Compiler" is narrower than a
+replacement for neural language modeling: a persistent, localized contradiction
+may justify changing the system's explicit concepts or executable procedures,
+not only its continuous weights. The admissible loop is:
+
+```text
+prediction and causal receipt
+    -> externally observed contradiction
+    -> smallest responsible execution slice
+    -> candidate concept, scope, or program edit
+    -> discriminating intervention
+    -> heldout and transfer validation
+    -> versioned commit or rollback
+```
+
+The complete proposal is not an admitted MARULHO architecture. It assumes that
+event boundaries, entity binding, symbol grounding, causal identification,
+program search, evaluator integrity, and branch control are already solved. It
+also creates a false choice if it requires structural search to replace all
+gradient learning. A more credible MARULHO composition keeps a jointly trained
+neural cortex for language and perception, then lets a much slower structural
+organ propose sparse, inspectable edits when repeated evidence exposes a failure
+that the current representation cannot express.
+
+The individual primitives have substantial prior art and are not a novelty
+claim. [DreamCoder](https://arxiv.org/abs/2006.08381) grows reusable program
+libraries; [LILO](https://arxiv.org/abs/2310.19791) synthesizes and compresses
+interpretable code libraries; [Neuro-Symbolic Concepts](https://arxiv.org/abs/2505.06191)
+grounds typed compositional concepts in neural representations;
+[CausalFlow](https://arxiv.org/abs/2605.25338) uses counterfactual trace edits to
+localize and repair agent failures; the
+[Darwin Godel Machine](https://arxiv.org/abs/2505.22954) empirically selects
+foundation-model-generated code variants; and
+[SMGI](https://arxiv.org/abs/2603.07896) treats representation, hypothesis,
+evaluation, and memory interfaces as typed evolving objects. What remains
+interesting for MARULHO is their untested composition inside one owned,
+continual, rollbackable causal system.
+
+This direction connects the local-unit inspiration from LCO with LCWM's
+execution-coupled program selection without copying either project wholesale:
+
+- the neural cortex proposes uncertain entity, event, and relation bindings;
+- an append-only episode ledger preserves observations, actions, predictions,
+  outcomes, and provenance;
+- small typed causal patches predict transitions only inside declared scopes;
+- repeated contradictions may propose a scope split, new latent predicate, or
+  replacement mechanism;
+- repeated successful execution traces may be compressed into candidate
+  procedures, but only transfer—not historical compression—can admit them;
+- checkpoints own the ontology, patch versions, evidence, and rollback state;
+- external outcomes and separated evaluators decide promotion, never the
+  self-modifying proposal path alone.
+
+This is downstream of the current persistent-state blocker. A structural organ
+cannot discover that a bottle is sealed if the cortex cannot reliably preserve
+which bottle, action, and outcome belong together. The next jointly trained
+memory-token cortex must first demonstrate source-following entity/event state
+on contiguous language. Only then is an ontology-mutation preflight warranted.
+
+The smallest falsifier is an interactive text world whose training situations
+are explained by an incomplete ontology. During deployment, an unlabelled
+property such as closure state changes the consequences of opening, closing,
+tilting, and inverting containers. Compare:
+
+- the qualified neural cortex alone;
+- an exact episodic-retrieval ledger;
+- fixed typed causal patches with no concept creation;
+- one structural arm allowed to propose a single scope split or binary latent
+  predicate and one discriminating intervention;
+- a metrics-only oracle that exposes the true property but cannot be promoted.
+
+The structural arm survives only if it invents a stable distinction without
+reading the hidden label, chooses a more informative intervention than random,
+improves future transition prediction, transfers compositionally to unseen
+objects and phrasings, changes less durable state than the neural controls, and
+round-trips every admitted edit through a rollbackable checkpoint. Retire it if
+it grows instance-specific predicates, expands branches superlinearly, merely
+memorizes episodes, loses to retrieval, or cannot outperform a parameter-matched
+neural update. Successful trace compilation is a separate later gate; recursive
+modification of the compiler or evaluator is out of scope until ordinary
+concept mutation is externally validated.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon
