@@ -163,6 +163,81 @@ one word with it.
     crossing zero. Both gates and every tensor train; the interface, not dead
     machinery or retrieval, fails. Cross-attention document memory is retired.
 
+## Exploratory reset after V27
+
+V27 closes the local evidence-reader neighborhood. The next search changes the
+computational substrate rather than moving another gate or attention layer.
+Candidates share one matched language contract; novelty does not excuse weaker
+heldout loss, free generation, gradient coverage, or compute accounting.
+
+### First branch: particle-field recurrent core
+
+- **Borrowed:** [Dragon Hatchling / BDH-GPU](https://arxiv.org/abs/2509.26507)
+  expresses a large population of positive neuron-like activations through three
+  low-rank factor matrices shared over recurrent depth. Causal linear attention
+  is the parallel form of a Hebbian fast-weight state. The mechanism is closer
+  to LCO's many-small-units intuition than a collection of independent neural
+  modules: global meaning is a sparse population pattern and its evolving
+  correlation state.
+- **Evidence boundary:** the paper's matched scaling experiment uses a
+  stateful raw-byte Europarl language/translation stream, 1.2B training tokens,
+  and Transformer-XL controls. It is not evidence of broad web-language
+  coherence. The public reference is a simple quadratic short-context kernel;
+  MARULHO must measure the RTX 3060 implementation directly.
+- **MARULHO candidate:** width 256, 24,576 nonnegative particles, four heads,
+  eight shared recurrent-depth iterations, three particle factor matrices, a
+  tied 8,192-token embedding/head, and no external weights. This gives about
+  20.972M parameters versus the 20.976M matched Transformer, without inventing a
+  capacity advantage.
+- **Required truth:** causal parallel/reference agreement, recurrent-state
+  agreement on small shapes, complete gradients, observed activation sparsity,
+  exact parameter/operation accounting, and CUDA memory/throughput precede the
+  language run.
+- **Falsifier:** train particle and Transformer arms on the identical frozen
+  corpus, tokenizer, batches, token count, optimizer intent, and seed. A branch
+  advances only by improving heldout language and free relation behavior
+  together at a durable budget. It then faces genuinely unseen generation
+  before any checkpoint. A short-budget learning-rate advantage is not enough.
+
+### Other orthogonal branches
+
+- **Modern editable matrix state:**
+  [Gated DeltaNet-2](https://arxiv.org/abs/2605.22791) separates channel-wise
+  decay, erase, and write, while [Mamba-3](https://arxiv.org/abs/2603.15569)
+  adds complex oscillatory state and multiple inputs/outputs. MARULHO's retired
+  delta v1 already implements almost the same asymmetric erase/write equation,
+  but with a serial reference loop and a small-state recipe. This family is a
+  control candidate only if implemented with a current chunk-parallel block and
+  current training recipe; the old path will not be restored under a new name.
+- **Adaptive recursive computation:**
+  [Mixture-of-Recursions](https://arxiv.org/abs/2507.10524) shares parameters
+  over depth while assigning tokens different iteration counts. This is
+  materially different from MARULHO's rejected static depth allocation and
+  shallow depth-reuse weights. Its falsifier must show that routed extra
+  iterations beat fixed-recursion and shuffled-routing controls at matched
+  training FLOPs, not merely at matched parameter count.
+- **Dynamic byte patches:**
+  [Byte Latent Transformer](https://arxiv.org/abs/2412.09871) is relevant to a
+  future tokenizer replacement, but its reported advantage emerges at much
+  larger model/data scales and its local byte encoder/decoder is a large fixed
+  overhead for MARULHO's current 21M--36M regime. It is not the next 3060 test.
+
+### Self-extending causal computation
+
+The attached Autogenic Causal Compiler discussion contributes a useful long-term
+hypothesis: preserve explicit execution receipts, localize contradictions by
+counterfactual replay, introduce a new latent distinction only when it repairs
+heldout interventions, and compile repeated transferable traces into reusable
+operations. This connects LCO's causal-object work with LCWM's strongest V9
+diagnosis: candidate programs should be selected because executing them works.
+
+It is not a credible replacement for base language modeling yet. A first test
+belongs in a grounded interactive world where observations and interventions can
+falsify a newly invented predicate. Text-only next-token loss cannot establish
+concept birth, causal truth, or safe self-modification. MARULHO therefore keeps
+this as a later execution-coupled causal organ, with an immutable ledger,
+versioned edits, shadow evaluation, and rollback—not as V28's token mixer.
+
 ## Provisional scaling diagnosis
 
 The 4.20M and 16.79M fresh matched points imply different local slopes against
