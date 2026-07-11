@@ -325,6 +325,25 @@ Other user-proposed fronts remain tracked but are not promoted into the base:
   micro-chaos/macro-order remain inspiration until each names a measurable state,
   intervention, and heldout advantage.
 
+The frozen audit passes its admission gate on a materially larger sample. Across
+4,608 contexts, mean oracle improvement is 0.1911 and 40.5% of tokens have at
+least 0.05 route regret. FineWeb-Edu/Cosmopedia mean gains are 0.2020/0.1802.
+Fragile contexts carry most of the opportunity: 0.3159/0.2963 mean gain versus
+0.0882/0.0641 on the confident halves. Every alternative hash is globally
+0.62–0.66 loss worse than V11, while per-token oracle choices spread almost
+equally across all four alternatives. This rules out a lucky global seed and
+supports a context-prediction problem. Decision: `train_v12_counterfactual_gate`.
+
+The next test trains both a linear and a small nonlinear utility predictor on
+counterfactual labels from the general *training* corpora, while the 251M model
+and expert pool remain frozen. Evaluation uses the separate FineWeb-Edu and
+Cosmopedia holdouts. The predictor receives only the causal pre-expert hidden
+state and estimates each alternative's loss improvement over the stable V11
+route. At inference it chooses an alternative only when predicted gain is
+positive. It must lower realized heldout loss by at least 0.02 on both corpora,
+beat a baseline-always policy, preserve equal active compute, and show noncollapsed
+selection. Failure retires the gate even though oracle opportunity exists.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

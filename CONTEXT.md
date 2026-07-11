@@ -313,6 +313,20 @@ Keep V11 as the strongest sparse base evidence, but test context-sensitive
 routing and longer training context at matched compute before another large
 scale run. Runtime and continual-memory work remain blocked.
 
+**Counterfactual Route Regret (V12 admission)** — a frozen, read-only audit of
+the 251M checkpoint changes only the final token's eight singleton IDs across
+four equal-compute deterministic alternatives. Across 4,608 heldout contexts,
+the metrics-only oracle lowers next-token loss by 0.1911 on average and finds
+regret of at least 0.05 on 40.5% of tokens. FineWeb-Edu/Cosmopedia gains are
+0.2020/0.1802; fragile-token gains are 0.3159/0.2963 versus 0.0882/0.0641 for
+confident tokens. Every fixed alternative is globally 0.62–0.66 loss worse, so
+there is no better static seed; useful choices are context-conditional and spread
+across all alternatives. Forced-baseline logit delta is exactly zero, within-route
+duplicates are zero, the route bank touches 95–97% of the pool, and parameter
+hashes are unchanged. Decision: `train_v12_counterfactual_gate`. This admits only
+training a small causal utility predictor on disjoint training contexts. Oracle
+selection uses targets and is never an inference route or promotion claim.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

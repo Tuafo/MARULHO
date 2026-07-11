@@ -129,6 +129,17 @@ only when mean oracle improvement is at least 0.02 and at least 10% of tokens
 have regret of 0.05 or more. It cannot promote a model. The one-batch CUDA smoke
 passed and was deleted before the full audit.
 
+The full report is
+`reports/language_scaling/hashed-micro-v11-counterfactual-route-audit-251m-20260711.json`.
+Across 4,608 contexts, mean oracle loss improvement is 0.1911 and 40.5% have
+regret ≥0.05. FineWeb-Edu/Cosmopedia gains are 0.2020/0.1802; fragile halves gain
+0.3159/0.2963 versus 0.0882/0.0641 on confident halves. Every fixed alternative
+is globally 0.62–0.66 worse, so the opportunity is conditional rather than a
+better static seed. Forced parity is zero, parameters are unchanged, duplicates
+are zero, and pool coverage is 95–97%. Decision:
+`train_v12_counterfactual_gate`. This is permission to test whether a label-safe
+gate can predict the oracle opportunity, not permission to use oracle routes.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

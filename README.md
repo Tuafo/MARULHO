@@ -128,6 +128,16 @@ for research, not installed. The next branch redesigns token-only routing for
 causal context sensitivity and tests longer training context at matched compute
 before another large scale run.
 
+A frozen counterfactual audit now finds a concrete V12 opportunity. On 4,608
+heldout contexts, four equal-compute alternative micro-assemblies give a
+metrics-only oracle mean loss gain of 0.1911, with ≥0.05 regret on 40.5% of
+tokens; the gain is about four times larger on fragile than confident tokens.
+Every alternative is much worse as a fixed global policy, so a static rehash is
+not the answer. Exact forced-route parity, zero duplicates, unchanged parameter
+hashes, and label-safe prediction paths pass. This admits training a tiny causal
+gate to predict route utility from hidden state; the oracle itself cannot run at
+inference and does not promote V11/V12.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the
