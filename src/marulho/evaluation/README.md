@@ -302,6 +302,25 @@ remains 1.78. Candidate/free exact accuracy is 68.4/4.7% for learned versus
 claim exists. The model, runner, tests, feature-cache path, and smoke artifacts
 are deleted.
 
+The live V19 preflight replaces the frozen bridge with jointly trained recurrent
+memory tokens inside V11 itself. Four source facts arrive in two segments. Each
+segment runs learned input state, source-only tokens, and learned output queries
+through the same causal cortex; sixteen final states are normalized back to the
+embedding scale and carried forward. Query-only, exact raw history,
+source-independent local tokens, last-segment recency, parallel segment mean,
+and recurrence all reset from identical V11 and memory tensors and receive the
+same relation/general-replay schedule. Paired source swaps remain the behavioral
+gate, and two disjoint general holdouts guard retention. The 25,601-parameter,
+32-KiB-per-stream mechanism passes focused contracts and a four-step six-arm CUDA
+smoke; the smoke report is deleted and its scores do not select the branch. The
+decisive run must complete at least 512 steps before any advance decision.
+
+Run the maintained preflight with:
+
+```powershell
+python -m marulho.evaluation.language_joint_memory_token_preflight --help
+```
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

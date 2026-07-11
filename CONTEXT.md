@@ -483,6 +483,21 @@ model, runner, tests, transient feature caches, and smoke reports are deleted.
 The next persistent-state architecture must be jointly learned with the cortex
 on contiguous streams rather than attached to frozen V11 representations.
 
+V19 is the admitted falsifier for that conclusion, not an implemented language
+capability. Six exact-reset arms jointly train the complete V11 cortex under one
+relation-plus-general-replay schedule: query-only/off, raw exact history,
+source-independent local tokens, latest-segment recency, parallel segment mean,
+and recurrent memory tokens. The recurrent path carries sixteen 512-wide tokens
+(32 KiB per float32 stream). The same V11 blocks write them at the ends of two
+source-only segments and read them before the later query; a small learned
+normalization/scale returns cortex outputs to token-embedding scale. No separate
+reader, miniature language model, question, answer, candidate, or correct index
+enters the write path. Its mechanism tests and six-arm CUDA smoke pass; smoke
+scores are discarded. Advancement requires paired source-following behavior,
+a win over bounded local/recency/mean controls, proximity to exact history, and
+no heldout general-language regression. No V19 checkpoint or quality claim
+exists before the decisive run.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

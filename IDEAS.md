@@ -212,6 +212,26 @@ deleted. The transferable result is that persistent semantic state must be
 jointly shaped with the language cortex and contiguous training distribution;
 post-hoc latent slots cannot recover a binding interface that V11 never learned.
 
+V19 tests the joint-training conclusion directly. The same V11 cortex receives
+learned memory tokens, source text, and learned output-query tokens in one causal
+segment. Only the final output-token states survive. They become the prefix of
+the next source segment and, after the second write, the prefix of the question.
+All cortex weights and the 25,601-parameter token interface train together under
+ordinary answer-token loss plus general-language replay. A learned LayerNorm and
+scalar return 62-norm cortex outputs to the roughly 0.7-norm token-embedding
+interface before recurrence. Stable slot-specific hashes retain V11's sparse
+micro-capacity without a learned router.
+
+The controls isolate the actual claim: exact raw history proves the task is
+learnable; local tokens expose answer priors; recency sees only the last segment;
+mean processes both segments independently; off sees only the query. Paired
+evaluation holds the question, distractors, positions, and decoder fixed while
+changing the target source and answer. The candidate dies if exact history does
+not establish source causality, if a simple bounded summary matches recurrence,
+if recurrent behavior remains more than ten points behind exact, or if either
+general holdout regresses by more than 0.10 loss. A four-step CUDA smoke validates
+execution only and is deleted; its scores are not evidence.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a
