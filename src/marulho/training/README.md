@@ -29,13 +29,13 @@ loss. Chosen-expert utility reached 14.8%; all-expert comparative utility restor
 25.8% but still did not beat random and slightly worsened loss. The model,
 runner, and tests are deleted.
 
-**`language_modular_society.py`** — the uninstalled v3 candidate: four
-independent causal language cells, each with its own embedding, attention stack,
-KV state, and tied token head. Cells exchange only delayed low-dimensional event
-messages; a learned coordinator combines their token predictions. Uniform
-averaging, learned/no-message, learned/shuffled-message, and learned/real-message
-modes preserve a controlled route to the 21M monolithic comparison. The model
-is an experiment surface, not the active language runtime.
+Modular predictive society v3 is retired. Four independent two-layer language
+cells consumed 21,000,608 parameters, but their real-message arm reached 5.1073
+heldout loss and 0% strict free relation versus the monolith's 4.6140 and 14.5%.
+It also lost to no-message and shuffled controls. The model, runner, and tests
+are deleted. The next candidate must share the vocabulary interface, preserve
+full-gradient depth, and test communication between internal latent cells rather
+than duplicate full language models.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

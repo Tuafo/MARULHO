@@ -56,15 +56,13 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
-**`language_modular_society_falsification.py`** — the v3 matched runner. It
-freezes sampled corpus ranges and one source-balanced update schedule across the
-21M monolith, averaged cells/no messages, learned coordinator/no messages,
-learned coordinator/shuffled messages, and learned coordinator/real messages.
-It records exact parameter and gradient coverage, heldout loss, label-safe
-candidate and free relation behavior, CUDA memory, steady throughput, compiler
-cost, and compile-amortized throughput. Real messages must beat both no-message
-and shuffled controls before scaling. The runner is resumable by verified report
-reuse, but no v3 quality report exists yet.
+The retired modular predictive society v3 report is
+`reports/language_scaling/modular-society-v3-falsification-16m-20260710.json`.
+At 16.79M matched tokens, monolith/average/no-message/shuffled/real losses were
+4.6140/5.0261/5.0460/5.0973/5.1073 and strict free relation scores were
+14.5%/5.1%/2.0%/0.4%/0%. Compiled society controls sustained 74.4--74.6k
+tokens/s with compile/eager loss deltas at or below 0.000026. Real communication
+lost both required controls, so the model, runner, and tests are deleted.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,

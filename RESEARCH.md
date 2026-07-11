@@ -443,58 +443,75 @@ substrate should immediately be decomposed. Modularizing syntax and general
 representation comes only after sparse coordination demonstrates repeatable
 benefit, stable checkpoint composition, and bounded interference.
 
-## V3 hypothesis: a modular predictive society
+## V3 result: a modular predictive society (retired)
 
-V3 tests the stronger non-monolithic idea directly. Instead of one large
-substrate with attached sidecars, several smaller causal sequence models own
-independent weights and runtime state. They share a tokenizer and exchange only
-low-rank event messages through a narrow bus. A small coordinator combines token
-predictions and messages; no cell sees another cell's full hidden state.
+V3 directly tested four complete small causal language models with independent
+weights/state, delayed 32-dimensional messages, and a token-level coordinator.
+Its 21,000,608 parameters matched the 20,976,128-parameter monolith within
+0.12%. All arms used the same 16.79M-token schedule and every trainable parameter
+received a final gradient.
 
-The implemented first reference uses four cells whose total trainable parameters
-match the 21M Transformer within 0.12%. Each cell has an independent token
-embedding, two-layer causal attention stack, KV state, and tied full-vocabulary
-head. Every 24 tokens, it compresses its recent hidden state to a 32-dimensional
-message; peers receive only the mean of the other messages on the next event.
-Required controls are:
+| Arm | Heldout loss | Strict free relation |
+| --- | ---: | ---: |
+| Monolith | 4.6140 | 14.5% |
+| Uniform average, no message | 5.0261 | 5.1% |
+| Learned coordinator, no message | 5.0460 | 2.0% |
+| Shuffled messages | 5.0973 | 0.4% |
+| Real messages | 5.1073 | 0.0% |
 
-1. one monolithic Transformer at matched total parameters and tokens;
-2. independent cells with averaged logits and no communication;
-3. cells with a learned coordinator and no messages;
-4. cells with shuffled messages, preserving message compute while destroying
-   example alignment;
-5. cells with a learned coordinator and real messages.
+**Observed:** four complete miniature models did not organize into a better
+predictor. Real messages were worse than no messages and shuffled messages.
+Compiled society controls stayed within a 1.003x steady-throughput band, so the
+result is not explained by unequal execution among controls.
 
-The coordinator survives only if real communication beats both no-message and
-shuffled-message controls on heldout loss and free behavior. Cell specialization
-must be diagnosed from counterfactual ablations, not assigned labels. If this
-works, later versions may give cells separate corpora, memories, update clocks,
-checkpoints, and birth/retirement operations. If it does not, “many small
-models” remains an inspiration rather than a supported MARULHO architecture.
+**Diagnosis:** this decomposition duplicated 9.70M vocabulary-embedding
+parameters, leaving each prediction path only two layers. Processing 24-token
+events through the streaming state block also detached the exact attention-cache
+gradient at event boundaries; only the compressed message path crossed them.
+The coarse mean message was then added uniformly to every token in the next
+event. This refutes the implemented full-model society and bus, not every system
+made from small units.
+
+## V4 hypothesis: a depth-preserving modular workspace
+
+The stronger next test treats cells as internal latent processors inside one
+language system. It keeps a shared token embedding and readout, retains a full
+differentiable context path, and alternates parallel local processing with a
+narrow causal workspace. The parameter budget moves from duplicated vocabulary
+tables into depth and latent computation.
+
+Required first controls are:
+
+1. the 21M monolithic Transformer;
+2. a parameter-matched parallel-cell model with no cross-cell exchange;
+3. the same model with shuffled workspace state;
+4. the same model with real workspace state.
+
+Real exchange must beat both no-exchange and shuffled controls on heldout loss
+and free behavior. Only then should cells receive different horizons, clocks,
+targets, or persistent memories. Cell roles remain diagnoses from ablations,
+not names assigned in advance.
 
 ### Staged associative-memory and column hypotheses
 
 The modern Hopfield result does not by itself replace the Transformer: its
 continuous one-step retrieval update is equivalent to key-value attention. The
 novel question for MARULHO is narrower and testable: can a persistent bank of
-cell/event prototypes let the society retrieve and stabilize useful joint
-states better than its current transient mean-message bus? That becomes a
-second-stage arm only if real communication first beats no-message and shuffled
-controls. The comparison must hold cell count, parameter budget, message width,
-and training data fixed: transient mean bus versus ordinary learned attention
-bus versus persistent Hopfield/attractor bus. Retrieval accuracy, interference,
+cell/event prototypes let a working modular workspace retrieve and stabilize
+useful joint states better than transient communication? That remains a
+second-stage arm only if ordinary real exchange first beats no-exchange and
+shuffled controls. The comparison must hold cell count, parameter budget,
+workspace width, and training data fixed. Retrieval accuracy, interference,
 heldout loss, free behavior, throughput, and state growth are kill metrics.
 
 “Columns with different representation layers” is also a useful second-stage
-hypothesis, not a property to assume. A heterogeneous society could give cells
+hypothesis, not a property to assume. A heterogeneous workspace could give cells
 different context horizons, depths, update clocks, or predictive targets so
 that token-local, event, entity, and longer causal representations have room to
-emerge. Starting heterogeneous would confound the first result: we would not
-know whether any gain came from communication or simply from one fortunate
-cell shape. The homogeneous v3 comparison therefore comes first; if it wins,
-heterogeneous cells must beat a same-budget homogeneous society and learned
-specialization must be verified by cell ablations rather than names assigned in
-advance.
+emerge. Starting heterogeneous would again confound the result: we would not
+know whether a gain came from communication or one fortunate cell shape.
+Heterogeneous cells must therefore beat a same-budget homogeneous workspace and
+learned specialization must be verified by cell ablations.
 
 ## Retired ideas
 
@@ -505,6 +522,8 @@ advance.
 - Delta-memory v1 as the next scalable core.
 - Dense distributed-organism v1 as the base token mixer.
 - Sparse event-memory v2's next-token utility selector.
+- Modular predictive society v3's duplicated full-language cells and delayed
+  mean-message bus.
 - Multiple-choice or loss improvement as proof of memory.
 - Biological vocabulary without a measurable computational role.
 

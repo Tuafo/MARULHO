@@ -158,19 +158,23 @@ restored utility free relation to 25.8% but still lost to random's 27.0%, with
 loss 4.6153 versus 4.6128. The selector/interface met its kill criterion. Its
 implementation, runner, and tests are deleted; compact reports retain evidence.
 
-**Modular Predictive Society v3 Hypothesis** — directly test several smaller
-deep sequence models with independent state and weights, coordinated through a
-narrow learned latent bus. The experimental core is implemented as four
-parameter-independent two-layer causal cells with delayed 32-dimensional event
-messages and a token-level coordinator. At an 8,192-token vocabulary it has
-21,000,608 parameters versus the baseline's 20,976,128 (0.12% more). Averaged
-logits/no messages, learned coordinator/no messages, shuffled messages, real
-messages, and the monolithic Transformer are predeclared controls. Active
-compute and wall time remain measurements, not assumed matches. The matched
-runner freezes source sampling and the update schedule, verifies compile/eager
-loss parity, and measures heldout loss plus label-safe free relation behavior.
-This candidate is not installed in `MarulhoBrain`; the pending 16.79M-token
-comparison decides whether meaningful organization emerged.
+**Modular Predictive Society v3 (retired)** — four independent two-layer causal
+cells were matched within 0.12% of the 21M monolith and trained for 16.79M tokens
+under one frozen schedule. Monolith/average/no-message/shuffled/real losses were
+4.6140/5.0261/5.0460/5.0973/5.1073; strict free relation scores were
+14.5%/5.1%/2.0%/0.4%/0%. Real messages lost every relevant control. Compiled
+society arms were tightly compute-matched at 74.4--74.6k steady tokens/s, so the
+negative is not a control-speed artifact. The model, runner, and tests are
+deleted; the compact local report retains exact evidence.
+
+**Depth-Preserving Modular Workspace v4 Hypothesis** — test small units as
+internal latent processors rather than complete duplicate language models. A
+shared embedding/readout preserves vocabulary capacity, every token keeps a
+full differentiable path through the training context, and parallel cells may
+exchange causal latent workspace state between layers. Monolith, parallel/no
+exchange, shuffled workspace, and real workspace remain required controls.
+Ordinary transient workspace communication is tested before persistent Hopfield
+memory or heterogeneous cell roles.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

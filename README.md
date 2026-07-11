@@ -49,13 +49,13 @@ unseen semantic generation.
 Distributed predictive organism v1 and sparse event-memory v2 are retired. V2
 showed that random one-of-four specialists could raise strict free relation from
 14.5% to 27.0% at tied loss, but chosen-only utility reached 14.8% and
-comparative all-expert utility reached 25.8%; neither beat random. The next
-hypothesis directly tests several smaller deep sequence models with independent
-state/weights and a narrow latent communication bus, matched in total parameters
-and measured active compute against the monolith. The v3 candidate core now
-exists with four independent cells, four predeclared controls, and a resumable
-matched real-language runner; it is not an installed runtime or a supported
-architecture until the 16.79M-token evidence justifies promotion.
+comparative all-expert utility reached 25.8%; neither beat random. Modular
+predictive society v3 is also retired: at 16.79M matched tokens its monolith/real
+message losses were 4.6140/5.1073 and strict free relation scores were 14.5%/0%.
+Real messages lost to no messages and shuffled messages. The failed model,
+runner, and tests are deleted. The next hypothesis keeps one shared language
+interface and full-gradient depth while testing parallel latent cells around a
+narrow workspace.
 
 ## Current Evidence
 
