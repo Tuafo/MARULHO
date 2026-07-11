@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from marulho.evaluation.language_hashed_micro_expert_durability import (
@@ -10,6 +11,7 @@ from marulho.evaluation.language_hashed_micro_expert_durability import (
     checkpoint_reproduction_audit,
     hashed_micro_expert_durability_decision,
 )
+from marulho.evaluation.language_matched_support import build_matched_schedule
 
 
 def _arms(
@@ -216,3 +218,26 @@ def test_checkpoint_reproduction_rejects_token_or_initialization_drift() -> None
             assert message in str(exc)
         else:
             raise AssertionError("Qualification identity drift should be rejected")
+
+
+def test_general_only_schedule_never_reads_relation_batches() -> None:
+    schedule = build_matched_schedule(
+        step_count=12,
+        relation_fraction=0.0,
+        relation_batch_count=0,
+        general_batch_counts=(3, 4),
+        seed=97,
+    )
+    assert len(schedule) == 12
+    assert all(kind.startswith("general_") for kind, _index in schedule)
+
+
+def test_schedule_requires_relation_batches_only_when_scheduled() -> None:
+    with pytest.raises(ValueError, match="Scheduled relation"):
+        build_matched_schedule(
+            step_count=4,
+            relation_fraction=0.25,
+            relation_batch_count=0,
+            general_batch_counts=(2, 2),
+            seed=101,
+        )

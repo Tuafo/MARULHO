@@ -174,26 +174,28 @@ def build_matched_schedule(
 ) -> tuple[tuple[str, int], ...]:
     if int(step_count) < 1:
         raise ValueError("step_count must be positive")
-    if int(relation_batch_count) < 1 or any(
-        int(count) < 1 for count in general_batch_counts
-    ):
-        raise ValueError("Every scheduled source requires at least one batch")
+    relation_fraction = float(relation_fraction)
+    if not 0.0 <= relation_fraction <= 1.0:
+        raise ValueError("relation_fraction must be in [0, 1]")
+    if any(int(count) < 1 for count in general_batch_counts):
+        raise ValueError("Every general source requires at least one batch")
+    if relation_fraction > 0.0 and int(relation_batch_count) < 1:
+        raise ValueError("Scheduled relation source requires at least one batch")
     if not general_batch_counts:
         raise ValueError("At least one general source is required")
     generator = torch.Generator(device="cpu").manual_seed(int(seed))
     orders = {
-        "relation": torch.randperm(
-            relation_batch_count,
-            generator=generator,
-        ).tolist(),
-        **{
             f"general_{index}": torch.randperm(
                 count,
                 generator=generator,
             ).tolist()
             for index, count in enumerate(general_batch_counts)
-        },
     }
+    if relation_fraction > 0.0:
+        orders["relation"] = torch.randperm(
+            relation_batch_count,
+            generator=generator,
+        ).tolist()
     cursors = {name: 0 for name in orders}
     accumulator = 0.0
     source_cursor = 0
@@ -219,8 +221,11 @@ def build_matched_schedule(
 
 def _load_tokenizer(path: Path):
     payload = torch.load(path, map_location="cpu", weights_only=False)
-    if payload.get("surface") != "marulho_transformer_language_checkpoint.v2":
-        raise ValueError("Tokenizer source must be a Transformer checkpoint")
+    if payload.get("surface") not in {
+        "marulho_transformer_language_checkpoint.v2",
+        "marulho_hashed_micro_expert_language_checkpoint.v1",
+    }:
+        raise ValueError("Tokenizer source must be a maintained language checkpoint")
     return load_language_tokenizer_state(payload["tokenizer"])
 
 
@@ -304,13 +309,27 @@ def prepare_matched_language_data(
     steps = math.ceil(
         int(config.token_budget) / (int(config.batch_size) * int(config.sequence_length))
     )
-    relation_steps = max(1, int(round(steps * float(config.relation_fraction))))
-    general_steps = max(1, math.ceil((steps - relation_steps) / 2))
-    relation_text, relation_selection = sample_corpus_ranges(
-        relation_corpus_path,
-        byte_budget=config.sample_bytes_per_train_source,
-        range_count=config.sample_range_count,
+    relation_enabled = float(config.relation_fraction) > 0.0
+    relation_steps = (
+        max(1, int(round(steps * float(config.relation_fraction))))
+        if relation_enabled
+        else 0
     )
+    general_steps = max(1, math.ceil((steps - relation_steps) / 2))
+    if relation_enabled:
+        relation_text, relation_selection = sample_corpus_ranges(
+            relation_corpus_path,
+            byte_budget=config.sample_bytes_per_train_source,
+            range_count=config.sample_range_count,
+        )
+    else:
+        relation_text = ""
+        relation_selection = {
+            "path": str(Path(relation_corpus_path)),
+            "scheduled": False,
+            "selected_size_bytes": 0,
+            "ranges": [],
+        }
     train_samples = [
         sample_corpus_ranges(
             path,
@@ -327,14 +346,18 @@ def prepare_matched_language_data(
         )
         for path in general_eval_paths
     ]
-    relation_split = build_language_model_splits(
-        [relation_text],
-        tokenizer,
-        sequence_length=config.sequence_length,
-        stride=config.sequence_length,
-        batch_size=config.batch_size,
-        max_train_batches=relation_steps,
-        max_eval_batches=1,
+    relation_split = (
+        build_language_model_splits(
+            [relation_text],
+            tokenizer,
+            sequence_length=config.sequence_length,
+            stride=config.sequence_length,
+            batch_size=config.batch_size,
+            max_train_batches=relation_steps,
+            max_eval_batches=1,
+        )
+        if relation_enabled
+        else None
     )
     general_splits = [
         build_language_model_splits(
@@ -358,9 +381,13 @@ def prepare_matched_language_data(
         max_train_batches=1,
         max_eval_batches=config.eval_batches,
     )
-    relation_batches = full_sized_batches(
-        relation_split.train,
-        batch_size=config.batch_size,
+    relation_batches = (
+        full_sized_batches(
+            relation_split.train,
+            batch_size=config.batch_size,
+        )
+        if relation_split is not None
+        else tuple()
     )
     general_batches = [
         full_sized_batches(split.train, batch_size=config.batch_size)
