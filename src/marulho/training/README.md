@@ -116,15 +116,13 @@ arms ran within 0.30% throughput and passed initialization, gradient, memory, an
 parity audits. No checkpoint was saved; the failed core, runner, and tests are
 deleted. Static layer width is not a maintained language option.
 
-`language_depth_connections.py` is the active uninstalled v9 core. It wraps the
-unchanged four Transformer blocks with 14 scalar depth connections and can mix
-the embedding plus every preceding layer output after each block. Identity,
-fixed-mean, fixed-random, learned-unconstrained, and learned-simplex controls use
-the same 20,976,142 parameter objects. At initialization, every common tensor is
-bit-identical to the 20,976,128-parameter Transformer and identity mode produces
-identical logits. The module also exposes read-only participation-ratio,
-effective-rank, norm, and adjacent-depth-cosine diagnostics. These metrics do not
-qualify a model; heldout loss and strict free generation do.
+Depth-weighted representation reuse v9 is retired. Across two independent
+16.79M-token comparisons, learned-unconstrained connections replicated a small
+loss improvement but not a reliable free-generation improvement or a joint win
+over identity and fixed controls. Fixed-mean did not replicate its first strong
+loss gain, fixed-random hurt loss, and learned-simplex remained near identity.
+The core, runner, and tests are deleted; no depth-connection option exists in the
+maintained training surface.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

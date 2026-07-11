@@ -44,19 +44,17 @@ label-safe relation evaluation, and optional post-arm diagnostics. Architecture
 decisions remain owned by the specific runner; this support cannot promote a
 model.
 
-**`language_depth_connection_falsification.py`** — the active uninstalled v9
-runner. It compares the Transformer with identity, fixed-mean, fixed-random,
-learned-unconstrained, and learned-simplex depth reuse. The five connection modes
-reload one exact 20,976,142-parameter state and share one compiled graph; the
-20,976,128-parameter Transformer is separately hash-matched on every common
-tensor. Reports include strict language evidence, gradient/compute audits,
-learned connection weights, and read-only geometry. A learned mode must beat the
-Transformer and every fixed control on both loss and free generation before it
-can replicate; no checkpoint is saved before survival. The CUDA/Inductor smoke
-compiled one Transformer graph plus one candidate graph shared by all five
-controls, avoiding four redundant compilations while preserving parity, exact
-reset, complete learned-weight gradients, and matched candidate-mode compute.
-Its two-step quality values are deliberately not retained.
+The retired depth-connection v9 evidence is local at
+`reports/language_scaling/depth-connections-v9-falsification-16m-20260711.json`
+and
+`reports/language_scaling/depth-connections-v9-replication-seed7331-16m-20260711.json`.
+Both 16.79M-token reports decide
+`redesign_v9_disjoint_loss_and_behavior_signals`: signed learned reuse replicated
+a small loss gain but not a reliable strict-generation gain or a joint win over
+identity and fixed controls. All controls used exact resets, matched common
+initialization, complete gradient and parity audits, and one shared candidate
+graph with within-0.14% candidate throughput. No checkpoint was saved; the v9
+model, runner, and tests are deleted.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

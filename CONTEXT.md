@@ -232,24 +232,21 @@ a superior static architecture or a known training-step crossover. No checkpoint
 was saved. The model, runner, and tests are deleted; three local reports retain
 the screen, replication, and durability evidence.
 
-**Depth-Weighted Representation Reuse v9 (active experiment, uninstalled)** —
-keep the exact four uniform Transformer blocks but let every block output reuse
-the embedding and all earlier depth representations through 14 scalar
-connections. The candidate has 20,976,142 parameters versus the Transformer's
-20,976,128, and every common tensor is bit-identical at initialization. Identity,
-fixed-mean, fixed-random, learned-unconstrained, and learned-simplex modes share
-one parameter graph. Identity reproduces Transformer logits exactly; causality,
-streaming equivalence, owned generation, full learned-weight gradients, and
-finite representation-geometry diagnostics pass. The geometry metrics and depth
-weights explain information flow but cannot promote quality. A CUDA/Inductor
-mechanism smoke compiled two loss graphs instead of six: one Transformer graph
-and one candidate graph reused across all five exact-reset controls. It also
-confirmed bit-identical common initialization, compile parity, complete learned
-weight gradients, and a 3.12% steady-throughput spread across candidate modes.
-The smoke report is intentionally discarded because two update steps cannot
-support a language claim. V9 is not a runtime path or checkpoint format until
-the learned modes beat all connection controls and the Transformer at a durable
-budget.
+**Depth-Weighted Representation Reuse v9 (retired)** — two independent
+16.79M-token comparisons tested identity, fixed-mean, fixed-random,
+learned-unconstrained, and learned-simplex reuse against the Transformer. The
+learned-unconstrained arm replicated a small heldout-loss improvement over the
+Transformer (0.0092 and 0.0075), but strict free generation improved by 14.8
+points in one seed and fell by 0.4 points in the other. It never beat identity
+and every fixed control on both metrics. Fixed-mean's 0.0277 first-seed loss gain
+shrunk to 0.0021 on replication; random mixing hurt loss; learned simplex stayed
+near identity. The signed learned rows consistently attenuated the current
+stream and subtracted small earlier-depth components, suggesting residual-scale
+control rather than durable content reuse. Candidate controls shared one graph,
+matched throughput within 0.14%, passed parity and gradient audits, and added
+only 14 parameters, so the negative is credible. Both reports decide
+`redesign_v9_disjoint_loss_and_behavior_signals`. No checkpoint was saved; the
+model, runner, and tests are deleted.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

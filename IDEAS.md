@@ -21,8 +21,8 @@ several incomplete language models or a weak memory attached beside one. V8
 tested the simpler structural question of where a fixed feed-forward budget
 should live across depth. Its short-budget early-heavy win reversed at the
 durable budget, so no static profile becomes the baseline for micro-experts. V9
-now tests whether direct reuse of earlier representations is more durable than
-moving capacity toward them.
+then tested direct reuse of earlier representations: its small loss signal
+replicated, but joint language behavior did not, so it is also retired.
 
 Geometry remains high-value instrumentation. Wavelets, toroidal phase,
 reservoirs, cellular self-organization, and active inference remain scoped
@@ -97,7 +97,7 @@ does not prove a training-stage crossover because the short and long experiments
 used budget-sized cosine schedules; it motivates explicit curve measurement or
 adaptive depth only if those mechanisms receive their own controls.
 
-### 3. Depth-weighted representation reuse — active V9
+### 3. Depth-weighted representation reuse — v9 retired
 
 V8 suggests that shallow computation can help under a short horizon but does not
 justify permanently widening shallow layers. A smaller intervention is to keep
@@ -118,24 +118,22 @@ exact-reset graph:
 - learned simplex weights initialized near identity, testing whether an
   identity-preserving bounded manifold is sufficient.
 
-The CUDA/Inductor mechanism smoke passed the isolation test: the Transformer
-used one loss graph and all five candidate modes shared a second graph, avoiding
-four redundant compilations. Common initialization was bit-identical, identity
-matched the baseline, learned weights received gradients, and candidate-mode
-steady throughput stayed within 3.12%. The two-step losses are discarded; only
-the mechanism audit survives into the decisive run.
+Two 16.79M-token seeds close the question. Learned-unconstrained reuse improved
+heldout loss over the Transformer by 0.0092 and 0.0075, but strict free generation
+moved by +14.8 and -0.4 points and the arm never beat identity plus every fixed
+control on both metrics. Fixed-mean's first 0.0277 loss gain shrank to 0.0021;
+fixed-random hurt loss; simplex remained almost identity. All candidate controls
+shared one graph, matched throughput within 0.14%, and passed initialization,
+parity, and gradient audits. The repeated signed pattern is informative: later
+rows learned small negative weights on earlier depths and reduced their diagonal
+weight to roughly 0.94-0.96. That looks more like residual attenuation or
+decorrelation than useful content retrieval. Preserve that clue in future
+normalization and micro-expert design, but do not preserve this architecture.
 
-This also tests the useful core of [Hyper-Connections](https://arxiv.org/abs/2409.19606)
-and [mHC](https://arxiv.org/abs/2512.24880) without multiplying residual streams.
-That restraint matters because a 2026
-[stream-collapse analysis](https://arxiv.org/abs/2606.03483) finds that
-multi-stream systems can concentrate information in one dominant stream. V9
-measures depth-weight entropy, negative weights, embedding reuse, effective rank,
-participation ratio, and adjacent-depth cosine, but only loss and free generation
-can select a branch.
-
-Kill V9 if learned reuse cannot beat identity plus fixed controls, if its gain is
-only short-budget, or if data movement erases the quality/compute tradeoff.
+This tested the cheapest useful core of [Hyper-Connections](https://arxiv.org/abs/2409.19606)
+and [mHC](https://arxiv.org/abs/2512.24880) without multiplying streams. A 2026
+[stream-collapse analysis](https://arxiv.org/abs/2606.03483) remains a warning
+against promoting a larger multi-stream variant without stronger evidence.
 
 ### 4. Sparse shared-core micro-experts — research candidate
 
@@ -339,8 +337,8 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    line after learned memory loses free generation and the simpler control.
 2. Completed: run and retire V8 after its replicated short-budget early-heavy
    win reverses in the 67.11M-token durability comparison.
-3. Run V9 identity/fixed/learned depth-reuse controls with read-only geometry
-   diagnostics; require durability before promotion.
+3. Completed: run and retire V9 after two seeds show a replicated small loss
+   signal but no joint win over identity and fixed controls.
 4. Add a read-only neural-manifold diagnostic to the maintained Transformer and
    every future survivor. Use it to explain results, never to promote a model.
 5. Research and cost a shared-core sparse micro-expert candidate, then run

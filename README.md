@@ -80,16 +80,13 @@ architecture; no checkpoint was saved, and the v8 model, runner, and tests are
 deleted. Its reports remain as evidence that useful depth allocation may depend
 on budget or training schedule.
 
-The active uninstalled v9 experiment keeps uniform Transformer capacity and adds
-only 14 scalar connections that can directly reuse earlier layer
-representations. It compares exact identity, fixed mean, fixed random,
-DenseFormer-style learned unconstrained weights, and identity-preserving learned
-simplex weights on one shared parameter graph. Identity exactly reproduces the
-Transformer; causal streaming, generation, gradients, and read-only geometry
-diagnostics pass. A CUDA/Inductor mechanism smoke reused one candidate loss
-graph across all five controls, avoiding four redundant compilations; its tiny
-training run is not retained as quality evidence. V9 has no language-quality
-result or checkpoint yet.
+Depth-weighted representation reuse v9 is retired after two independent
+16.79M-token comparisons. Learned unconstrained weights replicated a small loss
+gain over the Transformer, but not a reliable free-generation gain and never a
+joint win over identity plus fixed controls. Fixed-mean's strong first-seed loss
+gain collapsed on replication, random mixing hurt loss, and learned simplex
+stayed near identity. The reports retain the useful signed-attenuation clue; no
+checkpoint was saved, and the v9 model, runner, and tests are deleted.
 
 ## Current Evidence
 
