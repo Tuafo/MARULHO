@@ -31,7 +31,7 @@ from marulho.training.language_hashed_micro_experts import (
     load_hashed_micro_expert_checkpoint,
     save_hashed_micro_expert_checkpoint,
 )
-from marulho.training.language_model import LanguageBatch, evaluate_language_model
+from marulho.training.language_model import evaluate_language_model
 
 
 SURFACE = "marulho_hashed_micro_expert_general_continuation.v1"
@@ -60,6 +60,7 @@ class HashedMicroExpertContinuationConfig:
     sample_bytes_per_train_source: int = 192 * 1024 * 1024
     sample_bytes_per_eval_source: int = 32 * 1024 * 1024
     sample_range_count: int = 32
+    schedule_mode: str = "expanded_device"
     execution_backend: str = "eager"
     compile_loss_tolerance: float = 1.0e-3
     minimum_heldout_loss_improvement: float = 0.10
@@ -78,6 +79,7 @@ def _data_config(
         sample_bytes_per_train_source=int(config.sample_bytes_per_train_source),
         sample_bytes_per_eval_source=int(config.sample_bytes_per_eval_source),
         sample_range_count=int(config.sample_range_count),
+        schedule_mode=str(config.schedule_mode),
     )
 
 
@@ -213,6 +215,10 @@ def run_hashed_micro_expert_continuation(
         raise ValueError("minimum_heldout_loss_improvement must be positive")
     if config.execution_backend not in {"eager", "inductor"}:
         raise ValueError("execution_backend must be 'eager' or 'inductor'")
+    if config.schedule_mode not in {"expanded_device", "indexed_host"}:
+        raise ValueError(
+            "schedule_mode must be 'expanded_device' or 'indexed_host'"
+        )
     resolved = _resolve_device(device)
     if config.execution_backend == "inductor" and resolved.type != "cuda":
         raise ValueError("Inductor V11 continuation is admitted only on CUDA")
@@ -256,10 +262,7 @@ def run_hashed_micro_expert_continuation(
         name: value.detach().clone() for name, value in model.state_dict().items()
     }
     training_config = _training_config(config)
-    warm_batch = LanguageBatch(
-        prepared.staged.input_ids[0],
-        prepared.staged.target_ids[0],
-    )
+    warm_batch = prepared.staged.batch(0, resolved)
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     previous_matmul_precision = torch.get_float32_matmul_precision()
     if resolved.type == "cuda":
@@ -398,8 +401,16 @@ def run_hashed_micro_expert_continuation(
         "context_expansion": context_expansion,
         "schedule": {
             "sha256": prepared.schedule_sha256,
-            "step_count": int(prepared.staged.input_ids.shape[0]),
+            "step_count": int(prepared.staged.step_count),
+            "mode": prepared.staged.mode,
             "storage_bytes": int(prepared.staged.storage_bytes),
+            "expanded_storage_bytes": int(
+                prepared.staged.expanded_storage_bytes
+            ),
+            "device_storage_bytes": int(
+                prepared.staged.device_storage_bytes
+            ),
+            "host_storage_bytes": int(prepared.staged.host_storage_bytes),
             "relation_updates_scheduled": False,
             "source_selections": prepared.source_selections,
         },
@@ -468,6 +479,11 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=144)
     parser.add_argument("--train-sample-mib", type=int, default=192)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
+    parser.add_argument(
+        "--schedule-mode",
+        choices=("expanded_device", "indexed_host"),
+        default="expanded_device",
+    )
     parser.add_argument("--seed", type=int, default=2027)
     parser.add_argument("--learning-rate", type=float, default=1.5e-4)
     parser.add_argument(
@@ -485,6 +501,7 @@ def main() -> int:
         seed=int(args.seed),
         sample_bytes_per_train_source=int(args.train_sample_mib) * 1024 * 1024,
         sample_bytes_per_eval_source=int(args.eval_sample_mib) * 1024 * 1024,
+        schedule_mode=str(args.schedule_mode),
         execution_backend=str(args.execution_backend),
     )
     run_hashed_micro_expert_continuation(

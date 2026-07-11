@@ -593,15 +593,16 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    checkpoint only as a control.
 7. Completed: dyadic future-token heads learn their auxiliary losses but
    catastrophically lose to the matched next-token control; delete and retire.
-8. Next: make schedule storage bounded in token budget, then scale the retained
-   318M next-token checkpoint to a materially larger token/parameter point before
-   claiming an architectural ceiling.
-9. Add a read-only neural-manifold diagnostic only when it can explain a branch;
+8. Completed: indexed-host scheduling preserves exact batch values/order and
+   runs at 121.8k tokens/s while removing linear token-budget CUDA storage.
+9. Next: scale the retained 318M next-token checkpoint to a materially larger
+   token/parameter point before claiming an architectural ceiling.
+10. Add a read-only neural-manifold diagnostic only when it can explain a branch;
    it never promotes a model.
-10. Test wavelet-style compression only as a causal old-context mechanism on a
+11. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-11. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+12. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

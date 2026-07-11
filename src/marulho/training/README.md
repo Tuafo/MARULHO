@@ -163,6 +163,10 @@ checkpoint only after a predeclared heldout-loss gain. It starts a fresh AdamW
 and cosine phase from the exact qualified model; this fact is recorded, and
 optimizer state is not persisted or claimed to resume. The resulting artifact
 is an unseen-generation candidate, not a quality-promoted or runtime checkpoint.
+Large runs can retain the exact schedule order/hash in indexed-host mode: each
+sampled full batch is stored once on host and transferred only when selected,
+instead of materializing the expanded schedule on CUDA. Expanded-device mode
+remains available for exact historical recipes.
 
 The current candidate contains 251,662,464 cumulative update tokens at heldout
 loss 3.4865. It is

@@ -45,14 +45,50 @@ class MatchedLanguageDataConfig:
     sample_bytes_per_train_source: int = 64 * 1024 * 1024
     sample_bytes_per_eval_source: int = 32 * 1024 * 1024
     sample_range_count: int = 16
+    schedule_mode: str = "expanded_device"
 
 
 @dataclass(frozen=True)
 class StagedSchedule:
-    input_ids: torch.Tensor
-    target_ids: torch.Tensor
+    input_ids: torch.Tensor | None
+    target_ids: torch.Tensor | None
+    schedule: tuple[tuple[str, int], ...]
+    relation_batches: tuple[LanguageBatch, ...]
+    general_batches: tuple[tuple[LanguageBatch, ...], ...]
+    mode: str
+    step_count: int
+    tokens_per_step: int
     elapsed_seconds: float
     storage_bytes: int
+    expanded_storage_bytes: int
+    device_storage_bytes: int
+    host_storage_bytes: int
+
+    def batch(
+        self,
+        index: int,
+        device: torch.device | str,
+    ) -> LanguageBatch:
+        position = int(index)
+        if not 0 <= position < int(self.step_count):
+            raise IndexError("training schedule index is out of range")
+        if self.mode == "expanded_device":
+            if self.input_ids is None or self.target_ids is None:
+                raise RuntimeError("expanded schedule tensors are unavailable")
+            return LanguageBatch(
+                self.input_ids[position].to(device),
+                self.target_ids[position].to(device),
+            )
+        if self.mode != "indexed_host":
+            raise RuntimeError(f"unknown training schedule mode: {self.mode}")
+        kind, source_index = self.schedule[position]
+        selected = _selected_batch(
+            kind,
+            source_index,
+            relation_batches=self.relation_batches,
+            general_batches=self.general_batches,
+        )
+        return selected.to(device)
 
 
 @dataclass(frozen=True)
@@ -262,31 +298,85 @@ def stage_schedule(
     relation_batches: Sequence[LanguageBatch],
     general_batches: Sequence[Sequence[LanguageBatch]],
     device: torch.device,
+    mode: str = "expanded_device",
 ) -> StagedSchedule:
-    selected = [
-        _selected_batch(
-            kind,
-            index,
-            relation_batches=relation_batches,
-            general_batches=general_batches,
+    mode = str(mode).strip().lower()
+    if mode not in {"expanded_device", "indexed_host"}:
+        raise ValueError(
+            "schedule_mode must be 'expanded_device' or 'indexed_host'"
         )
-        for kind, index in schedule
-    ]
+    schedule_tuple = tuple((str(kind), int(index)) for kind, index in schedule)
+    if not schedule_tuple:
+        raise ValueError("training schedule cannot be empty")
+    relation_tuple = tuple(relation_batches)
+    general_tuple = tuple(tuple(batches) for batches in general_batches)
+    first_kind, first_index = schedule_tuple[0]
+    first = _selected_batch(
+        first_kind,
+        first_index,
+        relation_batches=relation_tuple,
+        general_batches=general_tuple,
+    )
+    tokens_per_step = int(first.target_ids.numel())
+    expanded_storage_bytes = int(
+        len(schedule_tuple)
+        * (
+            first.input_ids.numel() * first.input_ids.element_size()
+            + first.target_ids.numel() * first.target_ids.element_size()
+        )
+    )
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     started = time.perf_counter()
-    input_ids = torch.stack([batch.input_ids for batch in selected]).to(device)
-    target_ids = torch.stack([batch.target_ids for batch in selected]).to(device)
+    if mode == "expanded_device":
+        selected = [
+            _selected_batch(
+                kind,
+                index,
+                relation_batches=relation_tuple,
+                general_batches=general_tuple,
+            )
+            for kind, index in schedule_tuple
+        ]
+        input_ids = torch.stack([batch.input_ids for batch in selected]).to(device)
+        target_ids = torch.stack([batch.target_ids for batch in selected]).to(device)
+        storage_bytes = int(
+            input_ids.numel() * input_ids.element_size()
+            + target_ids.numel() * target_ids.element_size()
+        )
+        device_storage_bytes = storage_bytes if device.type == "cuda" else 0
+        host_storage_bytes = storage_bytes if device.type == "cpu" else 0
+    else:
+        input_ids = None
+        target_ids = None
+        unique_batches = [*relation_tuple]
+        for batches in general_tuple:
+            unique_batches.extend(batches)
+        storage_bytes = int(
+            sum(
+                batch.input_ids.numel() * batch.input_ids.element_size()
+                + batch.target_ids.numel() * batch.target_ids.element_size()
+                for batch in unique_batches
+            )
+        )
+        device_storage_bytes = 0
+        host_storage_bytes = storage_bytes
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     return StagedSchedule(
         input_ids=input_ids,
         target_ids=target_ids,
+        schedule=schedule_tuple,
+        relation_batches=relation_tuple,
+        general_batches=general_tuple,
+        mode=mode,
+        step_count=len(schedule_tuple),
+        tokens_per_step=tokens_per_step,
         elapsed_seconds=time.perf_counter() - started,
-        storage_bytes=int(
-            input_ids.numel() * input_ids.element_size()
-            + target_ids.numel() * target_ids.element_size()
-        ),
+        storage_bytes=storage_bytes,
+        expanded_storage_bytes=expanded_storage_bytes,
+        device_storage_bytes=device_storage_bytes,
+        host_storage_bytes=host_storage_bytes,
     )
 
 
@@ -405,6 +495,7 @@ def prepare_matched_language_data(
         relation_batches=relation_batches,
         general_batches=general_batches,
         device=device,
+        mode=config.schedule_mode,
     )
     return PreparedMatchedLanguageData(
         tokenizer_checkpoint=tokenizer_checkpoint,
@@ -432,6 +523,13 @@ def prepare_matched_language_data(
                     len(batches) for batches in general_batches
                 ],
                 "partial_batches_excluded": True,
+            },
+            "schedule_storage": {
+                "mode": staged.mode,
+                "resident_storage_bytes": staged.storage_bytes,
+                "expanded_storage_bytes": staged.expanded_storage_bytes,
+                "device_storage_bytes": staged.device_storage_bytes,
+                "host_storage_bytes": staged.host_storage_bytes,
             },
         },
     )
@@ -468,7 +566,7 @@ def run_matched_training_arm(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(model_seed))
     optimizer, fused = _optimizer(model, training_config)
-    total_steps = int(prepared.staged.input_ids.shape[0])
+    total_steps = int(prepared.staged.step_count)
     warmup_steps = int(
         round(total_steps * max(0.0, float(training_config.warmup_fraction)))
     )
@@ -495,9 +593,10 @@ def run_matched_training_arm(
             group["lr"] = learning_rate
         optimizer.zero_grad(set_to_none=True)
         with _precision_context(device, precision):
+            training_batch = prepared.staged.batch(step, device)
             final_loss = training_loss(
-                prepared.staged.input_ids[step],
-                prepared.staged.target_ids[step],
+                training_batch.input_ids,
+                training_batch.target_ids,
             )
         final_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), float(gradient_clip))
@@ -554,7 +653,7 @@ def run_matched_training_arm(
         for value in sample_output["state"].values()
         if isinstance(value, torch.Tensor)
     )
-    processed = total_steps * int(prepared.staged.target_ids[0].numel())
+    processed = total_steps * int(prepared.staged.tokens_per_step)
     end_to_end = training_elapsed + float(allocated_compile_seconds)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
     return {
@@ -577,7 +676,7 @@ def run_matched_training_arm(
                 {
                     "step": trace_step,
                     "processed_tokens": trace_step
-                    * int(prepared.staged.target_ids[0].numel()),
+                    * int(prepared.staged.tokens_per_step),
                     "training_batch_loss": float(value.cpu()),
                 }
                 for trace_step, value in trace_tensors
@@ -595,7 +694,18 @@ def run_matched_training_arm(
             "evaluation_seconds": evaluation_elapsed,
             "peak_cuda_memory_bytes": peak_memory,
             "per_step_host_metric_readback": False,
-            "scheduled_batches_pre_staged_on_device": True,
+            "scheduled_batches_pre_staged_on_device": (
+                prepared.staged.mode == "expanded_device"
+            ),
+            "schedule_mode": prepared.staged.mode,
+            "schedule_resident_storage_bytes": prepared.staged.storage_bytes,
+            "schedule_expanded_storage_bytes": (
+                prepared.staged.expanded_storage_bytes
+            ),
+            "schedule_device_storage_bytes": (
+                prepared.staged.device_storage_bytes
+            ),
+            "schedule_host_storage_bytes": prepared.staged.host_storage_bytes,
         },
         "execution": dict(execution),
         "heldout": heldout,

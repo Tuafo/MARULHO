@@ -181,6 +181,16 @@ heldout loss after exact head removal is 4.9522 versus the control's 3.3243.
 Decision: `retire_v13_future_prediction_no_control_gain`. No candidate checkpoint
 or future-head code remains.
 
+The maintained continuation runner supports `indexed_host` schedule storage for
+large token budgets. The schedule tuple and SHA-256 are unchanged; sampled full
+batches remain host-resident and only the active batch moves to CUDA. Reports
+separate resident, expanded-equivalent, host, and device bytes. A disposable
+100-update benchmark at 256 x 40 measures 121.8k tokens/s, 1.97 GB peak CUDA
+allocation, and zero CUDA-resident schedule bytes. The retained expanded-device
+control measures 123.6k tokens/s and 3.04 GB, so bounded scheduling costs about
+1.4% throughput while removing 16 bytes of CUDA growth per requested token. The
+benchmark report is deleted because it has no quality value.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

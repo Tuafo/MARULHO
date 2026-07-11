@@ -35,7 +35,6 @@ from marulho.training.language_hashed_micro_experts import (
     save_hashed_micro_expert_checkpoint,
 )
 from marulho.training.language_model import (
-    LanguageBatch,
     LanguageModelConfig,
     MarulhoLanguageModel,
     evaluate_language_model,
@@ -635,10 +634,7 @@ def run_hashed_micro_expert_durability(
             }
             model = model.to(resolved)
             training_config = _training_config(config)
-            warm_batch = LanguageBatch(
-                prepared.staged.input_ids[0],
-                prepared.staged.target_ids[0],
-            )
+            warm_batch = prepared.staged.batch(0, resolved)
             model.train()
             training_loss, execution = _prepare_language_loss_backend(
                 model,

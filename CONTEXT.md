@@ -372,6 +372,17 @@ holdout. The next scale test keeps the retained 318M next-token checkpoint and
 first removes the schedule's linear GPU-memory growth so a materially larger
 token/parameter comparison is possible.
 
+The continuation path now has an exact indexed-host schedule mode. It preserves
+the same source/index tuple and schedule hash but stores each sampled full batch
+once on host and transfers only the active batch, instead of expanding every
+scheduled input and target on CUDA. A 100-update, 1,024,000-token CUDA/Inductor
+benchmark reaches 121.8k tokens/s and 1.97 GB peak allocation versus 123.6k
+tokens/s and 3.04 GB for the retained expanded-device long-context run. The
+roughly 1.4% throughput cost removes the old 16-bytes-per-requested-token CUDA
+growth; the disposable benchmark report is deleted. This admits a materially
+larger next-token scale test on the 3060 without changing training order or
+quality semantics.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing
