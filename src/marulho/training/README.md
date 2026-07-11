@@ -37,6 +37,16 @@ are deleted. The next candidate must share the vocabulary interface, preserve
 full-gradient depth, and test communication between internal latent cells rather
 than duplicate full language models.
 
+**`language_modular_workspace.py`** — the uninstalled v4 candidate. One shared
+embedding and tied output head surround two shared causal layers, four parallel
+cells, and two shared integration layers. Each cell runs a full-context layer,
+exchanges only a 64-dimensional same-token causal message, then runs another
+full-context layer. No-exchange, cross-batch shuffled, and real-exchange modes
+keep the same declared parameter graph. The 8,192-vocabulary reference has
+20,970,448 parameters, 0.027% below the 21M monolith. Tests establish causality,
+streaming equality, full-context gradient flow, anti-leak controls, and owned
+generation; they do not establish language quality.
+
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not
 meaningfully beat temporal-only despite higher state, compute, and memory cost.

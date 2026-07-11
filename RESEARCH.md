@@ -39,6 +39,14 @@ is a requirement and none is accepted wholesale.
   though some narrow mechanisms are useful.
 - Transformers show the value of exact content-addressed lookup. Their success is
   evidence to explain, not a design prohibition.
+- [Recurrent Independent Mechanisms](https://arxiv.org/abs/1909.10893) and the
+  [shared global workspace](https://arxiv.org/abs/2103.01197) are borrowed
+  evidence that modules can specialize and coordinate through limited channels
+  on some tasks. They motivate controls; they are not language-model evidence
+  for MARULHO.
+- [Perceiver](https://arxiv.org/abs/2103.03206) shows that a learned latent
+  bottleneck can compress large inputs. V4 borrows the bottleneck question, not
+  the Perceiver architecture or its claims.
 
 The experimental method is to extract a computational question, implement the
 smallest faithful mechanism inside a coherent system, and compare behavior. A
@@ -474,11 +482,18 @@ made from small units.
 
 ## V4 hypothesis: a depth-preserving modular workspace
 
-The stronger next test treats cells as internal latent processors inside one
+The implemented next test treats cells as internal latent processors inside one
 language system. It keeps a shared token embedding and readout, retains a full
 differentiable context path, and alternates parallel local processing with a
 narrow causal workspace. The parameter budget moves from duplicated vocabulary
 tables into depth and latent computation.
+
+At an 8,192-token vocabulary, the reference has 20,970,448 parameters versus
+20,976,128 for the monolith. A token follows two 368-wide shared layers, one
+256-wide layer in each of four cells, a 64-dimensional same-token causal
+exchange, a second layer in each cell, and two shared integration layers. The
+same shared embedding owns the tied full-vocabulary readout. Unlike v3, no
+training-context boundary detaches the gradient inside a 72-token example.
 
 Required first controls are:
 

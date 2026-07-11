@@ -55,7 +55,9 @@ message losses were 4.6140/5.1073 and strict free relation scores were 14.5%/0%.
 Real messages lost to no messages and shuffled messages. The failed model,
 runner, and tests are deleted. The next hypothesis keeps one shared language
 interface and full-gradient depth while testing parallel latent cells around a
-narrow workspace.
+narrow workspace. Its parameter-matched experimental core now exists, but it is
+not installed and has no quality claim before no-exchange, shuffled, and real
+workspace arms complete the matched comparison.
 
 ## Current Evidence
 

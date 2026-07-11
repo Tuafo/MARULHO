@@ -171,10 +171,14 @@ deleted; the compact local report retains exact evidence.
 internal latent processors rather than complete duplicate language models. A
 shared embedding/readout preserves vocabulary capacity, every token keeps a
 full differentiable path through the training context, and parallel cells may
-exchange causal latent workspace state between layers. Monolith, parallel/no
-exchange, shuffled workspace, and real workspace remain required controls.
-Ordinary transient workspace communication is tested before persistent Hopfield
-memory or heterogeneous cell roles.
+exchange causal latent workspace state between layers. The experimental core is
+implemented at 20,970,448 parameters versus the monolith's 20,976,128 (0.027%
+under): two 368-wide shared layers, four parallel 256-wide cells with one layer
+on each side of a 64-dimensional token-causal workspace, then two shared
+integration layers and one tied vocabulary head. Monolith, parallel/no exchange,
+shuffled workspace, and real workspace remain required controls. The core is
+uninstalled and has no quality evidence yet. Ordinary transient communication
+is tested before persistent Hopfield memory or heterogeneous cell roles.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
