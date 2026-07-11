@@ -241,9 +241,15 @@ fixed-mean, fixed-random, learned-unconstrained, and learned-simplex modes share
 one parameter graph. Identity reproduces Transformer logits exactly; causality,
 streaming equivalence, owned generation, full learned-weight gradients, and
 finite representation-geometry diagnostics pass. The geometry metrics and depth
-weights explain information flow but cannot promote quality. V9 is not a runtime
-path or checkpoint format until the learned modes beat all connection controls
-and the Transformer at a durable budget.
+weights explain information flow but cannot promote quality. A CUDA/Inductor
+mechanism smoke compiled two loss graphs instead of six: one Transformer graph
+and one candidate graph reused across all five exact-reset controls. It also
+confirmed bit-identical common initialization, compile parity, complete learned
+weight gradients, and a 3.12% steady-throughput spread across candidate modes.
+The smoke report is intentionally discarded because two update steps cannot
+support a language claim. V9 is not a runtime path or checkpoint format until
+the learned modes beat all connection controls and the Transformer at a durable
+budget.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

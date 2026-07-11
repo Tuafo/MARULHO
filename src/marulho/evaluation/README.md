@@ -52,7 +52,11 @@ reload one exact 20,976,142-parameter state and share one compiled graph; the
 tensor. Reports include strict language evidence, gradient/compute audits,
 learned connection weights, and read-only geometry. A learned mode must beat the
 Transformer and every fixed control on both loss and free generation before it
-can replicate; no checkpoint is saved before survival.
+can replicate; no checkpoint is saved before survival. The CUDA/Inductor smoke
+compiled one Transformer graph plus one candidate graph shared by all five
+controls, avoiding four redundant compilations while preserving parity, exact
+reset, complete learned-weight gradients, and matched candidate-mode compute.
+Its two-step quality values are deliberately not retained.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

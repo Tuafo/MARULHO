@@ -118,6 +118,13 @@ exact-reset graph:
 - learned simplex weights initialized near identity, testing whether an
   identity-preserving bounded manifold is sufficient.
 
+The CUDA/Inductor mechanism smoke passed the isolation test: the Transformer
+used one loss graph and all five candidate modes shared a second graph, avoiding
+four redundant compilations. Common initialization was bit-identical, identity
+matched the baseline, learned weights received gradients, and candidate-mode
+steady throughput stayed within 3.12%. The two-step losses are discarded; only
+the mechanism audit survives into the decisive run.
+
 This also tests the useful core of [Hyper-Connections](https://arxiv.org/abs/2409.19606)
 and [mHC](https://arxiv.org/abs/2512.24880) without multiplying residual streams.
 That restraint matters because a 2026

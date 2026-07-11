@@ -86,7 +86,10 @@ representations. It compares exact identity, fixed mean, fixed random,
 DenseFormer-style learned unconstrained weights, and identity-preserving learned
 simplex weights on one shared parameter graph. Identity exactly reproduces the
 Transformer; causal streaming, generation, gradients, and read-only geometry
-diagnostics pass. V9 has no language-quality result or checkpoint yet.
+diagnostics pass. A CUDA/Inductor mechanism smoke reused one candidate loss
+graph across all five controls, avoiding four redundant compilations; its tiny
+training run is not retained as quality evidence. V9 has no language-quality
+result or checkpoint yet.
 
 ## Current Evidence
 
