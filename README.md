@@ -76,7 +76,8 @@ parameters across the four Transformer feed-forward layers. Uniform,
 early-heavy, and late-heavy profiles have identical summed MLP width and share
 bit-identical embeddings, attention, and norms. This isolates where nonlinear
 capacity belongs before MARULHO adds sparse micro-expert routing. The model has
-passed mechanism tests but has no language-quality result or checkpoint yet.
+passed mechanism tests, and all three CUDA graphs pass parity with matched
+gradient/memory audits. It has no language-quality result or checkpoint yet.
 
 ## Current Evidence
 

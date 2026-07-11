@@ -223,9 +223,13 @@ The profiles are 2048/2048/2048/2048, 3072/2560/1536/1024, and
 profiles; the causal protocol, streaming state, full-vocabulary head, optimizer,
 data schedule, and token budget remain shared. The core currently passes
 parameter-match, causality, streaming-equivalence, generation, telemetry, and
-full-gradient tests. It is not a checkpoint format or runtime capability. A
-profile must beat uniform loss and strict free generation, then replicate, before
-it can replace the maintained baseline.
+full-gradient tests. Its two-step CUDA mechanism smoke also hash-matched all
+non-MLP tensors, gave every parameter a gradient, held peak allocation near
+1.54 GB, and passed compiled/eager parity for all profiles with deltas at or
+below 0.000216. Smoke losses and throughput are not quality evidence, and the
+smoke artifact was deleted. V8 is not a checkpoint format or runtime capability.
+A profile must beat uniform loss and strict free generation, then replicate,
+before it can replace the maintained baseline.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

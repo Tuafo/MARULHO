@@ -37,6 +37,23 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
+**`language_depth_allocation_falsification.py`** — the active uninstalled v8
+runner. It compares uniform, early-heavy, and late-heavy SwiGLU allocation at
+exactly 20,976,128 parameters and equal summed MLP width. All non-MLP initial
+tensors are hash-checked for identity; each arm receives the same staged schedule,
+fresh optimizer, full gradient audit, heldout loss, candidate-likelihood, and
+strict free-generation evaluation. Each distinct shape gets its own parity-gated
+compiled graph, and compile time remains in amortized throughput. Partial reports
+are written after every arm; no checkpoint is allowed before a replicated
+loss-plus-free-generation win.
+
+The two-step CUDA mechanism smoke compiled all three shape graphs, preserved one
+common non-MLP initialization hash, gave every parameter a gradient, and passed
+compiled/eager parity with absolute loss deltas of 0.000023/0.000135/0.000216.
+Peak allocation stayed near 1.54 GB. Its short-step throughput and losses are not
+quality measurements; the smoke report is deleted rather than retained as
+evidence.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
