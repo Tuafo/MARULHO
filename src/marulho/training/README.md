@@ -124,6 +124,17 @@ loss gain, fixed-random hurt loss, and learned-simplex remained near identity.
 The core, runner, and tests are deleted; no depth-connection option exists in the
 maintained training surface.
 
+`language_micro_experts.py` is the active uninstalled v10 core. It preserves
+three dense Transformer MLPs and replaces the third with a 1024-wide shared
+SwiGLU path plus 16,384 singleton experts. Four per-token product-key queries
+retrieve two experts each without batch-dependent dispatch. The resulting model
+has 37,294,592 stored parameters and 2,891,776 theoretical replacement-path
+multiplies per token, 91.9% of the dense MLP's 3,145,728 before retrieval
+overhead. Shared-only, fixed-random, token-hash, and learned-router modes reuse
+the same parameters; only learned routing passes gradients to query/key
+parameters, while all routed modes train selected expert vectors. This module is
+falsifier-only and cannot be loaded by the active checkpoint path.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

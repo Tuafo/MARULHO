@@ -248,6 +248,21 @@ only 14 parameters, so the negative is credible. Both reports decide
 `redesign_v9_disjoint_loss_and_behavior_signals`. No checkpoint was saved; the
 model, runner, and tests are deleted.
 
+**Product-Key Singleton Micro-Experts v10 (active experiment, uninstalled)** —
+replace only the third block's dense 2048-wide MLP with a 1024-wide shared
+SwiGLU path plus 16,384 singleton experts. Four causal product-key query heads
+retrieve two one-neuron functions each, so eight experts are active per token.
+The model stores 37,294,592 parameters versus the Transformer's 20,976,128, but
+the replaced block's shared path, query, key search, and active experts require
+2,891,776 theoretical multiplies per token versus 3,145,728 for the dense MLP,
+before top-k and gather overhead. Shared-only, frozen-random, token-hash, and
+learned-router modes reuse one parameter graph. Causality, full/streaming
+equivalence, owned generation, bit-identical common Transformer initialization,
+fixed eight-expert activation, and mode-specific router/expert gradients pass.
+V10 is not a runtime path or checkpoint format until a routed mode beats the
+Transformer and every routing control on heldout loss and strict free generation
+and then replicates.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

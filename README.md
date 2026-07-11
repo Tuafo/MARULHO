@@ -88,6 +88,16 @@ gain collapsed on replication, random mixing hurt loss, and learned simplex
 stayed near identity. The reports retain the useful signed-attenuation clue; no
 checkpoint was saved, and the v9 model, runner, and tests are deleted.
 
+The active uninstalled v10 experiment tests many tiny functions inside one
+language model. One middle dense MLP becomes a shared half-width path plus a
+causally retrieved pool of 16,384 singleton experts; four product-key heads
+activate two experts each. The candidate stores 37.3M parameters while its
+theoretical work in the replaced MLP is 91.9% of the dense baseline before
+routing overhead. Shared-only, frozen-random, token-hash, and learned routing
+reuse the same parameter objects. Causality, streaming equivalence, generation,
+common initialization, fixed active granularity, and gradient isolation pass;
+language quality and GPU cost have not been measured yet.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the
