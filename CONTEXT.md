@@ -428,6 +428,18 @@ and wavelet path are deleted; only its report remains. The next cheap test must
 isolate whether raw's gain comes from several small banks, low-pass averaging,
 or genuinely different clocks before any change to the 1B language model.
 
+The active V16 isolation test compares those causes with exact-reset candidate
+parameters and the same recall contract. Seven token-rate banks test small-unit
+modularity; seven uniform 7-token low-pass banks match the dyadic total update
+count without different clocks; dyadic last-token banks preserve clocks without
+averaging; dyadic low-pass banks reproduce the V15 winner. A discarded
+mechanical seed gives length-512 accuracy 25.4/20.2/20.6/19.7% respectively,
+versus 6.8% for the larger flat GRU. That makes small independent units the
+leading hypothesis, but it is not frozen evidence. The committed final uses
+fresh data seed 7101 and model seeds 7201/7202/7203. The decision fallback selects
+the strongest replicated mechanism; only an isolated three-point dyadic-low-pass
+win can admit a language run.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

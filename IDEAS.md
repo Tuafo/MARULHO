@@ -137,6 +137,16 @@ banks all using one uniform block size with the same total update count, and
 (c) dyadic banks receiving only each block's last token. That separates small
 units, low-pass filtering, and genuinely different clocks before language.
 
+The V16 mechanism smoke makes the small-unit connection concrete. With identical
+candidate tensors and state bytes, seven token-rate banks reach 25.4% at length
+512, versus 20.2% for one uniform low-pass clock, 20.6% for dyadic last-token
+sampling, 19.7% for dyadic low-pass, and 6.8% for a larger monolithic GRU. The
+token banks receive more recurrent updates, so this is not yet an efficiency or
+language claim. It is a falsifiable version of the user's LCO-style intuition:
+independent small dynamics may organize the same total state better than one
+large recurrent state. The smoke is deleted and fresh three-seed evidence must
+replicate it before this becomes the surviving V16 branch.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon

@@ -241,6 +241,26 @@ model, runner, tests, and wavelet-specific path are deleted. The next synthetic
 test must separate small-bank modularity, averaging, and nonuniform clocks before
 any language run.
 
+**`language_multiscale_clock_preflight.py`** — the active V16 isolation test.
+It keeps the V15 recall task, 2,400-step convergence budget, 112-float state,
+31,120 candidate parameters, exact candidate initialization, stronger flat-GRU
+control, anti-shortcut contract, geometry diagnostics, and three-point long
+profile margin. It changes only the candidate input/update organization:
+
+- seven token-rate banks receive every token (896 updates per sequence);
+- seven uniform low-pass banks receive normalized 7-token blocks (126 updates);
+- seven dyadic banks receive only each block's final token (127 updates);
+- seven dyadic low-pass banks reproduce V15's raw winner (127 updates).
+
+A disposable seed verifies every arm learns and exposes a decision-router bug,
+not an architectural change: length-512 accuracy is 6.8%/flat, 25.4%/token banks,
+20.2%/uniform low-pass, 20.6%/dyadic last-token, and 19.7%/dyadic low-pass. The
+fallback now selects the strongest mechanism rather than the first passing
+branch. Architecture, 3-point thresholds, 2,400 steps, and arms remain frozen;
+the smoke report is deleted. Final evidence uses untouched data seed 7101 and
+model seeds 7201/7202/7203. Only a replicated dyadic-low-pass win over every arm
+admits language; other outcomes name the narrower surviving mechanism.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
