@@ -231,6 +231,17 @@ tokens/s, and 5.36 GB versus 0.60 GB peak CUDA memory. No particle checkpoint,
 loader, or runtime state is maintained; the retained report and git history own
 the evidence.
 
+**`language_muon.py`** — owns the active uninstalled V29 optimizer candidate.
+It applies 0.95 Nesterov momentum and five bfloat16 Newton-Schulz iterations to
+shape-grouped hidden-matrix gradients, scales each update to the published 0.2
+RMS target, and uses an AdamW fallback for the tied embedding and one-dimensional
+norm parameters. The 20.976M control assigns 16,777,216 parameters to Muon and
+4,198,912 to AdamW. No external weights or optimizer package are loaded.
+`language_matched_support.py` accepts an explicit optimizer builder and records
+the optimizer recipe and tensor-state bytes; existing callers still use fused
+AdamW. The 1.05M-token diagnostic is positive on loss but cannot install the
+optimizer before the four-arm 16.78M quality gate and unseen review.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

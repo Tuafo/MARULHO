@@ -557,6 +557,13 @@ def run_matched_training_arm(
         Callable[[CausalLanguageModel, torch.Tensor], Mapping[str, Any]] | None
     ) = None,
     extra_row: Mapping[str, Any] | None = None,
+    optimizer_builder: (
+        Callable[
+            [CausalLanguageModel, LanguageTrainingExperimentConfig],
+            tuple[torch.optim.Optimizer, Mapping[str, Any]],
+        ]
+        | None
+    ) = None,
 ) -> dict[str, Any]:
     model.load_state_dict(dict(initial_state), strict=True)
     if configure_model is not None:
@@ -565,7 +572,21 @@ def run_matched_training_arm(
     torch.manual_seed(int(model_seed))
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(model_seed))
-    optimizer, fused = _optimizer(model, training_config)
+    if optimizer_builder is None:
+        optimizer, fused = _optimizer(model, training_config)
+        optimizer_report: Mapping[str, Any] = {
+            "kind": "adamw",
+            "fused": bool(fused),
+            "learning_rate": float(training_config.learning_rate),
+            "betas": [
+                float(training_config.adam_beta1),
+                float(training_config.adam_beta2),
+            ],
+            "weight_decay": float(training_config.weight_decay),
+        }
+    else:
+        optimizer, optimizer_report = optimizer_builder(model, training_config)
+        fused = bool(optimizer_report.get("fused", False))
     total_steps = int(prepared.staged.step_count)
     warmup_steps = int(
         round(total_steps * max(0.0, float(training_config.warmup_fraction)))
@@ -628,6 +649,12 @@ def run_matched_training_arm(
         for parameter in model.parameters()
         if parameter.grad is not None
     )
+    optimizer_state_bytes = sum(
+        int(value.numel() * value.element_size())
+        for state in optimizer.state.values()
+        for value in state.values()
+        if isinstance(value, torch.Tensor)
+    )
     model.eval()
     evaluation_started = time.perf_counter()
     heldout = evaluate_language_model(model, prepared.eval_batches)
@@ -667,6 +694,8 @@ def run_matched_training_arm(
             parameters_with_gradient == total_parameters
         ),
         "optimizer_fused": bool(fused),
+        "optimizer": dict(optimizer_report),
+        "optimizer_state_bytes": optimizer_state_bytes,
         "optimizer_state_fresh_for_arm": True,
         "initial_weights_restored_for_arm": True,
         "processed_tokens": processed,

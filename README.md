@@ -14,7 +14,7 @@ generally capable continual model.
 
 ## Current architecture
 
-There are four different levels of truth:
+There are five different levels of truth:
 
 1. **Installed runtime:** `MarulhoBrain` owns a 21M-parameter decoder-only causal
    Transformer and its checkpoint-owned BPE tokenizer. This remains the stable
@@ -28,7 +28,11 @@ There are four different levels of truth:
    fails anchored generation, while V26 and V27 gated readers fail even with
    oracle evidence. No memory model, checkpoint, or runtime integration is
    currently admitted.
-4. **Architecture search:** V28's matched particle-field test is retired. Its
+4. **Active optimizer experiment:** V29 keeps the exact 20.976M Transformer
+   fixed and compares AdamW with matrix-orthogonalized Muon at two learning
+   rates. A 1.05M-token diagnostic gives Muon a 0.3538 heldout-loss advantage;
+   this is promising but below the durable decision budget.
+5. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free
    generation. No biological metaphor or many-small-units design is a project

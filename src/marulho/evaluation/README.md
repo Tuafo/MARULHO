@@ -602,6 +602,38 @@ failed model, runner, and tests are deleted; V25's raw-context likelihood result
 remains evidence that exact history has value, not an active memory
 architecture.
 
+`language_muon_falsification.py` preregisters V29 as a learning-geometry test,
+not a new model-capacity claim. Four arms reuse the exact
+20,976,128-parameter Transformer and common initial state: AdamW and Muon at
+peak rates 3e-4 and 1e-3. They receive one frozen context-72, batch-32 schedule
+with 20% relation curriculum, balanced FineWeb-Edu/Cosmopedia general text,
+16,777,216 intended tokens, zero dropout, seeds 16121/16131, and one shared
+fullgraph CUDA/Inductor model compile. Labels remain metrics-only.
+
+The MARULHO Muon implementation follows the published scalable recipe: hidden
+matrices use 0.95 Nesterov momentum, five Newton-Schulz steps with coefficients
+3.4445/-4.7750/2.0315, 0.2 update-RMS scaling, and weight decay; the tied
+embedding and norms use AdamW. Orthogonalization batches the four repeated
+Transformer matrices of each shape and compiles those shape graphs on CUDA.
+The model itself, initialization, parameter count, batches, gradient clipping,
+and cosine schedule are fixed, so the two learning-rate controls distinguish an
+optimizer effect from merely raising the step size.
+
+The discarded eight-step smoke passes model compile parity at 0.000462 and all
+parameters receive gradients. The 1,050,624-token diagnostic then gives
+Muon/AdamW at 1e-3 heldout loss/perplexity 5.75274/315.05 versus
+6.10653/448.78. Muon sustains 49.1k versus 84.7k training tokens/s, uses 96.0
+versus 160.0 MiB optimizer state, and peaks at 595.8 versus 570.1 MiB CUDA
+allocation. Both score 100% on metrics-only candidate ranking and 0/32 on exact
+free generation, so the early evidence is loss-only and non-promotable.
+
+At the durable budget, V29 compares the best learning rate within each optimizer
+family. Muon advances only if it beats best-AdamW heldout loss by at least 0.01
+and exact free relation generation by at least 0.02 together. A disjoint gain
+routes to redesign; no gain retires Muon. No checkpoint, runtime optimizer, or
+continual-learning claim is admitted before a joint pass and genuinely unseen
+generation.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

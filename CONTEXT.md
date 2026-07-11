@@ -117,6 +117,20 @@ baseline under the same VRAM, wall-clock, and data budget.
 
 These concepts are hypotheses and must not appear as implemented capabilities.
 
+**Muon Training Geometry v29 (active falsifier, uninstalled)** — V29 asks
+whether MARULHO's blocker is partly the way weights learn rather than the shape
+of the model. All four arms use the exact 20,976,128-parameter Transformer,
+initial weights, tokenizer, batches, and evaluation. AdamW and Muon each run at
+the historical 3e-4 peak learning rate and the official-reference 1e-3 rate.
+Muon applies momentum plus five-step Newton-Schulz orthogonalization to the
+16,777,216 hidden-matrix parameters and AdamW to the tied embedding and norms.
+The grouped CUDA implementation passes all-gradient and compiled-model parity
+truth. At 1,050,624 diagnostic tokens, Muon/AdamW at 1e-3 reaches heldout loss
+5.7527/6.1065, training throughput 49.1k/84.7k tokens/s, and optimizer state
+96.0/160.0 MiB. This is not promotion. At 16.78M tokens the best Muon rate must
+beat the best AdamW rate by at least 0.01 loss and 0.02 exact free relation
+generation together before unseen review or any optimizer installation.
+
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
 recurrent agreement, complete gradients, owned generation, and compiled-loss

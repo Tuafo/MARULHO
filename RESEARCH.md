@@ -210,6 +210,27 @@ An idea survives only when its behavior and cost survive matched falsification.
   the population-field hypothesis is not promising enough for local tuning.
   The code and tests are deleted; the durable report retains the result.
 
+### Second branch: learning geometry before another substrate
+
+- **Reason:** changing the architecture while holding a weak optimizer fixed can
+  reject useful models for the wrong reason. Muon has primary evidence of
+  roughly twofold compute efficiency over AdamW and additional experiments in
+  the 30M--200M regime, close enough to MARULHO's 21M scale to justify a direct
+  local falsifier.
+- **Mechanism:** keep the entire Transformer fixed. For hidden weight matrices,
+  replace coordinate-wise Adam moments with momentum whose update is
+  approximately orthogonalized by Newton-Schulz iteration. Keep AdamW for the
+  tied token embedding and norms. This tests a different geometry of learning,
+  not more parameters, labels, modules, or data.
+- **Controls:** cross AdamW/Muon with both the historical 3e-4 and reference
+  1e-3 peak rates from a common initialization. Compare the best rate per
+  optimizer only after every arm sees the same 16.78M tokens. Require complete
+  gradients, optimizer-state accounting, loss, and label-free generation.
+- **Early evidence:** at 1.05M tokens the 1e-3 Muon arm reaches loss 5.7527
+  versus AdamW's 6.1065 while using 40% less optimizer state, but trains about
+  42% slower. The 0.3538 loss gain earns the durable run; 0/32 exact generation
+  prevents an early capability claim.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**
@@ -226,7 +247,10 @@ An idea survives only when its behavior and cost survive matched falsification.
   materially different from MARULHO's rejected static depth allocation and
   shallow depth-reuse weights. Its falsifier must show that routed extra
   iterations beat fixed-recursion and shuffled-routing controls at matched
-  training FLOPs, not merely at matched parameter count.
+  training FLOPs, not merely at matched parameter count. It is not V29: at the
+  paper's smallest 135M equal-FLOP comparison, MoR remains slightly worse than
+  the full Transformer, making a 21M implementation a lower-priority bet than
+  first repairing the shared training geometry.
 - **Dynamic byte patches:**
   [Byte Latent Transformer](https://arxiv.org/abs/2412.09871) is relevant to a
   future tokenizer replacement, but its reported advantage emerges at much
