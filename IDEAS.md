@@ -200,6 +200,18 @@ one evaluation correction: for 558 pairs, the question and seven distractors
 stay identical while only the relevant earlier source changes. A query-prior
 adapter must produce the same answer; genuine memory must follow the source.
 
+V18b also fails, now without the evaluation ambiguity. Exact history reaches
+80.5% candidate and 25.4% greedy exact accuracy; local source-independent
+capacity reaches 72.7%/17.2%. Across the 558 controlled answer-changing pairs,
+exact/local source-following accuracy is 25.33/17.90%, only a 7.42-point margin
+against a required 10. Normalization repairs learned state norm from 548 to
+23.8, but effective rank stays at 1.78 and learned source-following accuracy is
+only 3.93%. Complete gradients therefore do not rescue the compressor. Decision:
+`retire_v18b_exact_history_no_source_causal_gain`. The frozen-bridge code is
+deleted. The transferable result is that persistent semantic state must be
+jointly shaped with the language cortex and contiguous training distribution;
+post-hoc latent slots cannot recover a binding interface that V11 never learned.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon
@@ -890,18 +902,17 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
     averaging, drive the replicated recall and length-generalization win.
 13. Completed: V17's grouped recurrence is active and well-conditioned but ties
     off/local/dense language controls; delete it and do not run durability.
-14. In progress: V18 makes compressed state causally necessary across two
-    source-only segments and tests learned slots against local, recency, mean,
-    and exact-history controls on source-absent language answers.
-15. Require a cheap causal-memory preflight and a matched language screen before
-    any 67M-token durability or unseen-generation run.
+14. Completed: V18/V18b reject a frozen post-hoc segment bridge; exact source
+    adds too little causal behavior and learned slots collapse in effective rank.
+15. Next: jointly train exact local attention and bounded editable state on
+    contiguous streams, with paired source swaps built into the primary gate.
 16. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 
-The next creative bet is therefore specific: **a bounded state may become useful
-only when the architecture makes it the sole causal bridge between earlier
-evidence and a later language decision**. V18 asks whether learned latent slots
-can compress that bridge better than recency or pooling while approaching an
-exact-history upper bound. A win would justify integration with contiguous
-documents; it would not yet prove general memory or replace the language cortex.
+The next creative bet is therefore specific: **exact local language and bounded
+long-range state must learn a shared representation together**. The candidate
+should alternate local attention with an editable recurrent or fast-weight
+state from initialization, train on genuinely contiguous documents, and face
+paired source swaps throughout training and evaluation. This is a new cortex
+experiment, not another memory attachment to V11.

@@ -276,21 +276,7 @@ the grouped state is full-rank with nonzero residuals. Grouped throughput is
 `retire_v17_grouped_recurrence_no_language_gain`. No checkpoint exists, and the
 model, runner, tests, and candidate-only partial-compile path are deleted.
 
-**`language_segment_memory_preflight.py`** is the active V18 causal-memory
-screen. It caches frozen V11 hidden representations for bounded research use,
-then forms each episode from eight real English relation records divided over
-two source segments. The query and answer arrive only after both writes. Its
-learned 16-slot cross-attention state is tested against off, source-independent
-local slots, latest-segment recency, streaming mean slots, and exact source
-history. Exact history is an upper bound and cannot promote. The report separates
-one-time frozen-feature construction from adapter training and makes no
-deployment-throughput claim. Question text, answer tokens, candidates, and the
-correct index are excluded from every write; the correct index remains
-metrics-only. Runs below 512 updates return a diagnostic decision. A passing
-learned bridge earns only a contiguous-language screen, not a checkpoint,
-runtime installation, memory claim, or base-quality promotion.
-
-The V18a report is
+The deleted V18a segment-bridge preflight is retained at
 `reports/language_scaling/v18-segment-memory-800step-20260711.json` (SHA-256
 `6141cf272002764c0ae52e5c894937e92fddb9199ac4b3aee01464dcf5f44c89`).
 Exact history reaches 73.0% candidate/18.4% greedy exact, but source-independent
@@ -301,8 +287,20 @@ The v2 runner is one bounded redesign: post-write LayerNorm plus paired
 counterfactual episodes that hold the question, seven distractors, positions,
 and decoding policy fixed while changing only the target source and answer.
 This contains 47 query groups and 558 different-answer pairs. The original
-report and gate remain unchanged; v2 must prove a causal source-following margin
-or all segment-bridge code is removed.
+report and gate remain unchanged.
+
+The final V18b report is
+`reports/language_scaling/v18b-segment-memory-counterfactual-800step-20260711.json`
+(SHA-256
+`7c8d330a76f7b421d3a0281fc8eb7a54ab5488d7e6297201785a5f74efed6e6d`).
+Exact/local paired source-following accuracy is 25.33/17.90%, missing the
+predeclared 10-point causal margin at 7.42 points. Normalized learned slots reach
+only 3.93%, despite complete gradients; their norm is 23.8 but effective rank
+remains 1.78. Candidate/free exact accuracy is 68.4/4.7% for learned versus
+80.5/25.4% for exact history. Decision:
+`retire_v18b_exact_history_no_source_causal_gain`. No checkpoint or throughput
+claim exists. The model, runner, tests, feature-cache path, and smoke artifacts
+are deleted.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

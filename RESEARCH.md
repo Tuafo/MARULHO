@@ -211,6 +211,11 @@ has a language-specific purpose.
   keeps the negative report, normalizes every learned write, and evaluates
   identical-question/source-swap pairs. Only source-following behavior can now
   advance the branch.
+- **Final result:** V18b repairs state scale but not organization or use. Learned
+  slots retain effective rank 1.78 and only 3.93% paired source-following
+  accuracy. Exact history beats local by 7.42 points, below the preregistered 10.
+  The frozen bridge is retired. A future hybrid must learn its exact and bounded
+  paths jointly on contiguous streams instead of compressing frozen V11 states.
 
 ### Explicit read/write memory
 

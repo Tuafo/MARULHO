@@ -454,22 +454,7 @@ negative is not explained by a dead organ or failed execution. Decision:
 model, partial-compile path, runner, and tests are deleted. Independent small
 units remain a synthetic-memory observation, not an admitted language design.
 
-V18 is the current inter-segment memory preflight. It freezes the strict
-one-billion-token V11 cortex and constructs real-language episodes containing
-eight relation records across two source-only segments. The later question and
-answer are removed from the write path. A learned 16-slot latent bridge receives
-32 KiB of persistent float32 state per stream and is compared from exact resets
-with V11/off, question-local capacity, latest-segment recency, streaming mean
-slots, and an unbounded 1 MiB exact-history upper control. All trained arms see
-the identical schedule; prediction never receives candidate labels or the
-metrics-only correct index. At least 512 updates are required. Exact history
-must first prove that the frozen V11 representation/read interface can solve the
-task; learned compression must then beat every bounded simple control on both
-candidate ranking and greedy source-absent answers before any contiguous
-general-language screen is admitted. The preflight owns no checkpoint or
-runtime path.
-
-The first V18 run is a retained negative at
+The V18 inter-segment bridge line is retired. Its first run is retained at
 `reports/language_scaling/v18-segment-memory-800step-20260711.json` (SHA-256
 `6141cf272002764c0ae52e5c894937e92fddb9199ac4b3aee01464dcf5f44c89`).
 Off/exact/local/recency/mean/learned candidate accuracy is
@@ -479,11 +464,24 @@ and query-local capacity nearly matches it, exposing answer-template shortcuts.
 The learned writer receives complete gradients but collapses to effective rank
 2.01 with state norm 548.3. Decision:
 `retire_v18_frozen_segment_bridge_interface`. V18b does not rewrite that result:
-it adds standard post-write normalization and a harder paired audit over 47
-identical-question groups and 558 differing-answer pairs. Within each pair, all
-distractors and their order remain fixed; only the target source changes. V18b
-must show source-specific behavioral gain over local/simple controls or the
-entire segment-bridge implementation is deleted.
+it adds standard post-write normalization and a paired audit over 47 identical-
+question groups and 558 differing-answer pairs. Within each pair, all
+distractors and their order remain fixed; only the target source changes.
+
+The final V18b report is
+`reports/language_scaling/v18b-segment-memory-counterfactual-800step-20260711.json`
+(SHA-256
+`7c8d330a76f7b421d3a0281fc8eb7a54ab5488d7e6297201785a5f74efed6e6d`).
+Exact history reaches 80.5% candidate and 25.4% greedy exact accuracy, versus
+72.7%/17.2% for source-independent local capacity. On paired source swaps its
+exact/local accuracy is 25.33/17.90%, a 7.42-point causal margin below the
+predeclared 10 points. Normalized learned slots reach only 68.4% candidate,
+4.7% greedy exact, and 3.93% paired accuracy. Their norm is repaired to 23.8,
+but effective rank remains only 1.78 despite complete gradients. Decision:
+`retire_v18b_exact_history_no_source_causal_gain`. No checkpoint exists; the
+model, runner, tests, transient feature caches, and smoke reports are deleted.
+The next persistent-state architecture must be jointly learned with the cortex
+on contiguous streams rather than attached to frozen V11 representations.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
