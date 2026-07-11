@@ -135,7 +135,7 @@ and [mHC](https://arxiv.org/abs/2512.24880) without multiplying streams. A 2026
 [stream-collapse analysis](https://arxiv.org/abs/2606.03483) remains a warning
 against promoting a larger multi-stream variant without stronger evidence.
 
-### 4. Product-key singleton micro-experts — active V10 design
+### 4. Product-key singleton micro-experts — retired V10 evidence
 
 V10 tests the micro-to-macro idea inside one language model without creating
 separate little language models. It replaces the dense MLP in one middle

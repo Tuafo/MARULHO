@@ -88,24 +88,10 @@ gain collapsed on replication, random mixing hurt loss, and learned simplex
 stayed near identity. The reports retain the useful signed-attenuation clue; no
 checkpoint was saved, and the v9 model, runner, and tests are deleted.
 
-The active uninstalled v10 experiment tests many tiny functions inside one
-language model. One middle dense MLP becomes a shared half-width path plus a
-causally retrieved pool of 16,384 singleton experts; four product-key heads
-activate two experts each. The candidate stores 37.3M parameters while its
-theoretical work in the replaced MLP is 91.9% of the dense baseline before
-routing overhead. Shared-only, frozen-random, token-hash, and learned routing
-reuse the same parameter objects. Causality, streaming equivalence, generation,
-common initialization, fixed active granularity, and gradient isolation pass;
-a CUDA/Inductor smoke also passed one-graph candidate reuse at 1.80 GB peak with
-all candidate modes within 0.97% throughput. Its two-step scores are discarded;
-the first 16.79M-token run selected token-hash for replication at loss 4.5388 /
-29.7% strict free relation versus the Transformer's 4.6143 / 10.2%. Learned
-routing reached 4.6118 / 29.3% and collapsed to 9.5% pool usage, so this is a
-fixed-partition capacity result, not a learned-router result. No checkpoint is
-saved. A fresh seed repeats token-hash loss at 4.5372 versus the Transformer's
-4.5990 and free generation at 34.4% versus 31.6%, but misses the behavior margin
-over shared-only by one of 256 cases. V10 is not promoted: learned routing is
-rejected, and the fixed-hash mechanism moves into a pruned durability candidate.
+The retired V10 experiment established one useful boundary: fixed token hashing
+replicated a loss gain, while learned product-key routing collapsed pool usage
+and did not improve loss. Its implementation and runner are deleted; compact
+reports retain the evidence, and V11 directly owns the surviving hash mechanism.
 
 The active uninstalled v11 candidate removes the failed router completely. It
 keeps the shared path, 16,384 singleton functions, and eight deterministic

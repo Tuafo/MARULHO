@@ -13,10 +13,6 @@ from marulho.training.language_hashed_micro_experts import (
     load_hashed_micro_expert_checkpoint,
     save_hashed_micro_expert_checkpoint,
 )
-from marulho.training.language_micro_experts import (
-    MarulhoProductKeyMicroExpertLanguageModel,
-    ProductKeyMicroExpertConfig,
-)
 
 
 def _config(**overrides) -> HashedMicroExpertConfig:
@@ -69,40 +65,6 @@ def test_hashed_micro_experts_are_causal_and_streaming_equivalent(mode: str) -> 
         atol=2e-5,
         rtol=1e-5,
     )
-
-
-def test_pruned_hash_path_matches_v10_after_copying_surviving_tensors() -> None:
-    torch.manual_seed(61)
-    old = MarulhoProductKeyMicroExpertLanguageModel(
-        ProductKeyMicroExpertConfig(
-            vocab_size=96,
-            width=32,
-            layers=2,
-            attention_heads=4,
-            context_length=16,
-            baseline_hidden_width=64,
-            shared_hidden_width=32,
-            expert_layer_index=1,
-            expert_pool_size=64,
-            retrieval_heads=2,
-            experts_per_head=2,
-            mode="token_hash",
-        )
-    ).eval()
-    torch.manual_seed(67)
-    pruned = _model().eval()
-    old_state = old.state_dict()
-    pruned_state = pruned.state_dict()
-    for name, value in tuple(pruned_state.items()):
-        if name in old_state and old_state[name].shape == value.shape:
-            pruned_state[name] = old_state[name].detach().clone()
-    pruned.load_state_dict(pruned_state, strict=True)
-    pruned.set_hashed_micro_expert_mode("token_hash")
-    input_ids = torch.randint(0, 96, (3, 12))
-    with torch.no_grad():
-        expected = old(input_ids, collect_telemetry=False)["logits"]
-        actual = pruned(input_ids, collect_telemetry=False)["logits"]
-    torch.testing.assert_close(actual, expected)
 
 
 @pytest.mark.parametrize("mode", HASHED_MICRO_EXPERT_MODES)

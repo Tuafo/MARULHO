@@ -6,9 +6,9 @@ import pytest
 import torch
 
 from marulho.evaluation.language_geometry import transformer_depth_geometry_report
-from marulho.training.language_micro_experts import (
-    MarulhoProductKeyMicroExpertLanguageModel,
-    ProductKeyMicroExpertConfig,
+from marulho.training.language_hashed_micro_experts import (
+    HashedMicroExpertConfig,
+    MarulhoHashedMicroExpertLanguageModel,
 )
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
@@ -28,9 +28,9 @@ def _dense() -> MarulhoLanguageModel:
     )
 
 
-def _micro() -> MarulhoProductKeyMicroExpertLanguageModel:
-    return MarulhoProductKeyMicroExpertLanguageModel(
-        ProductKeyMicroExpertConfig(
+def _hashed() -> MarulhoHashedMicroExpertLanguageModel:
+    return MarulhoHashedMicroExpertLanguageModel(
+        HashedMicroExpertConfig(
             vocab_size=96,
             width=32,
             layers=2,
@@ -40,13 +40,14 @@ def _micro() -> MarulhoProductKeyMicroExpertLanguageModel:
             shared_hidden_width=32,
             expert_layer_index=1,
             expert_pool_size=64,
-            retrieval_heads=2,
+            routing_heads=2,
             experts_per_head=2,
+            mode="token_hash",
         )
     )
 
 
-@pytest.mark.parametrize("builder", (_dense, _micro))
+@pytest.mark.parametrize("builder", (_dense, _hashed))
 def test_depth_geometry_is_finite_read_only_and_restores_mode(builder) -> None:
     torch.manual_seed(47)
     model = builder().train()

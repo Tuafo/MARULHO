@@ -248,39 +248,12 @@ only 14 parameters, so the negative is credible. Both reports decide
 `redesign_v9_disjoint_loss_and_behavior_signals`. No checkpoint was saved; the
 model, runner, and tests are deleted.
 
-**Product-Key Singleton Micro-Experts v10 (active experiment, uninstalled)** —
-replace only the third block's dense 2048-wide MLP with a 1024-wide shared
-SwiGLU path plus 16,384 singleton experts. Four causal product-key query heads
-retrieve two one-neuron functions each, so eight experts are active per token.
-The model stores 37,294,592 parameters versus the Transformer's 20,976,128, but
-the replaced block's shared path, query, key search, and active experts require
-2,891,776 theoretical multiplies per token versus 3,145,728 for the dense MLP,
-before top-k and gather overhead. Shared-only, frozen-random, token-hash, and
-learned-router modes reuse one parameter graph. Causality, full/streaming
-equivalence, owned generation, bit-identical common Transformer initialization,
-fixed eight-expert activation, and mode-specific router/expert gradients pass.
-A CUDA/Inductor mechanism smoke compiled one Transformer graph and one candidate
-graph instead of five separate graphs. Candidate controls stayed within 0.97%
-steady throughput, peaked at 1.80 GB, and used 60-69% of the 16,384-expert pool
-in one evaluation batch; immutable random routing, token-hash uniqueness, compile
-parity, and common initialization passed. The two-step quality values and smoke
-report are discarded. The first 16.79M-token comparison selects token-hash for
-replication: Transformer/shared-only/frozen-random/token-hash/learned-router loss
-was 4.6143/4.6166/4.6134/4.5388/4.6118 and strict free relation was
-10.2%/15.6%/21.1%/29.7%/29.3%. Token-hash improved throughout the training trace,
-used 68.5% of the pool, gave 69.7% of expert rows final gradients, ran at 114.1k
-tokens/s versus 129.6k, and peaked at 2.05 GB. Learned routing received full
-router gradients but collapsed to 9.5% pool usage and did not improve loss.
-The fresh-seed comparison repeats the structural loss result:
-Transformer/shared-only/frozen-random/token-hash/learned loss is
-4.5990/4.6088/4.6071/4.5372/4.6085 and free relation is
-31.6%/32.4%/32.4%/34.4%/32.4%. Token-hash beats the Transformer on both metrics
-again, but its 1.95-point behavior gain over shared-only is one case below the
-predeclared 2.0-point margin. The formal decision is therefore
-`redesign_v10_disjoint_loss_and_behavior_signals`, not promotion. Learned routing
-also collapses again to 8.9% pool usage. The replicated insight advances to a
-pruned hash-only durability candidate; product-key queries and learned routing do
-not.
+**Product-Key Singleton Micro-Experts v10 (retired evidence)** — fixed token
+hashing replicated a loss gain across two seeds, while learned product-key
+routing collapsed to roughly 9% pool usage and did not improve loss. The query,
+key, top-k, frozen-random, and learned-router machinery is deleted. Compact
+reports retain the evidence; V11 directly owns the surviving shared path and
+fixed-hash micro-capacity without a compatibility path.
 
 **Hashed Singleton Micro-Experts v11 (active experiment, uninstalled)** — the
 pruned durability candidate retains V10's 1024-wide shared path, 16,384

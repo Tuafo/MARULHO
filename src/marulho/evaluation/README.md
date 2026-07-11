@@ -93,27 +93,12 @@ loss or prefix agreement. Direct review finds grammatical multi-sentence but
 generic and semantically unstable text. Decision:
 `continue_v11_general_language_pretraining_before_runtime_or_memory`.
 
-**`language_micro_expert_falsification.py`** — the active uninstalled v10
-comparison runner. It compares the Transformer with shared-only, frozen-random product-key,
-token-hash, and learned product-key routing. The four 37,294,592-parameter
-candidate modes reload one exact state and share one compiled loss graph; the
-20,976,128-parameter Transformer is separately hash-matched on every unchanged
-tensor. Reports distinguish stored from active parameters and record routing
-usage, entropy, unevenness, duplication, expert-vector diversity, gradient
-coverage by router tensor and expert row, depth geometry, throughput, and VRAM.
-Those are diagnostic only. Learned routing must
-beat the Transformer and every control on heldout loss and strict free generation
-without falling below half the local throughput before it can replicate. Fixed
-routing may replicate without a learned-router claim; no checkpoint is saved
-before survival. The first complete report is local at
-`reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json`.
-It selects token-hash for fresh-seed replication at loss 4.5388 / 29.7% strict
-free relation versus the Transformer's 4.6143 / 10.2%; learned routing collapsed
-to 9.5% pool usage and did not improve loss. The replication report is local at
+The deleted V10 product-key falsifier is retained only as two compact local
+reports:
+`reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
 `reports/language_scaling/micro-experts-v10-replication-seed7331-16m-20260711.json`.
-Token-hash repeats the loss win at 4.5372 versus 4.5990 and beats Transformer free
-generation 34.4% versus 31.6%, but misses the shared-only behavior margin by one
-of 256 cases. Decision: `redesign_v10_disjoint_loss_and_behavior_signals`.
+They show a replicated fixed-hash loss gain and learned-router pool collapse;
+V11 owns the surviving hash mechanism without a compatibility path.
 
 The retired depth-connection v9 evidence is local at
 `reports/language_scaling/depth-connections-v9-falsification-16m-20260711.json`

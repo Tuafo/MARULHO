@@ -124,19 +124,10 @@ loss gain, fixed-random hurt loss, and learned-simplex remained near identity.
 The core, runner, and tests are deleted; no depth-connection option exists in the
 maintained training surface.
 
-`language_micro_experts.py` is the active uninstalled v10 core. It preserves
-three dense Transformer MLPs and replaces the third with a 1024-wide shared
-SwiGLU path plus 16,384 singleton experts. Four per-token product-key queries
-retrieve two experts each without batch-dependent dispatch. The resulting model
-has 37,294,592 stored parameters and 2,891,776 theoretical replacement-path
-multiplies per token, 91.9% of the dense MLP's 3,145,728 before retrieval
-overhead. Shared-only, fixed-random, token-hash, and learned-router modes reuse
-the same parameters; only learned routing passes gradients to query/key
-parameters, while all routed modes train selected expert vectors. This module is
-falsifier-only and cannot be loaded by the active checkpoint path. Frozen-random
-routing reads immutable initialization buffers so AdamW decay cannot silently
-change its router. The CUDA/Inductor mechanism smoke compiled one shared
-candidate graph and peaked at 1.80 GB.
+The rejected V10 product-key router has no maintained module or checkpoint
+surface. Its two compact reports retain the useful result: fixed token hashing
+replicated a loss gain while learned routing collapsed its pool usage and did
+not improve loss. V11 owns the surviving mechanism directly.
 
 `language_hashed_micro_experts.py` is the active uninstalled v11 successor. It
 removes V10's query projection, product keys, top-k search, and failed routing
