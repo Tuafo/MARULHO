@@ -211,6 +211,25 @@ readable paragraphs but remains generic and can lose topic. Decision:
 `retain_v11_1b_sparse_base_redesign_persistent_semantic_state`. This checkpoint
 is the retained sparse baseline for the next architecture, not a runtime model.
 
+**`language_segment_associative_experiment.py`** — the active V14 matched
+falsifier. It accepts only the strict MARULHO-owned 1B V11 checkpoint, builds one
+exact indexed-host schedule, attaches the same 102,912 new parameters, and exact
+resets four arms: off/V11, parameter-matched local residual, ungated segment
+delta state, and gated segment delta state. Each arm receives an isolated
+compiled graph so inactive mechanisms are not executed. Training remains
+ordinary next-token cross-entropy; labels never select or write memory.
+
+The first gate requires gated-delta heldout loss to beat both off and local by
+at least 0.03 while trailing ungated delta by no more than 0.005. A checkpoint
+saved at that boundary is explicitly provisional and still requires repeated
+source loss and unseen-generation evidence; it is not runtime- or
+quality-promoted. Reports include exact parent/schedule hashes, parameter and
+compute measurements, gradient reachability, gate entropy/frequency, state
+matrix and trajectory rank, perturbation gain, throughput, memory, and all four
+losses. A deleted 20-step CUDA smoke retains 91% of the 1B V11 training rate in
+the gated arm and admits the 67.11M-token-per-arm comparison; its smoke losses
+have no decision value.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

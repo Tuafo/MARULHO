@@ -29,6 +29,95 @@ reservoirs, cellular self-organization, and active inference remain scoped
 components or grounded hypotheses until a precise experiment shows what they
 add beyond the retired v7 mechanism.
 
+## Cross-front synthesis: dynamics need a job
+
+The user's newer list—autonomous pattern generation, modern reservoir
+computing, memory gates, neural manifolds, wavelets, geometry, tori,
+higher-dimensional computation, micro-chaos/macro-organization, and the
+free-energy principle—is not one architecture. It separates into five layers
+that should not be conflated:
+
+1. **A dynamical substrate** transforms a stream through recurrent local
+   interactions. Reservoirs and autonomous attractors belong here.
+2. **A memory-control rule** decides what persists, changes, or is erased.
+   Delta correction and learned write/retention gates belong here.
+3. **A temporal coordinate system** exposes fast and slow structure. Wavelet
+   bands, learned delays, and periodic phase variables belong here.
+4. **A representation diagnostic** asks what collective state was actually
+   formed. Neural-manifold dimension, topology, rank, and perturbation decay
+   belong here.
+5. **An agent-level objective** trades prediction, uncertainty, complexity,
+   and action. The free-energy principle belongs here, not in a replacement
+   matrix multiplication.
+
+This decomposition suggests a coherent non-monolithic destination: one capable
+token interface supported by several small state organs, each with an explicit
+timescale and write contract. Their local activity may be rich or even mildly
+chaotic, but the shared readout must expose a stable, lower-dimensional macro
+state that improves future language. “Emergence” is then measurable: microstate
+perturbations may vary while paragraph-level predictions, retrieved entities,
+and state geometry remain stable. Without that invariance, micro-chaos is just
+noise.
+
+Recent evidence sharpens the bets:
+
+- [Reservoir Computing as a Language Model](https://arxiv.org/abs/2507.15779)
+  directly compares character language models and finds the expected split:
+  reservoirs are efficient, while Transformers retain the prediction-quality
+  advantage. A pure reservoir is therefore not the active base-LM bet.
+- [Reservoir-computing associative memory and itinerancy](https://www.nature.com/articles/s41467-024-49190-4)
+  shows that reservoirs can store and revisit whole dynamical attractors rather
+  than only static patterns. That supports a bounded trajectory-memory organ,
+  not a claim that autonomous dynamics automatically acquire semantics.
+- [Reshaping reservoirs with unsupervised Hebbian adaptation](https://www.nature.com/articles/s41467-025-67137-1)
+  improves fixed reservoirs by adapting their connectivity from activity. If a
+  fixed reservoir later earns a language signal, a label-free local-plasticity
+  arm is more credible than endless random spectral-radius tuning.
+- [Towards a Comprehensive Theory of Reservoir Computing](https://arxiv.org/abs/2511.14484)
+  predicts memory capacity and readout geometry across many echo-state variants.
+  Its practical use for MARULHO is a cheap preflight: reject reservoirs whose
+  measured capacity/stability cannot cover the target delay before language
+  training.
+- [W4S4](https://arxiv.org/abs/2506.07920) constructs stable state dynamics from
+  redundant wavelet frames and reports better long-horizon retention than
+  HiPPO-based states on delay and long-range tasks. This makes wavelets more than
+  a compression metaphor: they are a candidate initialization and coordinate
+  system for slow state.
+- [mGRADE](https://arxiv.org/abs/2507.01829) combines learnable delay embeddings
+  for fast local dynamics with a minimal gated recurrence for global context.
+  Its latest evidence supports testing separated fast/slow paths under a fixed
+  memory budget, not adding many identical recurrent columns.
+- [Toroidal topology of population activity in grid cells](https://www.nature.com/articles/s41586-021-04268-7)
+  is strong evidence for toroidal collective geometry when the latent variable
+  is periodic two-dimensional position. It supports phase/order organs and
+  topology diagnostics; it does not imply that unrestricted semantics is a
+  torus.
+- [Dynamics of specialization in neural modules under resource constraints](https://www.nature.com/articles/s41467-024-55188-9)
+  finds that structural modularity alone does not guarantee functional
+  specialization. This is a direct warning for the “many small units” idea:
+  differentiated causal contribution must be measured, not inferred from the
+  wiring diagram.
+- [Self-orthogonalizing attractor networks from the free-energy principle](https://arxiv.org/abs/2505.22749)
+  offers an interesting theoretical bridge between prediction/complexity and
+  separated attractors. It is not yet competitive language evidence. MARULHO
+  may test its operational prediction—less-interfering state memories—not install
+  “free energy” as an unfalsifiable label.
+
+The ranked consequence is deliberately conditional. V14 is the present test of
+the most immediate connection: a gated, error-correcting associative state. If
+V14 shows a real state advantage but poor temporal resolution, V15 should test
+a **causal dyadic state pyramid**: completed token pairs produce Haar
+approximation/detail coefficients, completed pairs of approximations form the
+next scale, and separate small memories receive those exact bands. Compare raw
+segment averages, fixed Haar bands, shuffled band-to-memory assignments, and a
+learned write gate at matched active compute. If V14 shows no state advantage at
+all, do not hide that failure inside wavelets; first test the dyadic mechanism on
+long-delay retrieval and only admit it to language if it beats a same-size
+gated recurrence. Reservoir topology adaptation, toroidal phase, and free-energy
+objectives remain later arms whose prerequisite problem is respectively
+identified dynamics, genuinely periodic state, and an environment the model can
+act on.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon
@@ -463,6 +552,18 @@ prompts. State bytes, matrix rank, gate entropy, write frequency, perturbation
 growth, throughput, and active multiplies explain the result but cannot promote
 it. Failure deletes V14 rather than retuning old V7 decays or V13 loss weights.
 
+The implementation preflight passes. V14 adds 102,912 parameters to the
+36,180,480-parameter V11 parent, uses four 8-by-16 associative matrices, and
+updates them every 32 tokens. Exact attachment, causal equivalence, streaming
+equivalence, gradient reachability, strict checkpoint round-trip, and decision
+logic pass 17 tests. The first compiled design accidentally executed every
+control path and achieved only 26.7k tokens/s at 3.18 GB; that graph was
+replaced, not excused. Mode-specific compiled graphs now measure 117.3k/off,
+118.7k/local, 115.0k/ungated-delta, and 110.6k/gated-delta tokens/s at about
+2.0 GB in a 20-step hot smoke. Gated state therefore retains roughly 91% of the
+1B V11 continuation rate and is admitted to the full matched falsifier. The
+smoke losses are discarded and its report is deleted.
+
 ### 8. Gated multiscale dynamical memory — v7 retired
 
 V7 performed the required memory-off, single-scale, always-write,
@@ -548,6 +649,14 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
+[W4S4](https://arxiv.org/abs/2506.07920) is the closer state-space connection:
+redundant wavelet frames define stable recurrent dynamics and retain long-delay
+information. [mGRADE](https://arxiv.org/abs/2507.01829) supplies a complementary
+fast/slow decomposition through learned delays plus a small global gate. The
+first MARULHO use should still be fixed causal Haar bands because they are exact,
+inspectable, and admit shuffled-scale controls; learned filters or delays come
+only after the fixed decomposition earns a signal.
+
 ### 10. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
@@ -565,6 +674,12 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
+V14 is that comparison in the current language setting. Its gate separately
+controls state retention and delta correction; it reads causal hidden summaries
+and never targets. Gate entropy, write frequency, memory rank, and perturbation
+growth explain behavior, while heldout loss and unseen generation remain the
+selection criteria.
+
 ### 11. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
@@ -580,6 +695,14 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 [RoFormer / Rotary Position Embedding](https://arxiv.org/abs/2104.09864) is the
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
+
+The biological case is narrower but stronger than a generic geometry analogy:
+[grid-cell population activity lies on a toroidal manifold](https://www.nature.com/articles/s41586-021-04268-7)
+across environments and behavioral states. MARULHO should therefore use a torus
+when it needs a stable periodic coordinate—elapsed phase, nested event order, or
+cyclic sensorimotor position—and compare it with ordinary RoPE and unconstrained
+state. It should not force entity or proposition meaning onto periodic
+coordinates without an empirical topology result.
 
 ### 12. Hyperdimensional or vector-symbolic memory — binding organ only
 
@@ -609,6 +732,13 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
+Reservoir attractor work adds a second grounded interpretation: a local system
+can autonomously regenerate a learned *trajectory*, not just a static shape.
+That may eventually support internal simulation or reusable skills. For base
+language, require a teacher-forced state to improve prediction before testing
+closed-loop autonomy; otherwise the organ can generate elaborate dynamics that
+the language interface cannot use.
+
 ### 14. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
@@ -622,6 +752,13 @@ Predictive-coding formulations may still inspire local error signals or iterativ
 latent inference; [Predictive Coding Approximates Backprop Along Arbitrary
 Computation Graphs](https://arxiv.org/abs/2006.04182) provides a concrete bridge.
 The proposal is rejected if it only renames cross-entropy or backpropagation.
+
+[Self-orthogonalizing attractor networks from the free-energy principle](https://arxiv.org/abs/2505.22749)
+suggest that prediction-plus-complexity pressure can separate attractor memories.
+The falsifiable MARULHO translation is an interference test: at equal capacity,
+does the proposed local objective preserve more independently retrievable states
+and less forgetting than ordinary next-token training? That belongs after a
+useful state organ exists. Until then, free energy remains a theory-level lens.
 
 ## Fast experiment order
 
