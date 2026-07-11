@@ -67,6 +67,8 @@ delta compatibility surface.
   are computed on CPU before one-way device transfer;
 - exact pre-window text-token counts emitted by the split builder, avoiding a
   second full-corpus tokenizer pass in experiment reports;
+- explicit evaluation-only splits that do not tokenize or pack a discarded
+  training source, while preserving evaluation windows and split hashes;
 - chunked host-to-device split transfer whose batch views share large tensor
   storage instead of creating thousands of tiny CUDA allocations;
 - a versioned row-major selected-window hash that is independent of batch and

@@ -462,7 +462,7 @@ def prepare_matched_language_data(
         for text, _selection in train_samples
     ]
     eval_split = build_language_model_splits(
-        [text for text, _selection in train_samples],
+        [],
         tokenizer,
         eval_texts=[text for text, _selection in eval_samples],
         sequence_length=config.sequence_length,

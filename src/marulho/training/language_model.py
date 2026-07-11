@@ -555,16 +555,25 @@ def build_language_model_splits(
             explicit_separator_count,
         )
 
-    (
-        train_token_ids,
-        train_source_window_count,
-        train_text_token_count,
-        train_document_count,
-        train_explicit_separator_count,
-    ) = _token_stream(
-        texts,
-        label="training",
-    )
+    if texts:
+        (
+            train_token_ids,
+            train_source_window_count,
+            train_text_token_count,
+            train_document_count,
+            train_explicit_separator_count,
+        ) = _token_stream(
+            texts,
+            label="training",
+        )
+    elif eval_texts is not None:
+        train_token_ids = torch.empty(0, dtype=torch.long, device="cpu")
+        train_source_window_count = 0
+        train_text_token_count = 0
+        train_document_count = 0
+        train_explicit_separator_count = 0
+    else:
+        raise ValueError("No training texts were provided")
     if eval_texts is not None:
         (
             eval_token_ids,

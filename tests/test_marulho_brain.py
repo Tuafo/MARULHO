@@ -129,6 +129,41 @@ def test_language_split_reports_text_tokens_without_reencoding() -> None:
     )
 
 
+def test_explicit_evaluation_only_split_preserves_eval_windows() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    evaluation_texts = (
+        "heldout evaluation one " * 8,
+        "heldout evaluation two " * 8,
+    )
+    paired = build_language_model_splits(
+        ("unused training source " * 8,),
+        tokenizer,
+        eval_texts=evaluation_texts,
+        sequence_length=8,
+        batch_size=2,
+        max_train_batches=1,
+        max_eval_batches=4,
+    )
+    evaluation_only = build_language_model_splits(
+        (),
+        tokenizer,
+        eval_texts=evaluation_texts,
+        sequence_length=8,
+        batch_size=2,
+        max_eval_batches=4,
+    )
+    assert evaluation_only.train == ()
+    assert evaluation_only.report["train_token_stream_count"] == 0
+    assert evaluation_only.report["train_batch_count"] == 0
+    assert evaluation_only.report["eval_split_hash"] == paired.report[
+        "eval_split_hash"
+    ]
+    assert len(evaluation_only.eval) == len(paired.eval)
+    for expected, actual in zip(paired.eval, evaluation_only.eval, strict=True):
+        assert torch.equal(actual.input_ids, expected.input_ids)
+        assert torch.equal(actual.target_ids, expected.target_ids)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

@@ -191,6 +191,11 @@ control measures 123.6k tokens/s and 3.04 GB, so bounded scheduling costs about
 1.4% throughput while removing 16 bytes of CUDA growth per requested token. The
 benchmark report is deleted because it has no quality value.
 
+Matched-data preparation builds the heldout set through an explicit
+evaluation-only split. It no longer re-tokenizes and packs both full training
+shards merely to discard that split. Evaluation token streams, selected windows,
+and split hashes are exact against the prior paired builder.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
