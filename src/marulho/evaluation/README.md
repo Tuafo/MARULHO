@@ -302,18 +302,29 @@ remains 1.78. Candidate/free exact accuracy is 68.4/4.7% for learned versus
 claim exists. The model, runner, tests, feature-cache path, and smoke artifacts
 are deleted.
 
-The live V19 preflight replaces the frozen bridge with jointly trained recurrent
-memory tokens inside V11 itself. Four source facts arrive in two segments. Each
-segment runs learned input state, source-only tokens, and learned output queries
-through the same causal cortex; sixteen final states are normalized back to the
-embedding scale and carried forward. Query-only, exact raw history,
-source-independent local tokens, last-segment recency, parallel segment mean,
-and recurrence all reset from identical V11 and memory tensors and receive the
-same relation/general-replay schedule. Paired source swaps remain the behavioral
-gate, and two disjoint general holdouts guard retention. The 25,601-parameter,
-32-KiB-per-stream mechanism passes focused contracts and a four-step six-arm CUDA
-smoke; the smoke report is deleted and its scores do not select the branch. The
-decisive run must complete at least 512 steps before any advance decision.
+The V19 jointly trained recurrent-token report is
+`reports/language_scaling/v19-joint-memory-800step-20260711.json` (SHA-256
+`ce73f309a84ab80a0a1faa1fb192bbdcc2b17abcba409a57eb7e44a44a56f7af`).
+Off/exact/local/recency/mean/recurrent candidate accuracy is
+67.6/87.1/66.4/76.6/82.0/84.0%; free exact is
+15.6/49.6/15.2/25.0/28.5/30.1%; paired source-following is
+16.59/47.60/16.59/24.45/29.69/30.13%. Recurrent state is bounded to 32 KiB,
+receives complete nonzero gradients, reaches matrix rank 502, and keeps the two
+general holdouts at +0.0660/+0.0790 loss. It nevertheless ties mean, misses exact
+by 17.47 paired points, and changes output on only 7.17% of source swaps versus
+23.48% for mean. Decision:
+`retire_v19_joint_memory_tokens_insufficient_source_following`. No checkpoint
+exists.
+
+The live v2 preflight adds V19b's same-budget partition control. Two source
+segments independently write eight dedicated tokens each; the query receives
+their sixteen-token concatenation. It adds no parameters, keeps the exact same
+32-KiB state, and prevents both averaging collisions and recurrent overwrite.
+All original controls remain exact-reset under the same relation/general replay.
+Partitioning must beat mean and recurrence by five points on candidate, free,
+and paired behavior, remain within ten paired points of exact history, and keep
+both general losses within +0.10. Focused tests and a discarded seven-arm CUDA
+smoke pass; no quality or checkpoint claim exists before the full run.
 
 Run the maintained preflight with:
 

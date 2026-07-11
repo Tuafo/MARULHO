@@ -483,20 +483,34 @@ model, runner, tests, transient feature caches, and smoke reports are deleted.
 The next persistent-state architecture must be jointly learned with the cortex
 on contiguous streams rather than attached to frozen V11 representations.
 
-V19 is the admitted falsifier for that conclusion, not an implemented language
-capability. Six exact-reset arms jointly train the complete V11 cortex under one
-relation-plus-general-replay schedule: query-only/off, raw exact history,
-source-independent local tokens, latest-segment recency, parallel segment mean,
-and recurrent memory tokens. The recurrent path carries sixteen 512-wide tokens
-(32 KiB per float32 stream). The same V11 blocks write them at the ends of two
-source-only segments and read them before the later query; a small learned
-normalization/scale returns cortex outputs to token-embedding scale. No separate
-reader, miniature language model, question, answer, candidate, or correct index
-enters the write path. Its mechanism tests and six-arm CUDA smoke pass; smoke
-scores are discarded. Advancement requires paired source-following behavior,
-a win over bounded local/recency/mean controls, proximity to exact history, and
-no heldout general-language regression. No V19 checkpoint or quality claim
-exists before the decisive run.
+V19 jointly trains that state with the cortex and retires its recurrent form.
+The retained report is
+`reports/language_scaling/v19-joint-memory-800step-20260711.json` (SHA-256
+`ce73f309a84ab80a0a1faa1fb192bbdcc2b17abcba409a57eb7e44a44a56f7af`).
+Off/exact/local/recency/mean/recurrent candidate accuracy is
+67.6/87.1/66.4/76.6/82.0/84.0%; exact free accuracy is
+15.6/49.6/15.2/25.0/28.5/30.1%; paired source-following is
+16.59/47.60/16.59/24.45/29.69/30.13%. Exact history proves a 31-point causal
+margin over local. Bounded summaries carry real source information, but
+recurrence ties parallel mean instead of beating it and remains 17.47 points
+behind exact. Every recurrent parameter receives nonzero gradient, matrix rank
+is 502, both general holdouts remain within the 0.10 loss guard, and state uses
+the intended 32 KiB. The more diagnostic failure is overwrite: recurrent output
+changes on only 7.17% of answer-changing pairs versus 23.48% for mean and 60.04%
+for exact, while recurrent effective rank is 24.16 versus mean's 29.30.
+Decision: `retire_v19_joint_memory_tokens_insufficient_source_following`. No
+checkpoint exists.
+
+V19b is one bounded overwrite falsifier, not a retuning sweep. It divides the
+same sixteen tokens into two fixed eight-slot segment banks and concatenates
+them for the query instead of averaging or rewriting a shared state. This adds
+no parameters, keeps 32 KiB per stream, shortens each source pass from 128 to
+112 positions, and preserves segment identity. The seven-arm exact-reset screen
+retains V19's controls and schedule. Partitioned state must beat both mean and
+recurrence by at least five paired/free/candidate points, stay within ten paired
+points of exact history, and preserve both general holdouts. Focused contracts
+and a discarded seven-arm CUDA smoke pass; no V19b quality claim exists before
+the decisive run.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

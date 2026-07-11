@@ -153,6 +153,7 @@ def test_joint_cortex_modes_keep_bounded_state_and_parent_off_path() -> None:
         "recency": (2, 4, 32),
         "mean": (2, 4, 32),
         "recurrent": (2, 4, 32),
+        "partitioned": (2, 4, 32),
     }
     for mode in ARM_NAMES:
         state = cortex.build_source_state(mode, source)
@@ -194,6 +195,25 @@ def test_recurrent_memory_has_cross_segment_gradient_and_source_dependence() -> 
     assert cortex.model.token_embedding.weight.grad is not None
 
 
+def test_partitioned_memory_preserves_equal_segment_banks_and_gradients() -> None:
+    torch.manual_seed(8)
+    cortex, tokenizer = _small_cortex()
+    source = torch.randint(0, tokenizer.vocab_size, (2, 4, 12))
+    state = cortex.build_source_state("partitioned", source)
+    assert state is not None and state.shape == (2, 4, 32)
+    query = torch.randint(0, tokenizer.vocab_size, (2, 16))
+    targets = torch.randint(0, tokenizer.vocab_size, (2, 16))
+    mask = torch.zeros(2, 16, dtype=torch.bool)
+    mask[:, -4:] = True
+    cortex.relation_loss("partitioned", source, query, targets, mask).backward()
+    for name, parameter in cortex.memory.named_parameters():
+        if name == "local_memory":
+            assert parameter.grad is None
+            continue
+        assert parameter.grad is not None, name
+        assert int(torch.count_nonzero(parameter.grad)) > 0, name
+
+
 def _decision_rows(
     *,
     exact_candidate: float = 0.90,
@@ -206,6 +226,7 @@ def _decision_rows(
         "recency": 0.40,
         "mean": 0.42,
         "recurrent": 0.80,
+        "partitioned": 0.88,
     }
     free = {
         "off": 0.0,
@@ -214,6 +235,7 @@ def _decision_rows(
         "recency": 0.10,
         "mean": 0.15,
         "recurrent": 0.60,
+        "partitioned": 0.70,
     }
     paired = {
         "off": 0.0,
@@ -222,6 +244,7 @@ def _decision_rows(
         "recency": 0.10,
         "mean": 0.15,
         "recurrent": 0.72,
+        "partitioned": 0.78,
     }
     return {
         name: {
@@ -236,12 +259,12 @@ def _decision_rows(
                 "sources": [
                     {
                         "heldout_loss_delta": (
-                            recurrent_general_delta if name == "recurrent" else 0.01
+                            recurrent_general_delta if name == "partitioned" else 0.01
                         )
                     },
                     {
                         "heldout_loss_delta": (
-                            recurrent_general_delta if name == "recurrent" else 0.01
+                            recurrent_general_delta if name == "partitioned" else 0.01
                         )
                     },
                 ]
@@ -269,16 +292,16 @@ def test_decision_requires_exact_truth_recurrent_gain_and_retention() -> None:
         _decision_rows(recurrent_general_delta=0.11),
         train_steps=512,
         config=config,
-    ) == "retire_v19_recurrent_memory_breaks_general_language"
-    weak_recurrent = _decision_rows()
-    weak_recurrent["recurrent"]["evaluation"]["paired_counterfactual"][
+    ) == "retire_v19b_partitioned_memory_breaks_general_language"
+    weak_partitioned = _decision_rows()
+    weak_partitioned["partitioned"]["evaluation"]["paired_counterfactual"][
         "source_following_exact_accuracy"
-    ] = 0.14
+    ] = 0.70
     assert joint_memory_token_decision(
-        weak_recurrent,
+        weak_partitioned,
         train_steps=512,
-        config=replace(config, minimum_recurrent_counterfactual_accuracy=0.10),
-    ) == "retire_v19_simple_summary_matches_recurrent_memory"
+        config=replace(config, minimum_partitioned_counterfactual_accuracy=0.10),
+    ) == "retire_v19b_separated_banks_do_not_beat_compressed_state"
 
 
 def test_counterfactual_metric_rejects_source_independent_answer() -> None:

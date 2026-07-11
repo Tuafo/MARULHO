@@ -41,11 +41,19 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_joint_memory_token_preflight.v1"
+SURFACE = "marulho_joint_memory_token_preflight.v2"
 ARTIFACT_KIND = "marulho_joint_memory_token_preflight"
-ARM_NAMES = ("off", "exact", "local", "recency", "mean", "recurrent")
+ARM_NAMES = (
+    "off",
+    "exact",
+    "local",
+    "recency",
+    "mean",
+    "recurrent",
+    "partitioned",
+)
 MINIMUM_DECISION_STEPS = 512
-ADVANCE_DECISION = "advance_v19_joint_memory_tokens_to_contiguous_language"
+ADVANCE_DECISION = "advance_v19b_partitioned_memory_to_contiguous_language"
 
 
 @dataclass(frozen=True)
@@ -108,11 +116,11 @@ class JointMemoryTokenConfig:
     minimum_exact_candidate_accuracy: float = 0.75
     minimum_exact_free_accuracy: float = 0.30
     minimum_exact_counterfactual_gain: float = 0.10
-    minimum_recurrent_candidate_accuracy: float = 0.70
-    minimum_recurrent_free_accuracy: float = 0.25
-    minimum_recurrent_counterfactual_accuracy: float = 0.25
-    minimum_recurrent_control_gain: float = 0.05
-    maximum_recurrent_counterfactual_regret_to_exact: float = 0.10
+    minimum_partitioned_candidate_accuracy: float = 0.70
+    minimum_partitioned_free_accuracy: float = 0.25
+    minimum_partitioned_counterfactual_accuracy: float = 0.25
+    minimum_partitioned_control_gain: float = 0.05
+    maximum_partitioned_counterfactual_regret_to_exact: float = 0.10
     maximum_general_loss_regression: float = 0.10
 
 
@@ -469,16 +477,27 @@ class JointMemoryTokenCortex(nn.Module):
         self,
         memory: torch.Tensor,
         source_ids: torch.Tensor,
+        *,
+        slot_start: int = 0,
+        slot_end: int | None = None,
     ) -> torch.Tensor:
         batch = int(source_ids.shape[0])
-        queries = self.memory.expand(self.memory.write_queries, batch)
-        memory_routes = self.memory.routes(batch).to(source_ids.device)
+        end = self.memory.slot_count if slot_end is None else int(slot_end)
+        start = int(slot_start)
+        if not 0 <= start < end <= self.memory.slot_count:
+            raise ValueError("memory slot slice is out of range")
+        if int(memory.shape[1]) != end - start:
+            raise ValueError("memory input width does not match its slot slice")
+        queries = self.memory.expand(self.memory.write_queries[start:end], batch)
+        memory_routes = self.memory.route_ids[start:end].unsqueeze(0).expand(
+            batch, -1
+        ).to(source_ids.device)
         embeddings = torch.cat(
             (memory, self.model.token_embedding(source_ids), queries), dim=1
         )
         routes = torch.cat((memory_routes, source_ids, memory_routes), dim=1)
         hidden = self._state_hidden(embeddings, routes)
-        return self.memory.reenter(hidden[:, -self.memory.slot_count :])
+        return self.memory.reenter(hidden[:, -(end - start) :])
 
     def build_source_state(
         self,
@@ -516,6 +535,23 @@ class JointMemoryTokenCortex(nn.Module):
             for index in range(self.source_segments):
                 state = self._summarize_segment(state, segmented[:, index])
             return state
+        if mode == "partitioned":
+            if self.memory.slot_count % self.source_segments != 0:
+                raise ValueError("partitioned memory requires equal segment banks")
+            slots_per_segment = self.memory.slot_count // self.source_segments
+            states = []
+            for index in range(self.source_segments):
+                start = index * slots_per_segment
+                end = start + slots_per_segment
+                states.append(
+                    self._summarize_segment(
+                        seed[:, start:end],
+                        segmented[:, index],
+                        slot_start=start,
+                        slot_end=end,
+                    )
+                )
+            return torch.cat(states, dim=1)
         raise ValueError(f"mode {mode} cannot build a source state")
 
     def query_logits(
@@ -699,33 +735,34 @@ def joint_memory_token_decision(
         return "retire_v19_task_not_learnable_from_exact_history"
     maximum_general_regression = max(
         float(row["heldout_loss_delta"])
-        for row in rows["recurrent"]["general_language"]["sources"]
+        for row in rows["partitioned"]["general_language"]["sources"]
     )
     if maximum_general_regression > float(config.maximum_general_loss_regression):
-        return "retire_v19_recurrent_memory_breaks_general_language"
-    controls = ("local", "recency", "mean")
+        return "retire_v19b_partitioned_memory_breaks_general_language"
+    controls = ("local", "recency", "mean", "recurrent")
     candidate_control = max(candidate[name] for name in controls)
     free_control = max(free[name] for name in controls)
     paired_control = max(paired[name] for name in controls)
-    recurrent_pass = (
-        candidate["recurrent"] >= float(config.minimum_recurrent_candidate_accuracy)
-        and free["recurrent"] >= float(config.minimum_recurrent_free_accuracy)
-        and paired["recurrent"]
-        >= float(config.minimum_recurrent_counterfactual_accuracy)
-        and candidate["recurrent"] - candidate_control
-        >= float(config.minimum_recurrent_control_gain)
-        and free["recurrent"] - free_control
-        >= float(config.minimum_recurrent_control_gain)
-        and paired["recurrent"] - paired_control
-        >= float(config.minimum_recurrent_control_gain)
-        and paired["exact"] - paired["recurrent"]
-        <= float(config.maximum_recurrent_counterfactual_regret_to_exact)
+    partitioned_pass = (
+        candidate["partitioned"]
+        >= float(config.minimum_partitioned_candidate_accuracy)
+        and free["partitioned"] >= float(config.minimum_partitioned_free_accuracy)
+        and paired["partitioned"]
+        >= float(config.minimum_partitioned_counterfactual_accuracy)
+        and candidate["partitioned"] - candidate_control
+        >= float(config.minimum_partitioned_control_gain)
+        and free["partitioned"] - free_control
+        >= float(config.minimum_partitioned_control_gain)
+        and paired["partitioned"] - paired_control
+        >= float(config.minimum_partitioned_control_gain)
+        and paired["exact"] - paired["partitioned"]
+        <= float(config.maximum_partitioned_counterfactual_regret_to_exact)
     )
-    if recurrent_pass:
+    if partitioned_pass:
         return ADVANCE_DECISION
-    if max(paired["recency"], paired["mean"]) >= paired["recurrent"]:
-        return "retire_v19_simple_summary_matches_recurrent_memory"
-    return "retire_v19_joint_memory_tokens_insufficient_source_following"
+    if max(paired["mean"], paired["recurrent"]) >= paired["partitioned"]:
+        return "retire_v19b_separated_banks_do_not_beat_compressed_state"
+    return "retire_v19b_partitioned_memory_insufficient_source_following"
 
 
 def _candidate_record_bank(
@@ -1156,6 +1193,12 @@ def _relation_positions_per_example(
         return segment_positions + query_positions
     if mode in {"mean", "recurrent"}:
         return segments * segment_positions + query_positions
+    if mode == "partitioned":
+        slots_per_segment = slots // segments
+        partitioned_segment = (
+            slots_per_segment + (facts // segments) * source + slots_per_segment
+        )
+        return segments * partitioned_segment + query_positions
     raise ValueError(f"unknown V19 mode: {mode}")
 
 
@@ -1352,6 +1395,8 @@ def run_joint_memory_token_preflight(
 ) -> dict[str, Any]:
     if int(config.facts_per_example) % int(config.source_segments) != 0:
         raise ValueError("V19 facts_per_example must divide across source_segments")
+    if int(config.slot_count) % int(config.source_segments) != 0:
+        raise ValueError("V19 slot_count must divide across source_segments")
     if int(config.train_steps) < 1 or int(config.batch_size) < 1:
         raise ValueError("V19 train_steps and batch_size must be positive")
     if not 0.0 < float(config.relation_fraction) < 1.0:
@@ -1605,11 +1650,19 @@ def run_joint_memory_token_preflight(
             "language_cortex": cortex.model.surface,
             "memory_owner": "same_jointly_trained_v11_cortex",
             "memory_slot_count": int(config.slot_count),
+            "partitioned_slots_per_segment": (
+                int(config.slot_count) // int(config.source_segments)
+            ),
             "memory_width": int(model.hashed_config.width),
             "bounded_state_bytes_per_stream_float32": (
                 cortex.memory.state_bytes_per_stream()
             ),
             "source_segment_sequence_length": segment_length,
+            "partitioned_source_segment_sequence_length": (
+                int(config.slot_count) // int(config.source_segments)
+                + facts_per_segment * int(config.source_length)
+                + int(config.slot_count) // int(config.source_segments)
+            ),
             "memory_query_sequence_length": memory_query_length,
             "exact_control_sequence_length": exact_length,
             "memory_reentry": "layer_norm_times_learned_scalar",
@@ -1709,7 +1762,7 @@ def run_joint_memory_token_preflight(
     write_json_report_with_readme(
         output_path,
         report,
-        title="MARULHO V19 Joint Memory Token Preflight",
+        title="MARULHO V19b Partitioned Memory Token Preflight",
     )
     print(f"[joint-memory-v19] decision {decision}", flush=True)
     return report

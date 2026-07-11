@@ -226,11 +226,26 @@ The controls isolate the actual claim: exact raw history proves the task is
 learnable; local tokens expose answer priors; recency sees only the last segment;
 mean processes both segments independently; off sees only the query. Paired
 evaluation holds the question, distractors, positions, and decoder fixed while
-changing the target source and answer. The candidate dies if exact history does
-not establish source causality, if a simple bounded summary matches recurrence,
-if recurrent behavior remains more than ten points behind exact, or if either
-general holdout regresses by more than 0.10 loss. A four-step CUDA smoke validates
-execution only and is deleted; its scores are not evidence.
+changing the target source and answer.
+
+V19's exact history establishes the task: candidate/free/paired accuracy reaches
+87.1/49.6/47.60% versus local's 66.4/15.2/16.59%. Recency reaches
+76.6/25.0/24.45%, parallel mean 82.0/28.5/29.69%, and recurrence
+84.0/30.1/30.13%. Thus joint cortex training turns bounded tokens into real
+source memory, but recurrent rewriting adds only 0.44 paired points over mean
+and remains 17.47 behind exact. The negative is not dead state: every parameter
+has gradient, rank is 502, and both general holdouts pass. Recurrent output
+changes on only 7.17% of source-answer swaps versus mean's 23.48%, directly
+suggesting overwrite rather than insufficient scalar scale.
+
+V19b tests that single diagnosis under the same 32-KiB budget. Segment one owns
+slots 0-7 and segment two owns slots 8-15; each writes independently and the
+query sees their concatenation. It adds no parameters and removes both averaging
+and recurrent overwrite. This is a fixed organization control, not a claim that
+two segments solve open-ended memory. It advances only if it beats mean and
+recurrence by five points on candidate, free, and paired behavior, stays within
+ten paired points of exact, and preserves both general holdouts. Failure retires
+the current memory-token interface rather than adding a gate between the banks.
 
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
