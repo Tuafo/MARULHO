@@ -123,6 +123,13 @@ one word with it.
     the retention bound. Wall time is tied and the task is relation-specific,
     so the result advances to causal general-document streams rather than to
     runtime installation or Base-Language Qualification.
+17. V22 finds that an older same-document episode is genuinely useful but an
+    unconditional reader is not. Oracle-one improves loss by 0.0341 with a
+    positive paired interval. Lexical-one retrieves the episode 75.0% of the
+    time yet ties local-only overall: correct reads gain 0.0372, while wrong
+    reads lose 0.1050. High lexical margin raises precision to 95.3% at 50%
+    coverage. Retrieval therefore needs calibrated abstention, not a larger
+    fixed top-k.
 
 ## Provisional scaling diagnosis
 
@@ -252,10 +259,11 @@ has a language-specific purpose.
   needed.
 - **Current design:** the local cortex remains bounded, while an external
   append-only episode archive retains exact token spans, provenance, and compact
-  retrieval keys. A visible causal prefix selects a fixed number of older spans
-  before prediction. V21 validates this division of labor only on controlled
-  relation binding; V22 must establish whether it transfers to real disjoint
-  documents before a checkpoint/index contract is built.
+  retrieval keys. V21 validates this division of labor on controlled relation
+  binding. V22 shows that true general-document episodes help but retrieval
+  errors are asymmetrically costly, so the next interface selects zero or one
+  span through a calibration-frozen confidence gate. No checkpoint/index
+  contract is built until that gate wins on disjoint documents.
 
 ### Multiple learning timescales
 

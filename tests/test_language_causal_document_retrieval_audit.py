@@ -19,6 +19,7 @@ from marulho.evaluation.language_causal_document_retrieval_audit import (
     evaluate_document_arm,
     gather_retrieved_episodes,
     paired_bootstrap_gain,
+    retrieval_confidence_curves,
     retrieval_metrics_for_arm,
     selected_slots_for_arm,
 )
@@ -301,3 +302,22 @@ def test_paired_bootstrap_reports_positive_gain() -> None:
     assert row["mean_loss_gain"] == 0.5
     assert row["bootstrap_95_ci"][0] == 0.5
     assert row["positive_mean_probability"] == 1.0
+
+
+def test_confidence_curve_is_metrics_only_and_exposes_high_margin_precision() -> None:
+    scores = torch.tensor(
+        [
+            [0.9, 0.1, 0.0, 0.0],
+            [0.8, 0.2, 0.1, 0.0],
+            [0.4, 0.5, 0.3, 0.2],
+            [0.4, 0.3, 0.2, 0.1],
+        ]
+    )
+    target_slots = torch.tensor([0, 0, 0, 1])
+    row = retrieval_confidence_curves(
+        scores, target_slots, coverages=(0.5, 1.0)
+    )
+    assert row["margin_top1_minus_top2"][0]["precision"] == 1.0
+    assert row["margin_top1_minus_top2"][1]["precision"] == 0.5
+    assert row["target_identity_used_only_for_metrics"] is True
+    assert row["promotable"] is False

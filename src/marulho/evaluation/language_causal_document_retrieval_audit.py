@@ -424,8 +424,57 @@ def retrieval_metrics_for_arm(
         "active_source_tokens": count * int(source_length),
         "target_inclusion": float(included.float().mean()),
         "per_source": per_source,
+        "target_inclusion_mask": [bool(value) for value in included],
         "target_document_identity_used_by_selector": arm == "oracle1",
         "target_slot_metrics_only": True,
+    }
+
+
+def retrieval_confidence_curves(
+    scores: torch.Tensor,
+    target_slots: torch.Tensor,
+    *,
+    coverages: Sequence[float] = (0.25, 0.50, 0.75, 1.0),
+) -> dict[str, Any]:
+    """Metrics-only precision curves for deciding whether a gate is plausible."""
+
+    if scores.ndim != 2 or scores.shape[0] != target_slots.shape[0]:
+        raise ValueError("confidence scores and target slots must align")
+    ordered_scores, ordered_slots = torch.sort(
+        scores, dim=1, descending=True, stable=True
+    )
+    correct = ordered_slots[:, 0] == target_slots
+    margin = ordered_scores[:, 0] - ordered_scores[:, 1]
+    maximum = ordered_scores[:, 0]
+
+    def curve(signal: torch.Tensor) -> list[dict[str, Any]]:
+        ranking = torch.argsort(signal, descending=True, stable=True)
+        rows = []
+        for coverage in coverages:
+            selected_count = max(
+                1, min(len(correct), round(float(coverage) * len(correct)))
+            )
+            selected = ranking[:selected_count]
+            selected_correct = int(correct.index_select(0, selected).sum())
+            rows.append(
+                {
+                    "requested_coverage": float(coverage),
+                    "selected_count": selected_count,
+                    "actual_coverage": selected_count / len(correct),
+                    "precision": selected_correct / selected_count,
+                    "effective_correct_retrieval_rate": selected_correct / len(correct),
+                    "minimum_selected_signal": float(
+                        signal.index_select(0, selected).min()
+                    ),
+                }
+            )
+        return rows
+
+    return {
+        "margin_top1_minus_top2": curve(margin),
+        "absolute_top1_score": curve(maximum),
+        "target_identity_used_only_for_metrics": True,
+        "promotable": False,
     }
 
 
@@ -563,6 +612,28 @@ def attach_paired_evidence(
             samples=int(config.bootstrap_samples),
             seed=int(config.data_seed) + 100 + arm_index,
         )
+        inclusion_mask = arms[arm]["retrieval"]["target_inclusion_mask"]
+        conditional = {}
+        for label, expected in (("target_included", True), ("target_absent", False)):
+            indices = [
+                index
+                for index, included in enumerate(inclusion_mask)
+                if bool(included) is expected
+            ]
+            conditional[label] = (
+                None
+                if not indices
+                else {
+                    "case_count": len(indices),
+                    **paired_bootstrap_gain(
+                        [baseline[index] for index in indices],
+                        [language["case_losses"][index] for index in indices],
+                        samples=int(config.bootstrap_samples),
+                        seed=int(config.data_seed) + 500 + 19 * arm_index,
+                    ),
+                }
+            )
+        language["paired_by_target_inclusion"] = conditional
         for source_index, source_name in enumerate(
             sorted({case.source_name for case in cases})
         ):
@@ -792,6 +863,16 @@ def run_causal_document_retrieval_audit(
         target_slots=target_slots,
         seed=int(config.data_seed) + 20,
     )
+    confidence_diagnostics = {
+        "lexical": retrieval_confidence_curves(lexical_scores, target_slots),
+        "frozen_last": retrieval_confidence_curves(
+            frozen_last_scores, target_slots
+        ),
+        "frozen_mean": retrieval_confidence_curves(
+            frozen_mean_scores, target_slots
+        ),
+        "purpose": "non_promotable_gate_feasibility_only",
+    }
 
     arms: dict[str, dict[str, Any]] = {}
     for arm in ARM_NAMES:
@@ -830,6 +911,7 @@ def run_causal_document_retrieval_audit(
     for arm in ARM_NAMES:
         arms[arm]["language"].pop("case_losses")
         arms[arm]["language"].pop("case_next_token_accuracy")
+        arms[arm]["retrieval"].pop("target_inclusion_mask")
 
     report = {
         "artifact_kind": ARTIFACT_KIND,
@@ -884,6 +966,7 @@ def run_causal_document_retrieval_audit(
             "recency": "last_written_equal_token_control",
             "learned_selector": False,
         },
+        "confidence_diagnostics": confidence_diagnostics,
         "arms": arms,
         "examples": examples,
         "decision": decision,

@@ -393,6 +393,26 @@ all-history, and avoid regressing either source. A pass admits a jointly trained
 document screen; it does not promote language quality, checkpointing, runtime
 installation, or speed.
 
+The final V22 report is
+`reports/language_scaling/v22-causal-document-retrieval-audit-20260711.json`
+(SHA-256
+`af1898ece04196ebad35adcdf5c89c56d13cc2a0419f5abe7f9fc4ee18c6ea10`).
+Local-only loss is 3.0048. Oracle-one reaches 2.9707, a paired +0.0341 gain with
+95% bootstrap interval +0.0116 to +0.0584, proving the prior exact span is
+predictively useful. Lexical-one/frozen-mean-one target inclusion is
+75.0/74.2%, but loss is only 3.0031/3.0021 and both intervals cross zero.
+Lexical-two/frozen-mean-two inclusion rises to 84.8/89.1% while loss worsens to
+3.0423/3.0311; all-four reaches 3.0355. Decision:
+`redesign_v22_addressing_does_not_recover_useful_episode`.
+
+Conditioning explains the failure: lexical-one gains 0.0372 when the target is
+included and loses 0.1050 when it is absent. The metrics-only lexical margin
+curve reaches 100.0% precision at 25% coverage and 95.3% at 50%, versus 75.0%
+when always active. This curve uses target identity and is not a deployable
+threshold. The next audit must calibrate retrieval or abstention on separate
+replay documents, freeze the threshold, and evaluate once against equal-write-
+rate controls on the disjoint V22 documents.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

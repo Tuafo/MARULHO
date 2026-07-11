@@ -320,14 +320,22 @@ TF-IDF is the final semantic memory. It is a clean proof that selected raw
 evidence can outperform both fixed latent compression and indiscriminate full
 history.
 
-The next falsifier uses causal general-document streams. Only prior spans may
-enter the archive. A query key is built from the visible current prefix, and a
-fixed token budget retrieves older exact spans before ordinary next-token
-prediction. Compare local-only, random, most-recent, lexical, and equal-token
-controls on document-disjoint FineWeb-Edu and Cosmopedia. Retrieval must improve
-heldout continuation loss and anchored free generation together; source overlap
-or relation accuracy alone cannot advance it. A survivor must checkpoint the
-cortex, exact archive records, key/index state, provenance, and rollback point.
+V22 supplies a sharper result on causal general-document streams. The true older
+span improves frozen-cortex loss by 0.0341 with a positive paired interval, so
+the memory contains predictive information. Always retrieving is unsafe:
+lexical-one finds the right document 75.0% of the time but gains only 0.0017
+overall, because correct reads gain 0.0372 while wrong reads lose 0.1050.
+Top-two and all-history add more harmful distraction. The useful primitive is
+therefore not merely `retrieve(key)` but `retrieve_or_abstain(key, confidence)`.
+
+The next falsifier learns no language weights. It calibrates lexical/frozen-key
+margin thresholds on separate replay documents, freezes the policy, and tests
+the disjoint evaluation set once. At equal write rate, random and recency gates
+must remain controls. If a confidence gate cannot turn high-margin precision
+into a significant loss win on both sources, retire fixed-key prompt retrieval
+for general documents and move selection inside joint cortex training. A
+survivor still owes anchored generation and a strict cortex/archive/index
+checkpoint before promotion.
 
 ## Contradiction-driven causal compilation — later grounded hypothesis
 

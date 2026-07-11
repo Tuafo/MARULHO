@@ -566,6 +566,29 @@ compare lexical retrieval with recency/random/local controls on disjoint
 documents, and save the selected cortex plus archive/index state only if heldout
 loss and source-anchored generation improve together.
 
+V22 rejects the always-read general-document interface without rejecting the
+archive itself. The retained report is
+`reports/language_scaling/v22-causal-document-retrieval-audit-20260711.json`
+(SHA-256
+`af1898ece04196ebad35adcdf5c89c56d13cc2a0419f5abe7f9fc4ee18c6ea10`).
+On 128 disjoint FineWeb-Edu plus 128 Cosmopedia documents, local-only loss is
+3.0048. Non-promotable oracle-one reaches 2.9707, a paired +0.0341 gain with
+95% bootstrap interval +0.0116 to +0.0584, so the older exact episode contains
+usable predictive information. Lexical-one and frozen-mean-one retrieve that
+episode in 75.0% and 74.2% of cases, but reach only 3.0031 and 3.0021 loss; their
+confidence intervals cross zero. Top-two retrieval is worse despite higher
+inclusion, and all-four regresses to 3.0355.
+
+The failure is asymmetric. When lexical-one selects the true document its mean
+paired gain is +0.0372; when it selects a distractor the mean is -0.1050.
+Lexical score margin identifies a plausible abstention region: the highest-margin
+50% has 95.3% retrieval precision, while always reading is only 75.0% precise.
+These curves use target identity for metrics and cannot promote a policy.
+Decision: `redesign_v22_addressing_does_not_recover_useful_episode`. The next
+falsifier must calibrate a retrieve-or-abstain rule on separate training
+documents, freeze it, and evaluate it on these disjoint documents before any
+joint training, archive checkpoint, or runtime integration.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

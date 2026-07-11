@@ -70,6 +70,7 @@ when they express a measurable computational role and can beat matched controls.
 | V19/V19b latent memory | Recurrent and partitioned banks reach 30.1% and 31.4% paired source-following and remain more than 16 points behind exact history | Retire the latent memory-token interface |
 | V20 addressing audit | Lexical top-one fails its gate; lexical top-two includes the required episode in 98.83% of cases while reading half of the available history | Admit a separate top-two language screen |
 | V21 language screen | Lexical top-two reaches 51.6% free exact and 52.0% paired source-following versus all-history at 39.5% and 38.0%; it reads 96 instead of 192 source tokens | Advance exact episodic retrieval to causal document streams |
+| V22 document audit | Oracle-one improves loss by 0.0341, but lexical-one's 75.0% retrieval recall yields only +0.0017 and top-two hurts; wrong episodes are about three times as costly as correct episodes are useful | Replace unconditional top-k with a calibration-frozen retrieve-or-abstain gate |
 
 V21 also keeps both general-language holdouts within the preregistered 0.10 loss
 regression bound and uses about 0.90 GiB peak allocation versus all-history's
@@ -85,7 +86,7 @@ iteration.
 
 The selected direction still has to show all of the following:
 
-- useful retrieval from prior spans in causal, document-disjoint general text;
+- a confidence-gated retrieval win on causal, document-disjoint general text;
 - lower heldout continuation loss and better source-anchored free generation at
   the same time;
 - a semantic or learned key that transfers beyond relation templates;
@@ -101,13 +102,13 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Build a causal archive from older general-document spans. A query may use only
-   the visible current prefix; future continuation tokens and metric labels are
-   forbidden from retrieval.
-2. Compare local-only, random, recency, lexical, and equal-token controls on
-   disjoint FineWeb-Edu and Cosmopedia documents.
-3. If retrieval improves both likelihood and anchored generation, save one
-   selected cortex-plus-archive checkpoint and test strict reload/rollback.
+1. Calibrate a retrieve-or-abstain threshold on separate replay documents using
+   visible-prefix score margin only, then freeze it before disjoint evaluation.
+2. Compare gated lexical/frozen keys with local-only and equal-write-rate random
+   and recency controls on disjoint FineWeb-Edu and Cosmopedia documents.
+3. If the frozen gate survives, jointly train it and require both likelihood and
+   anchored-generation improvement before saving one selected
+   cortex-plus-archive checkpoint and testing strict reload/rollback.
 4. Re-run genuinely unseen Base-Language Qualification from that artifact.
 5. Only after base quality survives, test online learning, consolidation,
    forgetting, active compute, and the sustained-runtime ladder.
