@@ -390,6 +390,7 @@ class MarulhoHashedMicroExpertLanguageModel(MarulhoLanguageModel):
     """MARULHO-owned pruned V11 candidate."""
 
     surface = "marulho_hashed_micro_expert_language_model.v1"
+    generation_surface = "marulho_hashed_micro_expert_generation.v1"
 
     def __init__(self, hashed_config: HashedMicroExpertConfig) -> None:
         _validate_config(hashed_config)

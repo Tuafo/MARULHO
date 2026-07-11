@@ -172,6 +172,7 @@ class MarulhoLanguageModel(nn.Module):
     """MARULHO-owned decoder-only Transformer language model."""
 
     surface = "marulho_transformer_language_model.v2"
+    generation_surface = "marulho_transformer_generation.v3"
 
     def __init__(self, config: LanguageModelConfig) -> None:
         super().__init__()
@@ -450,7 +451,7 @@ class MarulhoLanguageModel(nn.Module):
                 state = result["state"]
                 next_logits = result["logits"][:, -1]
             return {
-                "surface": "marulho_transformer_generation.v3",
+                "surface": self.generation_surface,
                 "generated_ids": generated,
                 "new_token_count": int(new_token_count),
                 "state": state,

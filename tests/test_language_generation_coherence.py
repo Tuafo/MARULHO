@@ -23,11 +23,13 @@ class _FakeGenerationModel:
         *,
         continuation_text: str,
         external_llm_used: bool = False,
+        active_language_path: str = "marulho_lm_head",
     ) -> None:
-        self.config = SimpleNamespace(active_language_path="marulho_lm_head")
+        self.config = SimpleNamespace(active_language_path=active_language_path)
         self._tokenizer = tokenizer
         self._continuation_ids = tokenizer.encode(continuation_text, add_eos=False)
         self._external_llm_used = bool(external_llm_used)
+        self._active_language_path = str(active_language_path)
 
     def generate(
         self,
@@ -48,7 +50,7 @@ class _FakeGenerationModel:
             "surface": "marulho_language_generation.v1",
             "generated_ids": torch.cat([flat_prompt, continuation]).unsqueeze(0),
             "new_token_count": int(continuation.numel()),
-            "active_language_path": "marulho_lm_head",
+            "active_language_path": self._active_language_path,
             "external_llm_used": self._external_llm_used,
             "owned_by_marulho": not self._external_llm_used,
             "loads_external_checkpoint": False,
@@ -145,6 +147,32 @@ def test_language_generation_coherence_report_records_decode_controls() -> None:
     assert decode["no_repeat_ngram_size"] == 2
     assert decode["decode_controls_backend"] == "torch_device_tensor"
     assert decode["decode_controls_cpu_token_copy"] is False
+
+
+def test_language_generation_coherence_accepts_owned_candidate_path() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    source_text = "MARULHO learns runtime evidence from local source windows."
+    report = run_language_generation_coherence_report(
+        _FakeGenerationModel(
+            tokenizer,
+            continuation_text=" learns runtime evidence",
+            active_language_path="marulho_hashed_micro_experts_v11",
+        ),
+        tokenizer,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="MARULHO",
+                source_text=source_text,
+                max_new_tokens=32,
+                min_new_tokens=8,
+                min_prefix_match_chars=8,
+                min_prefix_match_fraction=0.20,
+            ),
+        ),
+    )
+    assert report["owned_by_marulho"] is True
+    assert report["promotion_gate"]["generation_coherence_available"] is True
+    assert report["cases"][0]["active_language_path_matches_model"] is True
 
 
 def test_language_generation_coherence_report_records_prompt_continuation_loss() -> None:

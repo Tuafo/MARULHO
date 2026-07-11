@@ -156,6 +156,9 @@ def test_hashed_owned_generation_uses_candidate_path() -> None:
     )
     assert generated["new_token_count"] >= 1
     assert generated["external_llm_used"] is False
+    assert generated["owned_by_marulho"] is True
+    assert generated["active_language_path"] == "marulho_hashed_micro_experts_v11"
+    assert generated["surface"] == "marulho_hashed_micro_expert_generation.v1"
 
 
 def test_hashed_checkpoint_round_trip_is_strict_and_exact(tmp_path) -> None:

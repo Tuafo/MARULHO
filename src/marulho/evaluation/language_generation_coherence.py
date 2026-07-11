@@ -435,10 +435,21 @@ def _decoded_generation_case(
         distinct_bigram_fraction >= float(case.min_distinct_bigram_fraction)
         and max_run <= int(case.max_token_run_length)
     )
+    expected_active_language_path = str(
+        getattr(getattr(model, "config", None), "active_language_path", "")
+    )
+    observed_active_language_path = str(
+        generation.get("active_language_path") or ""
+    )
+    active_language_path_matches_model = bool(
+        expected_active_language_path
+        and observed_active_language_path == expected_active_language_path
+        and observed_active_language_path.startswith("marulho_")
+    )
     owned_generation = (
         bool(generation.get("owned_by_marulho"))
         and not bool(generation.get("external_llm_used"))
-        and str(generation.get("active_language_path")) == "marulho_lm_head"
+        and active_language_path_matches_model
     )
     passed = (
         owned_generation
@@ -468,6 +479,8 @@ def _decoded_generation_case(
         "generation_surface": generation.get("surface"),
         "generation_decode": dict(generation.get("generation_decode") or {}),
         "active_language_path": generation.get("active_language_path"),
+        "expected_active_language_path": expected_active_language_path,
+        "active_language_path_matches_model": active_language_path_matches_model,
         "external_llm_used": bool(generation.get("external_llm_used")),
         "owned_by_marulho": bool(generation.get("owned_by_marulho")),
         "prompt_token_count": prompt_count,
@@ -591,7 +604,7 @@ def run_language_generation_coherence_report(
     )
     owned_by_marulho = all(
         bool(case.get("owned_by_marulho"))
-        and str(case.get("active_language_path")) == "marulho_lm_head"
+        and bool(case.get("active_language_path_matches_model"))
         and not bool(case.get("external_llm_used"))
         for case in case_reports
     )
