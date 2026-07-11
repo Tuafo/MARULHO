@@ -438,6 +438,23 @@ the causal V22 document builder but must co-train fresh cortex arms on off,
 random, and lexical contexts, then require disjoint likelihood and anchored
 generation together before saving a checkpoint.
 
+`language_joint_document_retrieval_screen.py` preregisters V23. It samples
+2,048 causal cases from each replay source and 128 cases from each disjoint eval
+source. Off, random-one, lexical-one, and non-promotable oracle-one restore the
+identical 1B-token V11 state, optimizer recipe, 800-step schedule, and 25%
+ordinary general replay. The 75% document steps score only the hidden 16-token
+continuation; each memory arm reads exactly one earlier 48-token episode through
+ordinary cortex attention. Retrieval sees only the visible 48-token prefix.
+
+Oracle-one must first beat the off arm by +0.02 paired loss with a positive
+4,096-sample bootstrap lower bound. Lexical-one must retrieve the planted older
+episode in at least 70% of eval cases, beat off by +0.01 with a positive lower
+bound, beat equal-token random-one by +0.005, and assign at least +0.02 more
+likelihood to the true episode than a guaranteed distractor with a positive
+lower bound. Neither general holdout may regress by more than 0.10. A pass
+advances only to anchored free-generation review; the runner saves no checkpoint
+and makes no speed or base-quality claim.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
