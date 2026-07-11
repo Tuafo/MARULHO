@@ -511,20 +511,46 @@ content but not the unweighted mean workspace as a base architecture. The
 compiled monolith's 32.0% free score also differed from the prior eager 14.5%
 control at tied loss; any future positive needs a second seed or eager replicate.
 
-## V5 hypothesis: selective content-addressed workspace
+## V5 result: selective content-addressed workspace (retired)
 
-V5 retains the shared interface and full-gradient paths, but cells compete to
+V5 retained the shared interface and full-gradient paths, but cells competed to
 write into one 64-wide causal latent stream. A narrow attention layer retrieves
 prior workspace states before broadcasting the result to every cell. This is the
 minimal faithful connection to modern Hopfield networks: the retrieval update is
 attention, while the hypothesis under test is persistent, bandwidth-limited
 shared state.
 
-At an 8,192-token vocabulary v5 has 21,012,624 parameters, 0.174% above the
-monolith. Monolith, no-exchange, shuffled-write, and real-write arms keep the
-same tokenizer, schedule, optimizer, and token budget. Real writes must win both
-heldout loss and free behavior to scale. A behavior-only win is a redesign
-signal, not promotion.
+At an 8,192-token vocabulary v5 had 21,012,624 parameters, 0.174% above the
+monolith. Its result was:
+
+| Arm | Heldout loss | Strict free relation |
+| --- | ---: | ---: |
+| Compiled monolith | 4.6142 | 17.2% |
+| No exchange | 4.8526 | 24.6% |
+| Shuffled associative workspace | 4.8479 | 22.7% |
+| Real associative workspace | 4.8494 | 6.6% |
+
+Real writes failed both behavior controls while loss remained tied. Mean write
+entropy fell to 1.097 from roughly 1.35 in controls (maximum for four cells is
+1.386), so the writer learned selectivity rather than remaining inert. The
+failure is that selected temporal content was harmful. V5 and the current
+modular language line are retired and deleted.
+
+## V6 hypothesis: hyperspherical convergence
+
+[nGPT](https://arxiv.org/abs/2410.01131) normalizes embeddings, hidden states,
+attention/MLP vectors, and weight rows/columns onto hyperspheres. The reported
+effect is substantially faster convergence, a direct fit for constrained local
+training. Its [official implementation](https://github.com/NVIDIA/ngpt) also
+warns that gains are smaller for shorter runs and that public low-precision
+details may overstate the baseline gap.
+
+V6 should therefore be a strict local reproduction, not an nGPT claim by
+analogy: 21M matched parameters, context 72, the frozen 16.79M-token schedule,
+full-vocabulary loss, compiled/eager parity, and the same free behavior audit.
+Post-step parameter projection and optimizer/warmup differences require explicit
+controls. If hyperspherical normalization does not improve the loss curve at
+this scale, it is retired before any longer-context investment.
 
 ### Staged associative-memory and column hypotheses
 
@@ -558,6 +584,7 @@ learned specialization must be verified by cell ablations.
   mean-message bus.
 - Modular workspace v4's unweighted same-token mean as the final communication
   operator.
+- Content-addressed modular workspace v5's selective causal memory stream.
 - Multiple-choice or loss improvement as proof of memory.
 - Biological vocabulary without a measurable computational role.
 

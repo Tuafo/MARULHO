@@ -37,20 +37,12 @@ are deleted. The next candidate must share the vocabulary interface, preserve
 full-gradient depth, and test communication between internal latent cells rather
 than duplicate full language models.
 
-**`language_modular_workspace.py`** — the uninstalled v5 candidate. One shared
-embedding and tied output head surround two shared causal layers, four parallel
-cells, and two shared integration layers. After the first cell layer, learned
-write competition pools cell messages into a 64-wide causal workspace layer;
-its content-addressed history is broadcast before each cell's second layer.
-No-exchange, cross-batch shuffled, and real modes keep the same declared
-parameter graph. The 8,192-vocabulary reference has 21,012,624 parameters,
-0.174% above the 21M monolith. Tests establish causality, streaming equality,
-full-context gradient flow, anti-leak controls, and owned generation; they do not
-establish language quality.
-
-V4's transient mean workspace is retired without scale. Real exchange improved
-strict free relation behavior to 21.5% versus 11.7% shuffled and 10.2% without
-exchange, but heldout loss stayed tied near 4.85 and behind the monolith's 4.6147.
+The modular workspace line is retired from the live tree. V4's transient mean
+raised strict free relation behavior to 21.5% versus 11.7% shuffled and 10.2%
+without exchange, but loss stayed tied near 4.85 and behind the monolith. V5's
+selective content-addressed workspace then fell to 6.6% versus 22.7% shuffled
+and 24.6% without exchange, again near 4.85 loss. The model, runner, exports, and
+tests are deleted. No Hopfield or column language compatibility path remains.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

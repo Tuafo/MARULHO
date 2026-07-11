@@ -175,15 +175,23 @@ a 9.8--11.3 point behavior gain over controls but no 0.005 loss win, and the
 monolith remained stronger. The original mean-exchange mechanism is not scaled;
 the report and separate review preserve the mechanical gate and interpretation.
 
-**Content-Addressed Modular Workspace v5 Hypothesis** — retain v4's shared
-embedding/readout, six-layer differentiable paths, and four internal cells, but
-replace unweighted same-token means with learned cell-write competition into a
-64-wide causal workspace layer. Its attention retrieves prior workspace patterns
-and is mathematically the modern-Hopfield update; the tested novelty is the
-narrow shared memory topology, not a renamed attention operation. At an
-8,192-token vocabulary v5 has 21,012,624 parameters versus 20,976,128 (0.174%
-more). No-exchange, shuffled, real, and monolithic controls remain required. The
-candidate is uninstalled and unqualified.
+**Content-Addressed Modular Workspace v5 (retired)** — at 16.79M matched tokens,
+monolith/no-exchange/shuffled/real losses were 4.6142/4.8526/4.8479/4.8494 and
+strict free relation scores were 17.2%/24.6%/22.7%/6.6%. Real associative memory
+was worse than both controls. Write competition became more selective, and the
+workspace controls ran within 0.13% steady throughput, so the failure is not an
+unused-memory or compute mismatch explanation. The model, runner, and tests are
+deleted; local v4/v5 reports retain evidence. These results retire the current
+modular/Hopfield/column language line, not every future use in grounded tasks.
+
+**Hyperspherical Transformer v6 Hypothesis** — test nGPT-style normalized
+embeddings, hidden states, attention/MLP vectors, and post-update weight
+projection as a convergence intervention against the 21M Transformer. The
+published work reports much faster learning, but its official implementation
+warns that shorter runs see smaller gains and precision details can exaggerate
+them. MARULHO must therefore reproduce or refute the mechanism at context 72,
+16.79M tokens, identical data/optimizer budget, and compile-amortized wall time
+before any scale claim.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

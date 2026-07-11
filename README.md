@@ -58,8 +58,11 @@ interface and full-gradient depth while testing parallel latent cells around a
 narrow workspace. V4 substantially recovered loss and real exchange raised free
 relation behavior to 21.5% versus 11.7% shuffled and 10.2% without exchange, but
 loss stayed tied across workspace controls and the monolith remained stronger.
-V4 is not scaled. V5 now tests selective writes into a narrow content-addressed
-temporal workspace; it is uninstalled and has no quality claim.
+V4 was not scaled. V5's content-addressed temporal workspace then collapsed real
+free behavior to 6.6% versus 22.7% shuffled and 24.6% without exchange at tied
+loss. The modular workspace model, runner, and tests are deleted. The next
+candidate tests hyperspherical normalization for faster convergence at the exact
+local MARULHO scale rather than assuming published long-context gains transfer.
 
 ## Current Evidence
 
