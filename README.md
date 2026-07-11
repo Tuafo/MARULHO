@@ -8,8 +8,9 @@ compute, and remain rollbackable while it changes.
 
 MARULHO is not currently an AGI or a frontier model. Its strongest base can
 produce readable English, but it is still generic and unreliable on genuinely
-unseen, source-grounded continuations. Current results support a new memory
-direction; they do not yet establish a generally capable continual model.
+unseen, source-grounded continuations. Current results isolate useful exact-
+history information but do not yet provide an admitted memory interface or a
+generally capable continual model.
 
 ## Current architecture
 
@@ -22,11 +23,11 @@ There are three different levels of truth:
    Transformer whose replaced feed-forward block contains deterministic hashed
    singleton micro-experts. Its strict checkpoint has trained for 1.0B update
    tokens.
-3. **Selected memory direction:** V25 proves that a bounded selector plus one
+3. **Memory evidence boundary:** V25 proves that a bounded selector plus one
    exact archived episode improves disjoint causal likelihood. Raw prepending
-   still fails anchored generation, so the next uninstalled candidate gives
-   evidence a separate gated reader. No memory checkpoint or runtime integration
-   exists yet.
+   fails anchored generation, while V26 and V27 gated readers fail even with
+   oracle evidence. No memory model, checkpoint, or runtime integration is
+   currently admitted.
 
 ```mermaid
 flowchart LR
@@ -36,8 +37,7 @@ flowchart LR
     Prefix["Visible current prefix"] --> Select["Bounded evidence selector"]
     Archive --> Select
     Select --> Evidence["One older exact span"]
-    Evidence --> Reader["Interleaved evidence reader<br/>(next falsifier)"]
-    Reader --> Local
+    Evidence --> Boundary["No admitted read interface<br/>after V26/V27"]
     Local --> Output["MARULHO-owned next-token generation"]
     Local --> Save["Atomic checkpoint and rollback"]
     Archive --> Save
@@ -49,9 +49,8 @@ The division of labor is deliberate:
 
 - the cortex learns language and reasons over the small amount of evidence that
   is active now;
-- the interleaved evidence reader keeps archived tokens out of the local
-  position stream and injects bounded gated residuals before later cortex
-  computation;
+- no current reader connects the archive to the cortex; both tested gated
+  cross-attention placements are retired;
 - the archive preserves potentially important experience without forcing every
   detail through a fixed-size recurrent state;
 - keys and indexes may be compressed, but valuable episode content stays exact
@@ -61,8 +60,9 @@ The division of labor is deliberate:
 
 The validated selector is currently lexical TF-IDF, not a learned semantic
 memory and not the intended final answer. It is a causal instrument that has
-replicated a likelihood win; the interleaved reader shown above remains a
-hypothesis until it improves anchored generation.
+replicated a likelihood win. That signal is retained as evidence, not as an
+active architecture; the next work returns to base-language computation before
+another memory interface is justified.
 
 MARULHO is not using an SNN, GRU, cortical-column simulation, Hopfield network,
 or reservoir as its active language core. Those ideas remain available only
@@ -82,6 +82,7 @@ when they express a measurable computational role and can beat matched controls.
 | V24 balanced top-two | Replay restores retention, but top-two is 0.0064 worse than top-one. The lexical-one control gains a significant +0.0255 while retaining general loss | Retire top-two and replicate top-one against balanced random-one |
 | V25 top-one replication | Lexical memory gains +0.0430 over off, beats random, improves both corpora, and retains general loss; all 8 anchored continuations still fail | Preserve the likelihood signal, retire raw concatenation, and build a separate evidence reader |
 | V26 final-layer reader | All reader/cortex tensors train, but oracle gain is only +0.00010 and the gate remains near 0.119 | Retire final-layer injection; test interleaved evidence before later cortex layers |
+| V27 interleaved reader | Raw context gains +0.0426, but lexical and oracle readers are both about 0.0392 worse than gate-zero; all tensors train and both gates remain near 0.119 | Retire cross-attention document memory and return to the base-language architecture |
 
 V21 also keeps both general-language holdouts within the preregistered 0.10 loss
 regression bound and uses about 0.90 GiB peak allocation versus all-history's
@@ -97,7 +98,8 @@ iteration.
 
 The selected direction still has to show all of the following:
 
-- an evidence-reader win on anchored free generation, not only causal loss;
+- an evidence interface that converts the retained V25 likelihood signal into
+  anchored free generation;
 - lower heldout continuation loss and better source-anchored free generation at
   the same time;
 - a semantic or learned key that transfers beyond relation templates;

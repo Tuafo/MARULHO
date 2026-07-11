@@ -703,17 +703,26 @@ The failure localizes the interface: raw context can influence every V11 layer,
 whereas V26 adds evidence after local computation is already finished. More
 selector tuning or a larger final residual is not justified.
 
-V27 is the bounded replacement. It shares one eight-head cross-attention reader
-after V11 blocks zero and two, with an independent scalar gate at each
-injection. The query and evidence run as separate streams through the same V11
-blocks, so later self-attention and MLP computation can transform the
-evidence-conditioned query without evidence entering the query position stream.
-Gate-zero and raw-context parity remain exact. Fresh seeds
-14101/14201/14301 face the same gate-zero, shuffled, raw, lexical, and oracle
-controls under the 50/50 800-step schedule. A likelihood pass still advances
-only to manual anchored generation. Failure of oracle evidence ends this
-cross-attention memory line rather than widening the gate, layer, or selector
-sweep.
+V27 rejects the bounded interleaved replacement. The retained report is
+`reports/language_scaling/v27-interleaved-evidence-reader-800step-20260711.json`
+(SHA-256
+`c5db3e4d84cddb4c5707861fa610513e6c0812a7fd66264ff6786bd04bfa4751`).
+One shared eight-head reader was injected after V11 blocks zero and two, with
+an independent scalar gate at each injection. Gate-zero/shuffled/raw/lexical/
+oracle loss is 3.12936/3.16483/3.08680/3.16858/3.16858. Raw context therefore
+replicates a +0.04256 gain with interval +0.01674 to +0.07216, while oracle
+evidence loses 0.03922 with its entire interval below zero. Oracle true-vs-wrong
+gain is only +0.00617 with an interval crossing zero. Both gates move slightly
+down from 0.11920 to about 0.1186; all reader and cortex tensors receive
+nonzero gradients, and general retention passes. Decision:
+`retire_v27_interleaved_task_not_learnable_with_oracle_evidence`.
+
+V25's exact-history likelihood signal remains real, but neither final-layer nor
+interleaved cross-attention converts it into a useful evidence interface. The
+current cross-attention document-memory line is closed. Its model, runner, and
+tests are deleted; no checkpoint is saved or installed. Work returns to the
+base-language architecture rather than widening reader gates, layers, or
+selector sweeps.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

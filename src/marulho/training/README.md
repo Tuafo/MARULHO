@@ -215,27 +215,13 @@ predictors worsen disjoint heldout loss. No gate checkpoint exists and no gate
 loader or runtime path is maintained. The frozen route-regret audit remains a
 diagnostic surface only.
 
-The V26 final-layer reader is retired after oracle evidence fails to improve
-disjoint loss. `language_evidence_reader.py` now owns the V27 replacement and
-preserves the verified parity and ownership constraints:
-
-- the local query keeps its original positions and runs through the same V11
-  blocks as the evidence stream;
-- one selected prior 48-token episode runs through a separate shared-cortex
-  pass;
-- evidence must remain outside the local position stream;
-- `gate_zero` is bit-exact with ordinary V11;
-- `raw_context` is bit-exact with direct episode-plus-query concatenation;
-- `separate_reader` never inserts evidence tokens into the returned generation
-  sequence or local position stream.
-
-V27 interleaves one shared eight-head cross-attention reader after V11 blocks
-zero and two, with one independently learned scalar gate per injection. Later
-V11 blocks can therefore transform evidence-conditioned query states while the
-evidence remains outside the query token sequence. This is experiment
-machinery, not an installed model or checkpoint surface. It must beat gate-zero,
-shuffled evidence, and the positive V25 raw-context control before any
-checkpoint contract is added.
+The separate evidence-reader line is retired. V26's final-layer reader cannot
+use oracle evidence, and V27's reader after V11 blocks zero and two makes both
+lexical and oracle loss about 0.0392 worse than gate-zero while raw context gains
+0.0426. Both V27 gates and every reader/cortex tensor receive gradients, so this
+is not dead machinery. `language_evidence_reader.py`, its screen, and their
+tests are deleted; no reader checkpoint or runtime surface exists. The retained
+reports preserve the exact parity, ownership, anti-cheat, and failure evidence.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

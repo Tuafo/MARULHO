@@ -157,12 +157,11 @@ one word with it.
     stays near 0.119. The separation idea is not falsified, but evidence must
     enter before later cortex computation. The next bounded test interleaves a
     shared reader between early/middle V11 layers.
-23. V27 preregisters that bounded test with one shared reader after V11 blocks
-    zero and two and an independent scalar gate per injection. Gate-zero and
-    raw-context parity remain exact; the same shuffled, lexical, oracle,
-    source-use, general-retention, and generation-intervention gates apply.
-    Failure of oracle evidence retires cross-attention document memory rather
-    than opening a layer or gate sweep.
+23. V27 rejects that bounded test. Raw context gains 0.0426 over gate-zero with
+    a positive interval, but both lexical and oracle interleaved readers lose
+    about 0.0392. Oracle true-vs-wrong gain is only 0.0062 with an interval
+    crossing zero. Both gates and every tensor train; the interface, not dead
+    machinery or retrieval, fails. Cross-attention document memory is retired.
 
 ## Provisional scaling diagnosis
 
@@ -301,10 +300,11 @@ has a language-specific purpose.
   but rejects top-two distraction; its lexical-one control is significant. The
   final raw-context replication wins likelihood but fails every anchored sample.
   Exact memory therefore remains promising while raw concatenation is retired.
-  V26 shows that final-layer reading is too late. V27 now interleaves one shared
-  gated reader after cortex blocks zero and two. No checkpoint/index contract is
-  built until it wins on disjoint likelihood, retention, and anchored
-  generation.
+  V26 shows that final-layer reading is too late, and V27 shows that two earlier
+  gated reads still cannot exploit even oracle evidence. Exact history remains
+  useful under raw context, but no read interface is admitted and no
+  checkpoint/index contract exists. Further memory work waits for a stronger
+  base-language architecture or a fundamentally different execution mechanism.
 
 ### Multiple learning timescales
 

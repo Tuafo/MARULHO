@@ -545,14 +545,14 @@ separate bounded reader/cross-attention interface and beat gate-zero, shuffled,
 and raw-context controls on anchored generation as well as likelihood. No V25
 checkpoint exists.
 
-`language_evidence_reader_screen.py` preregisters V26 around the verified
-`language_evidence_reader.py` core. Gate-zero, shuffled-reader, raw-context,
-lexical-reader, and non-promotable oracle-reader restore identical V11 plus
-reader tensors and use fresh seeds 13101/13201/13301 under the 50/50 800-step
-schedule. The separate reader encodes one 48-token episode in its own V11 pass
-and injects a gated eight-head cross-attention residual after the local cortex;
-local positions remain unchanged. Gate-zero and raw-context have exact parity
-tests against their V11 definitions.
+The deleted evidence-reader runner tested V26 around a separate final-layer
+reader. Gate-zero, shuffled-reader, raw-context, lexical-reader, and
+non-promotable oracle-reader restored identical V11 plus reader tensors and used
+fresh seeds 13101/13201/13301 under the 50/50 800-step schedule. The reader
+encoded one 48-token episode in its own V11 pass and injected a gated eight-head
+cross-attention residual after the local cortex; local positions remained
+unchanged. Gate-zero and raw-context passed exact parity tests against their V11
+definitions.
 
 Oracle-reader must beat gate-zero by +0.02 with a positive paired lower bound.
 Lexical-reader must include the target in at least 68% of cases, beat gate-zero
@@ -575,24 +575,32 @@ reader arms, but the oracle gate moves only 0.11920 to 0.11949 and lexical
 source-swap output change is 12.5%. General retention passes. Decision:
 `retire_v26_reader_task_not_learnable_with_oracle_evidence`.
 
-Final-layer injection is retired. V27 reuses the exact document and control
+Final-layer injection is retired. V27 reused the exact document and control
 protocol with one shared eight-head cross-attention reader interleaved after V11
-blocks zero and two. Each injection has its own scalar gate; the query and
-48-token evidence streams otherwise share the V11 cortex, and evidence never
-occupies a query position. Gate-zero and raw-context parity remain exact.
+blocks zero and two. Each injection had its own scalar gate; the query and
+48-token evidence streams otherwise shared the V11 cortex, and evidence never
+occupied a query position. Gate-zero and raw-context parity were exact. Fresh
+training/evaluation/model seeds were 14101/14201/14301 under the same 50/50
+800-step schedule.
 
-The five arms restore identical parent plus reader tensors and use fresh
-training/evaluation/model seeds 14101/14201/14301 under the same 50/50 800-step
-schedule. Oracle-reader must beat gate-zero by +0.02 with a positive paired
-lower bound. Lexical-reader must include the target in at least 68% of cases,
-beat gate-zero by +0.01 with a positive lower bound, beat shuffled-reader and
-raw-context by +0.005 each, improve both corpora, and give true evidence +0.02
-over a wrong episode with a positive lower bound. At least half of eight greedy
-outputs must change under a true-to-wrong evidence intervention, and neither
-general source may regress by more than +0.10. A statistical pass advances only
-to the V25 manual anchored review. Failure of oracle evidence ends the current
-cross-attention memory line rather than triggering a wider gate, layer, or
-selector sweep.
+The retained report is
+`reports/language_scaling/v27-interleaved-evidence-reader-800step-20260711.json`
+(SHA-256
+`c5db3e4d84cddb4c5707861fa610513e6c0812a7fd66264ff6786bd04bfa4751`).
+Gate-zero/shuffled/raw/lexical/oracle loss is
+3.12936/3.16483/3.08680/3.16858/3.16858. Raw context gains +0.04256 with
+interval +0.01674 to +0.07216. Lexical and oracle instead lose 0.03923 and
+0.03922 to gate-zero, each with a wholly negative interval. Oracle true-vs-wrong
+gain is +0.00617 with interval -0.00754 to +0.02001. The two oracle gates move
+from 0.11920 to 0.11869/0.11859; every reader and cortex tensor receives a
+nonzero gradient, and both general-source regressions remain below +0.10.
+Decision: `retire_v27_interleaved_task_not_learnable_with_oracle_evidence`.
+
+No checkpoint or manual review is admitted. Cross-attention document memory is
+closed rather than followed by a wider gate, layer, or selector sweep. The
+failed model, runner, and tests are deleted; V25's raw-context likelihood result
+remains evidence that exact history has value, not an active memory
+architecture.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
