@@ -60,22 +60,25 @@ def transformer_depth_geometry_report(
                 device=flat.device,
             ).long()
             flat = flat.index_select(0, indices)
-        centered = flat - flat.mean(dim=0, keepdim=True)
-        covariance = centered.T @ centered / float(max(1, int(flat.shape[0]) - 1))
-        eigenvalues = torch.linalg.eigvalsh(covariance).clamp_min(0.0)
-        total = eigenvalues.sum().clamp_min(1.0e-12)
-        probabilities = eigenvalues / total
-        participation = total.square() / eigenvalues.square().sum().clamp_min(
-            1.0e-12
-        )
-        effective_rank = torch.exp(
-            -(probabilities * probabilities.clamp_min(1.0e-12).log()).sum()
-        )
-        adjacent_cosine = None
-        if previous is not None:
-            adjacent_cosine = float(
-                F.cosine_similarity(flat, previous, dim=-1).mean().cpu()
+        with torch.autocast(device_type=flat.device.type, enabled=False):
+            centered = flat - flat.mean(dim=0, keepdim=True)
+            covariance = centered.T @ centered / float(
+                max(1, int(flat.shape[0]) - 1)
             )
+            eigenvalues = torch.linalg.eigvalsh(covariance).clamp_min(0.0)
+            total = eigenvalues.sum().clamp_min(1.0e-12)
+            probabilities = eigenvalues / total
+            participation = total.square() / eigenvalues.square().sum().clamp_min(
+                1.0e-12
+            )
+            effective_rank = torch.exp(
+                -(probabilities * probabilities.clamp_min(1.0e-12).log()).sum()
+            )
+            adjacent_cosine = None
+            if previous is not None:
+                adjacent_cosine = float(
+                    F.cosine_similarity(flat, previous, dim=-1).mean().cpu()
+                )
         rows.append(
             {
                 "depth": depth,

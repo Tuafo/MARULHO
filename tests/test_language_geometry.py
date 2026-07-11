@@ -81,3 +81,14 @@ def test_depth_geometry_rejects_too_few_samples() -> None:
             torch.randint(0, 96, (1, 4)),
             max_samples=1,
         )
+
+
+def test_depth_geometry_keeps_eigenspectrum_in_float32_under_autocast() -> None:
+    torch.manual_seed(53)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        report = transformer_depth_geometry_report(
+            _dense(),
+            torch.randint(0, 96, (2, 8)),
+            max_samples=16,
+        )
+    assert all(math.isfinite(row["effective_rank"]) for row in report["rows"])
