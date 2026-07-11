@@ -176,6 +176,20 @@ language organ. Small independent units alone are not the missing principle.
 Decision: `retire_v17_grouped_recurrence_no_language_gain`; implementation and
 candidate-only execution path are deleted.
 
+V18 changes the causal question rather than the GRU shape. Eight real English
+facts arrive in two source segments; the question comes later, after raw source
+tokens are gone. A shared V11 cortex encodes each piece, while a 16-slot latent
+bridge must compress and carry the source in 32 KiB per stream. Query-local,
+latest-segment, streaming-mean, and exact-history controls distinguish learned
+memory from capacity, recency, pooling, and unbounded retrieval. The learned
+write cannot inspect the question, answer, candidates, or correct index. This is
+inspired by recurrent memory tokens, block-recurrent state, and modern fast
+weights, but the MARULHO bet is the combination of structurally required
+inter-segment state, real language rather than symbolic roles, and a behavioral
+greedy-answer gate. If exact history fails, the frozen interface is wrong. If
+exact wins but slots lose, compression is wrong. Only a learned win earns a
+contiguous general-language experiment.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon
@@ -866,17 +880,18 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
     averaging, drive the replicated recall and length-generalization win.
 13. Completed: V17's grouped recurrence is active and well-conditioned but ties
     off/local/dense language controls; delete it and do not run durability.
-14. Next: target the actual long-range semantic-persistence bottleneck with a
-    structural dependency on compressed inter-segment state, not another
-    optional residual sidecar.
+14. In progress: V18 makes compressed state causally necessary across two
+    source-only segments and tests learned slots against local, recency, mean,
+    and exact-history controls on source-absent language answers.
 15. Require a cheap causal-memory preflight and a matched language screen before
     any 67M-token durability or unseen-generation run.
 16. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 
-The next creative bet is therefore specific: **several all-active independent
-recurrent groups may organize one shared language state better than a dense
-monolith, without duplicating the language model**. Synthetic evidence earns a
-language screen, not belief; off, local, and dense controls decide whether the
-effect survives inside V11.
+The next creative bet is therefore specific: **a bounded state may become useful
+only when the architecture makes it the sole causal bridge between earlier
+evidence and a later language decision**. V18 asks whether learned latent slots
+can compress that bridge better than recency or pooling while approaching an
+exact-history upper bound. A win would justify integration with contiguous
+documents; it would not yet prove general memory or replace the language cortex.

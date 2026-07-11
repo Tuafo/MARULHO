@@ -276,6 +276,20 @@ the grouped state is full-rank with nonzero residuals. Grouped throughput is
 `retire_v17_grouped_recurrence_no_language_gain`. No checkpoint exists, and the
 model, runner, tests, and candidate-only partial-compile path are deleted.
 
+**`language_segment_memory_preflight.py`** is the active V18 causal-memory
+screen. It caches frozen V11 hidden representations for bounded research use,
+then forms each episode from eight real English relation records divided over
+two source segments. The query and answer arrive only after both writes. Its
+learned 16-slot cross-attention state is tested against off, source-independent
+local slots, latest-segment recency, streaming mean slots, and exact source
+history. Exact history is an upper bound and cannot promote. The report separates
+one-time frozen-feature construction from adapter training and makes no
+deployment-throughput claim. Question text, answer tokens, candidates, and the
+correct index are excluded from every write; the correct index remains
+metrics-only. Runs below 512 updates return a diagnostic decision. A passing
+learned bridge earns only a contiguous-language screen, not a checkpoint,
+runtime installation, memory claim, or base-quality promotion.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

@@ -454,6 +454,21 @@ negative is not explained by a dead organ or failed execution. Decision:
 model, partial-compile path, runner, and tests are deleted. Independent small
 units remain a synthetic-memory observation, not an admitted language design.
 
+V18 is the current inter-segment memory preflight. It freezes the strict
+one-billion-token V11 cortex and constructs real-language episodes containing
+eight relation records across two source-only segments. The later question and
+answer are removed from the write path. A learned 16-slot latent bridge receives
+32 KiB of persistent float32 state per stream and is compared from exact resets
+with V11/off, question-local capacity, latest-segment recency, streaming mean
+slots, and an unbounded 1 MiB exact-history upper control. All trained arms see
+the identical schedule; prediction never receives candidate labels or the
+metrics-only correct index. At least 512 updates are required. Exact history
+must first prove that the frozen V11 representation/read interface can solve the
+task; learned compression must then beat every bounded simple control on both
+candidate ranking and greedy source-absent answers before any contiguous
+general-language screen is admitted. The preflight owns no checkpoint or
+runtime path.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

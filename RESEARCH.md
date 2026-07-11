@@ -102,6 +102,10 @@ one word with it.
 12. Comparative all-expert probes repaired utility free relation from 14.8% to
     25.8%, but random remained better at 27.0% and lower loss. Next-event token
     utility is not a sufficient coordination currency for this sidecar.
+13. V17 cleanly rejects an all-active grouped GRU sidecar. Its full-rank state
+    and complete gradients tie off/local/dense loss after 33.56M tokens per arm,
+    while costing about 20% throughput. The V16 synthetic small-bank advantage
+    does not transfer to optional within-window language recurrence.
 
 ## Provisional scaling diagnosis
 
@@ -195,6 +199,12 @@ has a language-specific purpose.
 - **Observed:** MARULHO's serial delta/attention hybrid showed a real early
   learning gain but lost it later. Alternating specialists in series may damage
   information before another specialist can use it.
+- **Hypothesis under test:** the memory must solve an information dependency the
+  exact local window cannot solve. V18 writes two source-only segments, removes
+  their raw tokens before the query, and requires a 16-slot state to compete
+  with exact history, recency, and streaming pooling. This tests compression and
+  use jointly instead of asking an optional residual to improve already-local
+  next-token prediction.
 
 ### Explicit read/write memory
 
@@ -207,6 +217,12 @@ has a language-specific purpose.
 - **Observed:** MARULHO's prompt-prepending memory and PMRM slots failed. The
   missing ingredient was not merely capacity; write selection, binding, and
   downstream use were weak.
+- **Current design:** V18 omits surprise selection, routers, semantic labels, and
+  independent miniature language models. All source records write; a later
+  query reads. Learned slots survive only if they beat fixed summaries under an
+  identical 32-KiB state budget. This borrows the segment-state question from
+  Recurrent Memory Transformer and Block-Recurrent Transformer without claiming
+  either architecture as MARULHO's result.
 
 ### Multiple learning timescales
 
