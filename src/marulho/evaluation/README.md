@@ -54,6 +54,19 @@ Peak allocation stayed near 1.54 GB. Its short-step throughput and losses are no
 quality measurements; the smoke report is deleted rather than retained as
 evidence.
 
+The first full report is
+`reports/language_scaling/depth-allocation-v8-falsification-16m-20260711.json`;
+the independent replication is
+`reports/language_scaling/depth-allocation-v8-replication-seed7331-16m-20260711.json`.
+Uniform/early-heavy/late-heavy losses were 4.6067/4.5843/4.6368 and
+4.6021/4.5839/4.6142. Strict free relation scores were 7.0%/25.4%/6.2% and
+9.0%/30.9%/7.4%. The runs used distinct schedule and initialization hashes;
+training throughput stayed within 0.27%, peak allocation remained about 1.81 GB,
+and all parameters received gradients. Both decisions are
+`replicate_v8_early_heavy_before_scale`. Successive halving now advances only
+uniform and early-heavy to 67.11M tokens; neither report installs a model or
+saves a checkpoint.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone

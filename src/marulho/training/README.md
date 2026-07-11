@@ -114,7 +114,11 @@ uniform 2048/2048/2048/2048, early-heavy 3072/2560/1536/1024, and late-heavy
 8192-token vocabulary, and every non-MLP parameter is initialized identically.
 The core reuses the maintained attention, state, loss, and generation protocol;
 it is not a checkpoint or runtime path. Only matched heldout loss and strict free
-generation can promote an allocation.
+generation can promote an allocation. Early-heavy has now passed that boundary
+twice at 16.79M tokens: loss improved by 0.0224 and 0.0182, and strict free
+relation improved by 18.4 and 21.9 points under independent model/schedule
+seeds. Late-heavy lost both controls. V8 remains experimental until the
+early-heavy result survives a 67.11M-token comparison.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

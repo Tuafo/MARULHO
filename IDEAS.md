@@ -83,6 +83,14 @@ generation by the frozen margins, then replicate before scale. If all profiles
 tie or lose, retire static depth allocation and do not use it to justify a more
 complex router.
 
+V8 has cleared its first two gates rather than merely looking promising. At
+16.79M tokens, early-heavy beat uniform from two independent model/schedule seeds:
+loss 4.5843 versus 4.6067 and 4.5839 versus 4.6021; strict free relation 25.4%
+versus 7.0% and 30.9% versus 9.0%. Late-heavy lost both times. Compute, memory,
+gradient, parity, and common-initialization audits are matched. The next
+falsifier is a 67.11M-token uniform/early-heavy comparison because MARULHO v1
+already showed that an early architectural win can disappear with more training.
+
 ### 3. Sparse shared-core micro-experts — research after V8
 
 Replace each monolithic feed-forward transformation with a dense shared path

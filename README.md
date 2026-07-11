@@ -77,7 +77,12 @@ early-heavy, and late-heavy profiles have identical summed MLP width and share
 bit-identical embeddings, attention, and norms. This isolates where nonlinear
 capacity belongs before MARULHO adds sparse micro-expert routing. The model has
 passed mechanism tests, and all three CUDA graphs pass parity with matched
-gradient/memory audits. It has no language-quality result or checkpoint yet.
+gradient/memory audits. At 16.79M tokens, early-heavy replicated under two fresh
+model/schedule seeds: uniform/early losses were 4.6067/4.5843 and
+4.6021/4.5839, while strict free relation was 7.0%/25.4% and 9.0%/30.9%.
+Late-heavy lost both runs. Throughput and VRAM stayed matched. This promotes an
+early-heavy durability test at 67.11M tokens, not runtime installation; no v8
+checkpoint exists yet.
 
 ## Current Evidence
 

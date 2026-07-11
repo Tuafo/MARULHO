@@ -228,8 +228,17 @@ non-MLP tensors, gave every parameter a gradient, held peak allocation near
 1.54 GB, and passed compiled/eager parity for all profiles with deltas at or
 below 0.000216. Smoke losses and throughput are not quality evidence, and the
 smoke artifact was deleted. V8 is not a checkpoint format or runtime capability.
-A profile must beat uniform loss and strict free generation, then replicate,
-before it can replace the maintained baseline.
+The 16.79M-token screen then produced a replicated early-heavy win. With
+model/schedule seeds 1337 and 7331, uniform/early-heavy losses were
+4.6067/4.5843 and 4.6021/4.5839; strict free relation scores were 7.0%/25.4%
+and 9.0%/30.9%. Late-heavy lost both runs at 4.6368/6.2% and 4.6142/7.4%.
+Observed training throughput stayed within 0.27% across profiles, peak allocation
+was about 1.81 GB, every parameter received gradients, and each run used a
+different schedule and common-initialization hash. Early-heavy candidate-ranking
+accuracy was slightly below uniform while free generation improved, so the gain
+is not a candidate-choice shortcut. Branch: continue only uniform and
+early-heavy to a 67.11M-token durability test. V8 remains uninstalled and has no
+checkpoint until that larger comparison survives.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
