@@ -339,6 +339,26 @@ real but not predictably accessible from the causal pre-expert hidden state with
 this fixed route bank. The failed trainer/tests are deleted; the read-only audit
 and compact negative report remain.
 
+**Long-context V11 control** — the strict 251M checkpoint is rebuilt from a
+72-token to a 256-token rotary context with no learned tensor or parameter-count
+change. Before training, two heldout 72-token prefixes produce bit-exact logits
+(maximum absolute delta 0). The matched 256 x 40 continuation adds 67,112,960
+tokens and reaches 318,775,424 cumulative tokens. On the 256-token heldout set,
+loss improves 4.2033 to 3.3243 / perplexity 66.91 to 27.78 at 123.6k tokens/s,
+3.04 GB peak CUDA allocation, and 704.7 seconds total wall time. The strict
+154.3 MiB checkpoint is
+`reports/language_scaling/hashed-micro-v11-long-context-318m-candidate-20260711.pt`
+(SHA-256 `cebe5ac7b5a84da1208d61c61715f58f61aa91c1ae2211208d005ac3f99506ae`).
+FineWeb-Edu/Cosmopedia source-continuation loss changes only 4.0272 to 3.9951
+and 3.3689 to 3.3586; all eight anchored cases still fail. Controlled decoding
+improves Cosmopedia prefix overlap and diversity but still drifts into generic
+topic boilerplate. Decision:
+`retain_long_context_infrastructure_reject_context_only_quality_explanation`.
+The checkpoint is a matched research control, not a promoted base or runtime
+artifact. The next falsifier trains a multi-horizon future-prediction objective
+from the same 251M parent and exact long-context schedule, so it must beat this
+318M next-token-only control rather than benefiting from extra tokens.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

@@ -326,6 +326,16 @@ Other user-proposed fronts remain tracked but are not promoted into the base:
   micro-chaos/macro-order remain inspiration until each names a measurable state,
   intervention, and heldout advantage.
 
+[PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
+single-neuron experts as the closest prior architecture; V10 is a small-scale,
+causal, controlled test rather than a novelty claim for those primitives.
+[DeepSeekMoE](https://arxiv.org/abs/2401.06066) supports retaining a shared path,
+while [OLMoE](https://arxiv.org/abs/2409.02060) shows specialization only at much
+larger scale. A 2026 [counterfactual routing audit](https://arxiv.org/abs/2605.07260)
+finds that standard routers often miss better equal-compute routes on fragile
+tokens. That warning matches MARULHO v2 and makes the fixed routing controls
+mandatory.
+
 The frozen audit passes its admission gate on a materially larger sample. Across
 4,608 contexts, mean oracle improvement is 0.1911 and 40.5% of tokens have at
 least 0.05 route regret. FineWeb-Edu/Cosmopedia mean gains are 0.2020/0.1802.
@@ -361,17 +371,39 @@ or direct execution feedback over time. Do not tune the same gate on the seen
 holdouts. Preserve the audit as a constraint for a future memory gate, delete the
 failed predictor, and move to the orthogonal long-context training ablation.
 
-[PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
-single-neuron experts as the closest prior architecture; V10 is a small-scale,
-causal, controlled test rather than a novelty claim for those primitives.
-[DeepSeekMoE](https://arxiv.org/abs/2401.06066) supports retaining a shared path,
-while [OLMoE](https://arxiv.org/abs/2409.02060) shows specialization only at much
-larger scale. A 2026 [counterfactual routing audit](https://arxiv.org/abs/2605.07260)
-finds that standard routers often miss better equal-compute routes on fragile
-tokens. That warning matches MARULHO v2 and makes the fixed routing controls
-mandatory.
+### 6. Multi-horizon future prediction — next V13 falsifier
 
-### 5. Gated multiscale dynamical memory — v7 retired
+The long-context control passes its mechanical and likelihood gates without
+solving the observed behavior. Expanding 72 to 256 rotary positions is
+state-exact before training. After 67.11M matched tokens, 256-token heldout loss
+improves 4.2033 to 3.3243, but FineWeb-Edu/Cosmopedia source losses move only
+4.0272 to 3.9951 and 3.3689 to 3.3586. All eight anchored cases still fail.
+Controlled decoding removes many literal loops but leaves generic topic drift.
+Decision: `retain_long_context_infrastructure_reject_context_only_quality_explanation`.
+
+This isolates a sharper hypothesis: next-token loss rewards local plausibility
+without requiring one hidden state to represent a useful span of the future.
+[Better & Faster Large Language Models via Multi-token Prediction](https://arxiv.org/abs/2404.19737)
+reports improved sample efficiency from independent future-token heads, while
+[Future Token Prediction](https://arxiv.org/abs/2410.18160) specifically reports
+smoother semantic state and better topic coherence at matched next-token
+perplexity. The evidence is not universal: [Predicting the Order of Upcoming
+Tokens](https://arxiv.org/abs/2508.19228) finds ordinary exact MTP inconsistent
+and argues that distant-token targets can be too hard. This makes a controlled
+local falsifier more useful than assuming MTP works.
+
+V13 starts from the same strict 251M parent, 256-token expansion, seed, data
+schedule, token budget, batch size, and learning rate as the retained 318M
+next-token-only control. The base predicts the next token as before. Three small
+independent shared-vocabulary heads predict dyadic horizons 2, 4, and 8 with a
+bounded auxiliary weight. These heads exist only during training; the saved
+inference graph remains one MARULHO-owned causal model. Survival requires at
+least 0.02 lower matched heldout loss than the 3.3243 control, no corpus-level
+source-loss regression, and visibly less topic drift under the same prompts.
+Otherwise delete the heads and retire the objective. This is a cheap test of
+multiscale predictive state before adding persistent matrices or columns.
+
+### 7. Gated multiscale dynamical memory — v7 retired
 
 V7 performed the required memory-off, single-scale, always-write,
 fixed-random-write, and learned-write comparison with one exact-reset parameter
@@ -439,7 +471,7 @@ V7 met the kill condition because its learned gate could not beat the simpler
 control on both loss and free behavior. The broader literature remains useful,
 but this fixed-stable sidecar is no longer an active architecture direction.
 
-### 6. Wavelet-style temporal resolution — promising component
+### 8. Wavelet-style temporal resolution — promising component
 
 Wavelets provide an exact way to separate slow approximation from fast detail.
 The first implementation should use a fixed orthogonal Haar transform so that
@@ -456,7 +488,7 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
-### 7. Memory gates — high-value mechanism, not a complete architecture
+### 9. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
 overwriting persistent state? The gate should be trained through future
@@ -473,7 +505,7 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-### 8. Toroidal phase memory — narrow use for time and order
+### 10. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
 rotations; mathematically, this already introduces circular/toroidal phase
@@ -489,7 +521,7 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
 
-### 9. Hyperdimensional or vector-symbolic memory — binding organ only
+### 11. Hyperdimensional or vector-symbolic memory — binding organ only
 
 High-dimensional distributed vectors can bind roles, entities, and relations by
 algebraic operations and store several items in superposition. This connects to
@@ -502,7 +534,7 @@ surveys the relevant binding and superposition algebra. High ambient dimension
 alone is not a contribution; the binding operation, retrieval contract, and
 capacity/interference curve must be explicit.
 
-### 10. Autonomous local pattern generation — grounded research, not next LM
+### 12. Autonomous local pattern generation — grounded research, not next LM
 
 Neural or adaptive cellular automata demonstrate that shared local rules can
 produce robust global organization. That is a real example of micro rules making
@@ -517,7 +549,7 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
-### 11. Free-energy principle — translate or reject
+### 13. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
 text training, full-vocabulary next-token cross-entropy already minimizes a
@@ -539,14 +571,21 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    win reverses in the 67.11M-token durability comparison.
 3. Completed: run and retire V9 after two seeds show a replicated small loss
    signal but no joint win over identity and fixed controls.
-4. Implement and run V10 product-key singleton micro-experts with shared-only,
-   frozen-random, token-hash, and learned routing on one exact-reset graph.
-5. Add a read-only neural-manifold diagnostic to the maintained Transformer and
-   V10. Use it to explain results, never to promote a model.
-6. Test wavelet-style compression only as a causal old-context mechanism on a
+4. Completed: V10/V11 isolate the surviving shared plus fixed token-hash
+   micro-expert path; V11 remains the strongest sparse base evidence.
+5. Completed: the V12 counterfactual opportunity is real, but both causal utility
+   gates fail heldout prediction and are retired.
+6. Completed: parity-gated 256-token continuation strongly improves its matched
+   loss but does not solve unseen topic stability; retain the infrastructure and
+   checkpoint only as a control.
+7. Next: test dyadic future-token prediction from the same 251M parent and exact
+   long-context schedule against the retained 318M next-token-only control.
+8. Add a read-only neural-manifold diagnostic only when it can explain a branch;
+   it never promotes a model.
+9. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-7. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+10. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

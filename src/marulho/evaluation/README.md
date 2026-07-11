@@ -157,6 +157,22 @@ supports the independent long-context ablation: 256-token updates at batch 40
 preserve roughly the same tokens per optimizer step as 72 x 144, while changing
 the temporal training horizon rather than the sparse mechanism.
 
+That ablation is complete at
+`reports/language_scaling/hashed-micro-v11-long-context-318m-20260711.json`.
+The parity gate is exact, 67,112,960 additional tokens reach 318,775,424
+cumulative tokens, and 256-token heldout loss improves 4.2033 to 3.3243
+(perplexity 66.91 to 27.78) at 123.6k tokens/s and 3.04 GB peak CUDA allocation.
+The strict candidate is
+`reports/language_scaling/hashed-micro-v11-long-context-318m-candidate-20260711.pt`
+with SHA-256
+`cebe5ac7b5a84da1208d61c61715f58f61aa91c1ae2211208d005ac3f99506ae`.
+Its repeated FineWeb-Edu/Cosmopedia source losses improve only to 3.9951/3.3586,
+and all eight anchored generation cases still fail. Greedy FineWeb diversity
+falls to 0.571; controlled Cosmopedia decoding reaches 0.944 bigram diversity and
+6.75 mean prefix characters but remains generic and topic-unstable. Decision:
+`retain_long_context_infrastructure_reject_context_only_quality_explanation`.
+The checkpoint remains an unpromoted matched control.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
