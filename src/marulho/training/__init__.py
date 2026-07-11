@@ -12,11 +12,6 @@ from .language_model import (
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
-from .language_dynamical_memory import (
-    DYNAMICAL_MEMORY_MODES,
-    DynamicalMemoryConfig,
-    MarulhoDynamicalMemoryLanguageModel,
-)
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
 from .model import MarulhoModel
@@ -24,15 +19,12 @@ from .trainer import MarulhoTrainer
 
 __all__ = [
     "LANGUAGE_STATE_CORE_KINDS",
-    "DYNAMICAL_MEMORY_MODES",
     "CausalLanguageModel",
     "LanguageBatch",
     "LanguageModelConfig",
     "LanguageSplit",
     "LanguageRuntimeState",
-    "DynamicalMemoryConfig",
     "MarulhoCausalTransformerStateBlock",
-    "MarulhoDynamicalMemoryLanguageModel",
     "MarulhoLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",

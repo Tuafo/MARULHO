@@ -95,17 +95,17 @@ useful systems result remains maintained: compiled post-step projection removed
 the eager slowdown, and the generic Windows Inductor compatibility and
 compile-amortized reporting stay available for future candidates.
 
-`language_dynamical_memory.py` is the uninstalled v7 experiment core. It keeps
-all four causal-attention layers, narrows each SwiGLU hidden width from 2048 to
-1920, and spends the recovered parameters on four fixed-stable rotating memory
-banks inserted between layers two and three. Content gates control writes at
-four decay horizons. Memory-off, single-scale, always-write, fixed-random-write,
-and learned multiscale modes share the exact same 20.977M parameter objects. The
-core is not checkpoint-promotable until its matched full-budget controls qualify
-it. Full-sequence training evaluates the fixed recurrence as grouped causal
-convolutions; one-token generation uses the identical recurrent update. This
-replaced a rejected 258.3-second/63.7k-tokens/s unrolled graph with a
-67.6-second/114.1k-tokens/s compiled path on the local RTX 3060.
+Gated dynamical memory v7 is retired. The 20.977M candidate kept all four
+attention layers and compared memory-off, single-scale, always-write,
+fixed-random-write, and learned multiscale modes from exact resets. At 16.79M
+tokens, the Transformer reached loss 4.6137 / 21.5% strict free relation. The
+learned memory reached 4.6066 / 4.7% and did not beat single-scale's 4.6061 /
+10.5%. Its gate remained active, all memory parameters received gradients, and
+control throughput was matched, so the result is not a dead-memory or compute
+imbalance artifact. Candidate training was also 12.7% slower than the
+Transformer. No checkpoint was saved; the failed model, runner, exports, and
+tests are deleted. The grouped-convolution recurrence was an effective execution
+technique, but it did not earn a maintained language architecture.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

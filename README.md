@@ -61,12 +61,15 @@ recipe and 4.7092 / 0% with its native recipe. The candidate therefore lost both
 the same-recipe and installed-baseline comparisons. No v6 checkpoint was made;
 the failed model, runner, and tests are deleted.
 
-The next architecture direction is a single strong language interface with
-several small, stable, multiscale dynamical memories and a prediction-utility
-write gate. `IDEAS.md` defines the controls and kill conditions; geometry is
-used as a diagnostic rather than assumed to be capability. The 20.977M v7 core
-and six-arm matched runner now exist but remain uninstalled and unpromoted until
-the full-budget evidence is complete.
+Gated multiscale dynamical memory v7 is also retired. At 16.79M tokens, the
+Transformer reached loss 4.6137 / 21.5% strict free relation. The learned-memory
+arm reached 4.6066 / 4.7%, failed to beat single-scale's 4.6061 / 10.5%, and ran
+at 112.7k versus 129.1k training tokens/s. The learned gate was active, memory
+state was nonzero, all parameters received gradients, and the controls were
+compute-matched, so the sidecar's failure is credible. No v7 checkpoint was
+made; the model, runner, exports, and tests are deleted. `IDEAS.md` retains the
+broader research map without presenting this failed design as current
+architecture.
 
 ## Current Evidence
 

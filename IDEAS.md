@@ -7,24 +7,28 @@ into an operation, prediction, control, and kill condition before implementation
 
 ## Current synthesis
 
-The most promising connection across the new ideas is not a pure reservoir,
-cellular automaton, torus, or free-energy model. It is a **multiscale gated
-dynamical memory** attached to a quality-capable token predictor:
+The first synthesis from this ledger has now been tested and refuted in its
+implemented form. V7 attached four fixed-stable rotating memory banks and a
+content write gate to a full-attention Transformer. At 16.79M matched tokens,
+learned multiscale memory reached loss 4.6066 / 4.7% strict free relation versus
+the Transformer's 4.6137 / 21.5%, and it failed to beat the simpler single-scale
+control's 4.6061 / 10.5%. The gate was active and all bank states were used, so
+the result kills this sidecar rather than merely exposing a dead implementation.
 
-1. split the hidden stream into exact fast/medium/slow temporal resolutions;
-2. update several small recurrent dynamical states with different stable memory
-   horizons instead of duplicating complete language models;
-3. let a learned gate write only when the candidate state improves future
-   prediction, with always-write, random-write, and shuffled controls;
-4. keep state trajectories geometrically bounded and measure their intrinsic
-   dimension, perturbation decay, and specialization;
-5. synthesize the scales back into one full-vocabulary prediction path.
+The surviving connection is narrower and more useful: many small units should
+first be tested as **conditional capacity inside the main predictive path**, not
+as several incomplete language models or a weak memory attached beside one.
+One shared embedding, attention stack, residual stream, and vocabulary head can
+remain full strength while small feed-forward experts compete to transform each
+token. A dense shared path prevents routing mistakes from erasing the language
+base; sparse experts must earn extra capacity against learned, random, and fixed
+hash routing controls. This is a mixture-of-experts research question before it
+is a MARULHO novelty claim.
 
-This combines the useful part of small autonomous units, reservoir dynamics,
-memory gates, neural manifolds, wavelets, and micro-to-macro organization while
-avoiding the failed v3-v5 pattern of several weaker language paths exchanging
-messages. V6 has now failed its full recipe-separated comparison, so this is the
-active replacement hypothesis rather than a side branch.
+Geometry remains high-value instrumentation. Wavelets, toroidal phase,
+reservoirs, cellular self-organization, and active inference remain scoped
+components or grounded hypotheses until a precise experiment shows what they
+add beyond the retired v7 mechanism.
 
 ## Ranked directions
 
@@ -59,7 +63,41 @@ Relevant evidence:
   geometry experiment: bounded directions on a hypersphere, tested by language
   evidence rather than geometry alone.
 
-### 2. Gated multiscale dynamical memory — strongest next architecture
+### 2. Sparse shared-core micro-experts — research next
+
+Replace each monolithic feed-forward transformation with a dense shared path
+plus several small sparse expert residuals. All tokens retain the same attention
+and vocabulary interface; the units add conditional capacity rather than
+becoming separate language models. This directly tests the user's micro-to-macro
+intuition in the part of a Transformer that naturally decomposes by token.
+
+The first falsifier needs more than learned routing versus a small dense model:
+
+- compare at both equal active FLOPs and equal wall-clock, while reporting total
+  parameters and optimizer/VRAM cost;
+- include shared-only, fixed-random, token-hash, and learned top-k routing;
+- keep expert capacity and dispatch counts identical across routing controls;
+- report router load, entropy, expert gradient coverage, active parameters, and
+  specialization, but promote only heldout loss and free generation;
+- preserve one dense residual path so a bad early router cannot delete basic
+  language computation;
+- compare against a dense model with similar total parameters when it fits, so
+  sparsity is not credited for capacity that dense scaling would use better.
+
+Kill the line if learned routing does not beat random/hash routing, if experts
+collapse to interchangeable functions, or if dispatch overhead erases the
+active-compute benefit on the RTX 3060. Even a win would establish a useful
+conditional-compute substrate, not yet a new theory of cognition.
+
+### 3. Gated multiscale dynamical memory — v7 retired
+
+V7 performed the required memory-off, single-scale, always-write,
+fixed-random-write, and learned-write comparison with one exact-reset parameter
+graph. Learned memory did not beat the single-scale control and sharply harmed
+strict free generation. No checkpoint or live code remains. A future memory
+experiment must materially change the information/credit mechanism—for example,
+content-addressed matrix updates or causal multiresolution attention—and must
+not simply retune v7's decay constants.
 
 Use a single capable language interface plus several small state organs. Each
 organ receives a different temporal scale and uses a constrained recurrent map
@@ -115,11 +153,11 @@ Controls required:
 - perturbation growth, state rank, gate entropy, write frequency, active FLOPs,
   and state bytes explain the result but do not promote it.
 
-Kill the direction if the learned gate cannot beat random/always-write controls,
-if the memory state is ignored, if stability requires erasing useful history, or
-if language loss remains below the monolith at the full matched budget.
+V7 met the kill condition because its learned gate could not beat the simpler
+control on both loss and free behavior. The broader literature remains useful,
+but this fixed-stable sidecar is no longer an active architecture direction.
 
-### 3. Wavelet-style temporal resolution — promising component
+### 4. Wavelet-style temporal resolution — promising component
 
 Wavelets provide an exact way to separate slow approximation from fast detail.
 The first implementation should use a fixed orthogonal Haar transform so that
@@ -136,7 +174,7 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
-### 4. Memory gates — high-value mechanism, not a complete architecture
+### 5. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
 overwriting persistent state? The gate should be trained through future
@@ -153,7 +191,7 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-### 5. Toroidal phase memory — narrow use for time and order
+### 6. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
 rotations; mathematically, this already introduces circular/toroidal phase
@@ -169,7 +207,7 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
 
-### 6. Hyperdimensional or vector-symbolic memory — binding organ only
+### 7. Hyperdimensional or vector-symbolic memory — binding organ only
 
 High-dimensional distributed vectors can bind roles, entities, and relations by
 algebraic operations and store several items in superposition. This connects to
@@ -182,7 +220,7 @@ surveys the relevant binding and superposition algebra. High ambient dimension
 alone is not a contribution; the binding operation, retrieval contract, and
 capacity/interference curve must be explicit.
 
-### 7. Autonomous local pattern generation — grounded research, not next LM
+### 8. Autonomous local pattern generation — grounded research, not next LM
 
 Neural or adaptive cellular automata demonstrate that shared local rules can
 produce robust global organization. That is a real example of micro rules making
@@ -197,7 +235,7 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
-### 8. Free-energy principle — translate or reject
+### 9. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
 text training, full-vocabulary next-token cross-entropy already minimizes a
@@ -213,19 +251,23 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
 
 ## Fast experiment order
 
-1. Add a read-only geometry diagnostic to the frozen baseline and retained v6
-   evidence; this is cheap and can explain the negative v6 result.
-2. Implement one parameter-matched multiscale gated
-   dynamical-memory candidate. Use exact Haar scales, three stable recurrent
-   horizons, and a learned prediction-utility gate.
-3. Run the decisive full-budget controls in one compiled harness. Share data and
-   compiled graphs where mathematically identical; never share weights,
+1. Completed: build and run the matched v7 dynamical-memory controls; retire the
+   line after learned memory loses free generation and the simpler control.
+2. Add a read-only neural-manifold diagnostic to the maintained Transformer and
+   every future survivor. Use it to explain results, never to promote a model.
+3. Research and cost a shared-core sparse micro-expert candidate, then run
+   shared-only, random, hash, and learned routing in one matched harness. Share
+   data and compiled graphs where mathematically identical; never share weights,
    optimizer state, or labels.
-4. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+4. Test wavelet-style compression only as a causal old-context mechanism on a
+   task where context exceeds the local attention window, followed by a base
+   language retention guard.
+5. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 
-The core creative bet is therefore specific: **many small dynamical memories may
-organize useful temporal structure around one strong predictive interface**.
-That is meaningfully different from both a monolithic Transformer and the
-retired design of several incomplete language models exchanging messages.
+The next creative bet is therefore specific: **many small conditional units may
+increase useful capacity inside one full-strength predictive interface without
+requiring every parameter for every token**. This is meaningfully different from
+both a fully dense monolith and the retired design of several incomplete language
+models or recurrent sidecars exchanging messages.

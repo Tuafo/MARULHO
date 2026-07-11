@@ -196,27 +196,24 @@ passed, final matrix norm error was at most 1.79e-7, and all arms sustained
 or throughput explanation. No checkpoint was saved. The failed model, runner,
 and tests are deleted; the local full report retains evidence.
 
-**Multiscale Gated Dynamical Memory Hypothesis** — retain one capable language
-interface and attach several small recurrent state organs with different stable
-time horizons. Fixed decay/rotation banks create fast/medium/slow state streams;
-a learned gate controls writes through future prediction loss. The decisive
-controls are no memory, fixed random memory, shuffled scales, always-write,
-random-write, learned gate, and fully trainable recurrence at matched parameters
-and tokens. Geometry, perturbation decay, gate entropy, active compute, and state
-bytes diagnose the mechanism; heldout loss and strict free behavior decide it.
-The first 20.977M core now keeps all four attention layers and inserts four
-fixed-stable rotating banks between layers two and three. Five memory modes share
-one parameter graph; causality, streaming equivalence, finite long state, full
-gradient coverage, generation, and 0.1%-match tests pass. It remains uninstalled
-until the matched runner decides it. The runner compares the Transformer plus
-five exact-reset memory controls, writes resumable evidence after every arm, and
-reuses one candidate loss graph; its CUDA smoke avoided four redundant compiles
-and passed eager/compiled parity at 0.000040. The initial 72-step Python
-recurrence was rejected after a 258.3-second compile and 63.7k tokens/s. An
-exactly equivalent grouped causal-convolution form reduced first compile to 67.6
-seconds and reached
-114.1k tokens/s, including optimizer updates, while retaining a 0.000261
-compiled/eager loss delta. One candidate graph can be reused across all controls.
+**Gated Multiscale Dynamical Memory v7 (retired)** — the 20.977M candidate kept
+all four attention layers, narrowed their feed-forward blocks, and inserted four
+fixed-stable rotating memory banks between layers two and three. At 16.79M
+matched tokens, Transformer/memory-off/single-scale/always-write/random-write/
+learned-write losses were 4.6137/4.6092/4.6061/4.6076/4.6088/4.6066; strict free
+relation scores were 21.5%/3.9%/10.5%/6.2%/3.5%/4.7%. Learned multiscale memory
+therefore failed the Transformer quality guard and did not beat the simpler
+single-scale control. Its candidate-likelihood relation score rose to 96.9%
+versus the Transformer's 93.0% while free generation collapsed, another direct
+warning that answer ranking is not generative competence. This is not explained
+by a dead sidecar: its mean learned
+write gate was 0.614 with entropy 0.599, all four bank norms were nonzero, every
+parameter received gradients, parity passed, and memory-control throughput
+varied by only 0.65%. Candidate training reached 112.7k tokens/s versus the
+Transformer's 129.1k. Grouped causal convolution reduced recurrence compile cost
+and the runner avoided four redundant graph compiles, but execution quality did
+not become language quality. No checkpoint was saved. The model, runner, exports,
+and tests are deleted; the compact local report retains the evidence.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -597,6 +594,7 @@ The following are not maintained language paths:
 - token surprise as an assumed memory-utility signal.
 - editable delta-memory v1 as a base-language architecture.
 - distributed predictive organism v1 as a base-language architecture.
+- fixed-stable gated multiscale dynamical memory v7 as a language sidecar.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -619,9 +617,12 @@ must not present them as active capability.
    to earn sparse activation from counterfactual utility and a compute budget.
 9. Use LCWM-style execution-coupled selection only after a base model survives;
    do not make typed synthetic machinery the token mixer.
-10. Continue only non-dominated arms through successive halving, then fit the
-   first defensible local scaling law only for architectures that
-   survive the pilot, using repeated seeds near a branch boundary.
-11. Rebuild continual learning, exact resume, and retention measurement.
-12. Re-establish sustained 524,288-token generation from the same checkpoint.
-13. Add grounded causal experiments, then scale, redesign, or retire.
+10. Retire v3-v7 after matched controls show that duplicated language cells,
+    associative workspaces, hyperspherical constraints, and fixed-stable memory
+    sidecars do not beat the maintained Transformer.
+11. Continue only non-dominated arms through successive halving, then fit the
+    first defensible local scaling law only for architectures that
+    survive the pilot, using repeated seeds near a branch boundary.
+12. Rebuild continual learning, exact resume, and retention measurement.
+13. Re-establish sustained 524,288-token generation from the same checkpoint.
+14. Add grounded causal experiments, then scale, redesign, or retire.

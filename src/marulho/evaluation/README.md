@@ -37,16 +37,6 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
-**`language_dynamical_memory_falsification.py`** — the active v7 replacement
-experiment. It compares the frozen Transformer with memory-off, single-scale,
-multiscale always-write, multiscale fixed-random-write, and multiscale
-learned-write controls at 20.977M parameters. The exact schedule is staged once;
-all five memory arms reload exact initial tensors into one compiled model object
-and receive fresh optimizers. Reports are resumable after every arm. The CUDA
-smoke compiled one candidate graph instead of five, avoided four redundant
-compiles, passed parity at 0.000040, and verified distinct gate telemetry. Smoke
-losses do not promote the model.
-
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
@@ -102,6 +92,21 @@ losses were 4.6144/4.6448/6.2844/4.7092 and strict free relation scores were
 14.8%/0%/0%/0%. All parameters received gradients, parity and projection audits
 passed, and throughput remained matched. No checkpoint was made; the failed v6
 model, runner, and tests are deleted.
+
+The retired v7 report is
+`reports/language_scaling/dynamical-memory-v7-falsification-16m-20260711.json`.
+Transformer/memory-off/single-scale/always-write/random-write/learned-write
+losses were 4.6137/4.6092/4.6061/4.6076/4.6088/4.6066; strict free relation
+scores were 21.5%/3.9%/10.5%/6.2%/3.5%/4.7%. Learned memory failed both the
+Transformer quality guard and the simpler single-scale control. Its write gate
+was active, every parameter received a gradient, compiled/eager parity passed,
+and memory-control throughput varied by only 0.65%. The candidate sustained
+112.7k training tokens/s versus the Transformer's 129.1k. The run used two loss
+graph compiles rather than six and retained no checkpoint. Decision:
+`retire_v7_no_quality_or_control_gain`; the failed model, runner, and tests are
+deleted. Candidate-likelihood relation accuracy was 96.9% for learned memory
+versus 93.0% for the Transformer, so its opposite free-generation result is also
+evidence that candidate ranking cannot stand in for language generation.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,
