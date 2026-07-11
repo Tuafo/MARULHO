@@ -235,7 +235,11 @@ MARULHO-owned generation pass. Large training batches intentionally omit the
 per-sequence recurrent state from returned diagnostics because materializing
 eight 24,576-by-256 states per batch item would dominate VRAM; streaming
 generation and small parity probes retain it. V28 is experiment machinery, not
-an accepted checkpoint or runtime model.
+an accepted checkpoint or runtime model. Its matched runner uses zero dropout
+for both arms so eager/compiled parity measures numerical execution rather than
+different random masks. At batch 32 and context 72 the fullgraph candidate
+passes parity at 0.000192, sustains about 11.0k tokens/s, and peaks at 5.36 GB on
+the RTX 3060; the matched Transformer reaches about 64.7k tokens/s and 0.60 GB.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

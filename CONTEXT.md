@@ -125,9 +125,15 @@ particle factor matrices plus the tied 8,192-token embedding/head give
 20,971,520 parameters, only 4,608 below the 20,976,128 matched Transformer.
 Causal full-sequence and token-recurrent execution agree, prefix causality,
 complete gradients, positive activation telemetry, and owned generation pass.
-No language-quality, scaling, checkpoint, or runtime claim exists yet. CUDA
-memory/throughput profiling must choose a feasible matched schedule before the
-first language comparison.
+The compiled batch-32/context-72 preflight passes eager/compiled loss parity at
+0.000192, sustains about 11.0k training tokens/s, and peaks at 5.36 GB on the
+RTX 3060. The matched Transformer reaches about 64.7k tokens/s and 0.60 GB under
+the same small-batch runner. The particle stream begins about 50.8% zero and its
+full eight-recurrence streaming state is 192 MiB per sequence, so no efficiency
+claim is made. The live V28 falsifier now runs both zero-dropout arms for 16.78M
+identical tokens at context 72; the particle field must beat Transformer loss by
+0.005 and exact free relation generation by 0.02 together before unseen review.
+No language-quality, scaling, checkpoint, or runtime claim exists yet.
 
 **Retired Editable Delta-Memory Candidate v1** — a tested fixed-state recurrent
 fast-weight competitor with channel-wise decay and separate erase/write gates.

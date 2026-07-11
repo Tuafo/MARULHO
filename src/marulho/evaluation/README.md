@@ -602,6 +602,35 @@ failed model, runner, and tests are deleted; V25's raw-context likelihood result
 remains evidence that exact history has value, not an active memory
 architecture.
 
+`language_particle_field_falsification.py` preregisters V28 as a wider base-
+architecture jump. It compares the 20,976,128-parameter Transformer with a
+20,971,520-parameter positive particle-field core: width 256, 24,576 particles,
+four heads, eight parameter-shared recurrences, strict causal Hebbian linear
+attention, and the same tied 8,192-token BPE. The 4,608-parameter difference is
+0.022%. No external weights are loaded.
+
+Both arms receive the identical frozen context-72, batch-32 schedule: 20%
+relation curriculum and balanced FineWeb-Edu/Cosmopedia general text, 16,777,216
+tokens, AdamW intent, zero dropout, fresh data/model seeds 15121/15131, and
+fullgraph CUDA/Inductor execution. The particle paper's native dropout is not
+swept in the first comparison; zero dropout keeps the arms deterministic and
+isolates the architecture. Labels remain metrics-only.
+
+The compiled 18,432-token preflight is diagnostic and its smoke artifacts are
+discarded. Transformer/particle eager-to-compiled loss deltas are
+0.000419/0.000192, compiled steady throughput is about 64.7k/11.0k tokens/s,
+and peak allocation is 0.60/5.36 GB on the RTX 3060. Every parameter receives a
+gradient. Initial particle activations are about 50.8% zero, and the complete
+streaming fast-weight state is 192 MiB per sequence. These are mechanical and
+cost results, not language evidence.
+
+At the durable budget, V28 advances only if particle heldout loss beats the
+Transformer by at least 0.005 and exact free relation generation improves by at
+least 0.02. A win on only one measure routes to redesign; no win retires V28.
+Throughput cannot promote quality. A joint pass advances only to genuinely
+unseen generation, with no checkpoint or runtime installation before that
+review.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
