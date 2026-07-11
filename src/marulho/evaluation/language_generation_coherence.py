@@ -381,6 +381,7 @@ def _decoded_generation_case(
     *,
     generation_repetition_penalty: float = 1.0,
     generation_no_repeat_ngram_size: int = 0,
+    prepared_generation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     repetition_penalty = max(1.0, float(generation_repetition_penalty))
     no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
@@ -388,12 +389,16 @@ def _decoded_generation_case(
         tokenizer.encode(case.prompt_text, add_eos=False),
         dtype=torch.long,
     )
-    generation = model.generate(
-        prompt_ids,
-        max_new_tokens=max(0, int(case.max_new_tokens)),
-        eos_id=tokenizer.eos_id,
-        repetition_penalty=repetition_penalty,
-        no_repeat_ngram_size=no_repeat_ngram_size,
+    generation = (
+        dict(prepared_generation)
+        if prepared_generation is not None
+        else model.generate(
+            prompt_ids,
+            max_new_tokens=max(0, int(case.max_new_tokens)),
+            eos_id=tokenizer.eos_id,
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+        )
     )
     generated_ids = generation["generated_ids"]
     if not isinstance(generated_ids, torch.Tensor):
@@ -478,6 +483,9 @@ def _decoded_generation_case(
         "source_text_hash": _sha256_text(case.source_text),
         "generation_surface": generation.get("surface"),
         "generation_decode": dict(generation.get("generation_decode") or {}),
+        "batched_decode_group_size": int(
+            generation.get("batched_decode_group_size", 1) or 1
+        ),
         "active_language_path": generation.get("active_language_path"),
         "expected_active_language_path": expected_active_language_path,
         "active_language_path_matches_model": active_language_path_matches_model,
@@ -511,6 +519,67 @@ def _decoded_generation_case(
         "passed": bool(passed),
         "failure_reasons": failure_reasons,
     }
+
+
+def _batched_generation_results(
+    model: MarulhoLanguageModel,
+    tokenizer: LanguageTokenizer,
+    cases: Sequence[LanguageGenerationPromptCase],
+    *,
+    generation_repetition_penalty: float,
+    generation_no_repeat_ngram_size: int,
+) -> list[dict[str, Any]]:
+    encoded = [
+        tokenizer.encode(case.prompt_text, add_eos=False) for case in cases
+    ]
+    groups: dict[tuple[int, int], list[int]] = {}
+    for index, (case, prompt_ids) in enumerate(zip(cases, encoded)):
+        key = (len(prompt_ids), max(0, int(case.max_new_tokens)))
+        groups.setdefault(key, []).append(index)
+    results: list[dict[str, Any] | None] = [None] * len(cases)
+    for (prompt_length, max_new_tokens), indices in groups.items():
+        prompts = torch.tensor(
+            [encoded[index] for index in indices],
+            dtype=torch.long,
+        )
+        generation = model.generate(
+            prompts,
+            max_new_tokens=max_new_tokens,
+            eos_id=tokenizer.eos_id,
+            repetition_penalty=max(1.0, float(generation_repetition_penalty)),
+            no_repeat_ngram_size=max(0, int(generation_no_repeat_ngram_size)),
+        )
+        generated_ids = generation["generated_ids"]
+        if not isinstance(generated_ids, torch.Tensor):
+            generated_ids = torch.as_tensor(generated_ids, dtype=torch.long)
+        if generated_ids.ndim == 1:
+            generated_ids = generated_ids.unsqueeze(0)
+        if int(generated_ids.shape[0]) != len(indices):
+            raise RuntimeError("Batched generation returned the wrong row count")
+        common = {
+            key: value
+            for key, value in generation.items()
+            if key not in {"generated_ids", "state", "new_token_count"}
+        }
+        for row_index, case_index in enumerate(indices):
+            row = generated_ids[row_index].detach()
+            continuation = row[prompt_length:]
+            eos_positions = torch.nonzero(
+                continuation == int(tokenizer.eos_id),
+                as_tuple=False,
+            )
+            if eos_positions.numel() > 0:
+                continuation = continuation[: int(eos_positions[0, 0].item()) + 1]
+            row_ids = torch.cat((row[:prompt_length], continuation)).unsqueeze(0)
+            results[case_index] = {
+                **common,
+                "generated_ids": row_ids,
+                "new_token_count": int(continuation.numel()),
+                "batched_decode_group_size": len(indices),
+            }
+    if any(result is None for result in results):
+        raise RuntimeError("Batched generation did not cover every prompt case")
+    return [dict(result or {}) for result in results]
 
 
 def _coherence_summary(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -581,6 +650,13 @@ def run_language_generation_coherence_report(
         raise ValueError("At least one generation coherence prompt case is required")
     repetition_penalty = max(1.0, float(generation_repetition_penalty))
     no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
+    prepared_generations = _batched_generation_results(
+        model,
+        tokenizer,
+        cases,
+        generation_repetition_penalty=repetition_penalty,
+        generation_no_repeat_ngram_size=no_repeat_ngram_size,
+    )
     case_reports = [
         _decoded_generation_case(
             model,
@@ -588,8 +664,9 @@ def run_language_generation_coherence_report(
             case,
             generation_repetition_penalty=repetition_penalty,
             generation_no_repeat_ngram_size=no_repeat_ngram_size,
+            prepared_generation=prepared_generation,
         )
-        for case in cases
+        for case, prepared_generation in zip(cases, prepared_generations)
     ]
     summary = _coherence_summary(case_reports)
     case_pass_rate = float(summary["case_pass_rate"])

@@ -30,6 +30,7 @@ class _FakeGenerationModel:
         self._continuation_ids = tokenizer.encode(continuation_text, add_eos=False)
         self._external_llm_used = bool(external_llm_used)
         self._active_language_path = str(active_language_path)
+        self.generate_calls = 0
 
     def generate(
         self,
@@ -41,15 +42,18 @@ class _FakeGenerationModel:
         no_repeat_ngram_size: int = 0,
     ) -> dict[str, object]:
         del eos_id
-        flat_prompt = prompt_ids.detach().cpu().reshape(-1).to(torch.long)
+        self.generate_calls += 1
+        prompts = prompt_ids.detach().cpu().to(torch.long)
+        if prompts.ndim == 1:
+            prompts = prompts.unsqueeze(0)
         continuation = torch.tensor(
             self._continuation_ids[: max(0, int(max_new_tokens))],
             dtype=torch.long,
-        )
+        ).unsqueeze(0).expand(int(prompts.shape[0]), -1)
         return {
             "surface": "marulho_language_generation.v1",
-            "generated_ids": torch.cat([flat_prompt, continuation]).unsqueeze(0),
-            "new_token_count": int(continuation.numel()),
+            "generated_ids": torch.cat([prompts, continuation], dim=1),
+            "new_token_count": int(continuation.shape[1]),
             "active_language_path": self._active_language_path,
             "external_llm_used": self._external_llm_used,
             "owned_by_marulho": not self._external_llm_used,
@@ -173,6 +177,43 @@ def test_language_generation_coherence_accepts_owned_candidate_path() -> None:
     assert report["owned_by_marulho"] is True
     assert report["promotion_gate"]["generation_coherence_available"] is True
     assert report["cases"][0]["active_language_path_matches_model"] is True
+
+
+def test_language_generation_coherence_batches_equal_length_prompts() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    source_text = (
+        "MARULHO learns runtime evidence. "
+        "REPLAY! protects earlier knowledge."
+    )
+    model = _FakeGenerationModel(
+        tokenizer,
+        continuation_text=" learns runtime evidence",
+    )
+    report = run_language_generation_coherence_report(
+        model,
+        tokenizer,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="MARULHO",
+                source_text=source_text,
+                max_new_tokens=8,
+                min_new_tokens=1,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+            ),
+            LanguageGenerationPromptCase(
+                prompt_text="REPLAY!",
+                source_text=source_text,
+                max_new_tokens=8,
+                min_new_tokens=1,
+                min_prefix_match_chars=0,
+                min_prefix_match_fraction=0.0,
+            ),
+        ),
+        min_case_pass_rate=0.0,
+    )
+    assert model.generate_calls == 1
+    assert all(case["batched_decode_group_size"] == 2 for case in report["cases"])
 
 
 def test_language_generation_coherence_report_records_prompt_continuation_loss() -> None:
