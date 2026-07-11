@@ -14,7 +14,7 @@ generally capable continual model.
 
 ## Current architecture
 
-There are three different levels of truth:
+There are four different levels of truth:
 
 1. **Installed runtime:** `MarulhoBrain` owns a 21M-parameter decoder-only causal
    Transformer and its checkpoint-owned BPE tokenizer. This remains the stable
@@ -28,10 +28,11 @@ There are three different levels of truth:
    fails anchored generation, while V26 and V27 gated readers fail even with
    oracle evidence. No memory model, checkpoint, or runtime integration is
    currently admitted.
-4. **Active architecture experiment:** V28 is an uninstalled 20.972M-parameter
-   positive particle-field recurrent core. It matches the 20.976M Transformer
-   parameter budget within 0.022% and passes causal/recurrent/gradient truth,
-   but it has not yet produced language-quality evidence.
+4. **Architecture search:** V28's matched particle-field test is retired. Its
+   20.972M-parameter recurrent core was mechanically valid but substantially
+   worse than the 20.976M Transformer on heldout language and exact free
+   generation. No biological metaphor or many-small-units design is a project
+   requirement; the next candidate must earn its place by matched evidence.
 
 ```mermaid
 flowchart LR

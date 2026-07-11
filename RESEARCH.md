@@ -169,6 +169,9 @@ V27 closes the local evidence-reader neighborhood. The next search changes the
 computational substrate rather than moving another gate or attention layer.
 Candidates share one matched language contract; novelty does not excuse weaker
 heldout loss, free generation, gradient coverage, or compute accounting.
+MARULHO is architecture-agnostic: small units, columns, spikes, organisms,
+particles, monolithic cores, and hybrids are hypotheses rather than identity.
+An idea survives only when its behavior and cost survive matched falsification.
 
 ### First branch: particle-field recurrent core
 
@@ -198,6 +201,14 @@ heldout loss, free generation, gradient coverage, or compute accounting.
   advances only by improving heldout language and free relation behavior
   together at a durable budget. It then faces genuinely unseen generation
   before any checkpoint. A short-budget learning-rate advantage is not enough.
+- **Result:** retired. At 16,777,728 tokens the particle/Transformer heldout
+  loss was 4.9132/4.3193 and exact free relation generation was 11.33%/40.23%.
+  Particle throughput was 11.1k versus 92.6k tokens/s and peak CUDA allocation
+  was 5.36 GB versus 0.60 GB. Both arms had complete gradients and the particle
+  arm reached 100% metrics-only candidate ranking, so neither dead machinery
+  nor task ignorance explains the weak free language. This implementation of
+  the population-field hypothesis is not promising enough for local tuning.
+  The code and tests are deleted; the durable report retains the result.
 
 ### Other orthogonal branches
 

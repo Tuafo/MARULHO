@@ -223,23 +223,13 @@ is not dead machinery. `language_evidence_reader.py`, its screen, and their
 tests are deleted; no reader checkpoint or runtime surface exists. The retained
 reports preserve the exact parity, ownership, anti-cheat, and failure evidence.
 
-**`language_particle_field.py`** — owns the uninstalled V28 exploratory base
-core. It implements a width-256 low-rank field over 24,576 nonnegative
-particles, strict causal Hebbian linear attention, and eight recurrent-depth
-iterations sharing the same three factor matrices. With the checkpoint BPE
-vocabulary and tied embedding/head, the default shape contains 20,971,520
-parameters versus the matched Transformer's 20,976,128. The parallel
-short-context reference and streaming fast-weight recurrence are exact on the
-focused contract; prefix causality, all-parameter gradients, telemetry, and
-MARULHO-owned generation pass. Large training batches intentionally omit the
-per-sequence recurrent state from returned diagnostics because materializing
-eight 24,576-by-256 states per batch item would dominate VRAM; streaming
-generation and small parity probes retain it. V28 is experiment machinery, not
-an accepted checkpoint or runtime model. Its matched runner uses zero dropout
-for both arms so eager/compiled parity measures numerical execution rather than
-different random masks. At batch 32 and context 72 the fullgraph candidate
-passes parity at 0.000192, sustains about 11.0k tokens/s, and peaks at 5.36 GB on
-the RTX 3060; the matched Transformer reaches about 64.7k tokens/s and 0.60 GB.
+The V28 particle-field training path is deleted. Its 20.972M-parameter positive
+recurrent field passed causal, recurrent, gradient, generation, and compile
+truth but lost the matched 16.78M-token language comparison: loss 4.9132 versus
+4.3193, exact free generation 11.33% versus 40.23%, 11.1k versus 92.6k training
+tokens/s, and 5.36 GB versus 0.60 GB peak CUDA memory. No particle checkpoint,
+loader, or runtime state is maintained; the retained report and git history own
+the evidence.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
