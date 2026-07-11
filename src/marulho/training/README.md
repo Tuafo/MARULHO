@@ -242,7 +242,9 @@ the optimizer recipe and tensor-state bytes; existing callers still use fused
 AdamW. At the durable 16.78M-token budget, 1e-3 Muon beats same-rate AdamW on
 loss 4.0961/4.2606 and exact free generation 17.58%/5.47%, while using 40% less
 optimizer state and training 42% slower. This passes only into exact checkpoint
-reproduction and unseen review; the installed trainer still owns AdamW.
+reproduction and unseen review; the installed trainer still owns AdamW. The
+reproduction checkpoint intentionally stores model/tokenizer/qualification
+truth but not Muon state, so it cannot claim resumable optimizer continuity.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

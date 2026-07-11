@@ -649,6 +649,16 @@ Decision: `advance_v29_muon_to_unseen_generation`. Container and ownership free
 generation remain 0%, so the pass admits only an exact candidate reproduction,
 strict checkpoint reload, and unseen prose review.
 
+`language_muon_reproduction.py` owns that next boundary. It accepts only the
+durable V29 report with the advancing decision, reconstructs and hash-checks the
+same tokenizer and indexed schedule, and reruns only Muon 1e-3 from the original
+seed. The candidate must independently re-pass the recorded best-AdamW loss and
+free-generation margins before a checkpoint can be written. A fresh strict load
+must restore every tensor bit-exactly, preserve tied embedding/head storage and
+tokenizer/config identity, and reproduce sample logits exactly. The checkpoint
+records that optimizer state is not saved and admits only unseen generation,
+not continuation or runtime installation.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight
