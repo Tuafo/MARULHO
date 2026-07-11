@@ -267,6 +267,64 @@ relation candidate accuracy falls 95.7% to 32.8% and free relation generation
 is tested; later mechanisms must recover this capability without losing the new
 general-language curve.
 
+### 5. Counterfactual-gated micro-assemblies — next V12 falsifier
+
+A direct hidden-state hash is not the next experiment. [Hash Layers for Large
+Sparse Models](https://arxiv.org/abs/2106.04426) already found that balanced or
+random hashes over local token features beat clustering and longer-range context
+features. That prior result agrees with MARULHO's fixed-hash win and learned
+context-router collapse. Repeating a random-projection manifold hash would be a
+known-risk variant, not a new mechanism.
+
+The sharper opportunity comes from [counterfactual routing
+analysis](https://arxiv.org/abs/2605.07260): standard MoE training scores only
+the executed route, while equal-compute alternatives can assign higher
+next-token probability on fragile tokens. MARULHO can test this unusually
+cleanly because V11 has one rank-one expert pool, deterministic routes, complete
+gradient coverage, and a strict 251M checkpoint.
+
+The precursor experiment freezes the entire 251M model and evaluates several
+alternative deterministic eight-expert assemblies for the same heldout token.
+It records route regret without changing weights:
+
+- fraction of tokens where an alternative lowers exact next-token loss;
+- mean and tail loss improvement over V11's installed token hash;
+- separation by model confidence and corpus;
+- expert-pool usage, duplicate routes, and equal active compute;
+- labels used only to score alternatives, never to choose an evaluation route.
+
+If alternatives do not offer a material opportunity, retire the V12 gate before
+training it. If they do, train a tiny causal gate from the pre-expert hidden state
+to predict the best assembly using detached counterfactual targets. At inference
+the gate sees hidden state only. Keep half of the eight active singleton slots as
+the stable V11 token anchor and let the gate choose the other half from a small
+fixed route bank. This turns the user's memory-gate idea into a concrete rule:
+micro-units earn future selection because their executed consequence reduced
+downstream prediction loss, not because they were merely similar or active.
+
+[Equifinality in Mixture of Experts](https://arxiv.org/abs/2604.14419) is a
+warning that elaborate routing topology may change asymptotic perplexity only
+slightly; geometry is diagnostic unless counterfactual utility predicts a real
+gain. Its companion [geometric-routing
+study](https://arxiv.org/abs/2604.14434) makes rank-one expert semantics
+inspectable, which may later help audit V11/V12 specialization, but does not by
+itself solve quality.
+
+Other user-proposed fronts remain tracked but are not promoted into the base:
+
+- [Reservoir Computing as a Language Model](https://arxiv.org/abs/2507.15779)
+  finds efficient training/inference but better Transformer prediction quality;
+  reservoir dynamics remain a later fast temporal state or readout candidate.
+- [Wavelet Logic Machines](https://arxiv.org/abs/2507.19514) reports compact
+  classification evidence, not competitive causal generation; wavelets remain a
+  possible multiscale memory-compression primitive rather than a language core.
+- Free-energy/active-inference language frameworks remain high-level objectives.
+  MARULHO uses their useful operational part—prediction error, uncertainty, and
+  resource cost—but does not add an unfalsifiable free-energy layer.
+- Torus, higher-dimensional geometry, neural manifolds, autonomous patterns, and
+  micro-chaos/macro-order remain inspiration until each names a measurable state,
+  intervention, and heldout advantage.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.
