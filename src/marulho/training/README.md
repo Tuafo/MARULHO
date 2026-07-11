@@ -27,8 +27,15 @@ Sparse event-memory v2 is retired. At 16.79M matched tokens, random one-of-four
 specialists reached 27.0% strict free relation versus 14.5% exact-only at tied
 loss. Chosen-expert utility reached 14.8%; all-expert comparative utility restored
 25.8% but still did not beat random and slightly worsened loss. The model,
-runner, and tests are deleted. V3 will test multiple smaller sequence models
-rather than another sidecar on one monolith.
+runner, and tests are deleted.
+
+**`language_modular_society.py`** — the uninstalled v3 candidate: four
+independent causal language cells, each with its own embedding, attention stack,
+KV state, and tied token head. Cells exchange only delayed low-dimensional event
+messages; a learned coordinator combines their token predictions. Uniform
+averaging, learned/no-message, learned/shuffled-message, and learned/real-message
+modes preserve a controlled route to the 21M monolithic comparison. The model
+is an experiment surface, not the active language runtime.
 
 The integrated PMRM reference, runner, and tests were deleted after the final
 corrected screen. Full PMRM remained behind the matched Transformer and did not

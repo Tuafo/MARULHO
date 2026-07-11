@@ -451,16 +451,19 @@ independent weights and runtime state. They share a tokenizer and exchange only
 low-rank event messages through a narrow bus. A small coordinator combines token
 predictions and messages; no cell sees another cell's full hidden state.
 
-The first reference should use four cells whose total trainable parameters match
-the 21M Transformer. Cells receive different learned projections of the same
-tokens and predict both next tokens and next-event latent summaries. Required
-controls are:
+The implemented first reference uses four cells whose total trainable parameters
+match the 21M Transformer within 0.12%. Each cell has an independent token
+embedding, two-layer causal attention stack, KV state, and tied full-vocabulary
+head. Every 24 tokens, it compresses its recent hidden state to a 32-dimensional
+message; peers receive only the mean of the other messages on the next event.
+Required controls are:
 
 1. one monolithic Transformer at matched total parameters and tokens;
 2. independent cells with averaged logits and no communication;
-3. cells with shuffled messages, preserving message compute while destroying
-   meaning;
-4. cells with a learned coordinator and real messages.
+3. cells with a learned coordinator and no messages;
+4. cells with shuffled messages, preserving message compute while destroying
+   example alignment;
+5. cells with a learned coordinator and real messages.
 
 The coordinator survives only if real communication beats both no-message and
 shuffled-message controls on heldout loss and free behavior. Cell specialization
@@ -468,6 +471,30 @@ must be diagnosed from counterfactual ablations, not assigned labels. If this
 works, later versions may give cells separate corpora, memories, update clocks,
 checkpoints, and birth/retirement operations. If it does not, “many small
 models” remains an inspiration rather than a supported MARULHO architecture.
+
+### Staged associative-memory and column hypotheses
+
+The modern Hopfield result does not by itself replace the Transformer: its
+continuous one-step retrieval update is equivalent to key-value attention. The
+novel question for MARULHO is narrower and testable: can a persistent bank of
+cell/event prototypes let the society retrieve and stabilize useful joint
+states better than its current transient mean-message bus? That becomes a
+second-stage arm only if real communication first beats no-message and shuffled
+controls. The comparison must hold cell count, parameter budget, message width,
+and training data fixed: transient mean bus versus ordinary learned attention
+bus versus persistent Hopfield/attractor bus. Retrieval accuracy, interference,
+heldout loss, free behavior, throughput, and state growth are kill metrics.
+
+“Columns with different representation layers” is also a useful second-stage
+hypothesis, not a property to assume. A heterogeneous society could give cells
+different context horizons, depths, update clocks, or predictive targets so
+that token-local, event, entity, and longer causal representations have room to
+emerge. Starting heterogeneous would confound the first result: we would not
+know whether any gain came from communication or simply from one fortunate
+cell shape. The homogeneous v3 comparison therefore comes first; if it wins,
+heterogeneous cells must beat a same-budget homogeneous society and learned
+specialization must be verified by cell ablations rather than names assigned in
+advance.
 
 ## Retired ideas
 

@@ -52,7 +52,10 @@ showed that random one-of-four specialists could raise strict free relation from
 comparative all-expert utility reached 25.8%; neither beat random. The next
 hypothesis directly tests several smaller deep sequence models with independent
 state/weights and a narrow latent communication bus, matched in total parameters
-and active compute against the monolith. No v3 implementation exists yet.
+and measured active compute against the monolith. The v3 candidate core now
+exists with four independent cells and four predeclared controls; it is not an
+installed runtime or a supported architecture until matched real-language
+evidence justifies promotion.
 
 ## Current Evidence
 

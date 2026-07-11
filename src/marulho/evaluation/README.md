@@ -56,6 +56,12 @@ strict greedy free-answer metrics for any checkpoint against a frozen relation
 case artifact. This catches cases where multiple-choice ranking improves while
 open generation still loses the relation.
 
+The modular predictive society v3 core is present under `training`, but its
+matched runner and real-language report are not complete. Its predeclared arms
+are the 21M monolith, averaged cells/no messages, learned coordinator/no
+messages, learned coordinator/shuffled messages, and learned coordinator/real
+messages. No v3 quality claim exists before that comparison.
+
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,
 frozen source-balanced schedule, parameters, optimizer, relation/general

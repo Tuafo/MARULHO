@@ -13,6 +13,10 @@ from .language_model import (
     save_language_model_checkpoint,
 )
 from .language_transformer import MarulhoCausalTransformerStateBlock
+from .language_modular_society import (
+    MarulhoModularSocietyLanguageModel,
+    ModularSocietyConfig,
+)
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
 from .model import MarulhoModel
 from .trainer import MarulhoTrainer
@@ -26,8 +30,10 @@ __all__ = [
     "LanguageRuntimeState",
     "MarulhoCausalTransformerStateBlock",
     "MarulhoLanguageModel",
+    "MarulhoModularSocietyLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",
+    "ModularSocietyConfig",
     "PredictiveBootstrap",
     "build_language_model_splits",
     "evaluate_language_model",

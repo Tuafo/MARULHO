@@ -160,11 +160,15 @@ implementation, runner, and tests are deleted; compact reports retain evidence.
 
 **Modular Predictive Society v3 Hypothesis** — directly test several smaller
 deep sequence models with independent state and weights, coordinated through a
-narrow learned latent bus. Total parameters and active compute must match the
-monolithic Transformer. Independent cells, no/shuffled communication, random
-aggregation, and learned coordination are required controls. This tests whether
-meaningful organization can emerge among small models rather than attaching
-specialists to one permanent large substrate. No implementation exists yet.
+narrow learned latent bus. The experimental core is implemented as four
+parameter-independent two-layer causal cells with delayed 32-dimensional event
+messages and a token-level coordinator. At an 8,192-token vocabulary it has
+21,000,608 parameters versus the baseline's 20,976,128 (0.12% more). Averaged
+logits/no messages, learned coordinator/no messages, shuffled messages, real
+messages, and the monolithic Transformer are predeclared controls. Active
+compute and wall time remain measurements, not assumed matches. This candidate
+is not installed in `MarulhoBrain`; matched real-language evidence decides
+whether meaningful organization emerged.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
