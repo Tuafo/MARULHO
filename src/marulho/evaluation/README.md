@@ -545,6 +545,24 @@ separate bounded reader/cross-attention interface and beat gate-zero, shuffled,
 and raw-context controls on anchored generation as well as likelihood. No V25
 checkpoint exists.
 
+`language_evidence_reader_screen.py` preregisters V26 around the verified
+`language_evidence_reader.py` core. Gate-zero, shuffled-reader, raw-context,
+lexical-reader, and non-promotable oracle-reader restore identical V11 plus
+reader tensors and use fresh seeds 13101/13201/13301 under the 50/50 800-step
+schedule. The separate reader encodes one 48-token episode in its own V11 pass
+and injects a gated eight-head cross-attention residual after the local cortex;
+local positions remain unchanged. Gate-zero and raw-context have exact parity
+tests against their V11 definitions.
+
+Oracle-reader must beat gate-zero by +0.02 with a positive paired lower bound.
+Lexical-reader must include the target in at least 68% of cases, beat gate-zero
+by +0.01 with a positive lower bound, beat shuffled-reader and raw-context by
++0.005 each, improve both corpora, and give true evidence +0.02 over a wrong
+episode with a positive lower bound. At least half of eight greedy outputs must
+change under a true-to-wrong evidence intervention, and each general regression
+must remain at or below +0.10. A statistical pass advances to the same manual
+anchored review used by V25; only that review can admit checkpoint work.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
