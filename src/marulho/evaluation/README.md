@@ -563,6 +563,24 @@ change under a true-to-wrong evidence intervention, and each general regression
 must remain at or below +0.10. A statistical pass advances to the same manual
 anchored review used by V25; only that review can admit checkpoint work.
 
+The V26 report is
+`reports/language_scaling/v26-separate-evidence-reader-800step-20260711.json`
+(SHA-256
+`bc8b3f9ec03fcbf6f241ba0c73320c1f2986e15fdc6bf6ae832098b447fe7a7f`).
+Gate-zero/shuffled/raw/lexical/oracle loss is
+3.09210/3.09178/3.08659/3.09205/3.09199. Oracle-reader gains only +0.00010
+with an interval crossing zero, and true-vs-wrong evidence is +0.00002. All five
+reader tensors and all 28 cortex tensors receive nonzero gradients in active
+reader arms, but the oracle gate moves only 0.11920 to 0.11949 and lexical
+source-swap output change is 12.5%. General retention passes. Decision:
+`retire_v26_reader_task_not_learnable_with_oracle_evidence`.
+
+Final-layer injection is retired. The next runner may reuse the exact document
+and control protocol only with an interleaved reader applied before later V11
+blocks. Gate-zero and raw parity remain mandatory; failure of oracle evidence in
+that interface ends cross-attention memory rather than triggering a wider gate
+or selector sweep.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

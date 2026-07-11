@@ -686,6 +686,27 @@ into reliable free generation. The next candidate must encode the episode on a
 separate evidence path and inject it through bounded gated cross-attention while
 preserving the local cortex sequence and the same off/random/true controls.
 
+V26 rejects a separate reader applied only after the final cortex layer. The
+retained report is
+`reports/language_scaling/v26-separate-evidence-reader-800step-20260711.json`
+(SHA-256
+`bc8b3f9ec03fcbf6f241ba0c73320c1f2986e15fdc6bf6ae832098b447fe7a7f`).
+The reader adds 1,049,601 parameters; every one of its five tensors and all 28
+cortex tensors receive nonzero gradients. Gate-zero/shuffled/raw/lexical/oracle
+loss is 3.09210/3.09178/3.08659/3.09205/3.09199. Oracle-reader gains only
++0.00010 with an interval crossing zero, true-vs-wrong evidence is +0.00002,
+and its gate moves only from 0.11920 to 0.11949. Lexical-reader source-swap
+output change is 12.5%. Decision:
+`retire_v26_reader_task_not_learnable_with_oracle_evidence`.
+
+The failure localizes the interface: raw context can influence every V11 layer,
+whereas V26 adds evidence after local computation is already finished. More
+selector tuning or a larger final residual is not justified. The next bounded
+candidate shares one cross-attention reader across early/middle cortex layers,
+letting evidence alter later self-attention and MLP computation without entering
+the query position stream. It must retain gate-zero/raw parity and face the same
+shuffled, raw, lexical, and oracle controls.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

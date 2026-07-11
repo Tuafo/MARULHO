@@ -152,6 +152,11 @@ one word with it.
     Yet all eight free continuations fail anchored review. Raw concatenation is
     closed; the next reader must keep evidence separate and improve generation,
     not merely teacher-forced likelihood.
+22. V26 rejects final-layer cross-attention despite complete gradients. Oracle
+    gain is only 0.00010, true-vs-wrong evidence is zero, and the learned gate
+    stays near 0.119. The separation idea is not falsified, but evidence must
+    enter before later cortex computation. The next bounded test interleaves a
+    shared reader between early/middle V11 layers.
 
 ## Provisional scaling diagnosis
 
@@ -290,9 +295,9 @@ has a language-specific purpose.
   but rejects top-two distraction; its lexical-one control is significant. The
   final raw-context replication wins likelihood but fails every anchored sample.
   Exact memory therefore remains promising while raw concatenation is retired.
-  The next interface uses a separate gated evidence reader; no checkpoint/index
-  contract is built until it wins on disjoint likelihood, retention, and
-  anchored generation.
+  V26 shows that final-layer reading is too late; the next interface interleaves
+  a shared gated reader inside the cortex. No checkpoint/index contract is built
+  until it wins on disjoint likelihood, retention, and anchored generation.
 
 ### Multiple learning timescales
 

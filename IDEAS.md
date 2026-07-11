@@ -390,6 +390,20 @@ the added parameters. The reader survives only if source interventions improve
 both disjoint loss and multi-sentence anchored generation; another likelihood-
 only win is insufficient.
 
+V26 falsifies the simplest separate reader. Its 1.05M parameters all train, but
+even oracle evidence gains only 0.00010 and the gate barely moves. A residual
+after the final cortex layer arrives too late: the language computation has
+already chosen its representation. This is useful because raw context retains a
+small advantage precisely by participating in every layer.
+
+The next reader is interleaved, not larger. Evidence and query run as separate
+streams through shared V11 blocks; after early and middle layers, one shared
+cross-attention module injects a gated residual into the query stream. Later V11
+layers can then transform the evidence-conditioned state. Gates per insertion
+show whether depth matters. Failure with oracle evidence retires cross-attention
+memory and redirects effort to the base language cortex rather than another
+memory interface.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a

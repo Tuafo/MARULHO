@@ -36,7 +36,7 @@ flowchart LR
     Prefix["Visible current prefix"] --> Select["Bounded evidence selector"]
     Archive --> Select
     Select --> Evidence["One older exact span"]
-    Evidence --> Reader["Bounded evidence reader<br/>(next falsifier)"]
+    Evidence --> Reader["Interleaved evidence reader<br/>(next falsifier)"]
     Reader --> Local
     Local --> Output["MARULHO-owned next-token generation"]
     Local --> Save["Atomic checkpoint and rollback"]
@@ -49,8 +49,9 @@ The division of labor is deliberate:
 
 - the cortex learns language and reasons over the small amount of evidence that
   is active now;
-- the evidence reader keeps archived tokens out of the local position stream and
-  injects only a bounded, gated residual;
+- the interleaved evidence reader keeps archived tokens out of the local
+  position stream and injects bounded gated residuals before later cortex
+  computation;
 - the archive preserves potentially important experience without forcing every
   detail through a fixed-size recurrent state;
 - keys and indexes may be compressed, but valuable episode content stays exact
@@ -60,7 +61,7 @@ The division of labor is deliberate:
 
 The validated selector is currently lexical TF-IDF, not a learned semantic
 memory and not the intended final answer. It is a causal instrument that has
-replicated a likelihood win; the separate reader shown above remains a
+replicated a likelihood win; the interleaved reader shown above remains a
 hypothesis until it improves anchored generation.
 
 MARULHO is not using an SNN, GRU, cortical-column simulation, Hopfield network,
@@ -80,6 +81,7 @@ when they express a measurable computational role and can beat matched controls.
 | V23 joint document screen | Oracle and true-vs-wrong tests prove learned source use, but lexical's +0.0192 interval crosses zero and general loss regresses +0.1200/+0.1346 | Reject the 75/25 top-one curriculum; run one balanced top-two falsifier |
 | V24 balanced top-two | Replay restores retention, but top-two is 0.0064 worse than top-one. The lexical-one control gains a significant +0.0255 while retaining general loss | Retire top-two and replicate top-one against balanced random-one |
 | V25 top-one replication | Lexical memory gains +0.0430 over off, beats random, improves both corpora, and retains general loss; all 8 anchored continuations still fail | Preserve the likelihood signal, retire raw concatenation, and build a separate evidence reader |
+| V26 final-layer reader | All reader/cortex tensors train, but oracle gain is only +0.00010 and the gate remains near 0.119 | Retire final-layer injection; test interleaved evidence before later cortex layers |
 
 V21 also keeps both general-language holdouts within the preregistered 0.10 loss
 regression bound and uses about 0.90 GiB peak allocation versus all-history's
@@ -111,11 +113,11 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Build a bounded gated cross-attention reader that encodes one selected exact
-   episode separately from the local causal token sequence.
-2. Compare gate-zero, shuffled-source, true-source, and raw-context controls on
-   disjoint likelihood, source interventions, anchored generation, and general
-   retention.
+1. Interleave one shared gated cross-attention reader after early/middle V11
+   layers while keeping evidence outside the local causal position sequence.
+2. Compare gate-zero, shuffled-source, true-source, raw-context, and oracle
+   controls on disjoint likelihood, source interventions, anchored generation,
+   and general retention.
 3. If a selected-evidence arm survives, save one cortex-plus-archive checkpoint
    and test strict reload/rollback.
 4. Re-run genuinely unseen Base-Language Qualification from that artifact.

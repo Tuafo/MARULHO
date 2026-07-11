@@ -215,23 +215,23 @@ predictors worsen disjoint heldout loss. No gate checkpoint exists and no gate
 loader or runtime path is maintained. The frozen route-regret audit remains a
 diagnostic surface only.
 
-**`language_evidence_reader.py`** is the active uninstalled V26 memory
-candidate. It owns one 1,049,601-parameter reader around the V11 cortex:
+The V26 final-layer implementation in `language_evidence_reader.py` is retired
+after oracle evidence fails to improve disjoint loss. Its verified parity and
+ownership constraints remain the contract for the replacement:
 
 - the local query keeps its original positions and runs through V11 alone;
 - one selected prior 48-token episode runs through a separate shared-cortex
   pass;
-- RMS-normalized query states cross-attend to evidence states through an
-  eight-head residual controlled by one learned sigmoid gate;
+- evidence must remain outside the local position stream;
 - `gate_zero` is bit-exact with ordinary V11;
 - `raw_context` is bit-exact with direct episode-plus-query concatenation;
 - `separate_reader` never inserts evidence tokens into the returned generation
   sequence or local position stream.
 
-This is experiment machinery, not an installed model or checkpoint surface.
-All V26 arms own identical reader parameters. General replay runs through the
-unchanged cortex; reader gradients arise only from causal document steps. A
-candidate must beat gate-zero, shuffled evidence, and the positive V25 raw-
+The next live implementation interleaves one shared cross-attention reader after
+early/middle V11 blocks so later blocks can transform evidence-conditioned query
+states. This remains experiment machinery, not an installed model or checkpoint
+surface. It must beat gate-zero, shuffled evidence, and the positive V25 raw-
 context control before any checkpoint contract is added.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
