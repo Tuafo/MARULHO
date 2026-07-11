@@ -122,3 +122,31 @@ def test_v8_decision_retires_no_gain() -> None:
     assert depth_allocation_decision(arms) == (
         "retire_v8_static_depth_allocation"
     )
+
+
+def test_v8_durability_promotes_only_a_large_budget_pair_win() -> None:
+    arms = [
+        _arm("uniform", loss=4.00, free=0.20, tokens=67_110_000),
+        _arm("early_heavy", loss=3.98, free=0.25, tokens=67_110_000),
+    ]
+    assert depth_allocation_decision(
+        arms,
+        comparison_stage="durability",
+    ) == "promote_v8_early_heavy_to_quality_baseline"
+
+    short = [dict(row, processed_tokens=67_000_000) for row in arms]
+    assert depth_allocation_decision(
+        short,
+        comparison_stage="durability",
+    ) == "incomplete_v8_durability_budget"
+
+
+def test_v8_durability_can_retire_a_non_durable_early_win() -> None:
+    arms = [
+        _arm("uniform", loss=4.00, free=0.20, tokens=67_110_000),
+        _arm("early_heavy", loss=4.00, free=0.20, tokens=67_110_000),
+    ]
+    assert depth_allocation_decision(
+        arms,
+        comparison_stage="durability",
+    ) == "retire_v8_early_heavy_not_durable"

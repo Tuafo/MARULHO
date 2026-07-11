@@ -67,6 +67,10 @@ and all parameters received gradients. Both decisions are
 uniform and early-heavy to 67.11M tokens; neither report installs a model or
 saves a checkpoint.
 
+The runner's `durability` comparison stage requires exactly those two arms and
+at least 67,108,864 processed tokens each. It cannot emit a promotion decision
+from a short smoke or a missing control.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone

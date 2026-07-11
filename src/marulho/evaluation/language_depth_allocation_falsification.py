@@ -53,6 +53,8 @@ PROFILE_WIDTHS: dict[str, tuple[int, ...]] = {
     "late_heavy": (1024, 1536, 2560, 3072),
 }
 ARM_NAMES = tuple(PROFILE_WIDTHS)
+COMPARISON_STAGES = ("screen", "durability")
+DURABILITY_ARM_NAMES = ("uniform", "early_heavy")
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,7 @@ class DepthAllocationFalsificationConfig:
     attention_heads: int = 8
     execution_backend: str = "eager"
     compile_loss_tolerance: float = 1.0e-3
+    comparison_stage: str = "screen"
 
 
 @dataclass(frozen=True)
@@ -505,14 +508,37 @@ def _run_arm(
 def depth_allocation_decision(
     arms: Sequence[Mapping[str, Any]],
     *,
-    minimum_tokens: int = 16_777_216,
+    minimum_tokens: int | None = None,
+    comparison_stage: str = "screen",
 ) -> str:
+    if comparison_stage not in COMPARISON_STAGES:
+        raise ValueError("Unknown v8 comparison stage")
+    required_names = (
+        ARM_NAMES if comparison_stage == "screen" else DURABILITY_ARM_NAMES
+    )
+    threshold = (
+        int(minimum_tokens)
+        if minimum_tokens is not None
+        else 16_777_216
+        if comparison_stage == "screen"
+        else 67_108_864
+    )
     rows = {str(row["name"]): row for row in arms}
-    if any(name not in rows for name in ARM_NAMES):
-        return "incomplete_v8_depth_allocation_comparison"
-    processed = min(int(row.get("processed_tokens") or 0) for row in rows.values())
-    if processed < int(minimum_tokens):
-        return "incomplete_v8_mechanism_smoke"
+    if any(name not in rows for name in required_names):
+        return (
+            "incomplete_v8_depth_allocation_comparison"
+            if comparison_stage == "screen"
+            else "incomplete_v8_durability_comparison"
+        )
+    processed = min(
+        int(rows[name].get("processed_tokens") or 0) for name in required_names
+    )
+    if processed < threshold:
+        return (
+            "incomplete_v8_mechanism_smoke"
+            if comparison_stage == "screen"
+            else "incomplete_v8_durability_budget"
+        )
 
     def loss(name: str) -> float:
         return float(rows[name]["heldout"]["heldout_loss"])
@@ -526,15 +552,20 @@ def depth_allocation_decision(
             and free(name) >= free("uniform") + 0.02
         )
 
-    winners = [name for name in ARM_NAMES[1:] if qualified(name)]
+    candidate_names = tuple(name for name in required_names if name != "uniform")
+    winners = [name for name in candidate_names if qualified(name)]
     if winners:
         best = min(winners, key=lambda name: (loss(name), -free(name)))
-        return f"replicate_v8_{best}_before_scale"
+        return (
+            f"replicate_v8_{best}_before_scale"
+            if comparison_stage == "screen"
+            else f"promote_v8_{best}_to_quality_baseline"
+        )
     loss_signal = any(
-        loss(name) <= loss("uniform") - 0.005 for name in ARM_NAMES[1:]
+        loss(name) <= loss("uniform") - 0.005 for name in candidate_names
     )
     behavior_signal = any(
-        free(name) >= free("uniform") + 0.02 for name in ARM_NAMES[1:]
+        free(name) >= free("uniform") + 0.02 for name in candidate_names
     )
     if loss_signal and behavior_signal:
         return "redesign_v8_disjoint_loss_and_behavior_signals"
@@ -542,7 +573,11 @@ def depth_allocation_decision(
         return "redesign_v8_loss_signal_without_free_generation"
     if behavior_signal:
         return "redesign_v8_behavior_signal_without_loss_gain"
-    return "retire_v8_static_depth_allocation"
+    return (
+        "retire_v8_static_depth_allocation"
+        if comparison_stage == "screen"
+        else "retire_v8_early_heavy_not_durable"
+    )
 
 
 def _assemble_report(
@@ -631,8 +666,17 @@ def _assemble_report(
         "arms": arms,
         "arms_executed_this_run": list(executed_names),
         "experiment_wall_seconds_this_run": elapsed_seconds,
-        "decision": depth_allocation_decision(arms),
+        "decision": depth_allocation_decision(
+            arms,
+            comparison_stage=config.comparison_stage,
+        ),
         "decision_contract": {
+            "comparison_stage": config.comparison_stage,
+            "minimum_processed_tokens_per_arm": (
+                16_777_216
+                if config.comparison_stage == "screen"
+                else 67_108_864
+            ),
             "heldout_loss_margin": 0.005,
             "free_relation_margin": 0.02,
             "candidate_must_beat_uniform_on_both": True,
@@ -668,12 +712,20 @@ def run_depth_allocation_falsification(
         raise ValueError("execution_backend must be 'eager' or 'inductor'")
     if config.compile_loss_tolerance <= 0.0:
         raise ValueError("compile_loss_tolerance must be positive")
+    if config.comparison_stage not in COMPARISON_STAGES:
+        raise ValueError("comparison_stage must be 'screen' or 'durability'")
     resolved = _resolve_device(device)
     if config.execution_backend == "inductor" and resolved.type != "cuda":
         raise ValueError("Inductor v8 execution is admitted only for CUDA runs")
     requested_arms = tuple(dict.fromkeys(str(name) for name in arm_names))
     if not requested_arms or any(name not in ARM_NAMES for name in requested_arms):
         raise ValueError("arm_names must contain valid unique v8 arm names")
+    if config.comparison_stage == "durability" and set(requested_arms) != set(
+        DURABILITY_ARM_NAMES
+    ):
+        raise ValueError(
+            "durability comparison requires exactly uniform and early_heavy"
+        )
     profile_sums = {sum(PROFILE_WIDTHS[name]) for name in ARM_NAMES}
     if len(profile_sums) != 1:
         raise RuntimeError("V8 profiles do not have an exact shared MLP budget")
@@ -894,6 +946,11 @@ def main() -> int:
     parser.add_argument("--eval-sample-mib", type=int, default=32)
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--model-seed", type=int, default=1337)
+    parser.add_argument(
+        "--comparison-stage",
+        choices=COMPARISON_STAGES,
+        default="screen",
+    )
     parser.add_argument("--arm", action="append", choices=ARM_NAMES, default=[])
     parser.add_argument(
         "--execution-backend",
@@ -920,6 +977,7 @@ def main() -> int:
             seed=int(args.seed),
             model_seed=int(args.model_seed),
             execution_backend=args.execution_backend,
+            comparison_stage=args.comparison_stage,
         ),
         device=args.device,
         arm_names=tuple(args.arm) or ARM_NAMES,
