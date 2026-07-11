@@ -545,31 +545,23 @@ training. Its [official implementation](https://github.com/NVIDIA/ngpt) also
 warns that gains are smaller for shorter runs and that public low-precision
 details may overstate the baseline gap.
 
-V6 should therefore be a strict local reproduction, not an nGPT claim by
-analogy: 21M matched parameters, context 72, the frozen 16.79M-token schedule,
-full-vocabulary loss, compiled/eager parity, and the same free behavior audit.
-Post-step parameter projection and optimizer/warmup differences require explicit
-controls. If hyperspherical normalization does not improve the loss curve at
-this scale, it is retired before any longer-context investment.
+V6 is now a strict local reproduction rather than an analogy: 20.988M normalized
+parameters versus 20.976M frozen-control parameters, context 72, the exact
+16.79M-token schedule, full-vocabulary loss, compiled/eager parity, and the same
+free behavior audit. Its 2x2 separates architecture from recipe: both models run
+the MARULHO recipe and the public nGPT high-LR/no-warmup/no-decay recipe. One loss
+graph is compiled per architecture and reused after exact initial-state reload;
+the normalized projection graph is also compiled and timed. A recipe-only win
+belongs to the Transformer recipe, not the hyperspherical architecture. If the
+normalized model does not improve heldout loss and free behavior under a matched
+recipe, v6 is retired before longer-context investment.
 
-### Staged associative-memory and column hypotheses
-
-The modern Hopfield result does not by itself replace the Transformer: its
-continuous one-step retrieval update is equivalent to key-value attention. The
-novel question for MARULHO is narrower and testable: can a causal bank of latent
-workspace states retrieve and stabilize useful joint patterns better than v4's
-transient mean? V5 now tests that question while holding cells, shared layers,
-training data, and controls nearly fixed. Heldout loss, free behavior,
-throughput, state growth, and control separation remain kill metrics.
-
-“Columns with different representation layers” is also a useful second-stage
-hypothesis, not a property to assume. A heterogeneous workspace could give cells
-different context horizons, depths, update clocks, or predictive targets so
-that token-local, event, entity, and longer causal representations have room to
-emerge. Starting heterogeneous would again confound the result: we would not
-know whether a gain came from communication or one fortunate cell shape.
-Heterogeneous cells must therefore beat a same-budget homogeneous workspace and
-learned specialization must be verified by cell ablations.
+The modern Hopfield result does not independently replace attention: its
+continuous one-step retrieval update is equivalent to key-value attention. V5
+tested a causal latent-bank version and real retrieval was harmful, so the live
+modular/Hopfield/column language code is deleted. Heterogeneous columns remain a
+possible future grounded hypothesis only after a base model earns sufficient
+language quality; they are not part of v6.
 
 ## Retired ideas
 

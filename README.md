@@ -46,23 +46,19 @@ deleted from the live tree. PMRM lost at its first corrected budget. Delta v1
 learned faster early, but lost that advantage at a durable budget and failed
 unseen semantic generation.
 
-Distributed predictive organism v1 and sparse event-memory v2 are retired. V2
-showed that random one-of-four specialists could raise strict free relation from
-14.5% to 27.0% at tied loss, but chosen-only utility reached 14.8% and
-comparative all-expert utility reached 25.8%; neither beat random. Modular
-predictive society v3 is also retired: at 16.79M matched tokens its monolith/real
-message losses were 4.6140/5.1073 and strict free relation scores were 14.5%/0%.
-Real messages lost to no messages and shuffled messages. The failed model,
-runner, and tests are deleted. The next hypothesis keeps one shared language
-interface and full-gradient depth while testing parallel latent cells around a
-narrow workspace. V4 substantially recovered loss and real exchange raised free
-relation behavior to 21.5% versus 11.7% shuffled and 10.2% without exchange, but
-loss stayed tied across workspace controls and the monolith remained stronger.
-V4 was not scaled. V5's content-addressed temporal workspace then collapsed real
-free behavior to 6.6% versus 22.7% shuffled and 24.6% without exchange at tied
-loss. The modular workspace model, runner, and tests are deleted. The next
-candidate tests hyperspherical normalization for faster convergence at the exact
-local MARULHO scale rather than assuming published long-context gains transfer.
+Distributed predictive organism v1, sparse event-memory v2, modular predictive
+society v3, and modular workspaces v4/v5 are retired. Random v2 specialists beat
+learned selection; real v3 messages lost to both communication controls; v4
+behavior improved but loss stayed tied and below the monolith; real v5 retrieval
+then reduced strict free relation to 6.6% versus 22.7% shuffled and 24.6% without
+exchange at tied loss. Their failed live code is deleted and their reports retain
+the evidence.
+
+The current experimental v6 candidate tests hyperspherical normalization for
+faster convergence at the exact local MARULHO scale rather than assuming
+published long-context gains transfer. Its matched 2x2 runner separates
+architecture from the public nGPT optimizer recipe and does not install or
+checkpoint v6 before a full-budget quality win.
 
 ## Current Evidence
 
