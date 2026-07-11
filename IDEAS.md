@@ -118,6 +118,19 @@ free-energy objectives remain later arms whose prerequisite problem is
 respectively identified dynamics, genuinely periodic state, and an environment
 the model can act on.
 
+The V15 preflight implements that boundary on a harder-than-delay task. Streams
+contain multiple key/value writes, random structured distractors, later key-only
+queries, and an overwrite profile. Training length is 128; heldout lengths reach
+512. Every arm has 112 state floats. A flat GRU is the stronger parameter
+control; three exact-reset dyadic arms receive raw block approximations, ordered
+Haar contrasts, or random balanced contrasts on identical clocks. A discarded
+convergence seed selects 2,400 steps without changing architecture or thresholds.
+It shows a real multiscale signal but no Haar-specific signal: length-512
+raw/Haar/shuffled accuracy is 19.8%/18.8%/18.6% versus 6.4% for flat GRU. Frozen
+evidence therefore uses new data and model seeds. Haar still needs a three-point
+win over *every* control on both long profiles; otherwise only the narrower
+dyadic-clock clue may survive.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon

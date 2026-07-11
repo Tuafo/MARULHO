@@ -221,6 +221,32 @@ memory receives complete gradients and reaches full matrix rank but learns to
 suppress writing. Decision: `retire_v14_no_segment_state_gain`. No checkpoint,
 model, runner, loader, or compatibility path remains.
 
+**`language_dyadic_memory_preflight.py`** — the active V15 admission test before
+any new language model is built. It generates multi-query associative-recall
+streams with random key/value distractors, key-only queries, 128-token training,
+disjoint 128/256/512-token evaluation, and a 256-token overwrite/interference
+profile. A metrics-only dictionary oracle must remain perfect; query inputs use
+a sentinel instead of the answer value, and targets never enter state updates.
+
+The controls use exactly 112 float state values per sequence: a stronger
+52,624-parameter flat GRU; seven small banks updated on dyadic clocks from raw
+block approximations; the same banks with ordered Haar contrasts; and the same
+banks with fixed random balanced contrasts. Candidate modes share exact initial
+tensors. Flat and candidate arms share exact input-embedding and readout tensors,
+while the flat GRU has more recurrent parameters and updates every token. State
+geometry is diagnostic only.
+
+A disposable seed fixes 2,400 updates as the convergence budget: the multiscale
+arms plateau near 25% in-range while the flat GRU remains at the 6.25% chance
+floor. Raw/Haar/shuffled length-512 accuracy is 19.8%/18.8%/18.6%, so the smoke
+suggests dyadic clocks rather than ordered wavelet detail; its reports are
+deleted. The frozen comparison uses fresh data/evaluation seed 5101 and fresh
+model seeds 5201/5202/5203. Haar enters language only if it beats flat, raw, and
+shuffled controls by at least three accuracy points on both long profiles,
+replicates against flat, and stays within one point on in-range and overwrite
+guards. A synthetic pass only admits a language falsifier; it never promotes
+base quality or runtime.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

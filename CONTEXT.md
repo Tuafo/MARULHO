@@ -414,6 +414,18 @@ runner, tests, and checkpoint surface are deleted; only the decisive report
 remains. The next architecture may not reuse mean segment summaries or simply
 retune this gate.
 
+The active next step is a cheap V15 dyadic-memory preflight, not another language
+scale run. It compares a same-state-byte flat GRU with seven small recurrent
+banks driven by raw dyadic block averages, ordered Haar contrasts, or random
+balanced contrasts. Training uses 128-token multi-query recall; untouched
+evaluations extend to 256 and 512 tokens and include overwritten key/value
+associations. Targets are metrics/loss only and query inputs contain a sentinel,
+not the answer. A discarded convergence seed fixes 2,400 steps; frozen evidence
+uses fresh data/evaluation seed 5101 and model seeds 5201/5202/5203. Haar must
+beat every control by three points on both long profiles before any dyadic
+language architecture is admitted. Synthetic success is permission to test, not
+language evidence.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing
