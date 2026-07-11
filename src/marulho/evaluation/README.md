@@ -62,7 +62,11 @@ Those are diagnostic only. Learned routing must
 beat the Transformer and every control on heldout loss and strict free generation
 without falling below half the local throughput before it can replicate. Fixed
 routing may replicate without a learned-router claim; no checkpoint is saved
-before survival.
+before survival. The first complete report is local at
+`reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json`.
+It selects token-hash for fresh-seed replication at loss 4.5388 / 29.7% strict
+free relation versus the Transformer's 4.6143 / 10.2%; learned routing collapsed
+to 9.5% pool usage and did not improve loss.
 
 The retired depth-connection v9 evidence is local at
 `reports/language_scaling/depth-connections-v9-falsification-16m-20260711.json`

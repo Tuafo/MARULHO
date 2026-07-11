@@ -98,7 +98,11 @@ reuse the same parameter objects. Causality, streaming equivalence, generation,
 common initialization, fixed active granularity, and gradient isolation pass;
 a CUDA/Inductor smoke also passed one-graph candidate reuse at 1.80 GB peak with
 all candidate modes within 0.97% throughput. Its two-step scores are discarded;
-language quality has not been measured yet.
+the first 16.79M-token run selected token-hash for replication at loss 4.5388 /
+29.7% strict free relation versus the Transformer's 4.6143 / 10.2%. Learned
+routing reached 4.6118 / 29.3% and collapsed to 9.5% pool usage, so this is a
+fixed-partition capacity result, not a learned-router result. No checkpoint is
+saved before fresh-seed replication.
 
 ## Current Evidence
 

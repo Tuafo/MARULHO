@@ -264,9 +264,15 @@ graph instead of five separate graphs. Candidate controls stayed within 0.97%
 steady throughput, peaked at 1.80 GB, and used 60-69% of the 16,384-expert pool
 in one evaluation batch; immutable random routing, token-hash uniqueness, compile
 parity, and common initialization passed. The two-step quality values and smoke
-report are discarded. V10 is not a runtime path or checkpoint format until a
-routed mode beats the Transformer and every routing control on heldout loss and
-strict free generation and then replicates.
+report are discarded. The first 16.79M-token comparison selects token-hash for
+replication: Transformer/shared-only/frozen-random/token-hash/learned-router loss
+was 4.6143/4.6166/4.6134/4.5388/4.6118 and strict free relation was
+10.2%/15.6%/21.1%/29.7%/29.3%. Token-hash improved throughout the training trace,
+used 68.5% of the pool, gave 69.7% of expert rows final gradients, ran at 114.1k
+tokens/s versus 129.6k, and peaked at 2.05 GB. Learned routing received full
+router gradients but collapsed to 9.5% pool usage and did not improve loss.
+Decision: `replicate_v10_token_hash_without_learned_router_claim`. V10 is not a
+runtime path or checkpoint format until this fixed-route result replicates.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

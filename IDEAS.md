@@ -186,6 +186,16 @@ controls, avoiding three redundant compilations. Candidate modes stayed within
 roughly 60-69% of the pool with exactly eight assignments per token. These facts
 admit the full falsifier; the two-step losses are discarded.
 
+The first full seed selects token-hash for replication. At 16.79M tokens,
+Transformer/shared-only/frozen-random/token-hash/learned-router loss was
+4.6143/4.6166/4.6134/4.5388/4.6118 and strict free relation was
+10.2%/15.6%/21.1%/29.7%/29.3%. Token-hash touched 68.5% of experts in the
+diagnostic batch, gave 69.7% of expert rows final gradients, and improved its
+training trace from the first checkpoint onward. Learned routing had full router
+gradients but used only 9.5% of the pool, exposing specialization collapse rather
+than a dead implementation. The current claim is narrow: stable token-indexed
+micro-capacity may help; learned organization has failed this seed.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.
