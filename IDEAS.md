@@ -166,6 +166,16 @@ groups. First require exact attachment, streaming equivalence, full gradients,
 and viable CUDA throughput; then use a bounded matched language screen before a
 67M-token durability run.
 
+The implementation is now mechanically admitted. The zero readout preserves
+exact parent logits for off, local, grouped, and dense attachments; recurrent
+parameters receive gradients when active; and a CUDA smoke sustains roughly
+97.6k grouped tokens/s versus 118.9k off at about 2.26 versus 1.98 GB peak
+allocated memory. These are execution checks, not quality evidence. Full-graph
+GRU tracing was rejected after an unbounded compile path; every V17 arm instead
+uses the same reported partial-Inductor boundary with cuDNN owning the GRU. The
+33.55M-token-per-arm floor is enforced in code so smoke loss cannot decide the
+branch.
+
 ## Ranked directions
 
 ### 1. Neural-manifold instrumentation — do soon
@@ -854,8 +864,9 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
     multiscale-bank advantage over a same-state-byte flat GRU.
 12. Completed: V16 shows that seven independent token-rate banks, not clocks or
     averaging, drive the replicated recall and length-generalization win.
-13. Next: attach an all-active grouped recurrent organ to V11 and screen off,
-    local, dense, and grouped controls for parity, throughput, and language loss.
+13. In progress: the all-active grouped recurrent organ passes attachment,
+    gradient, streaming, CUDA-throughput, and compile-parity admission. Run the
+    33.55M-token off/local/dense/grouped language screen.
 14. Use read-only state geometry and group ablations to explain that branch; they
     never promote a model.
 15. Run 67M-token durability and unseen generation only after the bounded grouped

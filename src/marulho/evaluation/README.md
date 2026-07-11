@@ -259,8 +259,20 @@ updates and run at 574k versus 1.35M task tokens/s, so this is an organization
 win, not an efficiency win. Their 512-token effective rank is 23.3 versus 23.1
 for flat, ruling out global rank as an explanation. Decision:
 `redesign_v16_retain_small_banks_reject_clock_claim`. Clock, averaging, and
-synthetic-runner code are deleted. The next language screen tests an all-active
-grouped/block-diagonal recurrent organ against off, local, and dense controls.
+synthetic-runner code are deleted.
+
+**`language_grouped_recurrent_experiment.py`** is the active bounded V17
+language screen. It starts every arm from the strict one-billion-token V11
+checkpoint and compares exact V11/off, an equal-parameter token-local transform,
+a dense 256-wide GRU, and eight independent 32-wide GRU groups. All arms receive
+the same general-only batches, optimizer recipe, heldout windows, and relation
+guard. The grouped arm must improve heldout loss by at least 0.02 over every
+control without more than 0.02 relation-accuracy regret. At least 33,554,432
+tokens per arm are mandatory; smaller invocations return
+`diagnostic_v17_below_screen_budget` and cannot advance the branch. Inductor is
+partial-graph by design here: Transformer regions compile while the GRU remains
+an optimized cuDNN boundary, and the report records this execution contract and
+eager/compiled loss parity. No V17 checkpoint is written by this screen.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

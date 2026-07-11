@@ -439,9 +439,21 @@ and extrapolate from 128 to 512 tokens with almost no accuracy loss. They perfor
 seven times more recurrent updates and are 2.35x slower than flat in the current
 implementation, so no sparse-compute claim is made. Decision:
 `redesign_v16_retain_small_banks_reject_clock_claim`. The synthetic model and
-runner are deleted. The next V11 language screen inserts one all-active grouped
-recurrent organ and compares it with off, same-parameter local, and dense-state
-controls before any large language run.
+runner are deleted.
+
+V17 is the current uninstalled language experiment. It inserts eight all-active
+32-wide GRU groups after V11 layer 1, concatenates their 256 state features, and
+returns them through one zero-initialized residual projection. Every group reads
+the same 512-wide language representation; recurrent mixing stays inside each
+group. Its exact-reset controls are V11/off, the identical grouped parameters
+applied independently to each token, and one dense 256-wide GRU. Attachment is
+exactly logit-identical before training, no router or label enters the state
+path, and ordinary next-token cross-entropy is the only objective. CUDA uses
+the same partial-Inductor/cached-cuDNN-GRU boundary for all arms because tracing
+through the GRU as one full graph has an impractical compile cost. A run below
+33,554,432 tokens per arm is mechanically diagnostic and cannot promote V17.
+Only a grouped loss gain of at least 0.02 over all three controls with bounded
+relation regret advances it to a 67M-token durability run.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
