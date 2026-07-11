@@ -44,6 +44,16 @@ label-safe relation evaluation, and optional post-arm diagnostics. Architecture
 decisions remain owned by the specific runner; this support cannot promote a
 model.
 
+**`language_depth_connection_falsification.py`** — the active uninstalled v9
+runner. It compares the Transformer with identity, fixed-mean, fixed-random,
+learned-unconstrained, and learned-simplex depth reuse. The five connection modes
+reload one exact 20,976,142-parameter state and share one compiled graph; the
+20,976,128-parameter Transformer is separately hash-matched on every common
+tensor. Reports include strict language evidence, gradient/compute audits,
+learned connection weights, and read-only geometry. A learned mode must beat the
+Transformer and every fixed control on both loss and free generation before it
+can replicate; no checkpoint is saved before survival.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
