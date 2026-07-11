@@ -55,9 +55,11 @@ message losses were 4.6140/5.1073 and strict free relation scores were 14.5%/0%.
 Real messages lost to no messages and shuffled messages. The failed model,
 runner, and tests are deleted. The next hypothesis keeps one shared language
 interface and full-gradient depth while testing parallel latent cells around a
-narrow workspace. Its parameter-matched experimental core now exists, but it is
-not installed and has no quality claim before its matched monolith, no-exchange,
-shuffled, and real-workspace run completes.
+narrow workspace. V4 substantially recovered loss and real exchange raised free
+relation behavior to 21.5% versus 11.7% shuffled and 10.2% without exchange, but
+loss stayed tied across workspace controls and the monolith remained stronger.
+V4 is not scaled. V5 now tests selective writes into a narrow content-addressed
+temporal workspace; it is uninstalled and has no quality claim.
 
 ## Current Evidence
 

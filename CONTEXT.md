@@ -167,21 +167,23 @@ society arms were tightly compute-matched at 74.4--74.6k steady tokens/s, so the
 negative is not a control-speed artifact. The model, runner, and tests are
 deleted; the compact local report retains exact evidence.
 
-**Depth-Preserving Modular Workspace v4 Hypothesis** — test small units as
-internal latent processors rather than complete duplicate language models. A
-shared embedding/readout preserves vocabulary capacity, every token keeps a
-full differentiable path through the training context, and parallel cells may
-exchange causal latent workspace state between layers. The experimental core is
-implemented at 20,970,448 parameters versus the monolith's 20,976,128 (0.027%
-under): two 368-wide shared layers, four parallel 256-wide cells with one layer
-on each side of a 64-dimensional token-causal workspace, then two shared
-integration layers and one tied vocabulary head. Monolith, parallel/no exchange,
-shuffled workspace, and real workspace remain required controls. The core is
-uninstalled and has no quality evidence yet. The matched runner freezes the
-same source-balanced schedule used by v2/v3, uses parity-checked compilation,
-and measures heldout loss plus label-safe free behavior. Ordinary transient
-communication is tested before persistent Hopfield memory or heterogeneous cell
-roles.
+**Depth-Preserving Modular Workspace v4 (no scale)** — the shared-interface
+architecture repaired much of v3's capacity loss. At 16.79M tokens,
+monolith/no-exchange/shuffled/real losses were 4.6147/4.8549/4.8518/4.8507 and
+strict free relation scores were 32.0%/10.2%/11.7%/21.5%. Real exchange produced
+a 9.8--11.3 point behavior gain over controls but no 0.005 loss win, and the
+monolith remained stronger. The original mean-exchange mechanism is not scaled;
+the report and separate review preserve the mechanical gate and interpretation.
+
+**Content-Addressed Modular Workspace v5 Hypothesis** — retain v4's shared
+embedding/readout, six-layer differentiable paths, and four internal cells, but
+replace unweighted same-token means with learned cell-write competition into a
+64-wide causal workspace layer. Its attention retrieves prior workspace patterns
+and is mathematically the modern-Hopfield update; the tested novelty is the
+narrow shared memory topology, not a renamed attention operation. At an
+8,192-token vocabulary v5 has 21,012,624 parameters versus 20,976,128 (0.174%
+more). No-exchange, shuffled, real, and monolithic controls remain required. The
+candidate is uninstalled and unqualified.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

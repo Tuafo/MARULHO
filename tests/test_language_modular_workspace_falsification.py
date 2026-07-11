@@ -10,7 +10,7 @@ from marulho.evaluation.language_modular_workspace_falsification import (
 )
 
 
-def test_v4_schedule_is_exact_and_reproducible() -> None:
+def test_v5_schedule_is_exact_and_reproducible() -> None:
     first = build_matched_schedule(
         step_count=20,
         relation_fraction=0.2,
@@ -30,7 +30,7 @@ def test_v4_schedule_is_exact_and_reproducible() -> None:
     assert sum(kind == "general_1" for kind, _ in first) == 8
 
 
-def test_v4_workspace_controls_start_from_identical_parameters() -> None:
+def test_v5_workspace_controls_start_from_identical_parameters() -> None:
     config = ModularWorkspaceFalsificationConfig(
         sequence_length=16,
         shared_width=32,
@@ -62,7 +62,7 @@ def _arm(name: str, *, loss: float, free: float, tokens: int = 16_785_792) -> di
     }
 
 
-def test_v4_decision_scales_only_real_communication_win() -> None:
+def test_v5_decision_scales_only_real_communication_win() -> None:
     arms = (
         _arm("monolith", loss=4.00, free=0.20),
         _arm("no_exchange", loss=4.02, free=0.20),
@@ -70,11 +70,11 @@ def test_v4_decision_scales_only_real_communication_win() -> None:
         _arm("real", loss=4.00, free=0.24),
     )
     assert modular_workspace_decision(arms) == (
-        "scale_v4_real_workspace_to_64m_and_unseen_generation"
+        "scale_v5_associative_workspace_to_64m_and_unseen_generation"
     )
 
 
-def test_v4_decision_preserves_independent_cell_result_without_bus_claim() -> None:
+def test_v5_decision_preserves_independent_cell_result_without_bus_claim() -> None:
     arms = (
         _arm("monolith", loss=4.00, free=0.20),
         _arm("no_exchange", loss=3.99, free=0.23),
@@ -82,11 +82,11 @@ def test_v4_decision_preserves_independent_cell_result_without_bus_claim() -> No
         _arm("real", loss=4.02, free=0.20),
     )
     assert modular_workspace_decision(arms) == (
-        "redesign_v4_exchange_keep_parallel_cell_result"
+        "redesign_v5_exchange_keep_parallel_cell_result"
     )
 
 
-def test_v4_decision_rejects_communication_that_harms_base_quality() -> None:
+def test_v5_decision_rejects_communication_that_harms_base_quality() -> None:
     arms = (
         _arm("monolith", loss=4.00, free=0.40),
         _arm("no_exchange", loss=4.05, free=0.20),
@@ -94,11 +94,23 @@ def test_v4_decision_rejects_communication_that_harms_base_quality() -> None:
         _arm("real", loss=4.03, free=0.25),
     )
     assert modular_workspace_decision(arms) == (
-        "redesign_v4_shared_capacity_before_scaling_workspace"
+        "redesign_v5_shared_capacity_before_scaling_workspace"
     )
 
 
-def test_v4_decision_retires_no_gain_and_labels_short_run_smoke() -> None:
+def test_v5_decision_keeps_behavior_only_signal_as_redesign() -> None:
+    arms = (
+        _arm("monolith", loss=4.00, free=0.30),
+        _arm("no_exchange", loss=4.10, free=0.10),
+        _arm("shuffled", loss=4.09, free=0.12),
+        _arm("real", loss=4.09, free=0.20),
+    )
+    assert modular_workspace_decision(arms) == (
+        "redesign_v5_behavior_signal_without_loss_or_monolith_win"
+    )
+
+
+def test_v5_decision_retires_no_gain_and_labels_short_run_smoke() -> None:
     arms = (
         _arm("monolith", loss=4.00, free=0.20),
         _arm("no_exchange", loss=4.02, free=0.20),
@@ -106,7 +118,7 @@ def test_v4_decision_retires_no_gain_and_labels_short_run_smoke() -> None:
         _arm("real", loss=4.01, free=0.21),
     )
     assert modular_workspace_decision(arms) == (
-        "retire_v4_modular_workspace_no_coordination_or_quality_gain"
+        "retire_v5_associative_workspace_no_coordination_or_quality_gain"
     )
     smoke = tuple({**row, "processed_tokens": 82_944} for row in arms)
-    assert modular_workspace_decision(smoke) == "incomplete_v4_mechanism_smoke"
+    assert modular_workspace_decision(smoke) == "incomplete_v5_mechanism_smoke"

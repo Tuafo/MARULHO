@@ -27,11 +27,14 @@ class ModularWorkspaceConfig:
     cell_layers_per_stage: int = 1
     cell_attention_heads: int = 8
     workspace_width: int = 64
+    workspace_layers: int = 1
+    workspace_attention_heads: int = 4
+    workspace_mlp_ratio: float = 2.0
     context_length: int = 72
     mlp_ratio: float = 4.0
     mode: str = "real"
     tie_embeddings: bool = True
-    active_language_path: str = "marulho_depth_preserving_modular_workspace_v4"
+    active_language_path: str = "marulho_content_addressed_modular_workspace_v5"
 
 
 def _validate_workspace_config(config: ModularWorkspaceConfig) -> None:
@@ -47,6 +50,8 @@ def _validate_workspace_config(config: ModularWorkspaceConfig) -> None:
         raise ValueError("cell_layers_per_stage must be positive")
     if int(config.workspace_width) < 1:
         raise ValueError("workspace_width must be positive")
+    if int(config.workspace_layers) < 1:
+        raise ValueError("workspace_layers must be positive")
     for width, heads, label in (
         (
             int(config.shared_width),
@@ -54,6 +59,11 @@ def _validate_workspace_config(config: ModularWorkspaceConfig) -> None:
             "shared",
         ),
         (int(config.cell_width), int(config.cell_attention_heads), "cell"),
+        (
+            int(config.workspace_width),
+            int(config.workspace_attention_heads),
+            "workspace",
+        ),
     ):
         if width <= 0 or heads <= 0 or width % heads != 0:
             raise ValueError(f"{label} width must be divisible by its head count")
@@ -109,6 +119,7 @@ class _WorkspaceCell(nn.Module):
             config.workspace_width,
             bias=False,
         )
+        self.write_score = nn.Linear(config.cell_width, 1, bias=False)
         self.message_in = nn.Linear(
             config.workspace_width,
             config.cell_width,
@@ -128,7 +139,7 @@ class _WorkspaceCell(nn.Module):
 class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
     """One language interface with parallel internal cells and a narrow workspace."""
 
-    surface = "marulho_modular_workspace_language_model.v1"
+    surface = "marulho_modular_workspace_language_model.v2"
 
     def __init__(self, workspace_config: ModularWorkspaceConfig) -> None:
         nn.Module.__init__(self)
@@ -166,6 +177,15 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
             _WorkspaceCell(workspace_config)
             for _ in range(workspace_config.cell_count)
         )
+        self.workspace_core = MarulhoCausalTransformerStateBlock(
+            workspace_config.workspace_width,
+            workspace_config.workspace_width,
+            state_layers=workspace_config.workspace_layers,
+            attention_heads=workspace_config.workspace_attention_heads,
+            context_length=workspace_config.context_length,
+            mlp_ratio=workspace_config.workspace_mlp_ratio,
+            dropout=0.0,
+        )
         combined_cell_width = workspace_config.cell_count * workspace_config.cell_width
         self.cell_gate = nn.Linear(
             combined_cell_width,
@@ -198,27 +218,41 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
             if isinstance(module, (nn.Linear, nn.Embedding)):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def _workspace_inputs(
+    def _workspace_stream(
         self,
-        messages: list[torch.Tensor],
-    ) -> list[torch.Tensor]:
+        hidden_rows: list[torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        messages = [
+            cell.message_out(hidden)
+            for cell, hidden in zip(self.cells, hidden_rows, strict=True)
+        ]
+        write_weights = torch.softmax(
+            torch.cat(
+                [
+                    cell.write_score(hidden)
+                    for cell, hidden in zip(self.cells, hidden_rows, strict=True)
+                ],
+                dim=-1,
+            ),
+            dim=-1,
+        )
+        pooled = torch.stack(
+            [
+                message * write_weights[..., index : index + 1]
+                for index, message in enumerate(messages)
+            ],
+            dim=0,
+        ).sum(dim=0)
         mode = self.workspace_config.mode
         if mode == "shuffled":
-            usable = (
-                [torch.roll(message, shifts=1, dims=0) for message in messages]
-                if int(messages[0].shape[0]) > 1
-                else [message * 0.0 for message in messages]
+            pooled = (
+                torch.roll(pooled, shifts=1, dims=0)
+                if int(pooled.shape[0]) > 1
+                else pooled * 0.0
             )
-        else:
-            usable = messages
-        total = torch.stack(usable, dim=0).sum(dim=0)
-        incoming = [
-            (total - usable[index]) / float(self.workspace_config.cell_count - 1)
-            for index in range(self.workspace_config.cell_count)
-        ]
         if mode == "no_exchange":
-            incoming = [message * 0.0 for message in incoming]
-        return incoming
+            pooled = pooled * 0.0
+        return pooled, write_weights
 
     def _forward_hidden(
         self,
@@ -239,7 +273,6 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
         )
         before_rows: list[torch.Tensor] = []
         before_states: list[dict[str, torch.Tensor]] = []
-        messages: list[torch.Tensor] = []
         for index, cell in enumerate(self.cells):
             projected = cell.input_norm(cell.input_projection(shared))
             hidden, next_state, _ = cell.before_exchange(
@@ -249,12 +282,18 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
             )
             before_rows.append(hidden)
             before_states.append(next_state)
-            messages.append(cell.message_out(hidden))
-        incoming = self._workspace_inputs(messages)
+        workspace_input, write_weights = self._workspace_stream(before_rows)
+        workspace_hidden, workspace_state, _ = self.workspace_core(
+            workspace_input,
+            _substate(state, "workspace_"),
+            collect_telemetry=False,
+        )
+        if self.workspace_config.mode == "no_exchange":
+            workspace_hidden = workspace_hidden * 0.0
         after_rows: list[torch.Tensor] = []
         after_states: list[dict[str, torch.Tensor]] = []
         for index, cell in enumerate(self.cells):
-            communicated = before_rows[index] + cell.message_in(incoming[index])
+            communicated = before_rows[index] + cell.message_in(workspace_hidden)
             hidden, next_state, _ = cell.after_exchange(
                 communicated,
                 _substate(state, f"cell_{index}_after_"),
@@ -292,6 +331,7 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
                 f"cell_{index}_after_",
                 after_states[index],
             )
+        _store_state(next_state, "workspace_", workspace_state)
         _store_state(next_state, "shared_after_", after_state)
         telemetry = {
             **transformer,
@@ -304,10 +344,28 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
             "cell_count": int(self.workspace_config.cell_count),
             "cell_width": int(self.workspace_config.cell_width),
             "workspace_width": int(self.workspace_config.workspace_width),
+            "workspace_layers": int(self.workspace_config.workspace_layers),
             "workspace_mode": str(self.workspace_config.mode),
             "workspace_exchange_active": self.workspace_config.mode
             in {"shuffled", "real"},
             "full_context_gradient_path": True,
+            "content_addressed_temporal_workspace": True,
+            "modern_hopfield_equivalent_attention_update": True,
+            "mean_workspace_write_entropy": (
+                float(
+                    (
+                        -(
+                            write_weights.float()
+                            * write_weights.float().clamp_min(1.0e-9).log()
+                        ).sum(-1)
+                    )
+                    .mean()
+                    .detach()
+                    .cpu()
+                )
+                if collect_telemetry
+                else None
+            ),
             "mean_cell_gate_entropy": (
                 float(
                     (-(gate.float() * gate.float().clamp_min(1.0e-9).log()).sum(-1))
@@ -381,7 +439,7 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
             targets.reshape(-1),
         )
         evidence = {
-            "surface": "marulho_modular_workspace_cross_entropy.v1",
+            "surface": "marulho_modular_workspace_cross_entropy.v2",
             "sampled_vocab_training": False,
             "full_vocab_logits_materialized": True,
             "target_token_count": int(targets.numel()),
@@ -413,6 +471,6 @@ class MarulhoModularWorkspaceLanguageModel(MarulhoLanguageModel):
         )
         return {
             **policy,
-            "surface": "marulho_modular_workspace_decode_policy.v1",
-            "kv_cache": "bounded_shared_and_per_cell_layers",
+            "surface": "marulho_modular_workspace_decode_policy.v2",
+            "kv_cache": "bounded_shared_cell_and_workspace_layers",
         }

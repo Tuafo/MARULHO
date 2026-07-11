@@ -45,7 +45,7 @@ is a requirement and none is accepted wholesale.
   on some tasks. They motivate controls; they are not language-model evidence
   for MARULHO.
 - [Perceiver](https://arxiv.org/abs/2103.03206) shows that a learned latent
-  bottleneck can compress large inputs. V4 borrows the bottleneck question, not
+  bottleneck can compress large inputs. V4/V5 borrow the bottleneck question, not
   the Perceiver architecture or its claims.
 
 The experimental method is to extract a computational question, implement the
@@ -480,9 +480,9 @@ The coarse mean message was then added uniformly to every token in the next
 event. This refutes the implemented full-model society and bus, not every system
 made from small units.
 
-## V4 hypothesis: a depth-preserving modular workspace
+## V4 result: a depth-preserving modular workspace (no scale)
 
-The implemented next test treats cells as internal latent processors inside one
+V4 treated cells as internal latent processors inside one
 language system. It keeps a shared token embedding and readout, retains a full
 differentiable context path, and alternates parallel local processing with a
 narrow causal workspace. The parameter budget moves from duplicated vocabulary
@@ -495,29 +495,46 @@ exchange, a second layer in each cell, and two shared integration layers. The
 same shared embedding owns the tied full-vocabulary readout. Unlike v3, no
 training-context boundary detaches the gradient inside a 72-token example.
 
-Required first controls are:
+The matched result was:
 
-1. the 21M monolithic Transformer;
-2. a parameter-matched parallel-cell model with no cross-cell exchange;
-3. the same model with shuffled workspace state;
-4. the same model with real workspace state.
+| Arm | Heldout loss | Strict free relation |
+| --- | ---: | ---: |
+| Compiled monolith | 4.6147 | 32.0% |
+| Parallel cells, no exchange | 4.8549 | 10.2% |
+| Shuffled workspace | 4.8518 | 11.7% |
+| Real workspace | 4.8507 | 21.5% |
 
-Real exchange must beat both no-exchange and shuffled controls on heldout loss
-and free behavior. Only then should cells receive different horizons, clocks,
-targets, or persistent memories. Cell roles remain diagnoses from ablations,
-not names assigned in advance.
+Real exchange nearly doubled free behavior relative to both controls, while loss
+remained tied. It did not meet the predeclared 0.005 loss margin and remained
+behind the monolith, so v4 is not scaled. The result supports meaningful message
+content but not the unweighted mean workspace as a base architecture. The
+compiled monolith's 32.0% free score also differed from the prior eager 14.5%
+control at tied loss; any future positive needs a second seed or eager replicate.
+
+## V5 hypothesis: selective content-addressed workspace
+
+V5 retains the shared interface and full-gradient paths, but cells compete to
+write into one 64-wide causal latent stream. A narrow attention layer retrieves
+prior workspace states before broadcasting the result to every cell. This is the
+minimal faithful connection to modern Hopfield networks: the retrieval update is
+attention, while the hypothesis under test is persistent, bandwidth-limited
+shared state.
+
+At an 8,192-token vocabulary v5 has 21,012,624 parameters, 0.174% above the
+monolith. Monolith, no-exchange, shuffled-write, and real-write arms keep the
+same tokenizer, schedule, optimizer, and token budget. Real writes must win both
+heldout loss and free behavior to scale. A behavior-only win is a redesign
+signal, not promotion.
 
 ### Staged associative-memory and column hypotheses
 
 The modern Hopfield result does not by itself replace the Transformer: its
 continuous one-step retrieval update is equivalent to key-value attention. The
-novel question for MARULHO is narrower and testable: can a persistent bank of
-cell/event prototypes let a working modular workspace retrieve and stabilize
-useful joint states better than transient communication? That remains a
-second-stage arm only if ordinary real exchange first beats no-exchange and
-shuffled controls. The comparison must hold cell count, parameter budget,
-workspace width, and training data fixed. Retrieval accuracy, interference,
-heldout loss, free behavior, throughput, and state growth are kill metrics.
+novel question for MARULHO is narrower and testable: can a causal bank of latent
+workspace states retrieve and stabilize useful joint patterns better than v4's
+transient mean? V5 now tests that question while holding cells, shared layers,
+training data, and controls nearly fixed. Heldout loss, free behavior,
+throughput, state growth, and control separation remain kill metrics.
 
 “Columns with different representation layers” is also a useful second-stage
 hypothesis, not a property to assume. A heterogeneous workspace could give cells
@@ -539,6 +556,8 @@ learned specialization must be verified by cell ablations.
 - Sparse event-memory v2's next-token utility selector.
 - Modular predictive society v3's duplicated full-language cells and delayed
   mean-message bus.
+- Modular workspace v4's unweighted same-token mean as the final communication
+  operator.
 - Multiple-choice or loss improvement as proof of memory.
 - Biological vocabulary without a measurable computational role.
 

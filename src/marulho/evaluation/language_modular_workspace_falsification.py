@@ -1,4 +1,4 @@
-"""Matched real-language falsification for depth-preserving workspace v4."""
+"""Matched falsification for content-addressed modular workspace v5."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ from marulho.training.language_modular_workspace import (
 )
 
 
-SURFACE = "marulho_modular_workspace_falsification.v1"
+SURFACE = "marulho_modular_workspace_falsification.v2"
 ARTIFACT_KIND = "marulho_modular_workspace_falsification"
 ARM_NAMES = (
     "monolith",
@@ -81,6 +81,9 @@ class ModularWorkspaceFalsificationConfig:
     cell_layers_per_stage: int = 1
     cell_attention_heads: int = 8
     workspace_width: int = 64
+    workspace_layers: int = 1
+    workspace_attention_heads: int = 4
+    workspace_mlp_ratio: float = 2.0
     execution_backend: str = "eager"
     compile_loss_tolerance: float = 1.0e-3
 
@@ -234,6 +237,9 @@ def _build_model(
             cell_layers_per_stage=config.cell_layers_per_stage,
             cell_attention_heads=config.cell_attention_heads,
             workspace_width=config.workspace_width,
+            workspace_layers=config.workspace_layers,
+            workspace_attention_heads=config.workspace_attention_heads,
+            workspace_mlp_ratio=config.workspace_mlp_ratio,
             context_length=config.sequence_length,
             mode=name,
         )
@@ -329,7 +335,7 @@ def _run_arm(
         optimizer.step()
         processed += int(batch.target_ids.numel())
         if (step + 1) % max(1, total_steps // 10) == 0:
-            print(f"[workspace-v4] {name} {step + 1}/{total_steps}", flush=True)
+            print(f"[workspace-v5] {name} {step + 1}/{total_steps}", flush=True)
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     elapsed = time.perf_counter() - started
@@ -403,7 +409,7 @@ def modular_workspace_decision(
     rows = {str(row["name"]): row for row in arms}
     processed = min(int(row.get("processed_tokens") or 0) for row in rows.values())
     if processed < int(minimum_tokens):
-        return "incomplete_v4_mechanism_smoke"
+        return "incomplete_v5_mechanism_smoke"
 
     monolith = rows["monolith"]
     no_exchange = rows["no_exchange"]
@@ -432,11 +438,13 @@ def modular_workspace_decision(
     )
     if communication_loss_win and communication_behavior_win:
         if monolith_quality_guard:
-            return "scale_v4_real_workspace_to_64m_and_unseen_generation"
-        return "redesign_v4_shared_capacity_before_scaling_workspace"
+            return "scale_v5_associative_workspace_to_64m_and_unseen_generation"
+        return "redesign_v5_shared_capacity_before_scaling_workspace"
+    if communication_behavior_win:
+        return "redesign_v5_behavior_signal_without_loss_or_monolith_win"
     if parallel_no_exchange_win:
-        return "redesign_v4_exchange_keep_parallel_cell_result"
-    return "retire_v4_modular_workspace_no_coordination_or_quality_gain"
+        return "redesign_v5_exchange_keep_parallel_cell_result"
+    return "retire_v5_associative_workspace_no_coordination_or_quality_gain"
 
 
 def run_modular_workspace_falsification(
@@ -463,7 +471,7 @@ def run_modular_workspace_falsification(
         raise ValueError("Inductor workspace execution is admitted only for CUDA runs")
     requested_arms = tuple(dict.fromkeys(str(name) for name in arm_names))
     if not requested_arms or any(name not in ARM_NAMES for name in requested_arms):
-        raise ValueError("arm_names must contain valid unique v4 arm names")
+        raise ValueError("arm_names must contain valid unique v5 arm names")
 
     tokenizer_checkpoint = Path(tokenizer_checkpoint_path)
     relation_cases_file = Path(relation_cases_path)
@@ -545,7 +553,7 @@ def run_modular_workspace_falsification(
         baseline_path = Path(baseline_report_path)
         reused_report = json.loads(baseline_path.read_text(encoding="utf-8"))
         if reused_report.get("surface") != SURFACE:
-            raise ValueError("Baseline report surface does not match v4 runner")
+            raise ValueError("Baseline report surface does not match v5 runner")
         if dict(reused_report.get("configuration") or {}) != asdict(config):
             raise ValueError("Baseline report configuration does not match this run")
         if dict(reused_report.get("source_selections") or {}) != source_selections:
@@ -564,7 +572,7 @@ def run_modular_workspace_falsification(
         torch.set_float32_matmul_precision("high")
     try:
         for name in requested_arms:
-            print(f"[workspace-v4] starting {name}", flush=True)
+            print(f"[workspace-v5] starting {name}", flush=True)
             row = _run_arm(
                 name,
                 tokenizer=tokenizer,
@@ -579,7 +587,7 @@ def run_modular_workspace_falsification(
             executed.append(row)
             combined[name] = row
             print(
-                f"[workspace-v4] completed {name}: loss "
+                f"[workspace-v5] completed {name}: loss "
                 f"{row['heldout']['heldout_loss']:.4f}, free "
                 f"{row['relation']['generation_exact_accuracy']:.3f}",
                 flush=True,
@@ -596,7 +604,7 @@ def run_modular_workspace_falsification(
     decision = (
         modular_workspace_decision(arms)
         if len(arms) == len(ARM_NAMES)
-        else "incomplete_matched_v4_comparison"
+        else "incomplete_matched_v5_comparison"
     )
     parameter_counts = {row["name"]: int(row["parameters"]) for row in arms}
     monolith_parameters = parameter_counts.get("monolith")
@@ -679,6 +687,7 @@ def run_modular_workspace_falsification(
             "heldout_loss_margin": 0.005,
             "free_relation_margin": 0.02,
             "no_checkpoint_saved_before_survival": True,
+            "behavior_only_win_routes_to_redesign_not_scale": True,
         },
         "quality_boundary": {
             "promotes_runtime_installation": False,
@@ -689,9 +698,9 @@ def run_modular_workspace_falsification(
     write_json_report_with_readme(
         Path(output_path),
         report,
-        title="MARULHO Modular Predictive Workspace v4 Falsification",
+        title="MARULHO Content-Addressed Workspace v5 Falsification",
     )
-    print(f"[workspace-v4] decision {decision}", flush=True)
+    print(f"[workspace-v5] decision {decision}", flush=True)
     return report
 
 

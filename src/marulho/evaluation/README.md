@@ -70,12 +70,20 @@ At 16.79M matched tokens, monolith/average/no-message/shuffled/real losses were
 tokens/s with compile/eager loss deltas at or below 0.000026. Real communication
 lost both required controls, so the model, runner, and tests are deleted.
 
-**`language_modular_workspace_falsification.py`** — the v4 matched runner. It
+The v4 report is
+`reports/language_scaling/modular-workspace-v4-falsification-16m-20260710.json`;
+its scientific interpretation is in the adjacent `-review.md`. Real exchange
+reached 4.8507 loss / 21.5% free relation versus 4.8518 / 11.7% shuffled and
+4.8549 / 10.2% no exchange. It did not pass the loss or monolith guard and is not
+scaled.
+
+**`language_modular_workspace_falsification.py`** — the v5 matched runner. It
 uses the frozen tokenizer, source ranges, schedule, optimizer, and 16.79M-token
 budget across the 21M monolith, parallel cells/no exchange, cross-batch shuffled
-workspace, and real workspace. It uses the shared parity-checked compile path,
-records compile-amortized speed and state cost, and requires real exchange to
-beat both controls on heldout loss and free relation behavior. No v4 quality
+associative workspace, and real associative workspace. It uses the shared
+parity-checked compile path, records compile-amortized speed and state cost, and
+requires real exchange to beat both controls on heldout loss and free relation
+behavior. A behavior-only win routes to redesign, never scale. No v5 quality
 report exists yet.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
