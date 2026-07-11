@@ -146,7 +146,9 @@ model stores 36,180,480 parameters; its 1,581,056 theoretical replacement-path
 multiplies per token are 50.26% of the dense MLP before gather overhead. The
 shared-only and token-hash modes reuse one graph. Exact tensor transfer proves
 the hash path is functionally equivalent to V10's winning control. This remains
-falsifier-only pending larger-budget durability.
+falsifier-only pending larger-budget durability. Its CUDA/Inductor smoke compiles
+the pruned candidate in 22.8s, peaks at 1.70 GB, and measures 124.2k token-hash
+tokens/s; the two-step quality values are discarded.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

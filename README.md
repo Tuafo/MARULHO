@@ -112,7 +112,9 @@ keeps the shared path, 16,384 singleton functions, and eight deterministic
 token-hash assignments in a 36.18M-parameter model. The replaced block now uses
 50.26% of the dense MLP's theoretical multiplies before gather overhead, and its
 hash path exactly reproduces V10 after surviving tensors are copied. Larger-budget
-quality and GPU durability are not measured yet.
+quality is not measured yet. A CUDA/Inductor smoke reduced candidate compile to
+22.8s, peak memory to 1.70 GB, and reached 124.2k token-hash tokens/s; its tiny
+quality values are discarded.
 
 ## Current Evidence
 

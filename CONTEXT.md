@@ -291,8 +291,11 @@ multiplies per token, 50.26% of the dense MLP's 3,145,728 before gather overhead
 After copying every surviving tensor, V11 token-hash logits exactly match V10's
 winning arm. Causality, streaming equivalence, owned generation, hash uniqueness,
 shared-only control, gradient coverage, and active-compute accounting pass. It
-must now preserve the token-hash gain at a larger budget before any checkpoint or
-runtime installation.
+also passes a CUDA/Inductor smoke: candidate compile fell from V10's 39.4s to
+22.8s, peak memory from 1.80 GB to 1.70 GB, and shared/hash steady rates reached
+122.7k/124.2k tokens/s within 1.21%. The smoke report and two-step scores are
+discarded. V11 must now preserve the token-hash gain at a larger budget before
+any checkpoint or runtime installation.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

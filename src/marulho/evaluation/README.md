@@ -58,6 +58,8 @@ reload one exact 36,180,480-parameter state and share one compiled graph; the
 hash arm must beat both controls by 0.005 heldout loss and 0.02 strict free
 generation while retaining at least half the local throughput. A pass advances
 to checkpoint fidelity and unseen-generation work, not direct runtime install.
+The mechanism smoke compiles the candidate in 22.8s, peaks at 1.70 GB, and keeps
+shared/hash throughput within 1.21%; its report and quality values are discarded.
 
 **`language_micro_expert_falsification.py`** — the active uninstalled v10
 comparison runner. It compares the Transformer with shared-only, frozen-random product-key,

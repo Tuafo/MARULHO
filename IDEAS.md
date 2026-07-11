@@ -215,6 +215,12 @@ With surviving weights copied, its logits exactly match V10 token-hash. The next
 evidence is a larger-budget Transformer/shared-only/token-hash durability run,
 not another learned-router repair.
 
+The V11 CUDA smoke confirms that pruning removes real cost: candidate compile
+falls from 39.4s to 22.8s, peak memory from 1.80 GB to 1.70 GB, and token-hash
+steady rate rises from roughly 114k to 124.2k tokens/s. Shared-only is 122.7k,
+within 1.21%, and parity plus expert-row gradients pass. The two-step scores are
+discarded; these facts only admit the durability run.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.
