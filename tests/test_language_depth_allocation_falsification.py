@@ -1,9 +1,13 @@
 from marulho.evaluation.language_depth_allocation_falsification import (
     ARM_NAMES,
     PROFILE_WIDTHS,
+    _full_sized_batches,
     build_matched_schedule,
     depth_allocation_decision,
 )
+from marulho.training.language_model import LanguageBatch
+import pytest
+import torch
 
 
 def _arm(name: str, *, loss: float, free: float, tokens: int = 16_777_216):
@@ -53,6 +57,22 @@ def test_v8_schedule_is_exact_and_reproducible() -> None:
     )
     assert changed != first
     assert sum(kind == "relation" for kind, _index in changed) == 323
+
+
+def test_v8_schedule_excludes_partial_training_batch_tails() -> None:
+    batches = (
+        LanguageBatch(
+            input_ids=torch.zeros((4, 8), dtype=torch.long),
+            target_ids=torch.zeros((4, 8), dtype=torch.long),
+        ),
+        LanguageBatch(
+            input_ids=torch.zeros((2, 8), dtype=torch.long),
+            target_ids=torch.zeros((2, 8), dtype=torch.long),
+        ),
+    )
+    assert _full_sized_batches(batches, batch_size=4) == batches[:1]
+    with pytest.raises(ValueError, match="no full-sized batches"):
+        _full_sized_batches(batches[1:], batch_size=4)
 
 
 def test_v8_decision_requires_loss_and_free_generation() -> None:

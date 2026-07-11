@@ -291,6 +291,22 @@ def _selected_batch(
     return general_batches[int(kind.rsplit("_", 1)[1])][index]
 
 
+def _full_sized_batches(
+    batches: Sequence[LanguageBatch],
+    *,
+    batch_size: int,
+) -> tuple[LanguageBatch, ...]:
+    selected = tuple(
+        batch
+        for batch in batches
+        if int(batch.input_ids.shape[0]) == int(batch_size)
+        and int(batch.target_ids.shape[0]) == int(batch_size)
+    )
+    if not selected:
+        raise ValueError("Training source contains no full-sized batches")
+    return selected
+
+
 def _stage_schedule(
     schedule: Sequence[tuple[str, int]],
     *,
@@ -792,11 +808,19 @@ def run_depth_allocation_falsification(
         max_train_batches=1,
         max_eval_batches=config.eval_batches,
     )
+    relation_batches = _full_sized_batches(
+        relation_split.train,
+        batch_size=config.batch_size,
+    )
+    general_batches = [
+        _full_sized_batches(split.train, batch_size=config.batch_size)
+        for split in general_splits
+    ]
     schedule = build_matched_schedule(
         step_count=steps,
         relation_fraction=config.relation_fraction,
-        relation_batch_count=len(relation_split.train),
-        general_batch_counts=[len(split.train) for split in general_splits],
+        relation_batch_count=len(relation_batches),
+        general_batch_counts=[len(batches) for batches in general_batches],
         seed=config.seed,
     )
     schedule_digest = _schedule_hash(schedule)
@@ -804,11 +828,23 @@ def run_depth_allocation_falsification(
         "relation": relation_selection,
         "general_train": [row for _text, row in train_samples],
         "general_eval": [row for _text, row in eval_samples],
+        "training_batch_filter": {
+            "required_batch_size": config.batch_size,
+            "relation_batches_before": len(relation_split.train),
+            "relation_batches_after": len(relation_batches),
+            "general_batches_before": [
+                len(split.train) for split in general_splits
+            ],
+            "general_batches_after": [
+                len(batches) for batches in general_batches
+            ],
+            "partial_batches_excluded": True,
+        },
     }
     staged = _stage_schedule(
         schedule,
-        relation_batches=relation_split.train,
-        general_batches=[split.train for split in general_splits],
+        relation_batches=relation_batches,
+        general_batches=general_batches,
         device=resolved,
     )
 
