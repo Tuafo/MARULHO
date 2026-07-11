@@ -117,6 +117,18 @@ baseline under the same VRAM, wall-clock, and data budget.
 
 These concepts are hypotheses and must not appear as implemented capabilities.
 
+**Particle-Field Recurrent Core v28 (active preflight, uninstalled)** — the
+first post-V27 exploratory base candidate is a MARULHO-owned implementation of
+positive particle dynamics inspired by BDH-GPU. The default shape uses width
+256, 24,576 particles, four heads, and eight parameter-shared recurrences. Three
+particle factor matrices plus the tied 8,192-token embedding/head give
+20,971,520 parameters, only 4,608 below the 20,976,128 matched Transformer.
+Causal full-sequence and token-recurrent execution agree, prefix causality,
+complete gradients, positive activation telemetry, and owned generation pass.
+No language-quality, scaling, checkpoint, or runtime claim exists yet. CUDA
+memory/throughput profiling must choose a feasible matched schedule before the
+first language comparison.
+
 **Retired Editable Delta-Memory Candidate v1** — a tested fixed-state recurrent
 fast-weight competitor with channel-wise decay and separate erase/write gates.
 The 2-delta/2-attention hybrid beat the Transformer early, but the advantage

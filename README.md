@@ -28,6 +28,10 @@ There are three different levels of truth:
    fails anchored generation, while V26 and V27 gated readers fail even with
    oracle evidence. No memory model, checkpoint, or runtime integration is
    currently admitted.
+4. **Active architecture experiment:** V28 is an uninstalled 20.972M-parameter
+   positive particle-field recurrent core. It matches the 20.976M Transformer
+   parameter budget within 0.022% and passes causal/recurrent/gradient truth,
+   but it has not yet produced language-quality evidence.
 
 ```mermaid
 flowchart LR

@@ -223,6 +223,20 @@ is not dead machinery. `language_evidence_reader.py`, its screen, and their
 tests are deleted; no reader checkpoint or runtime surface exists. The retained
 reports preserve the exact parity, ownership, anti-cheat, and failure evidence.
 
+**`language_particle_field.py`** — owns the uninstalled V28 exploratory base
+core. It implements a width-256 low-rank field over 24,576 nonnegative
+particles, strict causal Hebbian linear attention, and eight recurrent-depth
+iterations sharing the same three factor matrices. With the checkpoint BPE
+vocabulary and tied embedding/head, the default shape contains 20,971,520
+parameters versus the matched Transformer's 20,976,128. The parallel
+short-context reference and streaming fast-weight recurrence are exact on the
+focused contract; prefix causality, all-parameter gradients, telemetry, and
+MARULHO-owned generation pass. Large training batches intentionally omit the
+per-sequence recurrent state from returned diagnostics because materializing
+eight 24,576-by-256 states per batch item would dominate VRAM; streaming
+generation and small parity probes retain it. V28 is experiment machinery, not
+an accepted checkpoint or runtime model.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 
