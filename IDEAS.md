@@ -118,18 +118,24 @@ free-energy objectives remain later arms whose prerequisite problem is
 respectively identified dynamics, genuinely periodic state, and an environment
 the model can act on.
 
-The V15 preflight implements that boundary on a harder-than-delay task. Streams
+The V15 preflight closes that boundary on a harder-than-delay task. Streams
 contain multiple key/value writes, random structured distractors, later key-only
 queries, and an overwrite profile. Training length is 128; heldout lengths reach
-512. Every arm has 112 state floats. A flat GRU is the stronger parameter
-control; three exact-reset dyadic arms receive raw block approximations, ordered
-Haar contrasts, or random balanced contrasts on identical clocks. A discarded
-convergence seed selects 2,400 steps without changing architecture or thresholds.
-It shows a real multiscale signal but no Haar-specific signal: length-512
-raw/Haar/shuffled accuracy is 19.8%/18.8%/18.6% versus 6.4% for flat GRU. Frozen
-evidence therefore uses new data and model seeds. Haar still needs a three-point
-win over *every* control on both long profiles; otherwise only the narrower
-dyadic-clock clue may survive.
+512. Every arm has 112 state floats. Across three fresh seeds, length-512 mean
+accuracy is 6.4% for a stronger flat GRU, 20.0% for raw dyadic averages, 19.1%
+for random balanced contrasts, and 18.8% for ordered Haar contrasts. Raw averages
+also win the 128, 256, and overwrite profiles. Haar never earns its required
+three-point advantage, so ordered wavelet detail and the live V15 code are
+deleted.
+
+The geometry result prevents a wrong explanation: raw's 512-token effective
+rank is 16.6, below Haar's 18.9 and shuffled's 20.8, despite better accuracy and
+loss. Richer/high-dimensional activity is not automatically more useful. What
+survives is a causal-organization question. The next matched preflight compares
+raw dyadic averages with (a) seven same-size banks updated every token, (b) seven
+banks all using one uniform block size with the same total update count, and
+(c) dyadic banks receiving only each block's last token. That separates small
+units, low-pass filtering, and genuinely different clocks before language.
 
 ## Ranked directions
 
@@ -815,13 +821,15 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
    prompts expose persistent proposition loops and topic drift.
 10. Completed: V14's local, ungated, and gated segment-state arms tie V11 at
     67.11M tokens; the active full-rank memory is suppressed and deleted.
-11. Next: preflight a fixed causal Haar/dyadic state against a same-size gated
-    recurrence on long-delay retrieval and interference before language.
-12. Add a read-only neural-manifold diagnostic when it can explain that branch;
-    it never promotes a model.
-13. Admit wavelet-style state to base language only after the preflight wins,
+11. Completed: V15 rejects ordered Haar detail but finds a replicated raw
+    multiscale-bank advantage over a same-state-byte flat GRU.
+12. Next: isolate small-bank modularity, averaging, and nonuniform clocks with
+    token-rate, uniform-block, last-token, and raw-dyadic controls.
+13. Use read-only state geometry to explain that branch; it never promotes a
+    model, and the V15 rank result already rejects “more dimensions is better.”
+14. Admit a multiscale state to base language only after the isolation test wins,
     then require retention on both source holdouts and unseen generation.
-14. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+15. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

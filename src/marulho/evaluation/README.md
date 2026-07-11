@@ -221,31 +221,25 @@ memory receives complete gradients and reaches full matrix rank but learns to
 suppress writing. Decision: `retire_v14_no_segment_state_gain`. No checkpoint,
 model, runner, loader, or compatibility path remains.
 
-**`language_dyadic_memory_preflight.py`** — the active V15 admission test before
-any new language model is built. It generates multi-query associative-recall
-streams with random key/value distractors, key-only queries, 128-token training,
-disjoint 128/256/512-token evaluation, and a 256-token overwrite/interference
-profile. A metrics-only dictionary oracle must remain perfect; query inputs use
-a sentinel instead of the answer value, and targets never enter state updates.
+The deleted V15 dyadic-memory preflight is retained only at
+`reports/language_scaling/v15-dyadic-memory-preflight-20260711.json` (SHA-256
+`7386a4093eeb3b20265ba3a3d4c86f50ffc6d4c6d5b89350cad75d91b05dab9f`).
+Three frozen seeds compare the same 112-float state and exact input/readout
+initialization on multi-query recall. Mean 128/256/512/overwrite accuracy is
+6.25/5.97/6.42/6.16% for the 52,624-parameter flat GRU; 25.84/22.64/19.99/18.93%
+for raw dyadic averages; 25.54/21.90/19.11/16.32% for random balanced contrasts;
+and 25.44/21.70/18.84/17.12% for ordered Haar contrasts. Chance is 6.25% and the
+metrics-only oracle is perfect.
 
-The controls use exactly 112 float state values per sequence: a stronger
-52,624-parameter flat GRU; seven small banks updated on dyadic clocks from raw
-block approximations; the same banks with ordered Haar contrasts; and the same
-banks with fixed random balanced contrasts. Candidate modes share exact initial
-tensors. Flat and candidate arms share exact input-embedding and readout tensors,
-while the flat GRU has more recurrent parameters and updates every token. State
-geometry is diagnostic only.
-
-A disposable seed fixes 2,400 updates as the convergence budget: the multiscale
-arms plateau near 25% in-range while the flat GRU remains at the 6.25% chance
-floor. Raw/Haar/shuffled length-512 accuracy is 19.8%/18.8%/18.6%, so the smoke
-suggests dyadic clocks rather than ordered wavelet detail; its reports are
-deleted. The frozen comparison uses fresh data/evaluation seed 5101 and fresh
-model seeds 5201/5202/5203. Haar enters language only if it beats flat, raw, and
-shuffled controls by at least three accuracy points on both long profiles,
-replicates against flat, and stays within one point on in-range and overwrite
-guards. A synthetic pass only admits a language falsifier; it never promotes
-base quality or runtime.
+Haar misses its three-point admission margin against raw and shuffled controls,
+so no dyadic language model is admitted. Raw averages win every mean profile,
+showing a narrower multiscale-bank signal. At length 512 their effective state
+rank is 16.6 versus 18.9/Haar and 20.8/shuffled, so occupying more dimensions
+does not explain quality. Decision:
+`redesign_v15_retain_multiscale_clocks_reject_haar_ordering`. The preflight
+model, runner, tests, and wavelet-specific path are deleted. The next synthetic
+test must separate small-bank modularity, averaging, and nonuniform clocks before
+any language run.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

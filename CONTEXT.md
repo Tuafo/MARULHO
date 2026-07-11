@@ -414,17 +414,19 @@ runner, tests, and checkpoint surface are deleted; only the decisive report
 remains. The next architecture may not reuse mean segment summaries or simply
 retune this gate.
 
-The active next step is a cheap V15 dyadic-memory preflight, not another language
-scale run. It compares a same-state-byte flat GRU with seven small recurrent
-banks driven by raw dyadic block averages, ordered Haar contrasts, or random
-balanced contrasts. Training uses 128-token multi-query recall; untouched
-evaluations extend to 256 and 512 tokens and include overwritten key/value
-associations. Targets are metrics/loss only and query inputs contain a sentinel,
-not the answer. A discarded convergence seed fixes 2,400 steps; frozen evidence
-uses fresh data/evaluation seed 5101 and model seeds 5201/5202/5203. Haar must
-beat every control by three points on both long profiles before any dyadic
-language architecture is admitted. Synthetic success is permission to test, not
-language evidence.
+V15 rejects ordered Haar detail while preserving a narrower multiscale clue.
+Across three fresh seeds, mean 128/256/512/overwrite recall accuracy is
+6.25/5.97/6.42/6.16% for a stronger same-state-byte flat GRU;
+25.84/22.64/19.99/18.93% for seven raw-average dyadic banks;
+25.54/21.90/19.11/16.32% for random balanced contrasts; and
+25.44/21.70/18.84/17.12% for ordered Haar contrasts. Chance is 6.25% and the
+metrics-only oracle is perfect. Haar does not beat equal-parameter controls and
+is not admitted to language. Raw averages win every mean profile despite lower
+512-token effective state rank than both contrast arms. Decision:
+`redesign_v15_retain_multiscale_clocks_reject_haar_ordering`. The live preflight
+and wavelet path are deleted; only its report remains. The next cheap test must
+isolate whether raw's gain comes from several small banks, low-pass averaging,
+or genuinely different clocks before any change to the 1B language model.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
