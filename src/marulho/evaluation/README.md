@@ -370,6 +370,29 @@ be active-token matched where possible. A survivor needs both heldout
 continuation improvement and better anchored free generation, followed by a
 strict checkpoint containing cortex plus archive/index state.
 
+`language_causal_document_retrieval_audit.py` preregisters the frozen-cortex V22
+interface test before joint training. It samples 128 unique long documents from
+each of the disjoint FineWeb-Edu and Cosmopedia eval sources. Every case writes
+the first 48 tokens, leaves a 48-192-token unseen gap, exposes a later 48-token
+prefix to retrieval, and scores only the following 16 tokens. The true older
+episode is mixed with three same-corpus distractors whose write order is random;
+future tokens and document identity are unavailable to lexical and frozen-V11
+keys. Off, all-four, matched random-one/two and recency-one/two,
+lexical-one/two, frozen-last-one/two, frozen-mean-one/two, and non-promotable
+oracle-one share the same cases. A diagnostic smoke showed that one exact span
+can help while an extra distractor can erase the gain, so the final audit treats
+one versus two retrieved episodes as an explicit variable rather than assuming
+top-two is universally correct.
+
+V22 advances only if oracle-one improves paired loss by at least 0.005 with a
+positive 4,096-sample bootstrap lower bound. A label-safe key must retrieve the
+target at least 50% at top-one or 70% at top-two and beat the better matched
+random/recency inclusion by 20 points. It must also improve local loss by 0.005,
+beat both equal-token language controls by 0.0025, stay within 0.01 loss of
+all-history, and avoid regressing either source. A pass admits a jointly trained
+document screen; it does not promote language quality, checkpointing, runtime
+installation, or speed.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
