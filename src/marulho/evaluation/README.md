@@ -9,7 +9,10 @@ or mutate an installed `MarulhoBrain` during status reads.
 runner. It owns corpus loading, byte/BPE tokenizer creation, stratified fixed
 windows, AdamW, warmup plus cosine decay, precision selection, heldout
 evaluation, unseen prompt generation, optional sustained generation, and
-checkpoint/report output.
+checkpoint/report output. CUDA runs may explicitly request full-graph Inductor;
+the runner restores RNG state, requires compiled/eager warm-up loss parity, and
+reports both steady and compile-amortized throughput. Eager remains the default
+because compilation can lose on short runs.
 
 **`language_scaling_experiment.py`** — trains a matched model-size grid over
 shared token budgets, records heldout curves, throughput, peak VRAM, unseen
@@ -29,7 +32,10 @@ checkpoint tokenizer. Scaling checkpoints persist AdamW/scaler state,
 cumulative updates, RNG state, and batch position; a pre-state checkpoint may
 continue with fresh optimizer state, which the report marks explicitly. Each
 continuation is a new cosine schedule phase. Corpus and checkpoint SHA-256
-hashes are streamed rather than loaded into one large byte allocation.
+hashes are streamed rather than loaded into one large byte allocation. Optional
+Inductor execution uses the same parity contract as the primary runner; wall
+clock comparisons include compile time rather than comparing only steady-state
+steps.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and

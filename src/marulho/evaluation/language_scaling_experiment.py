@@ -23,6 +23,7 @@ from marulho.evaluation.language_training_experiment import (
     _model_config,
     _optimizer,
     _parameter_inventory,
+    _prepare_language_loss_backend,
     _precision_context,
     _read_corpus,
     _resolve_device,
@@ -38,7 +39,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_scaling_experiment.v10"
+SURFACE = "marulho_transformer_scaling_experiment.v11"
 ARTIFACT_KIND = "marulho_transformer_scaling_experiment"
 
 DEFAULT_PROMPTS = (
@@ -91,6 +92,8 @@ class LanguageScalingExperimentConfig:
     generation_no_repeat_ngram_size: int = 3
     seed: int = 1337
     cuda_allow_tf32: bool = True
+    execution_backend: str = "eager"
+    compile_loss_tolerance: float = 1.0e-3
     retain_best_checkpoint_only: bool = True
     device: str = "auto"
     resume_checkpoint_path: str | None = None
@@ -138,6 +141,8 @@ def _arm_training_config(
             config.generation_no_repeat_ngram_size
         ),
         cuda_allow_tf32=bool(config.cuda_allow_tf32),
+        execution_backend=str(config.execution_backend),
+        compile_loss_tolerance=float(config.compile_loss_tolerance),
         device=str(config.device),
     )
 
@@ -413,11 +418,16 @@ def _run_arm(
     training_elapsed = 0.0
     wall_started = time.perf_counter()
     eval_before = evaluate_language_model(model, split.eval)
+    model.train()
+    training_loss, execution = _prepare_language_loss_backend(
+        model,
+        split.train[order[order_cursor]],
+        arm_config,
+    )
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
     segment_started = time.perf_counter()
-    model.train()
 
     for budget in budgets:
         while update_tokens < budget:
@@ -441,13 +451,10 @@ def _run_arm(
                 group["lr"] = lr
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(device, config.precision):
-                result = model.next_token_loss(
+                loss = training_loss(
                     device_batch.input_ids,
                     device_batch.target_ids,
-                    collect_telemetry=False,
-                    return_evidence=False,
                 )
-                loss = result["loss"]
             if use_scaler:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -519,6 +526,16 @@ def _run_arm(
                 "training_tokens_per_second": (
                     float(update_tokens) / max(training_elapsed, 1.0e-9)
                 ),
+                "end_to_end_training_seconds_including_compile": float(
+                    training_elapsed + float(execution["compile_seconds"])
+                ),
+                "amortized_training_tokens_per_second_including_compile": (
+                    float(update_tokens)
+                    / max(
+                        training_elapsed + float(execution["compile_seconds"]),
+                        1.0e-9,
+                    )
+                ),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
             }
         )
@@ -583,6 +600,7 @@ def _run_arm(
             "batch_order_state_restored": bool(batch_order_state_restored),
             "schedule_policy": "new_phase_cosine",
         },
+        "execution": execution,
         "continuation": {
             "resume_checkpoint_path": (
                 None
@@ -828,7 +846,9 @@ def run_language_scaling_experiment(
         else None
     )
     training_elapsed_by_arm = {
-        str(arm["name"]): float(arm["curve"][-1]["training_elapsed_seconds"])
+        str(arm["name"]): float(
+            arm["curve"][-1]["end_to_end_training_seconds_including_compile"]
+        )
         for arm in completed_by_size
     }
     positive_training_elapsed = [
@@ -1038,6 +1058,12 @@ def main() -> int:
     )
     parser.add_argument("--generation-tokens", type=int, default=96)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument(
+        "--execution-backend",
+        choices=("eager", "inductor"),
+        default="eager",
+    )
+    parser.add_argument("--compile-loss-tolerance", type=float, default=1.0e-3)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--resume-checkpoint", type=Path, default=None)
     parser.add_argument("--retain-all-checkpoints", action="store_true")
@@ -1058,6 +1084,8 @@ def main() -> int:
         precision=str(args.precision),
         generation_tokens=max(0, int(args.generation_tokens)),
         seed=int(args.seed),
+        execution_backend=str(args.execution_backend),
+        compile_loss_tolerance=float(args.compile_loss_tolerance),
         retain_best_checkpoint_only=not bool(args.retain_all_checkpoints),
         device=str(args.device),
         resume_checkpoint_path=(

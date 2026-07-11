@@ -57,6 +57,14 @@ def test_transformer_training_experiment_trains_and_restores(tmp_path) -> None:
     assert report["training"]["loss_record_count"] == 2
     assert report["training"]["per_step_host_metric_readback"] is False
     assert report["training"]["peak_cuda_memory_bytes"] == 0
+    assert report["training"]["execution"]["effective_backend"] == "eager"
+    assert report["training"]["execution"]["compile_seconds"] == 0.0
+    assert report["training"]["end_to_end_seconds_including_compile"] == (
+        report["training"]["elapsed_seconds"]
+    )
+    assert report["training"][
+        "amortized_tokens_per_second_including_compile"
+    ] == report["training"]["tokens_per_second"]
     assert report["eval_before"]["heldout_loss"] > 0.0
     assert report["eval_after"]["heldout_loss"] > 0.0
     assert report["tokenizer"]["vocabulary_trained_by_marulho"] is True
@@ -87,6 +95,28 @@ def test_transformer_training_rejects_recurrent_configuration(tmp_path) -> None:
                 max_train_batches=1,
                 max_eval_batches=1,
                 generation_tokens=0,
+                device="cpu",
+            ),
+        )
+
+
+def test_transformer_training_rejects_inductor_without_cuda(tmp_path) -> None:
+    with pytest.raises(ValueError, match="only on CUDA"):
+        run_language_training_experiment(
+            output_path=tmp_path / "rejected-compile.json",
+            config=LanguageTrainingExperimentConfig(
+                tokenizer_kind="byte",
+                embedding_dim=16,
+                state_dim=16,
+                state_layers=1,
+                attention_heads=4,
+                transformer_context_length=32,
+                sequence_length=16,
+                batch_size=2,
+                max_train_batches=1,
+                max_eval_batches=1,
+                generation_tokens=0,
+                execution_backend="inductor",
                 device="cpu",
             ),
         )

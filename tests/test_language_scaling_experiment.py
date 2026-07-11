@@ -126,6 +126,11 @@ def test_single_arm_is_a_data_curve_not_a_size_decision(tmp_path: Path) -> None:
     assert report["completed_arm_count"] == 1
     assert report["selection"]["selected_arm"] == "selected"
     assert report["branch_decision"] == "continue_data_scaling_at_selected_model_size"
+    selected = report["arms"][0]
+    assert selected["execution"]["effective_backend"] == "eager"
+    assert selected["curve"][-1][
+        "end_to_end_training_seconds_including_compile"
+    ] == selected["curve"][-1]["training_elapsed_seconds"]
 
 
 def test_scaling_experiment_selects_and_retains_only_best_checkpoint(

@@ -32,7 +32,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_training_experiment.v5"
+SURFACE = "marulho_transformer_training_experiment.v6"
 ARTIFACT_KIND = "marulho_transformer_training_experiment"
 
 DEFAULT_CORPUS = (
@@ -77,6 +77,8 @@ class LanguageTrainingExperimentConfig:
     sustained_target_tokens: int = 0
     sustained_timeout_seconds: float = 600.0
     cuda_allow_tf32: bool = True
+    execution_backend: str = "eager"
+    compile_loss_tolerance: float = 1.0e-3
     device: str = "auto"
 
 
@@ -184,6 +186,105 @@ def _learning_rate(
     return peak * (minimum_fraction + (1.0 - minimum_fraction) * cosine)
 
 
+def _prepare_language_loss_backend(
+    model: MarulhoLanguageModel,
+    example_batch: LanguageBatch,
+    config: LanguageTrainingExperimentConfig,
+):
+    def eager_loss(
+        input_ids: torch.Tensor, target_ids: torch.Tensor
+    ) -> torch.Tensor:
+        return model.next_token_loss(
+            input_ids,
+            target_ids,
+            collect_telemetry=False,
+            return_evidence=False,
+        )["loss"]
+
+    backend = str(config.execution_backend).strip().lower()
+    if backend not in {"eager", "inductor"}:
+        raise ValueError("execution_backend must be 'eager' or 'inductor'")
+    evidence: dict[str, Any] = {
+        "requested_backend": backend,
+        "effective_backend": backend,
+        "ordinary_step_backend": (
+            "torch_compile_inductor_fullgraph"
+            if backend == "inductor"
+            else "pytorch_eager"
+        ),
+        "compile_fullgraph": backend == "inductor",
+        "compile_dynamic_shapes": False,
+        "compile_seconds": 0.0,
+        "compile_peak_cuda_memory_bytes": 0,
+        "warmup_loss_parity": {
+            "performed": False,
+            "eager_loss": None,
+            "compiled_loss": None,
+            "absolute_delta": None,
+            "tolerance": float(config.compile_loss_tolerance),
+            "passed": None,
+        },
+    }
+    if backend == "eager":
+        return eager_loss, evidence
+    if model.device.type != "cuda":
+        raise ValueError("Inductor language training is admitted only on CUDA")
+    if not hasattr(torch, "compile"):
+        raise RuntimeError("Requested inductor backend requires torch.compile")
+    if float(config.compile_loss_tolerance) <= 0.0:
+        raise ValueError("compile_loss_tolerance must be positive")
+
+    device_batch = example_batch.to(model.device)
+    cpu_rng_state = torch.get_rng_state()
+    cuda_rng_state = torch.cuda.get_rng_state_all()
+    with torch.no_grad(), _precision_context(model.device, config.precision):
+        reference = eager_loss(device_batch.input_ids, device_batch.target_ids)
+    torch.set_rng_state(cpu_rng_state)
+    torch.cuda.set_rng_state_all(cuda_rng_state)
+    compiled_loss = torch.compile(
+        eager_loss,
+        backend="inductor",
+        fullgraph=True,
+        dynamic=False,
+    )
+    torch.cuda.reset_peak_memory_stats(model.device)
+    torch.cuda.synchronize(model.device)
+    started = time.perf_counter()
+    with _precision_context(model.device, config.precision):
+        observed = compiled_loss(device_batch.input_ids, device_batch.target_ids)
+    observed.backward()
+    torch.cuda.synchronize(model.device)
+    compile_seconds = time.perf_counter() - started
+    reference_value = float(reference.detach().float().cpu())
+    observed_value = float(observed.detach().float().cpu())
+    delta = abs(observed_value - reference_value)
+    model.zero_grad(set_to_none=True)
+    torch.set_rng_state(cpu_rng_state)
+    torch.cuda.set_rng_state_all(cuda_rng_state)
+    evidence.update(
+        {
+            "compile_seconds": compile_seconds,
+            "compile_peak_cuda_memory_bytes": int(
+                torch.cuda.max_memory_allocated(model.device)
+            ),
+            "warmup_loss_parity": {
+                "performed": True,
+                "eager_loss": reference_value,
+                "compiled_loss": observed_value,
+                "absolute_delta": delta,
+                "tolerance": float(config.compile_loss_tolerance),
+                "passed": delta <= float(config.compile_loss_tolerance),
+            },
+        }
+    )
+    if delta > float(config.compile_loss_tolerance):
+        raise RuntimeError(
+            "Compiled/eager warm-up loss drift exceeds tolerance: "
+            f"{delta:.8f} > {config.compile_loss_tolerance:.8f}"
+        )
+    return compiled_loss, evidence
+
+
 def _train(
     model: MarulhoLanguageModel,
     batches: Sequence[LanguageBatch],
@@ -201,6 +302,11 @@ def _train(
     gradient_norms: list[torch.Tensor] = []
     token_count = 0
     model.train()
+    training_loss, execution = _prepare_language_loss_backend(
+        model,
+        batches[0],
+        config,
+    )
     if model.device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(model.device)
         torch.cuda.synchronize(model.device)
@@ -220,13 +326,10 @@ def _train(
                 group["lr"] = lr
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(model.device, config.precision):
-                result = model.next_token_loss(
+                loss = training_loss(
                     device_batch.input_ids,
                     device_batch.target_ids,
-                    collect_telemetry=False,
-                    return_evidence=False,
                 )
-                loss = result["loss"]
             if use_scaler:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -248,6 +351,7 @@ def _train(
     if model.device.type == "cuda":
         torch.cuda.synchronize(model.device)
     elapsed = max(time.perf_counter() - started, 1.0e-9)
+    end_to_end_elapsed = elapsed + float(execution["compile_seconds"])
     loss_values = (
         torch.stack(losses).cpu().tolist()
         if losses
@@ -273,6 +377,10 @@ def _train(
         "token_count": token_count,
         "elapsed_seconds": elapsed,
         "tokens_per_second": float(token_count) / elapsed,
+        "end_to_end_seconds_including_compile": end_to_end_elapsed,
+        "amortized_tokens_per_second_including_compile": float(token_count)
+        / max(end_to_end_elapsed, 1.0e-9),
+        "execution": execution,
         "loss_start": loss_values[0] if loss_values else None,
         "loss_end": loss_values[-1] if loss_values else None,
         "mean_loss_first_8": (
@@ -358,8 +466,10 @@ def run_language_training_experiment(
     tokenizer = _build_tokenizer(corpus, cfg)
     device = _resolve_device(cfg.device)
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
+    previous_matmul_precision = torch.get_float32_matmul_precision()
     if device.type == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = bool(cfg.cuda_allow_tf32)
+        torch.set_float32_matmul_precision("high")
     try:
         if int(cfg.sequence_length) > int(cfg.transformer_context_length):
             raise ValueError("sequence_length cannot exceed transformer_context_length")
@@ -481,6 +591,7 @@ def run_language_training_experiment(
     finally:
         if device.type == "cuda":
             torch.backends.cuda.matmul.allow_tf32 = previous_tf32
+            torch.set_float32_matmul_precision(previous_matmul_precision)
 
 
 def main() -> int:
@@ -518,6 +629,12 @@ def main() -> int:
     parser.add_argument("--sustained-target-tokens", type=int, default=0)
     parser.add_argument("--sustained-timeout-seconds", type=float, default=600.0)
     parser.add_argument("--disable-cuda-tf32", action="store_true")
+    parser.add_argument(
+        "--execution-backend",
+        choices=("eager", "inductor"),
+        default="eager",
+    )
+    parser.add_argument("--compile-loss-tolerance", type=float, default=1.0e-3)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     config = LanguageTrainingExperimentConfig(
@@ -551,6 +668,8 @@ def main() -> int:
         sustained_target_tokens=max(0, int(args.sustained_target_tokens)),
         sustained_timeout_seconds=float(args.sustained_timeout_seconds),
         cuda_allow_tf32=not bool(args.disable_cuda_tf32),
+        execution_backend=str(args.execution_backend),
+        compile_loss_tolerance=float(args.compile_loss_tolerance),
         device=args.device,
     )
     report = run_language_training_experiment(

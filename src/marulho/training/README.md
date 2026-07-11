@@ -74,6 +74,11 @@ sampling over the full checkpoint vocabulary. Both use the bounded per-layer
 KV state and the same repetition controls; every result reports its exact
 policy, temperature, top-p threshold, and seed.
 
+Maintained training and scaling runners support opt-in full-graph Inductor on
+CUDA. Compilation is admitted only after an eager/compiled loss check, restores
+RNG state before real updates, and reports one-time compile cost separately from
+steady training. Eager remains the default for short experiments.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 
