@@ -541,6 +541,31 @@ paired free generation, stay close to all-history, beat random/recency/top-one
 controls, and preserve general heldout loss. Top-two recall alone is not a
 quality promotion.
 
+V21 passes that full language gate. The retained report is
+`reports/language_scaling/v21-exact-episodic-retrieval-800step-20260711.json`
+(SHA-256
+`b2a60cc1e3c0a45ea65811238210c344d8d6f124773556952bc0fe41e3a4def1`).
+Off/all-four/random-two/recency-two/lexical-one/lexical-two candidate accuracy is
+68.8/87.9/79.3/79.3/89.5/100.0%; free exact accuracy is
+16.0/39.5/27.7/25.0/44.9/51.6%; paired source-following is
+17.0/38.0/27.5/24.9/45.4/52.0%. Lexical-two includes the target in 98.83% of
+cases, changes its output on 82.62% of answer-changing swaps, and gets both
+paired answers correct 41.58% of the time. It beats all-history behavior while
+using 96 rather than 192 active source tokens. The two general holdouts regress
+only +0.0631/+0.0772 loss, all model parameter tensors receive nonzero gradient,
+and peak allocation is 0.90 GiB versus all-history's 1.03 GiB. Wall time is
+effectively tied, so no speed claim is made. Decision:
+`advance_v21_exact_episodic_retrieval_to_contiguous_streams`.
+
+This is the first admitted memory architecture in the current iteration, not
+Base-Language Qualification. It uses a relation-specific lexical key, retains a
+growing exact-token archive, has no saved checkpoint/index contract, and has not
+improved real document continuation. The next screen must build a causal archive
+from prior general-document spans, retrieve under a fixed active-token budget,
+compare lexical retrieval with recency/random/local controls on disjoint
+documents, and save the selected cortex plus archive/index state only if heldout
+loss and source-anchored generation improve together.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

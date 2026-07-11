@@ -304,6 +304,31 @@ five paired/free points of all-four and beat every bounded control by five; any
 general holdout may regress by at most 0.10. Failure retires this relation-key
 interface rather than training a router on the same cases.
 
+V21 passes by more than the gate and reverses one assumption. Lexical top-two
+reaches 100.0% candidate, 51.6% free exact, and 52.0% paired source-following,
+versus all-history's 87.9/39.5/38.0% and lexical top-one's
+89.5/44.9/45.4%. The benefit is not only context reduction: removing irrelevant
+episodes makes binding and generation better. On answer-changing pairs,
+lexical-two changes output 82.62% of the time and gets both answers right 41.58%
+of the time, versus 52.15%/9.14% for all-history. General retention passes.
+
+The transferable architecture is now **exact local cortex + growing episodic
+archive + bounded evidence selection**. Compression belongs in keys, indexes,
+provenance, and consolidation policy; high-value episode content remains exact
+until later evidence supports lossy consolidation. This is not a claim that
+TF-IDF is the final semantic memory. It is a clean proof that selected raw
+evidence can outperform both fixed latent compression and indiscriminate full
+history.
+
+The next falsifier uses causal general-document streams. Only prior spans may
+enter the archive. A query key is built from the visible current prefix, and a
+fixed token budget retrieves older exact spans before ordinary next-token
+prediction. Compare local-only, random, most-recent, lexical, and equal-token
+controls on document-disjoint FineWeb-Edu and Cosmopedia. Retrieval must improve
+heldout continuation loss and anchored free generation together; source overlap
+or relation accuracy alone cannot advance it. A survivor must checkpoint the
+cortex, exact archive records, key/index state, provenance, and rollback point.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a

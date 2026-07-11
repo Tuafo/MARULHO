@@ -348,6 +348,28 @@ Random/recency/lexical/frozen-last/frozen-mean recall at one is
 admits a separate matched language screen; it does not revise the top-one result
 or promote retrieval quality by itself.
 
+The V21 language screen is retained at
+`reports/language_scaling/v21-exact-episodic-retrieval-800step-20260711.json`
+(SHA-256
+`b2a60cc1e3c0a45ea65811238210c344d8d6f124773556952bc0fe41e3a4def1`).
+Off/all-four/random-two/recency-two/lexical-one/lexical-two candidate accuracy is
+68.8/87.9/79.3/79.3/89.5/100.0%; free exact is
+16.0/39.5/27.7/25.0/44.9/51.6%; paired source-following is
+17.0/38.0/27.5/24.9/45.4/52.0%. Lexical-two retrieves 96 source tokens, includes
+the target 98.83% of the time, changes output on 82.62% of source swaps, and
+preserves the two general holdouts at +0.0631/+0.0772 loss. It beats
+all-history while halving active source context. Peak allocation falls from
+1.03 to 0.90 GiB, but elapsed training time is tied, so no throughput win is
+claimed. Decision: `advance_v21_exact_episodic_retrieval_to_contiguous_streams`.
+No checkpoint or runtime promotion exists yet.
+
+The next evidence must use causal, document-disjoint general streams rather than
+relation groups. Writes retain prior exact spans and provenance; reads use only
+the visible current prefix. Local-only, random, recency, and lexical arms must
+be active-token matched where possible. A survivor needs both heldout
+continuation improvement and better anchored free generation, followed by a
+strict checkpoint containing cortex plus archive/index state.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

@@ -106,6 +106,23 @@ one word with it.
     and complete gradients tie off/local/dense loss after 33.56M tokens per arm,
     while costing about 20% throughput. The V16 synthetic small-bank advantage
     does not transfer to optional within-window language recurrence.
+14. V19/V19b show that jointly trained bounded memory tokens can carry source
+    information, but not enough of it. Recurrent and partitioned banks reach
+    30.1% and 31.4% paired source-following, roughly tied with mean pooling and
+    more than sixteen points behind exact history. Normalization, full
+    gradients, and bank partitioning do not repair the compression bottleneck.
+15. V20 separates addressing from compression. No fixed top-one key passes the
+    preregistered retrieval gate, but lexical top-two contains the exact episode
+    in 98.83% of cases while reading half of the four-record history. That
+    observation admits a language test without promoting TF-IDF as a general
+    memory system.
+16. V21 is the first admitted memory architecture in this iteration. A jointly
+    trained cortex with lexical top-two exact retrieval reaches 51.6% free exact
+    and 52.0% paired source-following, beating all-history's 39.5% and 38.0%
+    while reading 96 rather than 192 source tokens. General loss stays inside
+    the retention bound. Wall time is tied and the task is relation-specific,
+    so the result advances to causal general-document streams rather than to
+    runtime installation or Base-Language Qualification.
 
 ## Provisional scaling diagnosis
 
@@ -199,23 +216,27 @@ has a language-specific purpose.
 - **Observed:** MARULHO's serial delta/attention hybrid showed a real early
   learning gain but lost it later. Alternating specialists in series may damage
   information before another specialist can use it.
-- **Hypothesis under test:** the memory must solve an information dependency the
-  exact local window cannot solve. V18 writes two source-only segments, removes
-  their raw tokens before the query, and requires a 16-slot state to compete
-  with exact history, recency, and streaming pooling. This tests compression and
-  use jointly instead of asking an optional residual to improve already-local
-  next-token prediction.
+- **Tested requirement:** the memory must solve an information dependency the
+  exact local window cannot solve. V18 removed raw source tokens before a query;
+  V19/V19b then trained bounded states jointly with the cortex. Both designs
+  carried measurable source information, but exact history remained decisively
+  better.
 - **First result:** V18a's exact-history reader barely beats a source-independent
   local adapter on greedy answers, while the learned slots collapse to effective
   rank 2.01. Candidate ranking is contaminated by answer-template clues. V18b
   keeps the negative report, normalizes every learned write, and evaluates
   identical-question/source-swap pairs. Only source-following behavior can now
   advance the branch.
-- **Final result:** V18b repairs state scale but not organization or use. Learned
-  slots retain effective rank 1.78 and only 3.93% paired source-following
-  accuracy. Exact history beats local by 7.42 points, below the preregistered 10.
-  The frozen bridge is retired. A future hybrid must learn its exact and bounded
-  paths jointly on contiguous streams instead of compressing frozen V11 states.
+- **Final bounded-state result:** V18b repairs state scale but not organization
+  or use. V19's jointly trained recurrent state and V19b's partitioned banks
+  also lose to simple pooling and exact history. The frozen bridge and latent
+  memory-token interface are retired.
+- **Selected direction:** V20/V21 move compression out of episode content and
+  into the index. An exact-token archive plus bounded lexical top-two selection
+  beats both local-only and indiscriminate all-history on the controlled binding
+  task. The next falsifier replaces relation templates with causal,
+  document-disjoint language and must improve continuation loss and anchored
+  generation together.
 
 ### Explicit read/write memory
 
@@ -225,15 +246,16 @@ has a language-specific purpose.
 - **Borrowed:** object-centric
   [Slot Attention](https://arxiv.org/abs/2006.15055) shows that competitive slots
   can bind to entities and generalize to new compositions.
-- **Observed:** MARULHO's prompt-prepending memory and PMRM slots failed. The
-  missing ingredient was not merely capacity; write selection, binding, and
-  downstream use were weak.
-- **Current design:** V18 omits surprise selection, routers, semantic labels, and
-  independent miniature language models. All source records write; a later
-  query reads. Learned slots survive only if they beat fixed summaries under an
-  identical 32-KiB state budget. This borrows the segment-state question from
-  Recurrent Memory Transformer and Block-Recurrent Transformer without claiming
-  either architecture as MARULHO's result.
+- **Observed:** MARULHO's surprise-selected prompt memory, PMRM slots, and later
+  learned latent-token banks failed. The missing ingredient was not merely
+  capacity; lossy writes discarded distinctions that the downstream query
+  needed.
+- **Current design:** the local cortex remains bounded, while an external
+  append-only episode archive retains exact token spans, provenance, and compact
+  retrieval keys. A visible causal prefix selects a fixed number of older spans
+  before prediction. V21 validates this division of labor only on controlled
+  relation binding; V22 must establish whether it transfers to real disjoint
+  documents before a checkpoint/index contract is built.
 
 ### Multiple learning timescales
 
@@ -632,7 +654,8 @@ no checkpoint exists before survival.
 
 - SNN or GRU language recurrence as the active language core.
 - Fixed routed columns as a base-language architecture.
-- Prompt-text episodic retrieval as memory.
+- Surprise-selected prompt-prepending memory as evidence against all exact
+  episodic retrieval.
 - Raw token surprise as assumed write utility.
 - Delta-memory v1 as the next scalable core.
 - Dense distributed-organism v1 as the base token mixer.
