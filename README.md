@@ -53,9 +53,9 @@ comparative all-expert utility reached 25.8%; neither beat random. The next
 hypothesis directly tests several smaller deep sequence models with independent
 state/weights and a narrow latent communication bus, matched in total parameters
 and measured active compute against the monolith. The v3 candidate core now
-exists with four independent cells and four predeclared controls; it is not an
-installed runtime or a supported architecture until matched real-language
-evidence justifies promotion.
+exists with four independent cells, four predeclared controls, and a resumable
+matched real-language runner; it is not an installed runtime or a supported
+architecture until the 16.79M-token evidence justifies promotion.
 
 ## Current Evidence
 

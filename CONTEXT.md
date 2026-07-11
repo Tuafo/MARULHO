@@ -166,9 +166,11 @@ messages and a token-level coordinator. At an 8,192-token vocabulary it has
 21,000,608 parameters versus the baseline's 20,976,128 (0.12% more). Averaged
 logits/no messages, learned coordinator/no messages, shuffled messages, real
 messages, and the monolithic Transformer are predeclared controls. Active
-compute and wall time remain measurements, not assumed matches. This candidate
-is not installed in `MarulhoBrain`; matched real-language evidence decides
-whether meaningful organization emerged.
+compute and wall time remain measurements, not assumed matches. The matched
+runner freezes source sampling and the update schedule, verifies compile/eager
+loss parity, and measures heldout loss plus label-safe free relation behavior.
+This candidate is not installed in `MarulhoBrain`; the pending 16.79M-token
+comparison decides whether meaningful organization emerged.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
