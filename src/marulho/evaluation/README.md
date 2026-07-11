@@ -37,6 +37,13 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
+**`language_matched_support.py`** — shared mechanics for replacement falsifiers:
+deterministic corpus range selection, full-batch filtering, mixed-source schedule
+construction, one-time device staging, optimizer/gradient accounting, heldout and
+label-safe relation evaluation, and optional post-arm diagnostics. Architecture
+decisions remain owned by the specific runner; this support cannot promote a
+model.
+
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
