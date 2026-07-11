@@ -232,6 +232,19 @@ a superior static architecture or a known training-step crossover. No checkpoint
 was saved. The model, runner, and tests are deleted; three local reports retain
 the screen, replication, and durability evidence.
 
+**Depth-Weighted Representation Reuse v9 (active experiment, uninstalled)** —
+keep the exact four uniform Transformer blocks but let every block output reuse
+the embedding and all earlier depth representations through 14 scalar
+connections. The candidate has 20,976,142 parameters versus the Transformer's
+20,976,128, and every common tensor is bit-identical at initialization. Identity,
+fixed-mean, fixed-random, learned-unconstrained, and learned-simplex modes share
+one parameter graph. Identity reproduces Transformer logits exactly; causality,
+streaming equivalence, owned generation, full learned-weight gradients, and
+finite representation-geometry diagnostics pass. The geometry metrics and depth
+weights explain information flow but cannot promote quality. V9 is not a runtime
+path or checkpoint format until the learned modes beat all connection controls
+and the Transformer at a durable budget.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

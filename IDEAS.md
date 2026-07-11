@@ -20,7 +20,9 @@ be tested as **conditional capacity inside the main predictive path**, not as
 several incomplete language models or a weak memory attached beside one. V8
 tested the simpler structural question of where a fixed feed-forward budget
 should live across depth. Its short-budget early-heavy win reversed at the
-durable budget, so no static profile becomes the baseline for micro-experts.
+durable budget, so no static profile becomes the baseline for micro-experts. V9
+now tests whether direct reuse of earlier representations is more durable than
+moving capacity toward them.
 
 Geometry remains high-value instrumentation. Wavelets, toroidal phase,
 reservoirs, cellular self-organization, and active inference remain scoped
@@ -95,7 +97,40 @@ does not prove a training-stage crossover because the short and long experiments
 used budget-sized cosine schedules; it motivates explicit curve measurement or
 adaptive depth only if those mechanisms receive their own controls.
 
-### 3. Sparse shared-core micro-experts — research candidate
+### 3. Depth-weighted representation reuse — active V9
+
+V8 suggests that shallow computation can help under a short horizon but does not
+justify permanently widening shallow layers. A smaller intervention is to keep
+all uniform blocks and let later depths directly reuse earlier representations.
+[DenseFormer](https://arxiv.org/abs/2402.02622) does this with learned
+Depth-Weighted-Average connections and reports better language-model perplexity;
+its weights include small and negative connections, so a convex mean is not an
+equivalent implementation.
+
+V9 uses only 14 new scalars at four layers and requires these controls on one
+exact-reset graph:
+
+- identity, which must exactly reproduce the Transformer;
+- fixed mean, testing access without learned selection;
+- fixed seeded random convex weights;
+- learned unconstrained weights initialized to identity, matching the
+  DenseFormer mechanism;
+- learned simplex weights initialized near identity, testing whether an
+  identity-preserving bounded manifold is sufficient.
+
+This also tests the useful core of [Hyper-Connections](https://arxiv.org/abs/2409.19606)
+and [mHC](https://arxiv.org/abs/2512.24880) without multiplying residual streams.
+That restraint matters because a 2026
+[stream-collapse analysis](https://arxiv.org/abs/2606.03483) finds that
+multi-stream systems can concentrate information in one dominant stream. V9
+measures depth-weight entropy, negative weights, embedding reuse, effective rank,
+participation ratio, and adjacent-depth cosine, but only loss and free generation
+can select a branch.
+
+Kill V9 if learned reuse cannot beat identity plus fixed controls, if its gain is
+only short-budget, or if data movement erases the quality/compute tradeoff.
+
+### 4. Sparse shared-core micro-experts — research candidate
 
 Replace each monolithic feed-forward transformation with a dense shared path
 plus several small sparse expert residuals. All tokens retain the same attention
@@ -131,7 +166,7 @@ standard routers often miss better equal-compute routes on fragile tokens. That
 warning matches MARULHO v2's learned-selector failure and makes random/hash and
 counterfactual controls mandatory.
 
-### 4. Gated multiscale dynamical memory — v7 retired
+### 5. Gated multiscale dynamical memory — v7 retired
 
 V7 performed the required memory-off, single-scale, always-write,
 fixed-random-write, and learned-write comparison with one exact-reset parameter
@@ -199,7 +234,7 @@ V7 met the kill condition because its learned gate could not beat the simpler
 control on both loss and free behavior. The broader literature remains useful,
 but this fixed-stable sidecar is no longer an active architecture direction.
 
-### 5. Wavelet-style temporal resolution — promising component
+### 6. Wavelet-style temporal resolution — promising component
 
 Wavelets provide an exact way to separate slow approximation from fast detail.
 The first implementation should use a fixed orthogonal Haar transform so that
@@ -216,7 +251,7 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
-### 6. Memory gates — high-value mechanism, not a complete architecture
+### 7. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
 overwriting persistent state? The gate should be trained through future
@@ -233,7 +268,7 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-### 7. Toroidal phase memory — narrow use for time and order
+### 8. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
 rotations; mathematically, this already introduces circular/toroidal phase
@@ -249,7 +284,7 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
 
-### 8. Hyperdimensional or vector-symbolic memory — binding organ only
+### 9. Hyperdimensional or vector-symbolic memory — binding organ only
 
 High-dimensional distributed vectors can bind roles, entities, and relations by
 algebraic operations and store several items in superposition. This connects to
@@ -262,7 +297,7 @@ surveys the relevant binding and superposition algebra. High ambient dimension
 alone is not a contribution; the binding operation, retrieval contract, and
 capacity/interference curve must be explicit.
 
-### 9. Autonomous local pattern generation — grounded research, not next LM
+### 10. Autonomous local pattern generation — grounded research, not next LM
 
 Neural or adaptive cellular automata demonstrate that shared local rules can
 produce robust global organization. That is a real example of micro rules making
@@ -277,7 +312,7 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
-### 10. Free-energy principle — translate or reject
+### 11. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
 text training, full-vocabulary next-token cross-entropy already minimizes a
@@ -297,16 +332,18 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    line after learned memory loses free generation and the simpler control.
 2. Completed: run and retire V8 after its replicated short-budget early-heavy
    win reverses in the 67.11M-token durability comparison.
-3. Add a read-only neural-manifold diagnostic to the maintained Transformer and
+3. Run V9 identity/fixed/learned depth-reuse controls with read-only geometry
+   diagnostics; require durability before promotion.
+4. Add a read-only neural-manifold diagnostic to the maintained Transformer and
    every future survivor. Use it to explain results, never to promote a model.
-4. Research and cost a shared-core sparse micro-expert candidate, then run
+5. Research and cost a shared-core sparse micro-expert candidate, then run
    shared-only, random, hash, and learned routing in one matched harness. Share
    data and compiled graphs where mathematically identical; never share weights,
    optimizer state, or labels.
-5. Test wavelet-style compression only as a causal old-context mechanism on a
+6. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-6. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+7. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

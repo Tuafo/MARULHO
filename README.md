@@ -80,6 +80,14 @@ architecture; no checkpoint was saved, and the v8 model, runner, and tests are
 deleted. Its reports remain as evidence that useful depth allocation may depend
 on budget or training schedule.
 
+The active uninstalled v9 experiment keeps uniform Transformer capacity and adds
+only 14 scalar connections that can directly reuse earlier layer
+representations. It compares exact identity, fixed mean, fixed random,
+DenseFormer-style learned unconstrained weights, and identity-preserving learned
+simplex weights on one shared parameter graph. Identity exactly reproduces the
+Transformer; causal streaming, generation, gradients, and read-only geometry
+diagnostics pass. V9 has no language-quality result or checkpoint yet.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the
