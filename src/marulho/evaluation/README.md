@@ -44,6 +44,19 @@ label-safe relation evaluation, and optional post-arm diagnostics. Architecture
 decisions remain owned by the specific runner; this support cannot promote a
 model.
 
+**`language_micro_expert_falsification.py`** — the active uninstalled v10
+runner. It compares the Transformer with shared-only, frozen-random product-key,
+token-hash, and learned product-key routing. The four 37,294,592-parameter
+candidate modes reload one exact state and share one compiled loss graph; the
+20,976,128-parameter Transformer is separately hash-matched on every unchanged
+tensor. Reports distinguish stored from active parameters and record routing
+usage, entropy, unevenness, duplication, expert-vector diversity, gradient
+coverage, throughput, and VRAM. Those are diagnostic only. Learned routing must
+beat the Transformer and every control on heldout loss and strict free generation
+without falling below half the local throughput before it can replicate. Fixed
+routing may replicate without a learned-router claim; no checkpoint is saved
+before survival.
+
 The retired depth-connection v9 evidence is local at
 `reports/language_scaling/depth-connections-v9-falsification-16m-20260711.json`
 and
