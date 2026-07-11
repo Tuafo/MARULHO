@@ -241,25 +241,26 @@ model, runner, tests, and wavelet-specific path are deleted. The next synthetic
 test must separate small-bank modularity, averaging, and nonuniform clocks before
 any language run.
 
-**`language_multiscale_clock_preflight.py`** — the active V16 isolation test.
-It keeps the V15 recall task, 2,400-step convergence budget, 112-float state,
-31,120 candidate parameters, exact candidate initialization, stronger flat-GRU
-control, anti-shortcut contract, geometry diagnostics, and three-point long
-profile margin. It changes only the candidate input/update organization:
+The deleted V16 clock-isolation preflight is retained only at
+`reports/language_scaling/v16-multiscale-clock-isolation-20260711.json`
+(SHA-256
+`6a33f3b18e39b1b4ba301aa1a67e974cdf0898162100e6367b18f23ae791019d`).
+Three fresh seeds use identical candidate tensors, 31,120 parameters, 112 state
+floats, task, schedule, optimizer, and readout. Mean 128/256/512/overwrite
+accuracy is 6.34/6.48/6.25/6.05% for the larger flat GRU;
+38.34/38.29/37.87/22.68% for seven token-rate banks;
+25.35/24.92/21.47/20.10% for seven uniform low-pass banks;
+20.01/20.21/20.21/14.91% for dyadic last-token banks; and
+25.23/22.72/19.11/18.65% for dyadic low-pass banks.
 
-- seven token-rate banks receive every token (896 updates per sequence);
-- seven uniform low-pass banks receive normalized 7-token blocks (126 updates);
-- seven dyadic banks receive only each block's final token (127 updates);
-- seven dyadic low-pass banks reproduce V15's raw winner (127 updates).
-
-A disposable seed verifies every arm learns and exposes a decision-router bug,
-not an architectural change: length-512 accuracy is 6.8%/flat, 25.4%/token banks,
-20.2%/uniform low-pass, 20.6%/dyadic last-token, and 19.7%/dyadic low-pass. The
-fallback now selects the strongest mechanism rather than the first passing
-branch. Architecture, 3-point thresholds, 2,400 steps, and arms remain frozen;
-the smoke report is deleted. Final evidence uses untouched data seed 7101 and
-model seeds 7201/7202/7203. Only a replicated dyadic-low-pass win over every arm
-admits language; other outcomes name the narrower surviving mechanism.
+Token banks win every seed and retain almost exact accuracy from 128 to 512
+tokens. They use fewer parameters than flat but perform 896 versus 128 recurrent
+updates and run at 574k versus 1.35M task tokens/s, so this is an organization
+win, not an efficiency win. Their 512-token effective rank is 23.3 versus 23.1
+for flat, ruling out global rank as an explanation. Decision:
+`redesign_v16_retain_small_banks_reject_clock_claim`. Clock, averaging, and
+synthetic-runner code are deleted. The next language screen tests an all-active
+grouped/block-diagonal recurrent organ against off, local, and dense controls.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

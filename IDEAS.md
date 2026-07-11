@@ -137,15 +137,34 @@ banks all using one uniform block size with the same total update count, and
 (c) dyadic banks receiving only each block's last token. That separates small
 units, low-pass filtering, and genuinely different clocks before language.
 
-The V16 mechanism smoke makes the small-unit connection concrete. With identical
-candidate tensors and state bytes, seven token-rate banks reach 25.4% at length
-512, versus 20.2% for one uniform low-pass clock, 20.6% for dyadic last-token
-sampling, 19.7% for dyadic low-pass, and 6.8% for a larger monolithic GRU. The
-token banks receive more recurrent updates, so this is not yet an efficiency or
-language claim. It is a falsifiable version of the user's LCO-style intuition:
-independent small dynamics may organize the same total state better than one
-large recurrent state. The smoke is deleted and fresh three-seed evidence must
-replicate it before this becomes the surviving V16 branch.
+V16 replicates the small-unit connection. With identical candidate tensors and
+state bytes, seven token-rate banks reach mean 512-token recall of 37.9% versus
+21.5% for uniform low-pass, 20.2% for dyadic last-token sampling, 19.1% for
+dyadic low-pass, and 6.25% for a larger monolithic GRU. Every seed preserves the
+ordering, and token-bank accuracy barely changes from length 128 to 512. The
+overwrite profile falls to 22.7%, so updating facts remains a weakness. Token
+banks receive seven times more recurrent updates and run 2.35x slower than flat;
+this is a capability/organization result, not an efficiency result.
+
+The mechanism is a grouped or block-diagonal GRU: every group reads the same
+input, recurrent mixing stays inside the group, and one readout uses all groups.
+It is related to [Recurrent Independent Mechanisms](https://arxiv.org/abs/1909.10893)
+and [Slot State Space Models](https://arxiv.org/abs/2406.12272), but initially
+omits their learned competition and sparse communication because MARULHO's
+learned routers already failed. [Block-Diagonal LRUs](https://arxiv.org/abs/2602.12021)
+independently support the narrower principle that state-mixing structure, not
+width alone, shapes recurrent expressivity. MARULHO does not claim the primitive
+as new; its next test asks whether this grouping adds language value to the
+qualified V11 sparse token path.
+
+The V17 screen attaches eight small all-active GRU groups after a middle V11
+layer through a zero-initialized residual. Required controls are exact V11/off,
+the same grouped parameters applied locally with no carried state, and one dense
+GRU with the same total state width and more parameters. There is no router,
+label-dependent update, semantic role assignment, or communication between
+groups. First require exact attachment, streaming equivalence, full gradients,
+and viable CUDA throughput; then use a bounded matched language screen before a
+67M-token durability run.
 
 ## Ranked directions
 
@@ -833,18 +852,20 @@ useful state organ exists. Until then, free energy remains a theory-level lens.
     67.11M tokens; the active full-rank memory is suppressed and deleted.
 11. Completed: V15 rejects ordered Haar detail but finds a replicated raw
     multiscale-bank advantage over a same-state-byte flat GRU.
-12. Next: isolate small-bank modularity, averaging, and nonuniform clocks with
-    token-rate, uniform-block, last-token, and raw-dyadic controls.
-13. Use read-only state geometry to explain that branch; it never promotes a
-    model, and the V15 rank result already rejects “more dimensions is better.”
-14. Admit a multiscale state to base language only after the isolation test wins,
-    then require retention on both source holdouts and unseen generation.
-15. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+12. Completed: V16 shows that seven independent token-rate banks, not clocks or
+    averaging, drive the replicated recall and length-generalization win.
+13. Next: attach an all-active grouped recurrent organ to V11 and screen off,
+    local, dense, and grouped controls for parity, throughput, and language loss.
+14. Use read-only state geometry and group ablations to explain that branch; they
+    never promote a model.
+15. Run 67M-token durability and unseen generation only after the bounded grouped
+    language screen wins.
+16. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 
-The next creative bet is therefore specific: **many small associative states may
-organize a paragraph-level trajectory inside one full-strength predictive
-interface without duplicating the language model**. This is meaningfully
-different from a dense monolith, fixed token experts alone, and the retired
-designs of several incomplete language models or decaying vector sidecars.
+The next creative bet is therefore specific: **several all-active independent
+recurrent groups may organize one shared language state better than a dense
+monolith, without duplicating the language model**. Synthetic evidence earns a
+language screen, not belief; off, local, and dense controls decide whether the
+effect survives inside V11.

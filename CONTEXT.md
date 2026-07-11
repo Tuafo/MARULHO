@@ -428,17 +428,20 @@ and wavelet path are deleted; only its report remains. The next cheap test must
 isolate whether raw's gain comes from several small banks, low-pass averaging,
 or genuinely different clocks before any change to the 1B language model.
 
-The active V16 isolation test compares those causes with exact-reset candidate
-parameters and the same recall contract. Seven token-rate banks test small-unit
-modularity; seven uniform 7-token low-pass banks match the dyadic total update
-count without different clocks; dyadic last-token banks preserve clocks without
-averaging; dyadic low-pass banks reproduce the V15 winner. A discarded
-mechanical seed gives length-512 accuracy 25.4/20.2/20.6/19.7% respectively,
-versus 6.8% for the larger flat GRU. That makes small independent units the
-leading hypothesis, but it is not frozen evidence. The committed final uses
-fresh data seed 7101 and model seeds 7201/7202/7203. The decision fallback selects
-the strongest replicated mechanism; only an isolated three-point dyadic-low-pass
-win can admit a language run.
+V16 isolates the V15 signal and finds that different clocks are not the source.
+Across three fresh seeds, mean 128/256/512/overwrite recall accuracy is
+6.34/6.48/6.25/6.05% for a larger same-state-byte flat GRU;
+38.34/38.29/37.87/22.68% for seven independent token-rate banks;
+25.35/24.92/21.47/20.10% for seven uniform low-pass banks;
+20.01/20.21/20.21/14.91% for dyadic last-token banks; and
+25.23/22.72/19.11/18.65% for dyadic low-pass banks. Token banks win every seed
+and extrapolate from 128 to 512 tokens with almost no accuracy loss. They perform
+seven times more recurrent updates and are 2.35x slower than flat in the current
+implementation, so no sparse-compute claim is made. Decision:
+`redesign_v16_retain_small_banks_reject_clock_claim`. The synthetic model and
+runner are deleted. The next V11 language screen inserts one all-active grouped
+recurrent organ and compares it with off, same-parameter local, and dense-state
+controls before any large language run.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
