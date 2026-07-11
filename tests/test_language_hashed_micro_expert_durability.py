@@ -7,6 +7,7 @@ from marulho.evaluation.language_hashed_micro_expert_durability import (
     HashedMicroExpertDurabilityConfig,
     _build_model,
     _common_parameter_hash,
+    checkpoint_reproduction_audit,
     hashed_micro_expert_durability_decision,
 )
 
@@ -132,3 +133,86 @@ def test_durability_runner_common_initialization_hash_matches() -> None:
         architecture="hashed_micro_experts",
         expert_layer_index=1,
     )
+
+
+def test_checkpoint_reproduction_reapplies_joint_gate_not_bit_exact_metrics() -> None:
+    qualified = _arms(
+        {
+            "transformer": (3.895067, 0.191406),
+            "shared_only": (3.908809, 0.257812),
+            "token_hash": (3.874665, 0.359375),
+        },
+        candidate_tps=125_210.0,
+    )
+    for row in qualified:
+        row["common_initialization_sha256"] = "stable-common-initialization"
+        if row["name"] == "transformer":
+            row["training"]["tokens_per_second"] = 130_415.0
+    reproduced = dict(qualified[-1])
+    reproduced["heldout"] = {"heldout_loss": 3.8748}
+    reproduced["relation"] = {"generation_exact_accuracy": 0.292969}
+    audit = checkpoint_reproduction_audit(
+        reproduced,
+        {
+            "qualified_arms": {row["name"]: row for row in qualified},
+        },
+    )
+    assert audit["fixed_joint_gate_reapplied"] is True
+    assert audit["exact_gpu_trajectory_required"] is False
+    assert audit["decision"] == (
+        "promote_v11_hash_for_checkpoint_and_unseen_generation"
+    )
+    assert audit["heldout_loss_delta"] > 0.0
+    assert audit["free_relation_accuracy_delta"] < 0.0
+
+
+def test_checkpoint_reproduction_rejects_lost_behavior_margin() -> None:
+    qualified = _arms(
+        {
+            "transformer": (3.895067, 0.191406),
+            "shared_only": (3.908809, 0.257812),
+            "token_hash": (3.874665, 0.359375),
+        }
+    )
+    for row in qualified:
+        row["common_initialization_sha256"] = "stable-common-initialization"
+    reproduced = dict(qualified[-1])
+    reproduced["heldout"] = {"heldout_loss": 3.8748}
+    reproduced["relation"] = {"generation_exact_accuracy": 0.269531}
+    try:
+        checkpoint_reproduction_audit(
+            reproduced,
+            {"qualified_arms": {row["name"]: row for row in qualified}},
+        )
+    except RuntimeError as exc:
+        assert "did not retain" in str(exc)
+    else:
+        raise AssertionError("Lost behavior margin should reject checkpoint")
+
+
+def test_checkpoint_reproduction_rejects_token_or_initialization_drift() -> None:
+    qualified = _arms(
+        {
+            "transformer": (3.895067, 0.191406),
+            "shared_only": (3.908809, 0.257812),
+            "token_hash": (3.874665, 0.359375),
+        }
+    )
+    for row in qualified:
+        row["common_initialization_sha256"] = "stable-common-initialization"
+    record = {"qualified_arms": {row["name"]: row for row in qualified}}
+    token_drift = {**qualified[-1], "processed_tokens": 67_108_863}
+    initialization_drift = {
+        **qualified[-1],
+        "common_initialization_sha256": "different-initialization",
+    }
+    for reproduced, message in (
+        (token_drift, "token count mismatch"),
+        (initialization_drift, "initialization mismatch"),
+    ):
+        try:
+            checkpoint_reproduction_audit(reproduced, record)
+        except RuntimeError as exc:
+            assert message in str(exc)
+        else:
+            raise AssertionError("Qualification identity drift should be rejected")

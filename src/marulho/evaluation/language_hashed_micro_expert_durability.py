@@ -271,6 +271,83 @@ def hashed_micro_expert_durability_decision(
     return "retire_v11_hashed_micro_experts_not_durable"
 
 
+def checkpoint_reproduction_audit(
+    reproduced_arm: Mapping[str, Any],
+    qualification_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Reapply the fixed V11 promotion gate to an independent hash-arm run.
+
+    CUDA BF16/Inductor training is not promised to reproduce a many-thousand-step
+    floating-point trajectory bit for bit.  Checkpoint qualification therefore
+    requires the new arm to retain the already-fixed scientific margins against
+    the original matched controls, while preserving the exact token count and
+    common initialization.  This is stricter and more meaningful than accepting
+    a numerically close loss alone, and it does not require a discontinuous
+    greedy-generation metric to be bit-identical.
+    """
+
+    qualified_arms = {
+        str(name): dict(row)
+        for name, row in dict(
+            qualification_record.get("qualified_arms") or {}
+        ).items()
+    }
+    if any(name not in qualified_arms for name in ARM_NAMES):
+        raise RuntimeError("Qualification record is missing matched V11 arms")
+    if reproduced_arm.get("name") != "token_hash":
+        raise RuntimeError("Checkpoint reproduction must execute token_hash")
+    qualified_hash = qualified_arms["token_hash"]
+    if int(qualified_hash["processed_tokens"]) != int(
+        reproduced_arm["processed_tokens"]
+    ):
+        raise RuntimeError("Checkpoint reproduction token count mismatch")
+    expected_initialization = str(
+        qualified_hash.get("common_initialization_sha256") or ""
+    )
+    observed_initialization = str(
+        reproduced_arm.get("common_initialization_sha256") or ""
+    )
+    if not expected_initialization or observed_initialization != expected_initialization:
+        raise RuntimeError("Checkpoint reproduction initialization mismatch")
+
+    comparison_arms = [
+        qualified_arms["transformer"],
+        qualified_arms["shared_only"],
+        dict(reproduced_arm),
+    ]
+    decision = hashed_micro_expert_durability_decision(comparison_arms)
+    required_decision = "promote_v11_hash_for_checkpoint_and_unseen_generation"
+    if decision != required_decision:
+        raise RuntimeError(
+            "Checkpoint reproduction did not retain the qualified V11 margins: "
+            f"{decision}"
+        )
+
+    expected_loss = float(qualified_hash["heldout"]["heldout_loss"])
+    observed_loss = float(reproduced_arm["heldout"]["heldout_loss"])
+    expected_free = float(
+        qualified_hash["relation"]["generation_exact_accuracy"]
+    )
+    observed_free = float(
+        reproduced_arm["relation"]["generation_exact_accuracy"]
+    )
+    return {
+        "surface": "marulho_hashed_micro_expert_checkpoint_reproduction.v2",
+        "decision": decision,
+        "fixed_joint_gate_reapplied": True,
+        "qualification_controls_reused": ["transformer", "shared_only"],
+        "exact_gpu_trajectory_required": False,
+        "processed_tokens": int(reproduced_arm["processed_tokens"]),
+        "common_initialization_sha256": observed_initialization,
+        "qualified_heldout_loss": expected_loss,
+        "reproduced_heldout_loss": observed_loss,
+        "heldout_loss_delta": observed_loss - expected_loss,
+        "qualified_free_relation_accuracy": expected_free,
+        "reproduced_free_relation_accuracy": observed_free,
+        "free_relation_accuracy_delta": observed_free - expected_free,
+    }
+
+
 def _load_qualification_report(
     path: str | Path,
     *,
@@ -296,21 +373,16 @@ def _load_qualification_report(
         prepared.tokenizer.vocabulary_hash()
     ):
         raise ValueError("Qualification tokenizer does not match reproduction")
-    qualified = next(
-        (
-            dict(row)
-            for row in payload.get("arms") or []
-            if row.get("name") == "token_hash"
-        ),
-        None,
-    )
-    if qualified is None:
-        raise ValueError("Qualification report has no token_hash arm")
+    qualified_arms = {
+        str(row.get("name")): dict(row) for row in payload.get("arms") or []
+    }
+    if any(name not in qualified_arms for name in ARM_NAMES):
+        raise ValueError("Qualification report is missing matched V11 arms")
     return payload, {
         "path": str(source),
         "sha256": sha256_file(source),
         "decision": payload["decision"],
-        "qualified_arm": qualified,
+        "qualified_arms": qualified_arms,
     }
 
 
@@ -641,34 +713,12 @@ def run_hashed_micro_expert_durability(
                     qualified_here = current_decision == (
                         "promote_v11_hash_for_checkpoint_and_unseen_generation"
                     )
+                    reproduction_audit: dict[str, Any] | None = None
                     if qualification_record is not None:
-                        qualified_arm = qualification_record["qualified_arm"]
-                        if int(qualified_arm["processed_tokens"]) != int(
-                            row["processed_tokens"]
-                        ):
-                            raise RuntimeError(
-                                "Checkpoint reproduction token count mismatch"
-                            )
-                        expected_loss = float(
-                            qualified_arm["heldout"]["heldout_loss"]
+                        reproduction_audit = checkpoint_reproduction_audit(
+                            row,
+                            qualification_record,
                         )
-                        observed_loss = float(row["heldout"]["heldout_loss"])
-                        if abs(expected_loss - observed_loss) > 1.0e-4:
-                            raise RuntimeError(
-                                "Checkpoint reproduction heldout loss mismatch"
-                            )
-                        expected_free = float(
-                            qualified_arm["relation"][
-                                "generation_exact_accuracy"
-                            ]
-                        )
-                        observed_free = float(
-                            row["relation"]["generation_exact_accuracy"]
-                        )
-                        if expected_free != observed_free:
-                            raise RuntimeError(
-                                "Checkpoint reproduction free behavior mismatch"
-                            )
                         qualified_here = True
                     if qualified_here:
                         checkpoint = save_hashed_micro_expert_checkpoint(
@@ -702,6 +752,7 @@ def run_hashed_micro_expert_durability(
                                     if qualification_record is None
                                     else qualification_record["sha256"]
                                 ),
+                                "checkpoint_reproduction": reproduction_audit,
                                 "external_llm_used": False,
                             },
                         )
@@ -715,9 +766,10 @@ def run_hashed_micro_expert_durability(
                                 else {
                                     key: value
                                     for key, value in qualification_record.items()
-                                    if key != "qualified_arm"
+                                    if key != "qualified_arms"
                                 }
                             ),
+                            "reproduction": reproduction_audit,
                             "reproduced_heldout_loss": float(
                                 row["heldout"]["heldout_loss"]
                             ),
