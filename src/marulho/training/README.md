@@ -102,7 +102,10 @@ banks inserted between layers two and three. Content gates control writes at
 four decay horizons. Memory-off, single-scale, always-write, fixed-random-write,
 and learned multiscale modes share the exact same 20.977M parameter objects. The
 core is not checkpoint-promotable until its matched full-budget controls qualify
-it.
+it. Full-sequence training evaluates the fixed recurrence as grouped causal
+convolutions; one-token generation uses the identical recurrent update. This
+replaced a rejected 258.3-second/63.7k-tokens/s unrolled graph with a
+67.6-second/114.1k-tokens/s compiled path on the local RTX 3060.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

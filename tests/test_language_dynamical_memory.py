@@ -107,6 +107,43 @@ def test_dynamical_memory_modes_share_one_parameter_graph() -> None:
     assert not torch.equal(outputs["single_scale"], outputs["multiscale_learned"])
 
 
+def test_parallel_memory_matches_recurrent_updates_for_every_control() -> None:
+    torch.manual_seed(12)
+    model = MarulhoDynamicalMemoryLanguageModel(_config()).eval()
+    memory = model.state_block.memory
+    hidden = torch.randn(2, 7, 32)
+    initial = torch.randn(2, 32) * 0.1
+
+    with torch.no_grad():
+        for mode in DYNAMICAL_MEMORY_MODES:
+            model.set_memory_mode(mode)
+            parallel, parallel_state, _telemetry = memory(
+                hidden,
+                initial,
+                position_offset=torch.tensor(5),
+                collect_telemetry=False,
+            )
+            recurrent_state = initial
+            recurrent_outputs = []
+            for index in range(int(hidden.shape[1])):
+                output, recurrent_state, _telemetry = memory(
+                    hidden[:, index : index + 1],
+                    recurrent_state,
+                    position_offset=torch.tensor(5 + index),
+                    collect_telemetry=False,
+                )
+                recurrent_outputs.append(output)
+            recurrent = torch.cat(recurrent_outputs, dim=1)
+
+            assert torch.allclose(parallel, recurrent, atol=2.0e-5, rtol=1.0e-5)
+            assert torch.allclose(
+                parallel_state,
+                recurrent_state,
+                atol=2.0e-5,
+                rtol=1.0e-5,
+            )
+
+
 def test_dynamical_memory_backpropagates_to_every_parameter() -> None:
     torch.manual_seed(13)
     model = MarulhoDynamicalMemoryLanguageModel(_config()).train()

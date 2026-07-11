@@ -136,6 +136,34 @@ class MarulhoGatedDynamicalMemory(nn.Module):
         self.register_buffer("single_input_scale", single_input_scales, persistent=True)
         self.register_buffer("rotation_cos", torch.cos(angle), persistent=True)
         self.register_buffer("rotation_sin", torch.sin(angle), persistent=True)
+        lags = torch.arange(self.context_length + 1, dtype=torch.float32)
+        phase = angle.unsqueeze(-1) * lags.view(1, 1, -1)
+        multiscale_magnitude = decays.view(self.bank_count, 1, 1).pow(
+            lags.view(1, 1, -1)
+        )
+        single_magnitude = single.view(self.bank_count, 1, 1).pow(
+            lags.view(1, 1, -1)
+        )
+        self.register_buffer(
+            "multiscale_power_real",
+            multiscale_magnitude * torch.cos(phase),
+            persistent=True,
+        )
+        self.register_buffer(
+            "multiscale_power_imag",
+            multiscale_magnitude * torch.sin(phase),
+            persistent=True,
+        )
+        self.register_buffer(
+            "single_power_real",
+            single_magnitude * torch.cos(phase),
+            persistent=True,
+        )
+        self.register_buffer(
+            "single_power_imag",
+            single_magnitude * torch.sin(phase),
+            persistent=True,
+        )
         self.register_buffer("random_gate_pattern", random_pattern, persistent=True)
         for name in DYNAMICAL_MEMORY_MODES:
             self.register_buffer(
@@ -169,6 +197,121 @@ class MarulhoGatedDynamicalMemory(nn.Module):
         rotated_first = cosine * first - sine * second
         rotated_second = sine * first + cosine * second
         return torch.stack((rotated_first, rotated_second), dim=-1).reshape_as(state)
+
+    def _parallel_recurrence(
+        self,
+        update: torch.Tensor,
+        initial_state: torch.Tensor,
+        *,
+        single_weight: torch.Tensor,
+    ) -> torch.Tensor:
+        """Evaluate the fixed complex-diagonal recurrence as causal convolutions."""
+
+        batch_size, time_steps, _banks, _width = update.shape
+        if int(time_steps) == 1:
+            decay = (
+                (1.0 - single_weight) * self.multiscale_decay
+                + single_weight * self.single_decay
+            ).to(device=update.device, dtype=update.dtype)
+            current = decay * self._rotate(initial_state) + update[:, 0]
+            return current.unsqueeze(1)
+
+        multiscale_weight = 1.0 - single_weight
+        power_real = (
+            multiscale_weight * self.multiscale_power_real
+            + single_weight * self.single_power_real
+        ).to(device=update.device, dtype=update.dtype)
+        power_imag = (
+            multiscale_weight * self.multiscale_power_imag
+            + single_weight * self.single_power_imag
+        ).to(device=update.device, dtype=update.dtype)
+        channels = self.bank_count * (self.bank_width // 2)
+        pairs = update.view(
+            int(batch_size),
+            int(time_steps),
+            self.bank_count,
+            self.bank_width // 2,
+            2,
+        )
+        update_real = pairs[..., 0].permute(0, 2, 3, 1).reshape(
+            int(batch_size), channels, int(time_steps)
+        )
+        update_imag = pairs[..., 1].permute(0, 2, 3, 1).reshape(
+            int(batch_size), channels, int(time_steps)
+        )
+        kernel_real = power_real[..., : int(time_steps)].flip(-1).reshape(
+            channels,
+            1,
+            int(time_steps),
+        )
+        kernel_imag = power_imag[..., : int(time_steps)].flip(-1).reshape(
+            channels,
+            1,
+            int(time_steps),
+        )
+        padding = int(time_steps) - 1
+        real_real = F.conv1d(
+            update_real,
+            kernel_real,
+            padding=padding,
+            groups=channels,
+        )[..., : int(time_steps)]
+        imag_imag = F.conv1d(
+            update_imag,
+            kernel_imag,
+            padding=padding,
+            groups=channels,
+        )[..., : int(time_steps)]
+        real_imag = F.conv1d(
+            update_real,
+            kernel_imag,
+            padding=padding,
+            groups=channels,
+        )[..., : int(time_steps)]
+        imag_real = F.conv1d(
+            update_imag,
+            kernel_real,
+            padding=padding,
+            groups=channels,
+        )[..., : int(time_steps)]
+        output_real = real_real - imag_imag
+        output_imag = real_imag + imag_real
+
+        initial_pairs = initial_state.view(
+            int(batch_size),
+            self.bank_count,
+            self.bank_width // 2,
+            2,
+        )
+        initial_real = initial_pairs[..., 0].unsqueeze(-1)
+        initial_imag = initial_pairs[..., 1].unsqueeze(-1)
+        initial_power_real = power_real[..., 1 : int(time_steps) + 1].unsqueeze(0)
+        initial_power_imag = power_imag[..., 1 : int(time_steps) + 1].unsqueeze(0)
+        initial_output_real = (
+            initial_real * initial_power_real - initial_imag * initial_power_imag
+        )
+        initial_output_imag = (
+            initial_real * initial_power_imag + initial_imag * initial_power_real
+        )
+        output_real = output_real + initial_output_real.reshape(
+            int(batch_size), channels, int(time_steps)
+        )
+        output_imag = output_imag + initial_output_imag.reshape(
+            int(batch_size), channels, int(time_steps)
+        )
+        output_pairs = torch.stack((output_real, output_imag), dim=-1)
+        return output_pairs.view(
+            int(batch_size),
+            self.bank_count,
+            self.bank_width // 2,
+            int(time_steps),
+            2,
+        ).permute(0, 3, 1, 2, 4).reshape(
+            int(batch_size),
+            int(time_steps),
+            self.bank_count,
+            self.bank_width,
+        )
 
     def forward(
         self,
@@ -218,24 +361,18 @@ class MarulhoGatedDynamicalMemory(nn.Module):
             dtype=hidden.dtype,
         )
         multiscale_weight = 1.0 - single_weight
-        decay = (
-            multiscale_weight * self.multiscale_decay
-            + single_weight * self.single_decay
-        ).to(device=hidden.device, dtype=hidden.dtype)
         input_scale = (
             multiscale_weight * self.multiscale_input_scale
             + single_weight * self.single_input_scale
         ).to(device=hidden.device, dtype=hidden.dtype)
-
-        current = state.view(int(batch_size), self.bank_count, self.bank_width)
-        outputs: list[torch.Tensor] = []
-        for index in range(int(time_steps)):
-            current = (
-                decay * self._rotate(current)
-                + input_scale * gate[:, index] * candidate[:, index]
-            )
-            outputs.append(current)
-        memory_hidden = torch.stack(outputs, dim=1).reshape(
+        initial_state = state.view(int(batch_size), self.bank_count, self.bank_width)
+        memory_states = self._parallel_recurrence(
+            input_scale * gate * candidate,
+            initial_state,
+            single_weight=single_weight,
+        )
+        current = memory_states[:, -1]
+        memory_hidden = memory_states.reshape(
             int(batch_size),
             int(time_steps),
             self.width,
