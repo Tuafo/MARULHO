@@ -421,7 +421,9 @@ def prepare_matched_language_data(
             "general_eval": [row for _text, row in eval_samples],
             "training_batch_filter": {
                 "required_batch_size": config.batch_size,
-                "relation_batches_before": len(relation_split.train),
+                "relation_batches_before": (
+                    0 if relation_split is None else len(relation_split.train)
+                ),
                 "relation_batches_after": len(relation_batches),
                 "general_batches_before": [
                     len(split.train) for split in general_splits

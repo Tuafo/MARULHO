@@ -158,6 +158,12 @@ weights, the 8,192-token vocabulary and tokenizer hash, and ownership metadata.
 The installed Transformer loader remains separate until V11 passes unseen
 generation.
 
+The V11 general-continuation runner creates a new strict model/tokenizer
+checkpoint only after a predeclared heldout-loss gain. It starts a fresh AdamW
+and cosine phase from the exact qualified model; this fact is recorded, and
+optimizer state is not persisted or claimed to resume. The resulting artifact
+is an unseen-generation candidate, not a quality-promoted or runtime checkpoint.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

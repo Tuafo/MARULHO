@@ -93,6 +93,18 @@ loss or prefix agreement. Direct review finds grammatical multi-sentence but
 generic and semantically unstable text. Decision:
 `continue_v11_general_language_pretraining_before_runtime_or_memory`.
 
+**`language_hashed_micro_expert_continuation.py`** — continues only the strict
+durability-qualified V11 token-hash checkpoint. The default phase adds
+184,550,400 general-language tokens, for 251,662,464 cumulative tokens, using
+equal FineWeb-Edu/Cosmopedia alternation and exactly zero relation updates. It
+records the parent SHA-256, tokenizer identity, before/after heldout and frozen
+relation metrics, schedule/source ranges, exact token count, fresh optimizer and
+cosine-phase status, throughput, and memory. A candidate checkpoint is saved
+only after at least 0.10 heldout-loss improvement. That artifact remains
+unpromoted and must pass the same unseen-generation suite; optimizer state is
+not claimed to persist. A two-step CUDA smoke passed the full path and its report
+was deleted because it has no quality value.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
