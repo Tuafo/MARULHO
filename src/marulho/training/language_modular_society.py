@@ -135,11 +135,14 @@ class MarulhoModularSocietyLanguageModel(nn.Module):
             projection(summary)
             for projection, summary in zip(self.message_out, summaries, strict=True)
         ]
-        usable = (
-            [torch.roll(message, shifts=1, dims=0) for message in messages]
-            if self.config.mode == "learned_shuffled"
-            else messages
-        )
+        if self.config.mode == "learned_shuffled":
+            usable = (
+                [torch.roll(message, shifts=1, dims=0) for message in messages]
+                if int(messages[0].shape[0]) > 1
+                else [message * 0.0 for message in messages]
+            )
+        else:
+            usable = messages
         total = torch.stack(usable, dim=0).sum(dim=0)
         incoming = [
             (total - usable[index]) / float(self.config.cell_count - 1)

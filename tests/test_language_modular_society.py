@@ -96,6 +96,21 @@ def test_real_and_shuffled_messages_have_equal_compute_but_different_outputs() -
     assert not torch.allclose(real_result["logits"], shuffled_result["logits"])
 
 
+def test_singleton_shuffled_control_cannot_leak_its_own_example() -> None:
+    torch.manual_seed(9)
+    shuffled = MarulhoModularSocietyLanguageModel(
+        _config(mode="learned_shuffled")
+    ).eval()
+    no_message = MarulhoModularSocietyLanguageModel(
+        _config(mode="learned_no_message")
+    ).eval()
+    no_message.load_state_dict(shuffled.state_dict(), strict=True)
+    token_ids = torch.randint(0, shuffled.config.vocab_size, (1, 12))
+    shuffled_result = shuffled(token_ids, collect_telemetry=False)
+    no_message_result = no_message(token_ids, collect_telemetry=False)
+    torch.testing.assert_close(shuffled_result["logits"], no_message_result["logits"])
+
+
 @pytest.mark.parametrize(
     "mode",
     (
