@@ -536,7 +536,7 @@ entropy fell to 1.097 from roughly 1.35 in controls (maximum for four cells is
 failure is that selected temporal content was harmful. V5 and the current
 modular language line are retired and deleted.
 
-## V6 hypothesis: hyperspherical convergence
+## V6 result: hyperspherical convergence retired
 
 [nGPT](https://arxiv.org/abs/2410.01131) normalizes embeddings, hidden states,
 attention/MLP vectors, and weight rows/columns onto hyperspheres. The reported
@@ -545,23 +545,37 @@ training. Its [official implementation](https://github.com/NVIDIA/ngpt) also
 warns that gains are smaller for shorter runs and that public low-precision
 details may overstate the baseline gap.
 
-V6 is now a strict local reproduction rather than an analogy: 20.988M normalized
-parameters versus 20.976M frozen-control parameters, context 72, the exact
-16.79M-token schedule, full-vocabulary loss, compiled/eager parity, and the same
-free behavior audit. Its 2x2 separates architecture from recipe: both models run
-the MARULHO recipe and the public nGPT high-LR/no-warmup/no-decay recipe. One loss
-graph is compiled per architecture and reused after exact initial-state reload;
-the normalized projection graph is also compiled and timed. A recipe-only win
-belongs to the Transformer recipe, not the hyperspherical architecture. If the
-normalized model does not improve heldout loss and free behavior under a matched
-recipe, v6 is retired before longer-context investment.
+The local test used 20.988M normalized parameters versus 20.976M frozen-control
+parameters, context 72, the exact 16.79M-token schedule, full-vocabulary loss,
+compiled/eager parity, and the same free behavior audit. Its 2x2 separated
+architecture from recipe: both models ran the MARULHO recipe and the public nGPT
+high-LR/no-warmup/no-decay recipe.
+
+| Arm | Heldout loss | Candidate likelihood | Strict free relation | Tokens/s |
+| --- | ---: | ---: | ---: | ---: |
+| Transformer + MARULHO recipe | 4.6144 | 96.5% | 14.8% | 129.0k |
+| Transformer + native recipe | 4.6448 | 79.3% | 0% | 130.1k |
+| Normalized + MARULHO recipe | 6.2844 | 67.6% | 0% | 128.4k |
+| Normalized + native recipe | 4.7092 | 94.1% | 0% | 128.8k |
+
+The native recipe was not a hidden Transformer improvement, and normalized-native
+lost both its same-recipe control and the frozen baseline. Every parameter
+received a final gradient. Compiled/eager warm-up loss deltas were 0.000518 and
+0.000186; final normalized matrix error was at most 1.79e-7. Compiled projection
+removed the eager projection slowdown, leaving all arms near 128--130k tokens/s.
+One loss graph per architecture served both recipes, avoiding two redundant
+compiles, and the full run completed in 731 seconds. This is a clean local
+replacement failure, not a general refutation of the published long-context
+nGPT result. No checkpoint was saved; v6 code is deleted and only the report is
+retained at
+`reports/language_scaling/hyperspherical-transformer-v6-falsification-16m-20260710.json`.
 
 The modern Hopfield result does not independently replace attention: its
 continuous one-step retrieval update is equivalent to key-value attention. V5
 tested a causal latent-bank version and real retrieval was harmful, so the live
 modular/Hopfield/column language code is deleted. Heterogeneous columns remain a
 possible future grounded hypothesis only after a base model earns sufficient
-language quality; they are not part of v6.
+language quality; they were not part of v6.
 
 ## Retired ideas
 

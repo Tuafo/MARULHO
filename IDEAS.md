@@ -23,8 +23,8 @@ dynamical memory** attached to a quality-capable token predictor:
 This combines the useful part of small autonomous units, reservoir dynamics,
 memory gates, neural manifolds, wavelets, and micro-to-macro organization while
 avoiding the failed v3-v5 pattern of several weaker language paths exchanging
-messages. It is queued behind the current v6 hyperspherical decision; it does
-not change that experiment mid-run.
+messages. V6 has now failed its full recipe-separated comparison, so this is the
+active replacement hypothesis rather than a side branch.
 
 ## Ranked directions
 
@@ -44,8 +44,8 @@ samples per layer and measure:
 The testable question is not “does the model have a manifold?” Every finite
 network does. The question is whether a candidate produces a representation
 geometry that predicts lower heldout loss, stronger binding, or longer useful
-memory. This can diagnose v6 directly: hyperspherical normalization may prevent
-norm drift yet still collapse angular degrees of freedom.
+memory. V6 demonstrated why the distinction matters: it maintained matrix norms
+to 1.79e-7 yet still lost language quality and free behavior.
 
 Relevant evidence:
 
@@ -197,16 +197,15 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
 
 ## Fast experiment order
 
-1. Finish the current v6 2x2 without changing its contract.
-2. Add a read-only geometry diagnostic to the frozen baseline and v6 artifacts;
-   this is cheap and can explain either a positive or negative v6 result.
-3. If v6 does not qualify, implement one parameter-matched multiscale gated
+1. Add a read-only geometry diagnostic to the frozen baseline and retained v6
+   evidence; this is cheap and can explain the negative v6 result.
+2. Implement one parameter-matched multiscale gated
    dynamical-memory candidate. Use exact Haar scales, three stable recurrent
    horizons, and a learned prediction-utility gate.
-4. Run the decisive full-budget controls in one compiled harness. Share data and
+3. Run the decisive full-budget controls in one compiled harness. Share data and
    compiled graphs where mathematically identical; never share weights,
    optimizer state, or labels.
-5. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+4. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

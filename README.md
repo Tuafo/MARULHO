@@ -54,11 +54,17 @@ then reduced strict free relation to 6.6% versus 22.7% shuffled and 24.6% withou
 exchange at tied loss. Their failed live code is deleted and their reports retain
 the evidence.
 
-The current experimental v6 candidate tests hyperspherical normalization for
-faster convergence at the exact local MARULHO scale rather than assuming
-published long-context gains transfer. Its matched 2x2 runner separates
-architecture from the public nGPT optimizer recipe and does not install or
-checkpoint v6 before a full-budget quality win.
+Hyperspherical Transformer v6 is also retired. At 16.79M tokens, the frozen
+Transformer reached loss 4.6144 / 14.8% strict free relation; its native-recipe
+control reached 4.6448 / 0%. Normalized v6 reached 6.2844 / 0% with the frozen
+recipe and 4.7092 / 0% with its native recipe. The candidate therefore lost both
+the same-recipe and installed-baseline comparisons. No v6 checkpoint was made;
+the failed model, runner, and tests are deleted.
+
+The next architecture direction is a single strong language interface with
+several small, stable, multiscale dynamical memories and a prediction-utility
+write gate. `IDEAS.md` defines the controls and kill conditions; geometry is
+used first as a diagnostic rather than assumed to be capability.
 
 ## Current Evidence
 

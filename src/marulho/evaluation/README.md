@@ -37,17 +37,6 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
-**`language_ngpt_falsification.py`** — the v6 replacement experiment. It runs a
-strict architecture-by-recipe 2x2: Transformer and hyperspherical Transformer,
-each under the frozen MARULHO recipe and the public nGPT recipe. The exact
-16.79M-token schedule is staged once on the GPU, one compiled loss graph is
-shared across both recipes of an architecture, initial weights are restored into
-the same model object, and every arm receives a fresh optimizer. The normalized
-arms also compile mandatory post-step projection and include that cost in
-training time. Reports are written after every arm for safe resume. Promotion
-requires an architecture gain under a matched recipe; a recipe-only gain cannot
-be credited to normalization.
-
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
@@ -96,11 +85,13 @@ Monolith/no-exchange/shuffled/real losses were
 workspace parameters received gradients and control throughput stayed matched.
 The model, matched runner, and tests are deleted.
 
-The v6 core and runner are experimental and not installed in `MarulhoBrain`.
-The compile-reuse smoke validates two arms per graph, exact parameter matching,
-full-gradient coverage, compiled/eager parity, and projection error below
-`1e-5`; its two-step losses are mechanism checks, not quality evidence. No v6
-checkpoint exists before the full-budget decision.
+The retired v6 report is
+`reports/language_scaling/hyperspherical-transformer-v6-falsification-16m-20260710.json`.
+Transformer-standard/Transformer-native/normalized-standard/normalized-native
+losses were 4.6144/4.6448/6.2844/4.7092 and strict free relation scores were
+14.8%/0%/0%/0%. All parameters received gradients, parity and projection audits
+passed, and throughput remained matched. No checkpoint was made; the failed v6
+model, runner, and tests are deleted.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,

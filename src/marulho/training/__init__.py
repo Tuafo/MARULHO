@@ -12,10 +12,6 @@ from .language_model import (
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
-from .language_ngpt import (
-    MarulhoNormalizedLanguageModel,
-    NormalizedTransformerConfig,
-)
 from .language_transformer import MarulhoCausalTransformerStateBlock
 from .language_protocol import CausalLanguageModel, LanguageRuntimeState
 from .model import MarulhoModel
@@ -30,11 +26,9 @@ __all__ = [
     "LanguageRuntimeState",
     "MarulhoCausalTransformerStateBlock",
     "MarulhoLanguageModel",
-    "MarulhoNormalizedLanguageModel",
     "MarulhoModel",
     "MarulhoTrainer",
     "PredictiveBootstrap",
-    "NormalizedTransformerConfig",
     "build_language_model_splits",
     "evaluate_language_model",
     "load_language_model_checkpoint",

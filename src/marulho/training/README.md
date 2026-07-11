@@ -88,12 +88,12 @@ steady training. On Windows, the backend explicitly records and applies the
 Triton 3.7 cache-key compatibility alias when PyTorch still expects the old
 module location. Eager remains the default for short experiments.
 
-`language_ngpt.py` is the uninstalled v6 falsification candidate: a
-parameter-matched hyperspherical Transformer with untied embeddings, normalized
-hidden and matrix directions, learned update rates, and mandatory post-optimizer
-projection. Per-step projection performs no host metric readback; norm error is
-audited only at explicit validation boundaries. It is not checkpoint-promotable
-until its matched 16.79M-token experiment beats the frozen Transformer.
+The retired v6 hyperspherical candidate never became an installed or checkpoint
+format. Its best normalized arm reached loss 4.7092 / 0% strict free relation,
+behind the frozen Transformer's 4.6144 / 14.8%. The failed model is deleted. Its
+useful systems result remains maintained: compiled post-step projection removed
+the eager slowdown, and the generic Windows Inductor compatibility and
+compile-amortized reporting stay available for future candidates.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

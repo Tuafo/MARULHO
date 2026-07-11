@@ -184,19 +184,26 @@ unused-memory or compute mismatch explanation. The model, runner, and tests are
 deleted; local v4/v5 reports retain evidence. These results retire the current
 modular/Hopfield/column language line, not every future use in grounded tasks.
 
-**Hyperspherical Transformer v6 Hypothesis** — test nGPT-style normalized
-embeddings, hidden states, attention/MLP vectors, and post-update weight
-projection as a convergence intervention against the 21M Transformer. The
-published work reports much faster learning, but its official implementation
-warns that shorter runs see smaller gains and precision details can exaggerate
-them. MARULHO must therefore reproduce or refute the mechanism at context 72,
-16.79M tokens, identical data/optimizer budget, and compile-amortized wall time
-before any scale claim. The 20.988M-parameter candidate core now exists and
-passes causality, streaming-equivalence, full-gradient, projection, generation,
-and 0.1%-match tests; it is experimental rather than the installed language
-path. Its projection audit was removed from the optimizer hot path, and compiled
-projection measured 2.22 ms versus 5.83 ms eager on the local RTX 3060 after an
-11.7-second compile.
+**Hyperspherical Transformer v6 (retired)** — the 20.988M normalized candidate
+ran a recipe-separated 2x2 against the 20.976M frozen Transformer at context 72
+and 16.79M tokens. Transformer-standard/Transformer-native/normalized-standard/
+normalized-native losses were 4.6144/4.6448/6.2844/4.7092; strict free relation
+scores were 14.8%/0%/0%/0%. The normalized native arm also lost the same-recipe
+Transformer and its candidate-likelihood accuracy was 94.1% versus the frozen
+baseline's 96.5%. All parameters received gradients, compiled/eager parity
+passed, final matrix norm error was at most 1.79e-7, and all arms sustained
+128.4k--130.1k tokens/s, so the negative is not an unused-parameter, projection,
+or throughput explanation. No checkpoint was saved. The failed model, runner,
+and tests are deleted; the local full report retains evidence.
+
+**Multiscale Gated Dynamical Memory Hypothesis** — retain one capable language
+interface and attach several small recurrent state organs with different stable
+time horizons. An exact multiresolution split supplies fast/medium/slow streams;
+a learned gate writes only when state improves future prediction. The decisive
+controls are no memory, fixed random memory, shuffled scales, always-write,
+random-write, learned gate, and fully trainable recurrence at matched parameters
+and tokens. Geometry, perturbation decay, gate entropy, active compute, and state
+bytes diagnose the mechanism; heldout loss and strict free behavior decide it.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
