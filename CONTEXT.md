@@ -526,6 +526,21 @@ must compare random, recency, lexical overlap, and frozen-cortex keys against an
 all-history upper bound and a metrics-only oracle. Only a label-safe selector
 with sufficient target-source recall earns a language screen.
 
+V20 completes that read-only audit at
+`reports/language_scaling/v20-exact-episodic-retrieval-audit-20260711.json`
+(SHA-256
+`8436c6fdbb1976d75b22b4974c6acb5c1aa884702f0a5a579b2125a9697fc57d`).
+Random/recency/lexical/frozen-last/frozen-mean top-1 recall is
+27/34/71/38/41%; frozen V11 state is not yet a reliable address. Lexical TF-IDF
+misses the predeclared top-1 gate, including only 53% of both answer-changing
+paired targets. Decision: `redesign_v20_no_fixed_key_retrieves_exact_episode`.
+The same label-safe lexical ranking nevertheless reaches 99.2% target inclusion
+at top two, using 96 raw source tokens instead of all-history's 192. V21 is
+admitted as a separate language falsifier: lexical top-two retrieval must recover
+paired free generation, stay close to all-history, beat random/recency/top-one
+controls, and preserve general heldout loss. Top-two recall alone is not a
+quality promotion.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

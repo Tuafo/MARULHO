@@ -286,6 +286,24 @@ generation, not only retrieval recall or candidate ranking. If fixed keys fail,
 train one selector on disjoint source/query pairs and compare it with lexical
 retrieval; do not hide target labels inside the evaluation path.
 
+V20 rejects top-one fixed retrieval but exposes a stronger bounded branch.
+Random/recency/lexical/frozen-last/frozen-mean target recall at one is
+27/34/71/38/41%. Lexical TF-IDF clears neither the 75% global threshold nor the
+60% paired-both-target threshold, and frozen V11 representations are poor keys.
+The report keeps `redesign_v20_no_fixed_key_retrieves_exact_episode`; do not
+rewrite that decision.
+
+Lexical recall at two is 99.2%, however. Retrieving two 48-token episodes plus a
+40-token query uses 136 active positions, versus 232 for all four sources, and
+does not alter the source-only write or question-only read boundary. V21 may
+therefore test a different claim: exact raw evidence selected by a cheap address
+can preserve generation while halving active source context. Exact all-four,
+query-only, random-two, recency-two, lexical-one, and lexical-two arms receive
+identical model resets and relation/general replay. Lexical-two must stay within
+five paired/free points of all-four and beat every bounded control by five; any
+general holdout may regress by at most 0.10. Failure retires this relation-key
+interface rather than training a router on the same cases.
+
 ## Contradiction-driven causal compilation — later grounded hypothesis
 
 The useful core of the proposed "Autogenic Causal Compiler" is narrower than a

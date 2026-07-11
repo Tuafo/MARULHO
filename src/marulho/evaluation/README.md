@@ -337,6 +337,17 @@ all-history and a metrics-only oracle. Retrieval recall is only an admission
 gate; a surviving policy must later improve paired free generation under exact
 model resets and bounded active tokens.
 
+The V20 audit is retained at
+`reports/language_scaling/v20-exact-episodic-retrieval-audit-20260711.json`
+(SHA-256
+`8436c6fdbb1976d75b22b4974c6acb5c1aa884702f0a5a579b2125a9697fc57d`).
+Random/recency/lexical/frozen-last/frozen-mean recall at one is
+27/34/71/38/41%. No fixed key clears the top-one gate, so the report decides
+`redesign_v20_no_fixed_key_retrieves_exact_episode`. Lexical recall at two is
+99.2% with 96 active source tokens versus all-history's 192. That diagnostic
+admits a separate matched language screen; it does not revise the top-one result
+or promote retrieval quality by itself.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
