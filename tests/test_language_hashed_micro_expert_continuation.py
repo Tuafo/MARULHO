@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from marulho.evaluation.language_hashed_micro_expert_continuation import (
     SAVE_DECISION,
+    _expand_context_with_parity,
     _validate_parent,
     general_continuation_decision,
 )
@@ -97,3 +98,27 @@ def test_general_continuation_model_is_trainable_after_parent_validation() -> No
         parameter.grad is not None and torch.count_nonzero(parameter.grad) > 0
         for parameter in model.parameters()
     )
+
+
+def test_general_continuation_context_expansion_records_exact_parity() -> None:
+    torch.manual_seed(107)
+    model = _model().eval()
+    input_ids = torch.randint(0, 96, (3, 16))
+    expanded, record = _expand_context_with_parity(
+        model,
+        sequence_length=32,
+        parity_input_ids=input_ids,
+    )
+    assert expanded.context_length == 32
+    assert record == {
+        "performed": True,
+        "from_context_length": 16,
+        "to_context_length": 32,
+        "parameter_count_before": sum(value.numel() for value in model.parameters()),
+        "parameter_count_after": sum(
+            value.numel() for value in expanded.parameters()
+        ),
+        "learned_tensors_changed": False,
+        "old_prefix_logits_exact": True,
+        "old_prefix_max_abs_logit_delta": 0.0,
+    }

@@ -1,15 +1,20 @@
-"""General-language continuation for the qualified V11 hash checkpoint."""
+"""Matched V13 multi-horizon future-prediction continuation for V11."""
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
 
 import torch
 
+from marulho.evaluation.language_hashed_micro_expert_continuation import (
+    _expand_context_with_parity,
+    _validate_parent,
+)
 from marulho.evaluation.language_matched_support import (
     MatchedLanguageDataConfig,
     prepare_matched_language_data,
@@ -25,48 +30,70 @@ from marulho.evaluation.language_training_experiment import (
     _resolve_device,
 )
 from marulho.reporting.readme_reports import write_json_report_with_readme
+from marulho.training.language_future_prediction import (
+    FuturePredictionConfig,
+    build_future_prediction_model,
+    future_prediction_objective_report,
+    strip_future_prediction_heads,
+)
 from marulho.training.language_hashed_micro_experts import (
-    MarulhoHashedMicroExpertLanguageModel,
-    expand_hashed_micro_expert_context,
     load_hashed_micro_expert_checkpoint,
     save_hashed_micro_expert_checkpoint,
 )
 from marulho.training.language_model import LanguageBatch, evaluate_language_model
 
 
-SURFACE = "marulho_hashed_micro_expert_general_continuation.v1"
-ARTIFACT_KIND = "marulho_hashed_micro_expert_general_continuation"
-SAVE_DECISION = "save_v11_general_continuation_for_unseen_generation"
-QUALIFIED_PARENT_DECISIONS = {
-    "promote_v11_hash_for_checkpoint_and_unseen_generation",
-    SAVE_DECISION,
-}
+SURFACE = "marulho_future_prediction_experiment.v1"
+ARTIFACT_KIND = "marulho_future_prediction_experiment"
+SAVE_DECISION = "save_v13_future_prediction_candidate_for_unseen_generation"
+MATCHED_CONTROL_FIELDS = (
+    "additional_token_budget",
+    "sequence_length",
+    "batch_size",
+    "eval_batches",
+    "relation_eval_batch_size",
+    "learning_rate",
+    "minimum_learning_rate_fraction",
+    "warmup_fraction",
+    "weight_decay",
+    "gradient_clip",
+    "precision",
+    "seed",
+    "sample_bytes_per_train_source",
+    "sample_bytes_per_eval_source",
+    "sample_range_count",
+    "execution_backend",
+    "compile_loss_tolerance",
+)
 
 
 @dataclass(frozen=True)
-class HashedMicroExpertContinuationConfig:
-    additional_token_budget: int = 184_550_400
-    sequence_length: int = 72
-    batch_size: int = 144
+class FuturePredictionExperimentConfig:
+    additional_token_budget: int = 67_108_864
+    sequence_length: int = 256
+    batch_size: int = 40
     eval_batches: int = 16
     relation_eval_batch_size: int = 64
-    learning_rate: float = 1.5e-4
+    learning_rate: float = 7.5e-5
     minimum_learning_rate_fraction: float = 0.10
     warmup_fraction: float = 0.02
     weight_decay: float = 0.10
     gradient_clip: float = 1.0
     precision: str = "bfloat16"
-    seed: int = 2027
-    sample_bytes_per_train_source: int = 192 * 1024 * 1024
+    seed: int = 2028
+    sample_bytes_per_train_source: int = 64 * 1024 * 1024
     sample_bytes_per_eval_source: int = 32 * 1024 * 1024
     sample_range_count: int = 32
-    execution_backend: str = "eager"
+    execution_backend: str = "inductor"
     compile_loss_tolerance: float = 1.0e-3
-    minimum_heldout_loss_improvement: float = 0.10
+    future_horizons: tuple[int, ...] = (2, 4, 8)
+    auxiliary_weight: float = 0.25
+    objective_eval_batches: int = 4
+    minimum_control_loss_gain: float = 0.02
 
 
 def _data_config(
-    config: HashedMicroExpertContinuationConfig,
+    config: FuturePredictionExperimentConfig,
 ) -> MatchedLanguageDataConfig:
     return MatchedLanguageDataConfig(
         token_budget=int(config.additional_token_budget),
@@ -82,7 +109,7 @@ def _data_config(
 
 
 def _training_config(
-    config: HashedMicroExpertContinuationConfig,
+    config: FuturePredictionExperimentConfig,
 ) -> LanguageTrainingExperimentConfig:
     return LanguageTrainingExperimentConfig(
         learning_rate=float(config.learning_rate),
@@ -97,127 +124,111 @@ def _training_config(
     )
 
 
-def general_continuation_decision(
+def future_prediction_decision(
     *,
-    heldout_loss_before: float,
-    heldout_loss_after: float,
+    control_heldout_loss: float,
+    candidate_heldout_loss: float,
     processed_tokens: int,
     requested_tokens: int,
-    minimum_improvement: float = 0.10,
+    minimum_gain: float = 0.02,
 ) -> str:
     if int(processed_tokens) < int(requested_tokens):
-        return "incomplete_v11_general_continuation"
-    improvement = float(heldout_loss_before) - float(heldout_loss_after)
-    if improvement >= float(minimum_improvement):
+        return "incomplete_v13_future_prediction"
+    gain = float(control_heldout_loss) - float(candidate_heldout_loss)
+    if gain >= float(minimum_gain):
         return SAVE_DECISION
-    if improvement > 0.0:
-        return "redesign_v11_general_continuation_weak_loss_gain"
-    return "retire_v11_general_continuation_no_loss_gain"
+    if gain > 0.0:
+        return "retire_v13_future_prediction_weak_control_gain"
+    return "retire_v13_future_prediction_no_control_gain"
 
 
-def _validate_parent(
-    model: MarulhoHashedMicroExpertLanguageModel,
-    metadata: Mapping[str, Any],
-) -> int:
-    if model.hashed_config.mode != "token_hash":
-        raise ValueError("V11 continuation parent must use token_hash mode")
-    if metadata.get("decision") not in QUALIFIED_PARENT_DECISIONS:
-        raise ValueError("V11 continuation parent lacks qualification")
-    processed_tokens = int(metadata.get("processed_tokens") or 0)
-    if processed_tokens < 67_108_864:
-        raise ValueError("V11 continuation parent token count is not qualified")
-    if metadata.get("external_llm_used") is not False:
-        raise ValueError("V11 continuation parent must be MARULHO-owned")
-    return processed_tokens
+def _load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("matched control report must contain a JSON object")
+    return payload
 
 
-def _expand_context_with_parity(
-    model: MarulhoHashedMicroExpertLanguageModel,
+def _validate_matched_control(
+    control: Mapping[str, Any],
     *,
-    sequence_length: int,
-    parity_input_ids: torch.Tensor,
-) -> tuple[MarulhoHashedMicroExpertLanguageModel, dict[str, Any]]:
-    parent_context_length = int(model.context_length)
-    parent_parameter_count = sum(
-        int(value.numel()) for value in model.parameters()
-    )
-    record: dict[str, Any] = {
-        "performed": False,
-        "from_context_length": parent_context_length,
-        "to_context_length": parent_context_length,
-        "parameter_count_before": parent_parameter_count,
-        "parameter_count_after": parent_parameter_count,
-        "learned_tensors_changed": False,
-        "old_prefix_logits_exact": True,
-        "old_prefix_max_abs_logit_delta": 0.0,
+    parent_sha256: str,
+    schedule_sha256: str,
+    config: FuturePredictionExperimentConfig,
+) -> dict[str, Any]:
+    if control.get("artifact_kind") != (
+        "marulho_hashed_micro_expert_general_continuation"
+    ):
+        raise ValueError("V13 control report has the wrong artifact kind")
+    if control.get("decision") != (
+        "save_v11_general_continuation_for_unseen_generation"
+    ):
+        raise ValueError("V13 control report is not a saved V11 continuation")
+    parent = control.get("parent")
+    schedule = control.get("schedule")
+    observed = control.get("configuration")
+    if not isinstance(parent, Mapping) or parent.get("sha256") != parent_sha256:
+        raise ValueError("V13 control uses a different parent checkpoint")
+    if not isinstance(schedule, Mapping) or (
+        schedule.get("sha256") != schedule_sha256
+    ):
+        raise ValueError("V13 control uses a different data schedule")
+    if not isinstance(observed, Mapping):
+        raise ValueError("V13 control lacks configuration evidence")
+    expected = asdict(config)
+    mismatches = {
+        field: {"control": observed.get(field), "candidate": expected[field]}
+        for field in MATCHED_CONTROL_FIELDS
+        if observed.get(field) != expected[field]
     }
-    requested = int(sequence_length)
-    if requested <= parent_context_length:
-        return model, record
-    parent_model = model.eval()
-    expanded_model = expand_hashed_micro_expert_context(
-        parent_model,
-        requested,
-    ).eval()
-    parity_ids = parity_input_ids[
-        :2, :parent_context_length
-    ].detach().cpu()
-    with torch.no_grad():
-        parent_logits = parent_model(
-            parity_ids,
-            collect_telemetry=False,
-        )["logits"]
-        expanded_logits = expanded_model(
-            parity_ids,
-            collect_telemetry=False,
-        )["logits"]
-    exact_logits = bool(torch.equal(parent_logits, expanded_logits))
-    maximum_delta = float((parent_logits - expanded_logits).abs().max().item())
-    if not exact_logits:
-        raise RuntimeError(
-            "V11 context expansion changed old-prefix logits: "
-            f"max_abs_delta={maximum_delta}"
-        )
-    record = {
-        "performed": True,
-        "from_context_length": parent_context_length,
-        "to_context_length": int(expanded_model.context_length),
-        "parameter_count_before": parent_parameter_count,
-        "parameter_count_after": sum(
-            int(value.numel()) for value in expanded_model.parameters()
-        ),
-        "learned_tensors_changed": False,
-        "old_prefix_logits_exact": exact_logits,
-        "old_prefix_max_abs_logit_delta": maximum_delta,
+    if mismatches:
+        raise ValueError(f"V13 control configuration mismatch: {mismatches}")
+    after = control.get("after")
+    if not isinstance(after, Mapping) or not isinstance(after.get("arm"), Mapping):
+        raise ValueError("V13 control lacks its completed arm")
+    arm = after["arm"]
+    heldout = arm.get("heldout")
+    if not isinstance(heldout, Mapping):
+        raise ValueError("V13 control lacks heldout evidence")
+    processed_tokens = int(arm.get("processed_tokens") or 0)
+    if processed_tokens < int(config.additional_token_budget):
+        raise ValueError("V13 control did not complete its token budget")
+    return {
+        "heldout_loss": float(heldout["heldout_loss"]),
+        "heldout_perplexity": float(heldout["heldout_perplexity"]),
+        "processed_tokens": processed_tokens,
+        "cumulative_processed_tokens": int(after["cumulative_processed_tokens"]),
+        "schedule_sha256": str(schedule["sha256"]),
     }
-    return expanded_model, record
 
 
-def run_hashed_micro_expert_continuation(
+def run_future_prediction_experiment(
     *,
     parent_checkpoint_path: str | Path,
+    matched_control_report_path: str | Path,
     relation_corpus_path: str | Path,
     relation_cases_path: str | Path,
     general_train_paths: Sequence[str | Path],
     general_eval_paths: Sequence[str | Path],
     output_path: str | Path,
     checkpoint_output_path: str | Path | None = None,
-    config: HashedMicroExpertContinuationConfig = (
-        HashedMicroExpertContinuationConfig()
+    config: FuturePredictionExperimentConfig = (
+        FuturePredictionExperimentConfig()
     ),
     device: str = "auto",
 ) -> dict[str, Any]:
-    if config.additional_token_budget < 1:
+    if int(config.additional_token_budget) < 1:
         raise ValueError("additional_token_budget must be positive")
-    if config.minimum_heldout_loss_improvement <= 0.0:
-        raise ValueError("minimum_heldout_loss_improvement must be positive")
-    if config.execution_backend not in {"eager", "inductor"}:
-        raise ValueError("execution_backend must be 'eager' or 'inductor'")
+    if int(config.objective_eval_batches) < 1:
+        raise ValueError("objective_eval_batches must be positive")
+    if float(config.minimum_control_loss_gain) <= 0.0:
+        raise ValueError("minimum_control_loss_gain must be positive")
     resolved = _resolve_device(device)
     if config.execution_backend == "inductor" and resolved.type != "cuda":
-        raise ValueError("Inductor V11 continuation is admitted only on CUDA")
+        raise ValueError("Inductor V13 training is admitted only on CUDA")
 
     parent_path = Path(parent_checkpoint_path)
+    control_path = Path(matched_control_report_path)
     output = Path(output_path)
     checkpoint_output = (
         None if checkpoint_output_path is None else Path(checkpoint_output_path)
@@ -225,13 +236,13 @@ def run_hashed_micro_expert_continuation(
     if checkpoint_output is not None and (
         checkpoint_output.resolve() == parent_path.resolve()
     ):
-        raise ValueError("Continuation checkpoint cannot overwrite its parent")
-    model, parent_tokenizer, parent_metadata = (
+        raise ValueError("V13 checkpoint cannot overwrite its parent")
+    started = time.perf_counter()
+    base_model, parent_tokenizer, parent_metadata = (
         load_hashed_micro_expert_checkpoint(parent_path, map_location="cpu")
     )
-    parent_processed_tokens = _validate_parent(model, parent_metadata)
+    parent_processed_tokens = _validate_parent(base_model, parent_metadata)
     parent_sha256 = sha256_file(parent_path)
-    started = time.perf_counter()
     prepared = prepare_matched_language_data(
         tokenizer_checkpoint_path=parent_path,
         relation_corpus_path=relation_corpus_path,
@@ -242,13 +253,49 @@ def run_hashed_micro_expert_continuation(
         device=resolved,
     )
     if prepared.tokenizer.vocabulary_hash() != parent_tokenizer.vocabulary_hash():
-        raise RuntimeError("Continuation data tokenizer differs from parent")
-    parent_context_length = int(model.context_length)
-    model, context_expansion = _expand_context_with_parity(
-        model,
+        raise RuntimeError("V13 data tokenizer differs from parent")
+    control_payload = _load_json(control_path)
+    control_record = _validate_matched_control(
+        control_payload,
+        parent_sha256=parent_sha256,
+        schedule_sha256=prepared.schedule_sha256,
+        config=config,
+    )
+    parent_context_length = int(base_model.context_length)
+    base_model, context_expansion = _expand_context_with_parity(
+        base_model,
         sequence_length=int(config.sequence_length),
         parity_input_ids=prepared.eval_batches[0].input_ids,
     )
+    future_config = FuturePredictionConfig(
+        horizons=tuple(int(value) for value in config.future_horizons),
+        auxiliary_weight=float(config.auxiliary_weight),
+    )
+    base_model.eval()
+    model = build_future_prediction_model(base_model, future_config).eval()
+    attachment_ids = prepared.eval_batches[0].input_ids[:2].detach().cpu()
+    with torch.no_grad():
+        base_logits = base_model(
+            attachment_ids,
+            collect_telemetry=False,
+        )["logits"]
+        attached_logits = model(
+            attachment_ids,
+            collect_telemetry=False,
+        )["logits"]
+    attachment_exact = bool(torch.equal(base_logits, attached_logits))
+    attachment_delta = float((base_logits - attached_logits).abs().max().item())
+    if not attachment_exact:
+        raise RuntimeError(
+            "V13 training-head attachment changed base logits: "
+            f"max_abs_delta={attachment_delta}"
+        )
+    attachment_record = {
+        "base_logits_exact": attachment_exact,
+        "maximum_absolute_logit_delta": attachment_delta,
+        **model.training_parameter_report(),
+    }
+    del base_model
 
     model = model.to(resolved)
     model.set_hashed_micro_expert_mode("token_hash")
@@ -260,6 +307,9 @@ def run_hashed_micro_expert_continuation(
         prepared.staged.input_ids[0],
         prepared.staged.target_ids[0],
     )
+    objective_batches = prepared.eval_batches[
+        : min(int(config.objective_eval_batches), len(prepared.eval_batches))
+    ]
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     previous_matmul_precision = torch.get_float32_matmul_precision()
     if resolved.type == "cuda":
@@ -274,6 +324,10 @@ def run_hashed_micro_expert_continuation(
             prepared.cases,
             batch_size=int(config.relation_eval_batch_size),
         )
+        objective_before = future_prediction_objective_report(
+            model,
+            objective_batches,
+        )
         model.train()
         training_loss, execution = _prepare_language_loss_backend(
             model,
@@ -281,14 +335,20 @@ def run_hashed_micro_expert_continuation(
             training_config,
         )
         row = run_matched_training_arm(
-            "token_hash",
-            architecture="hashed_micro_experts",
+            "dyadic_future_prediction",
+            architecture="hashed_micro_experts_future_prediction",
             model=model,
             initial_state=initial_state,
             training_loss=training_loss,
             execution={
                 **execution,
-                "continuation_from_strict_v11_checkpoint": True,
+                "training_objective": "next_token_plus_dyadic_future_tokens",
+                "future_horizons": [
+                    int(value) for value in config.future_horizons
+                ],
+                "auxiliary_weight": float(config.auxiliary_weight),
+                "future_heads_inference_persistent": False,
+                "matched_control_report_sha256": sha256_file(control_path),
                 "optimizer_state_restored": False,
                 "fresh_cosine_schedule_phase": True,
                 "relation_updates_scheduled": False,
@@ -301,7 +361,7 @@ def run_hashed_micro_expert_continuation(
             relation_eval_batch_size=int(config.relation_eval_batch_size),
             model_seed=int(config.seed),
             device=resolved,
-            progress_prefix="hashed-micro-v11-continuation",
+            progress_prefix="future-prediction-v13",
             configure_model=lambda active, _name: (
                 active.set_hashed_micro_expert_mode("token_hash")
             ),
@@ -312,7 +372,12 @@ def run_hashed_micro_expert_continuation(
                 "training_mixture": "general_only_equal_source_alternation",
                 "relation_updates_scheduled": False,
                 "context_expansion": context_expansion,
+                "training_head_attachment": attachment_record,
             },
+        )
+        objective_after = future_prediction_objective_report(
+            model,
+            objective_batches,
         )
     finally:
         if resolved.type == "cuda":
@@ -323,19 +388,57 @@ def run_hashed_micro_expert_continuation(
     cumulative_processed_tokens = (
         parent_processed_tokens + additional_processed_tokens
     )
-    decision = general_continuation_decision(
-        heldout_loss_before=float(heldout_before["heldout_loss"]),
-        heldout_loss_after=float(row["heldout"]["heldout_loss"]),
+    control_gain = float(control_record["heldout_loss"]) - float(
+        row["heldout"]["heldout_loss"]
+    )
+    decision = future_prediction_decision(
+        control_heldout_loss=float(control_record["heldout_loss"]),
+        candidate_heldout_loss=float(row["heldout"]["heldout_loss"]),
         processed_tokens=additional_processed_tokens,
         requested_tokens=int(config.additional_token_budget),
-        minimum_improvement=float(config.minimum_heldout_loss_improvement),
+        minimum_gain=float(config.minimum_control_loss_gain),
     )
+
+    model.eval()
+    inference_model = strip_future_prediction_heads(model).eval()
+    strip_ids = prepared.eval_batches[0].input_ids[:2]
+    with torch.no_grad():
+        training_graph_logits = model(
+            strip_ids,
+            collect_telemetry=False,
+        )["logits"]
+        inference_logits = inference_model(
+            strip_ids,
+            collect_telemetry=False,
+        )["logits"]
+    strip_exact = bool(torch.equal(training_graph_logits, inference_logits))
+    strip_delta = float(
+        (training_graph_logits - inference_logits).abs().max().item()
+    )
+    if not strip_exact:
+        raise RuntimeError(
+            "Removing V13 future heads changed inference logits: "
+            f"max_abs_delta={strip_delta}"
+        )
+    strip_record = {
+        "performed": True,
+        "future_heads_persisted": False,
+        "inference_logits_exact": strip_exact,
+        "maximum_absolute_logit_delta": strip_delta,
+        "training_parameters": sum(
+            int(value.numel()) for value in model.parameters()
+        ),
+        "inference_parameters": sum(
+            int(value.numel()) for value in inference_model.parameters()
+        ),
+    }
+
     checkpoint_record: dict[str, Any] | None = None
     if checkpoint_output is not None:
         if decision == SAVE_DECISION:
             saved = save_hashed_micro_expert_checkpoint(
                 checkpoint_output,
-                model,
+                inference_model,
                 prepared.tokenizer,
                 metadata={
                     "decision": decision,
@@ -345,27 +448,17 @@ def run_hashed_micro_expert_continuation(
                     "additional_processed_tokens": additional_processed_tokens,
                     "processed_tokens": cumulative_processed_tokens,
                     "schedule_sha256": prepared.schedule_sha256,
-                    "heldout_loss_before": float(
-                        heldout_before["heldout_loss"]
-                    ),
+                    "matched_control_report": str(control_path),
+                    "matched_control_report_sha256": sha256_file(control_path),
+                    "control_heldout_loss": float(control_record["heldout_loss"]),
                     "heldout_loss": float(row["heldout"]["heldout_loss"]),
-                    "heldout_loss_improvement": float(
-                        heldout_before["heldout_loss"]
-                    ) - float(row["heldout"]["heldout_loss"]),
-                    "relation_accuracy_before": float(
-                        relation_before["accuracy"]
-                    ),
-                    "relation_accuracy_after": float(row["relation"]["accuracy"]),
-                    "free_relation_accuracy_before": float(
-                        relation_before["generation_exact_accuracy"]
-                    ),
-                    "free_relation_accuracy": float(
-                        row["relation"]["generation_exact_accuracy"]
-                    ),
+                    "heldout_loss_gain_over_control": control_gain,
+                    "future_prediction_configuration": asdict(future_config),
+                    "training_head_attachment": attachment_record,
+                    "training_head_removal": strip_record,
                     "relation_updates_scheduled": False,
                     "optimizer_state_restored": False,
                     "optimizer_state_persisted": False,
-                    "context_expansion": context_expansion,
                     "requires_unseen_generation": True,
                     "external_llm_used": False,
                 },
@@ -376,6 +469,7 @@ def run_hashed_micro_expert_continuation(
                 "saved": True,
                 "quality_promoted": False,
                 "requires_unseen_generation": True,
+                "future_heads_persisted": False,
                 "optimizer_state_persisted": False,
             }
         elif checkpoint_output.exists():
@@ -395,7 +489,14 @@ def run_hashed_micro_expert_continuation(
             "tokenizer_hash": parent_tokenizer.vocabulary_hash(),
             "context_length": parent_context_length,
         },
+        "matched_control": {
+            "path": str(control_path),
+            "sha256": sha256_file(control_path),
+            **control_record,
+        },
         "context_expansion": context_expansion,
+        "training_head_attachment": attachment_record,
+        "training_head_removal": strip_record,
         "schedule": {
             "sha256": prepared.schedule_sha256,
             "step_count": int(prepared.staged.input_ids.shape[0]),
@@ -407,29 +508,14 @@ def run_hashed_micro_expert_continuation(
             "cumulative_processed_tokens": parent_processed_tokens,
             "heldout": heldout_before,
             "relation": relation_before,
+            "future_objective": objective_before,
         },
         "after": {
             "cumulative_processed_tokens": cumulative_processed_tokens,
             "arm": row,
+            "future_objective": objective_after,
         },
-        "quality_curve": [
-            {
-                "cumulative_processed_tokens": parent_processed_tokens,
-                "heldout_loss": float(heldout_before["heldout_loss"]),
-                "heldout_perplexity": float(
-                    heldout_before["heldout_perplexity"]
-                ),
-            },
-            {
-                "cumulative_processed_tokens": cumulative_processed_tokens,
-                "heldout_loss": float(row["heldout"]["heldout_loss"]),
-                "heldout_perplexity": float(
-                    row["heldout"]["heldout_perplexity"]
-                ),
-            },
-        ],
-        "heldout_loss_improvement": float(heldout_before["heldout_loss"])
-        - float(row["heldout"]["heldout_loss"]),
+        "heldout_loss_gain_over_control": control_gain,
         "decision": decision,
         "checkpoint": checkpoint_record,
         "experiment_wall_seconds": time.perf_counter() - started,
@@ -437,18 +523,18 @@ def run_hashed_micro_expert_continuation(
             "base_quality_promoted": False,
             "runtime_install_allowed": False,
             "continual_memory_allowed": False,
-            "requires_unseen_generation": True,
+            "requires_unseen_generation": decision == SAVE_DECISION,
         },
     }
     write_json_report_with_readme(
         output,
         report,
-        title="MARULHO Hashed Micro-Experts V11 General Continuation",
+        title="MARULHO V13 Multi-Horizon Future Prediction",
     )
     print(
-        f"[hashed-micro-v11-continuation] decision {decision}; loss "
-        f"{heldout_before['heldout_loss']:.4f} -> "
-        f"{row['heldout']['heldout_loss']:.4f}",
+        f"[future-prediction-v13] decision {decision}; control loss "
+        f"{control_record['heldout_loss']:.4f}, candidate "
+        f"{row['heldout']['heldout_loss']:.4f}, gain {control_gain:.4f}",
         flush=True,
     )
     return report
@@ -457,27 +543,30 @@ def run_hashed_micro_expert_continuation(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parent-checkpoint", type=Path, required=True)
+    parser.add_argument("--matched-control-report", type=Path, required=True)
     parser.add_argument("--relation-corpus", type=Path, required=True)
     parser.add_argument("--relation-cases", type=Path, required=True)
     parser.add_argument("--general-train", action="append", type=Path, required=True)
     parser.add_argument("--general-eval", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--checkpoint-output", type=Path)
-    parser.add_argument("--additional-token-budget", type=int, default=184_550_400)
-    parser.add_argument("--sequence-length", type=int, default=72)
-    parser.add_argument("--batch-size", type=int, default=144)
-    parser.add_argument("--train-sample-mib", type=int, default=192)
+    parser.add_argument("--additional-token-budget", type=int, default=67_108_864)
+    parser.add_argument("--sequence-length", type=int, default=256)
+    parser.add_argument("--batch-size", type=int, default=40)
+    parser.add_argument("--train-sample-mib", type=int, default=64)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
-    parser.add_argument("--seed", type=int, default=2027)
-    parser.add_argument("--learning-rate", type=float, default=1.5e-4)
+    parser.add_argument("--seed", type=int, default=2028)
+    parser.add_argument("--learning-rate", type=float, default=7.5e-5)
+    parser.add_argument("--future-horizon", action="append", type=int)
+    parser.add_argument("--auxiliary-weight", type=float, default=0.25)
     parser.add_argument(
         "--execution-backend",
         choices=("eager", "inductor"),
-        default="eager",
+        default="inductor",
     )
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
-    config = HashedMicroExpertContinuationConfig(
+    config = FuturePredictionExperimentConfig(
         additional_token_budget=int(args.additional_token_budget),
         sequence_length=int(args.sequence_length),
         batch_size=int(args.batch_size),
@@ -485,10 +574,17 @@ def main() -> int:
         seed=int(args.seed),
         sample_bytes_per_train_source=int(args.train_sample_mib) * 1024 * 1024,
         sample_bytes_per_eval_source=int(args.eval_sample_mib) * 1024 * 1024,
+        future_horizons=(
+            (2, 4, 8)
+            if args.future_horizon is None
+            else tuple(int(value) for value in args.future_horizon)
+        ),
+        auxiliary_weight=float(args.auxiliary_weight),
         execution_backend=str(args.execution_backend),
     )
-    run_hashed_micro_expert_continuation(
+    run_future_prediction_experiment(
         parent_checkpoint_path=args.parent_checkpoint,
+        matched_control_report_path=args.matched_control_report,
         relation_corpus_path=args.relation_corpus,
         relation_cases_path=args.relation_cases,
         general_train_paths=tuple(args.general_train),
