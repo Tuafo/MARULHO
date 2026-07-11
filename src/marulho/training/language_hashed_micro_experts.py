@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import math
 import os
 from pathlib import Path
@@ -686,6 +686,30 @@ class MarulhoHashedMicroExpertLanguageModel(MarulhoLanguageModel):
             "promotion_metric": False,
             "external_llm_used": False,
         }
+
+
+def expand_hashed_micro_expert_context(
+    model: MarulhoHashedMicroExpertLanguageModel,
+    context_length: int,
+) -> MarulhoHashedMicroExpertLanguageModel:
+    """Rebuild V11 at a longer rotary context without changing learned state."""
+
+    requested = int(context_length)
+    current = int(model.hashed_config.context_length)
+    if requested < current:
+        raise ValueError("V11 context expansion cannot shrink the model context")
+    if requested == current:
+        return model
+    expanded = MarulhoHashedMicroExpertLanguageModel(
+        replace(model.hashed_config, context_length=requested)
+    )
+    expanded.load_state_dict(model.state_dict(), strict=True)
+    expanded.train(model.training)
+    before_parameters = sum(int(value.numel()) for value in model.parameters())
+    after_parameters = sum(int(value.numel()) for value in expanded.parameters())
+    if before_parameters != after_parameters:
+        raise RuntimeError("V11 context expansion changed the parameter count")
+    return expanded
 
 
 def hashed_micro_expert_checkpoint_payload(

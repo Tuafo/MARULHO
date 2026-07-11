@@ -148,6 +148,15 @@ combined heldout gain. Parent hashes remain unchanged and evaluation routes are
 label-safe. Decision: `retire_v12_gate_cannot_predict_counterfactual_utility`.
 No gate artifact exists; the failed trainer and tests are deleted.
 
+The general-continuation runner also accepts its own strict saved candidate as a
+qualified parent and exposes sequence length plus batch size. The strict 251M
+checkpoint has a 72-token rotary context. A longer request explicitly rebuilds
+the same learned state at the requested context and must preserve parameter count
+and produce bit-exact logits on heldout 72-token prefixes before training. This
+supports the independent long-context ablation: 256-token updates at batch 40
+preserve roughly the same tokens per optimizer step as 72 x 144, while changing
+the temporal training horizon rather than the sparse mechanism.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

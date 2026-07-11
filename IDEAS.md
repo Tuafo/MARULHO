@@ -257,8 +257,9 @@ like a useful lexical-capacity primitive, not a complete replacement for
 contextual computation. The same token always reaches the same singleton
 functions even when its meaning changes. The next hypothesis should retain a
 stable token-hash anchor while adding a causal context/manifold code without
-learned top-k competition. Separately test 256-token training sequences, because
-the current model is only optimized on 72-token windows despite supporting 256
+learned top-k competition. Separately test 256-token training sequences. The
+current checkpoint is configured for 72 tokens; first expand its rotary context
+with identical learned tensors and require exact old-prefix output parity
 at runtime.
 
 General-only scaling also exposes the future continual-learning target cleanly:

@@ -27,6 +27,7 @@ from marulho.evaluation.language_training_experiment import (
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_hashed_micro_experts import (
     MarulhoHashedMicroExpertLanguageModel,
+    expand_hashed_micro_expert_context,
     load_hashed_micro_expert_checkpoint,
     save_hashed_micro_expert_checkpoint,
 )
@@ -36,6 +37,10 @@ from marulho.training.language_model import LanguageBatch, evaluate_language_mod
 SURFACE = "marulho_hashed_micro_expert_general_continuation.v1"
 ARTIFACT_KIND = "marulho_hashed_micro_expert_general_continuation"
 SAVE_DECISION = "save_v11_general_continuation_for_unseen_generation"
+QUALIFIED_PARENT_DECISIONS = {
+    "promote_v11_hash_for_checkpoint_and_unseen_generation",
+    SAVE_DECISION,
+}
 
 
 @dataclass(frozen=True)
@@ -116,10 +121,8 @@ def _validate_parent(
 ) -> int:
     if model.hashed_config.mode != "token_hash":
         raise ValueError("V11 continuation parent must use token_hash mode")
-    if metadata.get("decision") != (
-        "promote_v11_hash_for_checkpoint_and_unseen_generation"
-    ):
-        raise ValueError("V11 continuation parent lacks durability qualification")
+    if metadata.get("decision") not in QUALIFIED_PARENT_DECISIONS:
+        raise ValueError("V11 continuation parent lacks qualification")
     processed_tokens = int(metadata.get("processed_tokens") or 0)
     if processed_tokens < 67_108_864:
         raise ValueError("V11 continuation parent token count is not qualified")
@@ -178,8 +181,61 @@ def run_hashed_micro_expert_continuation(
     )
     if prepared.tokenizer.vocabulary_hash() != parent_tokenizer.vocabulary_hash():
         raise RuntimeError("Continuation data tokenizer differs from parent")
-    if int(model.context_length) < int(config.sequence_length):
-        raise ValueError("Continuation sequence exceeds parent context length")
+    parent_context_length = int(model.context_length)
+    parent_parameter_count = sum(
+        int(value.numel()) for value in model.parameters()
+    )
+    context_expansion: dict[str, Any] = {
+        "performed": False,
+        "from_context_length": parent_context_length,
+        "to_context_length": parent_context_length,
+        "parameter_count_before": parent_parameter_count,
+        "parameter_count_after": parent_parameter_count,
+        "learned_tensors_changed": False,
+        "old_prefix_logits_exact": True,
+        "old_prefix_max_abs_logit_delta": 0.0,
+    }
+    if int(config.sequence_length) > parent_context_length:
+        parent_model = model.eval()
+        expanded_model = expand_hashed_micro_expert_context(
+            parent_model,
+            int(config.sequence_length),
+        ).eval()
+        parity_ids = prepared.eval_batches[0].input_ids[
+            :2, :parent_context_length
+        ].detach().cpu()
+        with torch.no_grad():
+            parent_logits = parent_model(
+                parity_ids,
+                collect_telemetry=False,
+            )["logits"]
+            expanded_logits = expanded_model(
+                parity_ids,
+                collect_telemetry=False,
+            )["logits"]
+        exact_logits = bool(torch.equal(parent_logits, expanded_logits))
+        maximum_delta = float(
+            (parent_logits - expanded_logits).abs().max().item()
+        )
+        if not exact_logits:
+            raise RuntimeError(
+                "V11 context expansion changed old-prefix logits: "
+                f"max_abs_delta={maximum_delta}"
+            )
+        model = expanded_model
+        context_expansion = {
+            "performed": True,
+            "from_context_length": parent_context_length,
+            "to_context_length": int(model.context_length),
+            "parameter_count_before": parent_parameter_count,
+            "parameter_count_after": sum(
+                int(value.numel()) for value in model.parameters()
+            ),
+            "learned_tensors_changed": False,
+            "old_prefix_logits_exact": exact_logits,
+            "old_prefix_max_abs_logit_delta": maximum_delta,
+        }
+        del parent_model
 
     model = model.to(resolved)
     model.set_hashed_micro_expert_mode("token_hash")
@@ -242,6 +298,7 @@ def run_hashed_micro_expert_continuation(
                 "parent_processed_tokens": parent_processed_tokens,
                 "training_mixture": "general_only_equal_source_alternation",
                 "relation_updates_scheduled": False,
+                "context_expansion": context_expansion,
             },
         )
     finally:
@@ -295,6 +352,7 @@ def run_hashed_micro_expert_continuation(
                     "relation_updates_scheduled": False,
                     "optimizer_state_restored": False,
                     "optimizer_state_persisted": False,
+                    "context_expansion": context_expansion,
                     "requires_unseen_generation": True,
                     "external_llm_used": False,
                 },
@@ -322,7 +380,9 @@ def run_hashed_micro_expert_continuation(
             "processed_tokens": parent_processed_tokens,
             "decision": parent_metadata["decision"],
             "tokenizer_hash": parent_tokenizer.vocabulary_hash(),
+            "context_length": parent_context_length,
         },
+        "context_expansion": context_expansion,
         "schedule": {
             "sha256": prepared.schedule_sha256,
             "step_count": int(prepared.staged.input_ids.shape[0]),
@@ -391,6 +451,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--checkpoint-output", type=Path)
     parser.add_argument("--additional-token-budget", type=int, default=184_550_400)
+    parser.add_argument("--sequence-length", type=int, default=72)
+    parser.add_argument("--batch-size", type=int, default=144)
     parser.add_argument("--train-sample-mib", type=int, default=192)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
     parser.add_argument("--seed", type=int, default=2027)
@@ -404,6 +466,8 @@ def main() -> int:
     args = parser.parse_args()
     config = HashedMicroExpertContinuationConfig(
         additional_token_budget=int(args.additional_token_budget),
+        sequence_length=int(args.sequence_length),
+        batch_size=int(args.batch_size),
         learning_rate=float(args.learning_rate),
         seed=int(args.seed),
         sample_bytes_per_train_source=int(args.train_sample_mib) * 1024 * 1024,

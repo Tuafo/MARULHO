@@ -9,6 +9,7 @@ from marulho.training.language_hashed_micro_experts import (
     HASHED_MICRO_EXPERT_MODES,
     HashedMicroExpertConfig,
     MarulhoHashedMicroExpertLanguageModel,
+    expand_hashed_micro_expert_context,
     hashed_micro_expert_checkpoint_payload,
     load_hashed_micro_expert_checkpoint,
     save_hashed_micro_expert_checkpoint,
@@ -146,6 +147,29 @@ def test_hashed_active_parameter_report_reflects_pruning() -> None:
     assert report["candidate_to_baseline_multiply_ratio"] == pytest.approx(
         (3 * 32 * 32 + 4 * 2 * 32) / (3 * 32 * 64)
     )
+
+
+def test_hashed_context_expansion_is_state_and_old_prefix_exact() -> None:
+    torch.manual_seed(77)
+    model = _model(context_length=16).eval()
+    input_ids = torch.randint(0, 96, (3, 16))
+    expected_state = {
+        name: value.detach().clone() for name, value in model.state_dict().items()
+    }
+    with torch.no_grad():
+        expected_logits = model(input_ids, collect_telemetry=False)["logits"]
+        expanded = expand_hashed_micro_expert_context(model, 32).eval()
+        actual_logits = expanded(input_ids, collect_telemetry=False)["logits"]
+    assert expanded.hashed_config.context_length == 32
+    assert expanded.context_length == 32
+    assert sum(value.numel() for value in expanded.parameters()) == sum(
+        value.numel() for value in model.parameters()
+    )
+    assert torch.equal(actual_logits, expected_logits)
+    for name, value in expanded.state_dict().items():
+        assert torch.equal(value, expected_state[name])
+    with pytest.raises(ValueError, match="cannot shrink"):
+        expand_hashed_micro_expert_context(expanded, 16)
 
 
 def test_hashed_owned_generation_uses_candidate_path() -> None:

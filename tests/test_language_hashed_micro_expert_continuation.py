@@ -68,9 +68,17 @@ def test_general_continuation_parent_must_be_qualified_owned_hash() -> None:
         "external_llm_used": False,
     }
     assert _validate_parent(_model(), metadata) == 67_112_064
+    assert _validate_parent(
+        _model(),
+        {
+            **metadata,
+            "decision": "save_v11_general_continuation_for_unseen_generation",
+            "processed_tokens": 251_662_464,
+        },
+    ) == 251_662_464
     with pytest.raises(ValueError, match="token_hash"):
         _validate_parent(_model(mode="shared_only"), metadata)
-    with pytest.raises(ValueError, match="durability qualification"):
+    with pytest.raises(ValueError, match="lacks qualification"):
         _validate_parent(_model(), {**metadata, "decision": "unqualified"})
     with pytest.raises(ValueError, match="token count"):
         _validate_parent(_model(), {**metadata, "processed_tokens": 100})
