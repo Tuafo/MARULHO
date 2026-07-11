@@ -107,6 +107,15 @@ Transformer. No checkpoint was saved; the failed model, runner, exports, and
 tests are deleted. The grouped-convolution recurrence was an effective execution
 technique, but it did not earn a maintained language architecture.
 
+`language_depth_allocation.py` is the active uninstalled v8 experiment core. It
+redistributes the four SwiGLU hidden widths while keeping their sum fixed:
+uniform 2048/2048/2048/2048, early-heavy 3072/2560/1536/1024, and late-heavy
+1024/1536/2560/3072. All profiles contain exactly 20,976,128 parameters at the
+8192-token vocabulary, and every non-MLP parameter is initialized identically.
+The core reuses the maintained attention, state, loss, and generation protocol;
+it is not a checkpoint or runtime path. Only matched heldout loss and strict free
+generation can promote an allocation.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

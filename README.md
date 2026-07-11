@@ -71,6 +71,13 @@ made; the model, runner, exports, and tests are deleted. `IDEAS.md` retains the
 broader research map without presenting this failed design as current
 architecture.
 
+The active uninstalled v8 experiment redistributes the same 20,976,128
+parameters across the four Transformer feed-forward layers. Uniform,
+early-heavy, and late-heavy profiles have identical summed MLP width and share
+bit-identical embeddings, attention, and norms. This isolates where nonlinear
+capacity belongs before MARULHO adds sparse micro-expert routing. The model has
+passed mechanism tests but has no language-quality result or checkpoint yet.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the

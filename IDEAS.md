@@ -16,14 +16,12 @@ control's 4.6061 / 10.5%. The gate was active and all bank states were used, so
 the result kills this sidecar rather than merely exposing a dead implementation.
 
 The surviving connection is narrower and more useful: many small units should
-first be tested as **conditional capacity inside the main predictive path**, not
-as several incomplete language models or a weak memory attached beside one.
-One shared embedding, attention stack, residual stream, and vocabulary head can
-remain full strength while small feed-forward experts compete to transform each
-token. A dense shared path prevents routing mistakes from erasing the language
-base; sparse experts must earn extra capacity against learned, random, and fixed
-hash routing controls. This is a mixture-of-experts research question before it
-is a MARULHO novelty claim.
+be tested as **conditional capacity inside the main predictive path**, not as
+several incomplete language models or a weak memory attached beside one. Before
+adding a router, V8 asks the simpler structural question: where should the same
+feed-forward parameter/FLOP budget live across depth? Its uniform, early-heavy,
+and late-heavy profiles keep every other tensor identical. The winning allocation
+then becomes the baseline for shared plus sparse micro-experts.
 
 Geometry remains high-value instrumentation. Wavelets, toroidal phase,
 reservoirs, cellular self-organization, and active inference remain scoped
@@ -63,7 +61,29 @@ Relevant evidence:
   geometry experiment: bounded directions on a hypersphere, tested by language
   evidence rather than geometry alone.
 
-### 2. Sparse shared-core micro-experts — research next
+### 2. Depth-shaped capacity — active V8
+
+The uniform four-layer Transformer spends the same 2048-neuron SwiGLU budget in
+every layer. V8 compares exact-total profiles of 2048/2048/2048/2048,
+3072/2560/1536/1024, and 1024/1536/2560/3072. Total parameters, summed MLP
+matmul work, embeddings, attention, normalization, data, and training schedule
+remain matched. Only the depth location of nonlinear capacity changes.
+
+This is inspired by [OpenELM](https://arxiv.org/abs/2404.14619), which reports
+better parameter use from non-uniform layer-wise width/head allocation, but its
+billion-parameter result is not assumed to transfer to 21M. Newer work such as
+[Mixture-of-Depths Attention](https://arxiv.org/abs/2603.15619) also suggests
+that preserving and selecting representations across depth can matter, while
+[Mixture-of-Recursions](https://arxiv.org/abs/2507.10524) combines shared depth
+with adaptive token computation. V8 deliberately tests the cheapest premise
+before introducing depth routing or recursion.
+
+Promote a profile only if it beats uniform heldout loss and strict free
+generation by the frozen margins, then replicate before scale. If all profiles
+tie or lose, retire static depth allocation and do not use it to justify a more
+complex router.
+
+### 3. Sparse shared-core micro-experts — research after V8
 
 Replace each monolithic feed-forward transformation with a dense shared path
 plus several small sparse expert residuals. All tokens retain the same attention
@@ -89,7 +109,17 @@ collapse to interchangeable functions, or if dispatch overhead erases the
 active-compute benefit on the RTX 3060. Even a win would establish a useful
 conditional-compute substrate, not yet a new theory of cognition.
 
-### 3. Gated multiscale dynamical memory — v7 retired
+Relevant constraints are already known. [DeepSeekMoE](https://arxiv.org/abs/2401.06066)
+combines fine-grained routed experts with shared experts;
+[PEER](https://arxiv.org/abs/2407.04153) retrieves from very large pools of tiny
+experts; and [OLMoE](https://arxiv.org/abs/2409.02060) provides open routing and
+specialization evidence at much larger scale. A 2026
+[counterfactual routing audit](https://arxiv.org/abs/2605.07260) finds that
+standard routers often miss better equal-compute routes on fragile tokens. That
+warning matches MARULHO v2's learned-selector failure and makes random/hash and
+counterfactual controls mandatory.
+
+### 4. Gated multiscale dynamical memory — v7 retired
 
 V7 performed the required memory-off, single-scale, always-write,
 fixed-random-write, and learned-write comparison with one exact-reset parameter
@@ -157,7 +187,7 @@ V7 met the kill condition because its learned gate could not beat the simpler
 control on both loss and free behavior. The broader literature remains useful,
 but this fixed-stable sidecar is no longer an active architecture direction.
 
-### 4. Wavelet-style temporal resolution — promising component
+### 5. Wavelet-style temporal resolution — promising component
 
 Wavelets provide an exact way to separate slow approximation from fast detail.
 The first implementation should use a fixed orthogonal Haar transform so that
@@ -174,7 +204,7 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
-### 5. Memory gates — high-value mechanism, not a complete architecture
+### 6. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
 overwriting persistent state? The gate should be trained through future
@@ -191,7 +221,7 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-### 6. Toroidal phase memory — narrow use for time and order
+### 7. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
 rotations; mathematically, this already introduces circular/toroidal phase
@@ -207,7 +237,7 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
 
-### 7. Hyperdimensional or vector-symbolic memory — binding organ only
+### 8. Hyperdimensional or vector-symbolic memory — binding organ only
 
 High-dimensional distributed vectors can bind roles, entities, and relations by
 algebraic operations and store several items in superposition. This connects to
@@ -220,7 +250,7 @@ surveys the relevant binding and superposition algebra. High ambient dimension
 alone is not a contribution; the binding operation, retrieval contract, and
 capacity/interference curve must be explicit.
 
-### 8. Autonomous local pattern generation — grounded research, not next LM
+### 9. Autonomous local pattern generation — grounded research, not next LM
 
 Neural or adaptive cellular automata demonstrate that shared local rules can
 produce robust global organization. That is a real example of micro rules making
@@ -235,7 +265,7 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
-### 9. Free-energy principle — translate or reject
+### 10. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
 text training, full-vocabulary next-token cross-entropy already minimizes a
@@ -253,16 +283,18 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
 
 1. Completed: build and run the matched v7 dynamical-memory controls; retire the
    line after learned memory loses free generation and the simpler control.
-2. Add a read-only neural-manifold diagnostic to the maintained Transformer and
+2. Run the exact-parameter V8 depth-allocation falsifier; use any replicated
+   winner as the stronger dense baseline.
+3. Add a read-only neural-manifold diagnostic to the maintained Transformer and
    every future survivor. Use it to explain results, never to promote a model.
-3. Research and cost a shared-core sparse micro-expert candidate, then run
+4. Research and cost a shared-core sparse micro-expert candidate, then run
    shared-only, random, hash, and learned routing in one matched harness. Share
    data and compiled graphs where mathematically identical; never share weights,
    optimizer state, or labels.
-4. Test wavelet-style compression only as a causal old-context mechanism on a
+5. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-5. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+6. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

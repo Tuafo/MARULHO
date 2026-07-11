@@ -215,6 +215,18 @@ and the runner avoided four redundant graph compiles, but execution quality did
 not become language quality. No checkpoint was saved. The model, runner, exports,
 and tests are deleted; the compact local report retains the evidence.
 
+**Depth-Allocated Transformer v8 (active experiment, uninstalled)** — test
+whether the same 20,976,128 parameters and summed feed-forward matmul budget are
+better placed uniformly, early-heavy, or late-heavy across four attention layers.
+The profiles are 2048/2048/2048/2048, 3072/2560/1536/1024, and
+1024/1536/2560/3072. Every non-MLP tensor is initialized identically across
+profiles; the causal protocol, streaming state, full-vocabulary head, optimizer,
+data schedule, and token budget remain shared. The core currently passes
+parameter-match, causality, streaming-equivalence, generation, telemetry, and
+full-gradient tests. It is not a checkpoint format or runtime capability. A
+profile must beat uniform loss and strict free generation, then replicate, before
+it can replace the maintained baseline.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing
@@ -620,9 +632,11 @@ must not present them as active capability.
 10. Retire v3-v7 after matched controls show that duplicated language cells,
     associative workspaces, hyperspherical constraints, and fixed-stable memory
     sidecars do not beat the maintained Transformer.
-11. Continue only non-dominated arms through successive halving, then fit the
+11. Test exact-budget capacity placement in v8 before adding conditional expert
+    routing; replicate any quality winner before using it as a new baseline.
+12. Continue only non-dominated arms through successive halving, then fit the
     first defensible local scaling law only for architectures that
     survive the pilot, using repeated seeds near a branch boundary.
-12. Rebuild continual learning, exact resume, and retention measurement.
-13. Re-establish sustained 524,288-token generation from the same checkpoint.
-14. Add grounded causal experiments, then scale, redesign, or retire.
+13. Rebuild continual learning, exact resume, and retention measurement.
+14. Re-establish sustained 524,288-token generation from the same checkpoint.
+15. Add grounded causal experiments, then scale, redesign, or retire.
