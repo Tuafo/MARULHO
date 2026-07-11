@@ -701,11 +701,19 @@ output change is 12.5%. Decision:
 
 The failure localizes the interface: raw context can influence every V11 layer,
 whereas V26 adds evidence after local computation is already finished. More
-selector tuning or a larger final residual is not justified. The next bounded
-candidate shares one cross-attention reader across early/middle cortex layers,
-letting evidence alter later self-attention and MLP computation without entering
-the query position stream. It must retain gate-zero/raw parity and face the same
-shuffled, raw, lexical, and oracle controls.
+selector tuning or a larger final residual is not justified.
+
+V27 is the bounded replacement. It shares one eight-head cross-attention reader
+after V11 blocks zero and two, with an independent scalar gate at each
+injection. The query and evidence run as separate streams through the same V11
+blocks, so later self-attention and MLP computation can transform the
+evidence-conditioned query without evidence entering the query position stream.
+Gate-zero and raw-context parity remain exact. Fresh seeds
+14101/14201/14301 face the same gate-zero, shuffled, raw, lexical, and oracle
+controls under the 50/50 800-step schedule. A likelihood pass still advances
+only to manual anchored generation. Failure of oracle evidence ends this
+cross-attention memory line rather than widening the gate, layer, or selector
+sweep.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

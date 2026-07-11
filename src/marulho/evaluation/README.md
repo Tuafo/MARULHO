@@ -575,11 +575,24 @@ reader arms, but the oracle gate moves only 0.11920 to 0.11949 and lexical
 source-swap output change is 12.5%. General retention passes. Decision:
 `retire_v26_reader_task_not_learnable_with_oracle_evidence`.
 
-Final-layer injection is retired. The next runner may reuse the exact document
-and control protocol only with an interleaved reader applied before later V11
-blocks. Gate-zero and raw parity remain mandatory; failure of oracle evidence in
-that interface ends cross-attention memory rather than triggering a wider gate
-or selector sweep.
+Final-layer injection is retired. V27 reuses the exact document and control
+protocol with one shared eight-head cross-attention reader interleaved after V11
+blocks zero and two. Each injection has its own scalar gate; the query and
+48-token evidence streams otherwise share the V11 cortex, and evidence never
+occupies a query position. Gate-zero and raw-context parity remain exact.
+
+The five arms restore identical parent plus reader tensors and use fresh
+training/evaluation/model seeds 14101/14201/14301 under the same 50/50 800-step
+schedule. Oracle-reader must beat gate-zero by +0.02 with a positive paired
+lower bound. Lexical-reader must include the target in at least 68% of cases,
+beat gate-zero by +0.01 with a positive lower bound, beat shuffled-reader and
+raw-context by +0.005 each, improve both corpora, and give true evidence +0.02
+over a wrong episode with a positive lower bound. At least half of eight greedy
+outputs must change under a true-to-wrong evidence intervention, and neither
+general source may regress by more than +0.10. A statistical pass advances only
+to the V25 manual anchored review. Failure of oracle evidence ends the current
+cross-attention memory line rather than triggering a wider gate, layer, or
+selector sweep.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

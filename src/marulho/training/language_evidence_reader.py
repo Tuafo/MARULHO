@@ -11,6 +11,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from marulho.training.language_hashed_micro_experts import (
+    MarulhoHashedMicroExpertBlock,
     MarulhoHashedMicroExpertLanguageModel,
 )
 from marulho.training.language_model import _apply_decode_controls
@@ -25,6 +26,7 @@ class EvidenceReaderConfig:
     attention_heads: int
     dropout: float = 0.0
     gate_logit_initial: float = -2.0
+    injection_layer_indices: tuple[int, ...] = (0,)
 
 
 def _validate_reader_config(
@@ -41,13 +43,22 @@ def _validate_reader_config(
         raise ValueError("evidence reader dropout must be in [0, 1)")
     if not math.isfinite(float(config.gate_logit_initial)):
         raise ValueError("evidence reader gate initialization must be finite")
+    if not config.injection_layer_indices:
+        raise ValueError("evidence reader requires at least one injection layer")
+    normalized = tuple(int(value) for value in config.injection_layer_indices)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("evidence reader injection layers must be unique")
+    if tuple(sorted(normalized)) != normalized:
+        raise ValueError("evidence reader injection layers must be sorted")
+    if min(normalized) < 0 or max(normalized) >= int(cortex.hashed_config.layers):
+        raise ValueError("evidence reader injection layer is outside the cortex")
 
 
 class MarulhoEvidenceReaderLanguageModel(nn.Module):
-    """V11 local cortex plus one bounded, separately encoded evidence read."""
+    """V11 dual streams with bounded evidence reads between cortex blocks."""
 
-    surface = "marulho_evidence_reader_language_model.v1"
-    generation_surface = "marulho_evidence_reader_generation.v1"
+    surface = "marulho_interleaved_evidence_reader_language_model.v2"
+    generation_surface = "marulho_interleaved_evidence_reader_generation.v2"
 
     def __init__(
         self,
@@ -67,8 +78,12 @@ class MarulhoEvidenceReaderLanguageModel(nn.Module):
             bias=False,
             batch_first=True,
         )
-        self.reader_gate_logit = nn.Parameter(
-            torch.tensor(float(config.gate_logit_initial), dtype=torch.float32)
+        self.reader_gate_logits = nn.Parameter(
+            torch.full(
+                (len(config.injection_layer_indices),),
+                float(config.gate_logit_initial),
+                dtype=torch.float32,
+            )
         )
 
     @property
@@ -99,6 +114,63 @@ class MarulhoEvidenceReaderLanguageModel(nn.Module):
         if interface == "raw_context" and evidence_ids is not None:
             if int(evidence_ids.shape[1] + query_ids.shape[1]) > self.context_length:
                 raise ValueError("raw evidence plus query exceeds cortex context")
+
+    def _interleaved_hidden(
+        self,
+        query_ids: torch.Tensor,
+        evidence_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        block = self.cortex.state_block
+        runtime_query_ids = query_ids.to(device=self.device, dtype=torch.long)
+        runtime_evidence_ids = evidence_ids.to(device=self.device, dtype=torch.long)
+        query = block.input_projection(self.cortex.token_embedding(runtime_query_ids))
+        evidence = block.input_projection(
+            self.cortex.token_embedding(runtime_evidence_ids)
+        )
+        gates = torch.sigmoid(self.reader_gate_logits)
+        injection_to_gate = {
+            int(layer_index): gate_index
+            for gate_index, layer_index in enumerate(
+                self.reader_config.injection_layer_indices
+            )
+        }
+        position_offset = torch.zeros((), device=self.device, dtype=torch.long)
+        for layer_index, layer in enumerate(block.layers):
+            kwargs = {
+                "past_key": None,
+                "past_value": None,
+                "position_offset": position_offset,
+            }
+            if isinstance(layer, MarulhoHashedMicroExpertBlock):
+                query, _query_key, _query_value = layer(
+                    query,
+                    route_ids=runtime_query_ids,
+                    forced_expert_ids=None,
+                    **kwargs,
+                )
+                evidence, _evidence_key, _evidence_value = layer(
+                    evidence,
+                    route_ids=runtime_evidence_ids,
+                    forced_expert_ids=None,
+                    **kwargs,
+                )
+            else:
+                query, _query_key, _query_value = layer(query, **kwargs)
+                evidence, _evidence_key, _evidence_value = layer(
+                    evidence, **kwargs
+                )
+            gate_index = injection_to_gate.get(layer_index)
+            if gate_index is not None:
+                normalized_evidence = self.evidence_norm(evidence)
+                cross, _weights = self.cross_attention(
+                    self.query_norm(query),
+                    normalized_evidence,
+                    normalized_evidence,
+                    need_weights=False,
+                )
+                gate = gates[gate_index].to(dtype=cross.dtype)
+                query = query + gate * cross
+        return block.output_norm(query), gates
 
     def forward_hidden(
         self,
@@ -145,30 +217,20 @@ class MarulhoEvidenceReaderLanguageModel(nn.Module):
                     "owned_by_marulho": True,
                 },
             }
-        local = self.cortex._forward_hidden(
-            query_ids, collect_telemetry=collect_telemetry
-        )["hidden"]
-        evidence = self.cortex._forward_hidden(
-            evidence_ids, collect_telemetry=False
-        )["hidden"]
-        normalized_evidence = self.evidence_norm(evidence)
-        cross, _weights = self.cross_attention(
-            self.query_norm(local),
-            normalized_evidence,
-            normalized_evidence,
-            need_weights=False,
-        )
-        gate = torch.sigmoid(self.reader_gate_logit).to(dtype=cross.dtype)
+        hidden, gates = self._interleaved_hidden(query_ids, evidence_ids)
         return {
-            "hidden": local + gate * cross,
+            "hidden": hidden,
             "telemetry": {
                 "surface": self.surface,
                 "interface": "separate_reader",
                 "reader_active": True,
-                "reader_gate": (
-                    float(gate.detach().float().cpu())
+                "reader_gates": (
+                    [float(value) for value in gates.detach().float().cpu()]
                     if collect_telemetry
                     else None
+                ),
+                "injection_layer_indices": list(
+                    self.reader_config.injection_layer_indices
                 ),
                 "local_query_positions": int(query_ids.shape[1]),
                 "evidence_positions": int(evidence_ids.shape[1]),
@@ -301,8 +363,15 @@ class MarulhoEvidenceReaderLanguageModel(nn.Module):
                 int(parameter.numel()) for parameter in reader_parameters.values()
             ),
             "reader_parameter_tensors": len(reader_parameters),
-            "reader_gate": float(
-                torch.sigmoid(self.reader_gate_logit).detach().float().cpu()
+            "reader_gates": [
+                float(value)
+                for value in torch.sigmoid(self.reader_gate_logits)
+                .detach()
+                .float()
+                .cpu()
+            ],
+            "injection_layer_indices": list(
+                self.reader_config.injection_layer_indices
             ),
             "external_llm_used": False,
             "owned_by_marulho": True,

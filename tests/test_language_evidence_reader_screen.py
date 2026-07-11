@@ -216,10 +216,10 @@ def test_decision_requires_reader_to_beat_raw_and_transfer_to_generation() -> No
     ) == ADVANCE_DECISION
     assert evidence_reader_decision(
         _decision_rows(candidate_loss=2.979), train_steps=512, config=config
-    ) == "retire_v26_separate_reader_no_anchored_interface_gain"
+    ) == "retire_v27_interleaved_reader_no_anchored_interface_gain"
     assert evidence_reader_decision(
         _decision_rows(swap_rate=0.25), train_steps=512, config=config
-    ) == "retire_v26_separate_reader_no_anchored_interface_gain"
+    ) == "retire_v27_interleaved_reader_no_anchored_interface_gain"
     assert evidence_reader_decision(
         _decision_rows(general_delta=0.11), train_steps=512, config=config
-    ) == "retire_v26_reader_breaks_general_language"
+    ) == "retire_v27_interleaved_reader_breaks_general_language"

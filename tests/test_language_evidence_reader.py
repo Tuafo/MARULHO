@@ -32,7 +32,11 @@ def _reader() -> tuple[ByteLevelLanguageTokenizer, MarulhoEvidenceReaderLanguage
     )
     return tokenizer, MarulhoEvidenceReaderLanguageModel(
         cortex,
-        EvidenceReaderConfig(width=32, attention_heads=4),
+        EvidenceReaderConfig(
+            width=32,
+            attention_heads=4,
+            injection_layer_indices=(0, 1),
+        ),
     )
 
 
@@ -82,6 +86,8 @@ def test_separate_reader_changes_logits_without_consuming_query_positions() -> N
     assert left["telemetry"]["local_query_positions"] == 17
     assert left["telemetry"]["evidence_positions"] == 11
     assert left["telemetry"]["reader_active"] is True
+    assert left["telemetry"]["injection_layer_indices"] == [0, 1]
+    assert len(left["telemetry"]["reader_gates"]) == 2
 
 
 def test_masked_reader_loss_reaches_cortex_cross_attention_norms_and_gate() -> None:
@@ -131,3 +137,5 @@ def test_reader_generation_is_owned_and_keeps_evidence_out_of_returned_sequence(
     report = model.reader_parameter_report()
     assert report["reader_parameters"] > 0
     assert report["reader_parameter_tensors"] > 0
+    assert report["injection_layer_indices"] == [0, 1]
+    assert len(report["reader_gates"]) == 2

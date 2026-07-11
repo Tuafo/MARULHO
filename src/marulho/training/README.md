@@ -215,11 +215,12 @@ predictors worsen disjoint heldout loss. No gate checkpoint exists and no gate
 loader or runtime path is maintained. The frozen route-regret audit remains a
 diagnostic surface only.
 
-The V26 final-layer implementation in `language_evidence_reader.py` is retired
-after oracle evidence fails to improve disjoint loss. Its verified parity and
-ownership constraints remain the contract for the replacement:
+The V26 final-layer reader is retired after oracle evidence fails to improve
+disjoint loss. `language_evidence_reader.py` now owns the V27 replacement and
+preserves the verified parity and ownership constraints:
 
-- the local query keeps its original positions and runs through V11 alone;
+- the local query keeps its original positions and runs through the same V11
+  blocks as the evidence stream;
 - one selected prior 48-token episode runs through a separate shared-cortex
   pass;
 - evidence must remain outside the local position stream;
@@ -228,11 +229,13 @@ ownership constraints remain the contract for the replacement:
 - `separate_reader` never inserts evidence tokens into the returned generation
   sequence or local position stream.
 
-The next live implementation interleaves one shared cross-attention reader after
-early/middle V11 blocks so later blocks can transform evidence-conditioned query
-states. This remains experiment machinery, not an installed model or checkpoint
-surface. It must beat gate-zero, shuffled evidence, and the positive V25 raw-
-context control before any checkpoint contract is added.
+V27 interleaves one shared eight-head cross-attention reader after V11 blocks
+zero and two, with one independently learned scalar gate per injection. Later
+V11 blocks can therefore transform evidence-conditioned query states while the
+evidence remains outside the query token sequence. This is experiment
+machinery, not an installed model or checkpoint surface. It must beat gate-zero,
+shuffled evidence, and the positive V25 raw-context control before any
+checkpoint contract is added.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

@@ -157,6 +157,12 @@ one word with it.
     stays near 0.119. The separation idea is not falsified, but evidence must
     enter before later cortex computation. The next bounded test interleaves a
     shared reader between early/middle V11 layers.
+23. V27 preregisters that bounded test with one shared reader after V11 blocks
+    zero and two and an independent scalar gate per injection. Gate-zero and
+    raw-context parity remain exact; the same shuffled, lexical, oracle,
+    source-use, general-retention, and generation-intervention gates apply.
+    Failure of oracle evidence retires cross-attention document memory rather
+    than opening a layer or gate sweep.
 
 ## Provisional scaling diagnosis
 
@@ -295,9 +301,10 @@ has a language-specific purpose.
   but rejects top-two distraction; its lexical-one control is significant. The
   final raw-context replication wins likelihood but fails every anchored sample.
   Exact memory therefore remains promising while raw concatenation is retired.
-  V26 shows that final-layer reading is too late; the next interface interleaves
-  a shared gated reader inside the cortex. No checkpoint/index contract is built
-  until it wins on disjoint likelihood, retention, and anchored generation.
+  V26 shows that final-layer reading is too late. V27 now interleaves one shared
+  gated reader after cortex blocks zero and two. No checkpoint/index contract is
+  built until it wins on disjoint likelihood, retention, and anchored
+  generation.
 
 ### Multiple learning timescales
 

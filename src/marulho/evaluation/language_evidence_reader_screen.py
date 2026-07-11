@@ -1,4 +1,4 @@
-"""Test a bounded separate evidence reader against raw and shuffled controls."""
+"""Test an interleaved evidence reader against raw and shuffled controls."""
 
 from __future__ import annotations
 
@@ -56,8 +56,8 @@ from marulho.training.language_hashed_micro_experts import (
 )
 
 
-SURFACE = "marulho_evidence_reader_screen.v1"
-ARTIFACT_KIND = "marulho_evidence_reader_screen"
+SURFACE = "marulho_interleaved_evidence_reader_screen.v2"
+ARTIFACT_KIND = "marulho_interleaved_evidence_reader_screen"
 ARM_NAMES = (
     "gate_zero",
     "shuffled_reader",
@@ -65,7 +65,7 @@ ARM_NAMES = (
     "lexical_reader",
     "oracle_reader",
 )
-ADVANCE_DECISION = "advance_v26_separate_evidence_reader_to_manual_review"
+ADVANCE_DECISION = "advance_v27_interleaved_evidence_reader_to_manual_review"
 MINIMUM_DECISION_STEPS = 512
 
 
@@ -96,14 +96,15 @@ class EvidenceReaderScreenConfig:
     weight_decay: float = 0.10
     gradient_clip: float = 1.0
     precision: str = "bfloat16"
-    train_data_seed: int = 13101
-    evaluation_seed: int = 13201
-    model_seed: int = 13301
+    train_data_seed: int = 14101
+    evaluation_seed: int = 14201
+    model_seed: int = 14301
     bootstrap_samples: int = 4096
     generation_cases_per_source: int = 4
     generation_max_tokens: int = 48
     reader_attention_heads: int = 8
     reader_gate_logit_initial: float = -2.0
+    reader_injection_layer_indices: tuple[int, ...] = (0, 2)
     minimum_oracle_gain_over_zero: float = 0.02
     minimum_reader_gain_over_zero: float = 0.01
     minimum_reader_gain_over_shuffled: float = 0.005
@@ -362,7 +363,7 @@ def arm_interface_and_policy(arm: str) -> tuple[str, str | None]:
         return "separate_reader", "oracle"
     if arm == "wrong_reader":
         return "separate_reader", "wrong"
-    raise ValueError(f"unknown V26 arm: {arm}")
+    raise ValueError(f"unknown V27 arm: {arm}")
 
 
 def _selected_slots(
@@ -514,13 +515,13 @@ def train_arm(
                 general_tokens += int(batch.target_ids.numel())
                 cortex_positions += int(batch.input_ids.numel())
         if not bool(torch.isfinite(loss)):
-            raise RuntimeError(f"non-finite V26 loss in {arm}")
+            raise RuntimeError(f"non-finite V27 loss in {arm}")
         loss.backward()
         norm = torch.nn.utils.clip_grad_norm_(
             model.parameters(), float(config.gradient_clip)
         )
         if not bool(torch.isfinite(norm)):
-            raise RuntimeError(f"non-finite V26 gradient in {arm}")
+            raise RuntimeError(f"non-finite V27 gradient in {arm}")
         optimizer.step()
         if step in trace_steps:
             trace.append(
@@ -534,7 +535,7 @@ def train_arm(
         interval = max(1, int(config.train_steps) // 10)
         if (step + 1) % interval == 0 or step + 1 == int(config.train_steps):
             print(
-                f"[evidence-reader-v26] {arm} {step + 1}/{config.train_steps}",
+                f"[interleaved-reader-v27] {arm} {step + 1}/{config.train_steps}",
                 flush=True,
             )
     if model.device.type == "cuda":
@@ -856,16 +857,16 @@ def evidence_reader_decision(
     config: EvidenceReaderScreenConfig,
 ) -> str:
     if set(rows) != set(ARM_NAMES):
-        return "incomplete_v26_missing_control_arm"
+        return "incomplete_v27_missing_control_arm"
     if int(train_steps) < MINIMUM_DECISION_STEPS:
-        return "diagnostic_v26_below_screen_step_floor"
+        return "diagnostic_v27_below_screen_step_floor"
     oracle = rows["oracle_reader"]["matched_to_zero"]
     if (
         float(oracle["mean_loss_gain"])
         < float(config.minimum_oracle_gain_over_zero)
         or float(oracle["bootstrap_95_ci"][0]) <= 0.0
     ):
-        return "retire_v26_reader_task_not_learnable_with_oracle_evidence"
+        return "retire_v27_interleaved_task_not_learnable_with_oracle_evidence"
     candidate = rows["lexical_reader"]
     primary = candidate["evaluation"]["primary"]
     gain = candidate["matched_to_zero"]
@@ -878,7 +879,7 @@ def evidence_reader_decision(
         for row in candidate["general_language"]["sources"]
     )
     if maximum_general > float(config.maximum_general_loss_regression):
-        return "retire_v26_reader_breaks_general_language"
+        return "retire_v27_interleaved_reader_breaks_general_language"
     zero_sources = rows["gate_zero"]["evaluation"]["primary"]["per_source"]
     candidate_sources = primary["per_source"]
     source_gains = [
@@ -903,7 +904,7 @@ def evidence_reader_decision(
         >= float(config.minimum_generation_source_swap_rate)
     ):
         return ADVANCE_DECISION
-    return "retire_v26_separate_reader_no_anchored_interface_gain"
+    return "retire_v27_interleaved_reader_no_anchored_interface_gain"
 
 
 def run_evidence_reader_screen(
@@ -918,14 +919,14 @@ def run_evidence_reader_screen(
     device: str = "auto",
 ) -> dict[str, Any]:
     if int(config.facts_per_query) != 4:
-        raise ValueError("V26 requires four archive candidates")
+        raise ValueError("V27 requires four archive candidates")
     resolved = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if device == "auto"
         else torch.device(device)
     )
     if resolved.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA requested for V26 but unavailable")
+        raise RuntimeError("CUDA requested for V27 but unavailable")
     started = time.perf_counter()
     parent_path = Path(parent_checkpoint_path)
     cortex, tokenizer, parent_metadata = load_hashed_micro_expert_checkpoint(
@@ -933,7 +934,7 @@ def run_evidence_reader_screen(
     )
     parent_tokens = _validate_parent(cortex, parent_metadata)
     if parent_tokens < 1_000_000_000:
-        raise ValueError("V26 requires the one-billion-token V11 parent")
+        raise ValueError("V27 requires the one-billion-token V11 parent")
     torch.manual_seed(int(config.model_seed))
     model = MarulhoEvidenceReaderLanguageModel(
         cortex,
@@ -941,9 +942,12 @@ def run_evidence_reader_screen(
             width=int(cortex.hashed_config.width),
             attention_heads=int(config.reader_attention_heads),
             gate_logit_initial=float(config.reader_gate_logit_initial),
+            injection_layer_indices=tuple(
+                int(value) for value in config.reader_injection_layer_indices
+            ),
         ),
     )
-    print("[evidence-reader-v26] preparing document splits", flush=True)
+    print("[interleaved-reader-v27] preparing document splits", flush=True)
     train_split = prepare_document_split(
         tokenizer,
         document_train_paths,
@@ -966,7 +970,7 @@ def run_evidence_reader_screen(
         case.document_sha256 for case in train_split.cases
     } & {case.document_sha256 for case in eval_split.cases}
     if overlap:
-        raise RuntimeError("V26 train/eval document hashes overlap")
+        raise RuntimeError("V27 train/eval document hashes overlap")
     document_steps = _scheduled_relation_steps(
         int(config.train_steps), float(config.document_fraction)
     )
@@ -1017,7 +1021,7 @@ def run_evidence_reader_screen(
     )
     rows: dict[str, dict[str, Any]] = {}
     for arm in ARM_NAMES:
-        print(f"[evidence-reader-v26] training {arm}", flush=True)
+        print(f"[interleaved-reader-v27] training {arm}", flush=True)
         training, general_after = train_arm(
             arm,
             model=model,
@@ -1065,7 +1069,7 @@ def run_evidence_reader_screen(
             "generation_source_swap": swap,
         }
         print(
-            f"[evidence-reader-v26] {arm} loss="
+            f"[interleaved-reader-v27] {arm} loss="
             f"{evaluation['primary']['heldout_loss']:.4f} general_delta="
             f"{general_after['aggregate_heldout_loss_delta']:+.4f}",
             flush=True,
@@ -1116,7 +1120,7 @@ def run_evidence_reader_screen(
             "archive_key": "checkpoint_bpe_tfidf",
             "local_query_positions_unchanged_by_reader": True,
             "separate_source_cortex_pass": True,
-            "gated_cross_attention_after_local_cortex": True,
+            "shared_cross_attention_interleaved_between_cortex_blocks": True,
             "raw_context_control": True,
         },
         "sources": {
@@ -1174,9 +1178,9 @@ def run_evidence_reader_screen(
     write_json_report_with_readme(
         output_path,
         report,
-        title="MARULHO V26 Separate Evidence Reader Screen",
+        title="MARULHO V27 Interleaved Evidence Reader Screen",
     )
-    print(f"[evidence-reader-v26] decision {decision}", flush=True)
+    print(f"[interleaved-reader-v27] decision {decision}", flush=True)
     return report
 
 
