@@ -12,12 +12,15 @@ from typing import Any, Mapping, Sequence
 import torch
 import torch.nn.functional as F
 
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.data.language_tokenizer import LanguageTokenizer
 from marulho.evaluation.language_training_experiment import DEFAULT_CORPUS
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_model import (
     MarulhoLanguageModel,
     load_language_model_checkpoint,
+)
+from marulho.training.language_hashed_micro_experts import (
+    load_hashed_micro_expert_checkpoint,
 )
 
 
@@ -166,6 +169,14 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
 
 
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _common_prefix_length(left: str, right: str) -> int:
     limit = min(len(left), len(right))
     for index in range(limit):
@@ -232,7 +243,7 @@ def _expected_source_continuation(
 
 def _source_continuation_loss_case(
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     case: LanguageGenerationPromptCase,
 ) -> dict[str, Any]:
     base = {
@@ -335,7 +346,7 @@ def _source_continuation_loss_case(
 
 def _decoded_generation_case(
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     case: LanguageGenerationPromptCase,
     *,
     generation_repetition_penalty: float = 1.0,
@@ -510,11 +521,14 @@ def _coherence_summary(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 def run_language_generation_coherence_report(
     model: MarulhoLanguageModel,
-    tokenizer: ByteLevelLanguageTokenizer,
+    tokenizer: LanguageTokenizer,
     *,
     prompt_cases: Sequence[LanguageGenerationPromptCase] | None = None,
     min_case_pass_rate: float = 1.0,
     checkpoint_path: str | Path | None = None,
+    checkpoint_kind: str = "unspecified",
+    checkpoint_metadata: Mapping[str, Any] | None = None,
+    source_path: str | Path | None = None,
     output_path: str | Path | None = None,
     generation_repetition_penalty: float = 1.0,
     generation_no_repeat_ngram_size: int = 0,
@@ -555,6 +569,9 @@ def run_language_generation_coherence_report(
         case_pass_rate >= float(min_case_pass_rate)
         and owned_by_marulho
     )
+    checkpoint = None if checkpoint_path is None else Path(checkpoint_path)
+    source = None if source_path is None else Path(source_path)
+    metadata = dict(checkpoint_metadata or {})
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
@@ -563,6 +580,41 @@ def run_language_generation_coherence_report(
         "loads_external_checkpoint": False,
         "active_language_path": active_language_path,
         "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
+        "checkpoint": {
+            "path": None if checkpoint is None else str(checkpoint),
+            "sha256": (
+                None if checkpoint is None or not checkpoint.is_file()
+                else _sha256_file(checkpoint)
+            ),
+            "kind": str(checkpoint_kind),
+            "model_surface": str(getattr(model, "surface", "unknown")),
+            "tokenizer_hash": tokenizer.vocabulary_hash(),
+            "qualification": {
+                key: metadata.get(key)
+                for key in (
+                    "decision",
+                    "processed_tokens",
+                    "heldout_loss",
+                    "free_relation_accuracy",
+                    "checkpoint_reproduction",
+                    "external_llm_used",
+                )
+                if key in metadata
+            },
+        },
+        "source": {
+            "path": None if source is None else str(source),
+            "sha256": (
+                None if source is None or not source.is_file()
+                else _sha256_file(source)
+            ),
+            "size_bytes": (
+                None if source is None or not source.is_file()
+                else int(source.stat().st_size)
+            ),
+            "role": "generation_prompt_and_continuation_holdout",
+            "raw_source_text_retained": False,
+        },
         "prompt_suite": {
             "surface": "marulho_language_generation_coherence_prompt_suite.v1",
             "case_count": len(cases),
@@ -620,6 +672,11 @@ def _prompt_case_from_arg(value: str, *, source_text: str) -> LanguageGeneration
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument(
+        "--checkpoint-kind",
+        choices=("transformer", "hashed_micro_expert"),
+        default="transformer",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--map-location", default=None)
     parser.add_argument("--source", type=Path, default=None)
@@ -645,10 +702,16 @@ def main() -> int:
     source_text = (
         args.source.read_text(encoding="utf-8") if args.source is not None else DEFAULT_CORPUS
     )
-    model, tokenizer, _metadata = load_language_model_checkpoint(
-        args.checkpoint,
-        map_location=args.map_location,
-    )
+    if args.checkpoint_kind == "hashed_micro_expert":
+        model, tokenizer, metadata = load_hashed_micro_expert_checkpoint(
+            args.checkpoint,
+            map_location=args.map_location,
+        )
+    else:
+        model, tokenizer, metadata = load_language_model_checkpoint(
+            args.checkpoint,
+            map_location=args.map_location,
+        )
     if args.map_location is not None:
         model = model.to(torch.device(args.map_location))
     if args.prompt_case:
@@ -669,6 +732,9 @@ def main() -> int:
         prompt_cases=prompt_cases,
         min_case_pass_rate=float(args.min_case_pass_rate),
         checkpoint_path=args.checkpoint,
+        checkpoint_kind=str(args.checkpoint_kind),
+        checkpoint_metadata=metadata,
+        source_path=args.source,
         output_path=args.output,
         generation_repetition_penalty=max(1.0, float(args.generation_repetition_penalty)),
         generation_no_repeat_ngram_size=max(

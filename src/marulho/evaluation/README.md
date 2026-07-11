@@ -117,8 +117,10 @@ model, runner, and tests are deleted.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
-source-continuation loss. Automated passes are diagnostic and do not alone
-promote quality.
+source-continuation loss. The CLI strictly loads either the installed
+Transformer surface or the experimental hashed-micro-expert surface, and records
+checkpoint, tokenizer, source hashes, qualification metadata, and ownership.
+Automated passes are diagnostic and do not alone promote quality.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
