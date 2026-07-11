@@ -371,7 +371,7 @@ or direct execution feedback over time. Do not tune the same gate on the seen
 holdouts. Preserve the audit as a constraint for a future memory gate, delete the
 failed predictor, and move to the orthogonal long-context training ablation.
 
-### 6. Multi-horizon future prediction — next V13 falsifier
+### 6. Multi-horizon future prediction — V13 retired
 
 The long-context control passes its mechanical and likelihood gates without
 solving the observed behavior. Expanding 72 to 256 rotary positions is
@@ -402,6 +402,19 @@ least 0.02 lower matched heldout loss than the 3.3243 control, no corpus-level
 source-loss regression, and visibly less topic drift under the same prompts.
 Otherwise delete the heads and retire the objective. This is a cheap test of
 multiscale predictive state before adding persistent matrices or columns.
+
+The result is decisively negative. The temporary heads receive gradient and
+their measured +2/+4/+8 losses fall from 7.8794/8.1342/8.1896 to
+6.0638/6.8102/6.9785, so the task is learnable. Yet the exact same parent,
+schedule, 67.11M tokens, and long-context recipe produce 4.9522 standard heldout
+loss after the heads are removed, versus 3.3243 for next-token-only training.
+Head attachment and removal are both bit-exact, all 36,180,480 inference
+parameters persist, and no checkpoint is saved. Decision:
+`retire_v13_future_prediction_no_control_gain`. The failed code is deleted.
+Do not retune horizon weights on the same holdout. Exact future-token supervision
+at these horizons creates gradient interference rather than the desired macro
+state; a later semantic-state target must be materially different and tested on
+fresh evidence.
 
 ### 7. Gated multiscale dynamical memory — v7 retired
 
@@ -578,14 +591,17 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
 6. Completed: parity-gated 256-token continuation strongly improves its matched
    loss but does not solve unseen topic stability; retain the infrastructure and
    checkpoint only as a control.
-7. Next: test dyadic future-token prediction from the same 251M parent and exact
-   long-context schedule against the retained 318M next-token-only control.
-8. Add a read-only neural-manifold diagnostic only when it can explain a branch;
+7. Completed: dyadic future-token heads learn their auxiliary losses but
+   catastrophically lose to the matched next-token control; delete and retire.
+8. Next: make schedule storage bounded in token budget, then scale the retained
+   318M next-token checkpoint to a materially larger token/parameter point before
+   claiming an architectural ceiling.
+9. Add a read-only neural-manifold diagnostic only when it can explain a branch;
    it never promotes a model.
-9. Test wavelet-style compression only as a causal old-context mechanism on a
+10. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-10. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+11. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 

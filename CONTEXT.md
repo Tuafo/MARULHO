@@ -359,6 +359,19 @@ artifact. The next falsifier trains a multi-horizon future-prediction objective
 from the same 251M parent and exact long-context schedule, so it must beat this
 318M next-token-only control rather than benefiting from extra tokens.
 
+That V13 falsifier is retired. Its 2/4/8-token heads do learn their auxiliary
+tasks on a bounded heldout slice: losses fall 7.8794 to 6.0638, 8.1342 to 6.8102,
+and 8.1896 to 6.9785. But after the exact same 67,112,960-token schedule, the
+stripped inference model's full ordinary heldout loss is 4.9522 / perplexity
+141.49 versus the next-token-only control's 3.3243 / 27.78. Training runs at
+82.5k tokens/s and head removal is bit-exact, so this is objective interference,
+not a checkpoint or inference-graph defect. Decision:
+`retire_v13_future_prediction_no_control_gain`. No checkpoint exists; the
+trainer, runner, and tests are deleted. Do not tune its weight on the same
+holdout. The next scale test keeps the retained 318M next-token checkpoint and
+first removes the schedule's linear GPU-memory growth so a materially larger
+token/parameter comparison is possible.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

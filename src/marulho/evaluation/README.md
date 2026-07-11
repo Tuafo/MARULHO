@@ -173,16 +173,13 @@ falls to 0.571; controlled Cosmopedia decoding reaches 0.944 bigram diversity an
 `retain_long_context_infrastructure_reject_context_only_quality_explanation`.
 The checkpoint remains an unpromoted matched control.
 
-**`language_future_prediction_experiment.py`** — trains the V13 dyadic
-future-token objective from the strict 251M parent. It requires the retained
-318M long-context report and rejects any parent hash, schedule hash, token budget,
-sequence, batch, corpus sampling, seed, optimizer recipe, or execution-backend
-mismatch. This makes the completed next-token-only run the exact control. The
-temporary horizons are 2/4/8 with auxiliary weight 0.25. A checkpoint is saved
-only if the stripped inference model lowers matched heldout loss by at least
-0.02 versus the control's 3.3243; unseen source loss and direct generation still
-decide quality. Head attachment, final head removal, and the 72-to-256 context
-expansion each have independent exact-logit parity records.
+The deleted V13 future-prediction experiment is retained only at
+`reports/language_scaling/v13-future-prediction-318m-20260711.json`. Its strict
+parent, schedule, tokens, sequence, batch, seed, optimizer, and backend match the
+318M next-token control. The +2/+4/+8 auxiliary losses improve, but ordinary
+heldout loss after exact head removal is 4.9522 versus the control's 3.3243.
+Decision: `retire_v13_future_prediction_no_control_gain`. No candidate checkpoint
+or future-head code remains.
 
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:

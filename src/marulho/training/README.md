@@ -179,14 +179,12 @@ updates it saves the unpromoted 318,775,424-token control at
 The strict 154.3 MiB checkpoint has SHA-256
 `cebe5ac7b5a84da1208d61c61715f58f61aa91c1ae2211208d005ac3f99506ae`.
 
-**`language_future_prediction.py`** — the active V13 training-only objective.
-It attaches three independent RMSNorm plus 512 x 512 projections to the V11
-trunk and uses the tied MARULHO vocabulary head to predict tokens 2, 4, and 8
-steps ahead. The 787,968 temporary parameters add a bounded auxiliary loss while
-the ordinary next-token loss remains primary. Attachment must leave base logits
-bit-exact. Before checkpointing, all auxiliary heads are removed and the stripped
-36,180,480-parameter inference graph must remain bit-exact. Future heads,
-optimizer state, labels, and an external model never enter inference.
+The V13 future-prediction trainer is retired and deleted. Three temporary
+2/4/8-token heads learned their auxiliary losses, but the stripped inference
+model regressed to 4.9522 heldout loss versus the matched control's 3.3243.
+Attachment/removal parity was exact and no checkpoint was saved, ruling out an
+inference-surface explanation. No future-head training or compatibility path
+remains.
 
 `forward_with_forced_expert_ids(...)` is a read-only V11 audit surface. It
 requires explicit `[batch,time,head,slot]` pool indices and is not used by normal
