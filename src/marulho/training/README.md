@@ -172,6 +172,12 @@ loss 3.4865. It is
 Strict reload restores all model/tokenizer identity and qualification metadata;
 the artifact remains uninstalled because unseen coherence is still blocked.
 
+`forward_with_forced_expert_ids(...)` is a read-only V11 audit surface. It
+requires explicit `[batch,time,head,slot]` pool indices and is not used by normal
+training, generation, checkpoint loading, or runtime. Forcing the installed hash
+is exactly logit-identical; counterfactual reports must prove parameter hashes
+unchanged and keep target labels out of route construction.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

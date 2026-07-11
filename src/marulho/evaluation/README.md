@@ -118,6 +118,17 @@ no replay. The repeated unseen reports improve prompt-local loss but remain 0/8;
 V11 ties the local 251M Transformer on FineWeb loss and trails on Cosmopedia.
 Decision: `retain_v11_checkpoint_redesign_token_only_routing_before_more_scaling`.
 
+**`language_hashed_micro_expert_counterfactual.py`** — freezes the strict 251M
+V11 checkpoint and changes only the final token's eight singleton-expert IDs in
+each heldout 72-token sequence. The installed token hash and four deterministic
+alternatives have identical active compute. Exact next-token loss scores each
+completed route; labels never choose a prediction route, oracle selection is
+metrics-only, parameters are hashed before/after, and forcing installed IDs must
+reproduce baseline logits exactly. A result can admit training a causal V12 gate
+only when mean oracle improvement is at least 0.02 and at least 10% of tokens
+have regret of 0.05 or more. It cannot promote a model. The one-batch CUDA smoke
+passed and was deleted before the full audit.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
