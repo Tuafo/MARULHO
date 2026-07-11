@@ -107,6 +107,13 @@ saved. A fresh seed repeats token-hash loss at 4.5372 versus the Transformer's
 over shared-only by one of 256 cases. V10 is not promoted: learned routing is
 rejected, and the fixed-hash mechanism moves into a pruned durability candidate.
 
+The active uninstalled v11 candidate removes the failed router completely. It
+keeps the shared path, 16,384 singleton functions, and eight deterministic
+token-hash assignments in a 36.18M-parameter model. The replaced block now uses
+50.26% of the dense MLP's theoretical multiplies before gather overhead, and its
+hash path exactly reproduces V10 after surviving tensors are copied. Larger-budget
+quality and GPU durability are not measured yet.
+
 ## Current Evidence
 
 The 2026-07-10 equal-time run selected the 21M model over the 63M model on the

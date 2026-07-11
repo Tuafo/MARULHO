@@ -282,6 +282,18 @@ also collapses again to 8.9% pool usage. The replicated insight advances to a
 pruned hash-only durability candidate; product-key queries and learned routing do
 not.
 
+**Hashed Singleton Micro-Experts v11 (active experiment, uninstalled)** — the
+pruned durability candidate retains V10's 1024-wide shared path, 16,384
+singleton functions, and eight deterministic token assignments, while deleting
+query projection, product keys, top-k search, and learned/frozen router modes.
+It has 36,180,480 parameters and 1,581,056 theoretical replacement-path
+multiplies per token, 50.26% of the dense MLP's 3,145,728 before gather overhead.
+After copying every surviving tensor, V11 token-hash logits exactly match V10's
+winning arm. Causality, streaming equivalence, owned generation, hash uniqueness,
+shared-only control, gradient coverage, and active-compute accounting pass. It
+must now preserve the token-hash gain at a larger budget before any checkpoint or
+runtime installation.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

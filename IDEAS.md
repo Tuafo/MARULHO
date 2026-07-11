@@ -207,6 +207,14 @@ delete query projection, product keys, and unused routing modes, retain only the
 stable token-indexed singleton functions, verify equivalence to the winning arm,
 and test durability at a larger budget.
 
+That pruning is now implemented as V11. The hash-only candidate stores
+36,180,480 parameters and deletes 1,114,112 query/key parameters plus all top-k
+search. Its shared path and eight active singleton functions require 1,581,056
+theoretical multiplies per token in the replaced block, 50.26% of the dense MLP.
+With surviving weights copied, its logits exactly match V10 token-hash. The next
+evidence is a larger-budget Transformer/shared-only/token-hash durability run,
+not another learned-router repair.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

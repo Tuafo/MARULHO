@@ -138,6 +138,16 @@ routing reads immutable initialization buffers so AdamW decay cannot silently
 change its router. The CUDA/Inductor mechanism smoke compiled one shared
 candidate graph and peaked at 1.80 GB.
 
+`language_hashed_micro_experts.py` is the active uninstalled v11 successor. It
+removes V10's query projection, product keys, top-k search, and failed routing
+modes while retaining the shared 1024-wide SwiGLU path and 16,384 singleton
+functions. Four deterministic token-hash heads select two functions each. The
+model stores 36,180,480 parameters; its 1,581,056 theoretical replacement-path
+multiplies per token are 50.26% of the dense MLP before gather overhead. The
+shared-only and token-hash modes reuse one graph. Exact tensor transfer proves
+the hash path is functionally equivalent to V10's winning control. This remains
+falsifier-only pending larger-budget durability.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 
