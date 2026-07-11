@@ -293,7 +293,7 @@ Random/recency/lexical/frozen-last/frozen-mean target recall at one is
 The report keeps `redesign_v20_no_fixed_key_retrieves_exact_episode`; do not
 rewrite that decision.
 
-Lexical recall at two is 99.2%, however. Retrieving two 48-token episodes plus a
+Lexical recall at two is 98.8%, however. Retrieving two 48-token episodes plus a
 40-token query uses 136 active positions, versus 232 for all four sources, and
 does not alter the source-only write or question-only read boundary. V21 may
 therefore test a different claim: exact raw evidence selected by a cheap address

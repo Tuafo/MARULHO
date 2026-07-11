@@ -534,7 +534,7 @@ Random/recency/lexical/frozen-last/frozen-mean top-1 recall is
 27/34/71/38/41%; frozen V11 state is not yet a reliable address. Lexical TF-IDF
 misses the predeclared top-1 gate, including only 53% of both answer-changing
 paired targets. Decision: `redesign_v20_no_fixed_key_retrieves_exact_episode`.
-The same label-safe lexical ranking nevertheless reaches 99.2% target inclusion
+The same label-safe lexical ranking nevertheless reaches 98.8% target inclusion
 at top two, using 96 raw source tokens instead of all-history's 192. V21 is
 admitted as a separate language falsifier: lexical top-two retrieval must recover
 paired free generation, stay close to all-history, beat random/recency/top-one

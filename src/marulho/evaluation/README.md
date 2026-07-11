@@ -344,7 +344,7 @@ The V20 audit is retained at
 Random/recency/lexical/frozen-last/frozen-mean recall at one is
 27/34/71/38/41%. No fixed key clears the top-one gate, so the report decides
 `redesign_v20_no_fixed_key_retrieves_exact_episode`. Lexical recall at two is
-99.2% with 96 active source tokens versus all-history's 192. That diagnostic
+98.8% with 96 active source tokens versus all-history's 192. That diagnostic
 admits a separate matched language screen; it does not revise the top-one result
 or promote retrieval quality by itself.
 
