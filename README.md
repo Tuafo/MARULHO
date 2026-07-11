@@ -71,18 +71,14 @@ made; the model, runner, exports, and tests are deleted. `IDEAS.md` retains the
 broader research map without presenting this failed design as current
 architecture.
 
-The active uninstalled v8 experiment redistributes the same 20,976,128
-parameters across the four Transformer feed-forward layers. Uniform,
-early-heavy, and late-heavy profiles have identical summed MLP width and share
-bit-identical embeddings, attention, and norms. This isolates where nonlinear
-capacity belongs before MARULHO adds sparse micro-expert routing. The model has
-passed mechanism tests, and all three CUDA graphs pass parity with matched
-gradient/memory audits. At 16.79M tokens, early-heavy replicated under two fresh
-model/schedule seeds: uniform/early losses were 4.6067/4.5843 and
-4.6021/4.5839, while strict free relation was 7.0%/25.4% and 9.0%/30.9%.
-Late-heavy lost both runs. Throughput and VRAM stayed matched. This promotes an
-early-heavy durability test at 67.11M tokens, not runtime installation; no v8
-checkpoint exists yet.
+Static depth allocation v8 is retired after a valuable reversal. Early-heavy
+beat uniform twice at 16.79M tokens, but the 67.11M successive-halving run ended
+at loss 3.8957 versus uniform's 3.8861 and tied strict free relation at 20.3%.
+Parameters, throughput, VRAM, initialization, gradients, and compile parity were
+matched. The short-budget advantage is real but does not qualify a durable
+architecture; no checkpoint was saved, and the v8 model, runner, and tests are
+deleted. Its reports remain as evidence that useful depth allocation may depend
+on budget or training schedule.
 
 ## Current Evidence
 

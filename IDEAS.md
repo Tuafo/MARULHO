@@ -17,11 +17,10 @@ the result kills this sidecar rather than merely exposing a dead implementation.
 
 The surviving connection is narrower and more useful: many small units should
 be tested as **conditional capacity inside the main predictive path**, not as
-several incomplete language models or a weak memory attached beside one. Before
-adding a router, V8 asks the simpler structural question: where should the same
-feed-forward parameter/FLOP budget live across depth? Its uniform, early-heavy,
-and late-heavy profiles keep every other tensor identical. The winning allocation
-then becomes the baseline for shared plus sparse micro-experts.
+several incomplete language models or a weak memory attached beside one. V8
+tested the simpler structural question of where a fixed feed-forward budget
+should live across depth. Its short-budget early-heavy win reversed at the
+durable budget, so no static profile becomes the baseline for micro-experts.
 
 Geometry remains high-value instrumentation. Wavelets, toroidal phase,
 reservoirs, cellular self-organization, and active inference remain scoped
@@ -61,7 +60,7 @@ Relevant evidence:
   geometry experiment: bounded directions on a hypersphere, tested by language
   evidence rather than geometry alone.
 
-### 2. Depth-shaped capacity — active V8
+### 2. Depth-shaped capacity — v8 retired
 
 The uniform four-layer Transformer spends the same 2048-neuron SwiGLU budget in
 every layer. V8 compares exact-total profiles of 2048/2048/2048/2048,
@@ -83,15 +82,20 @@ generation by the frozen margins, then replicate before scale. If all profiles
 tie or lose, retire static depth allocation and do not use it to justify a more
 complex router.
 
-V8 has cleared its first two gates rather than merely looking promising. At
+V8 cleared its first two gates before failing durability. At
 16.79M tokens, early-heavy beat uniform from two independent model/schedule seeds:
 loss 4.5843 versus 4.6067 and 4.5839 versus 4.6021; strict free relation 25.4%
 versus 7.0% and 30.9% versus 9.0%. Late-heavy lost both times. Compute, memory,
 gradient, parity, and common-initialization audits are matched. The next
-falsifier is a 67.11M-token uniform/early-heavy comparison because MARULHO v1
+falsifier was a 67.11M-token uniform/early-heavy comparison because MARULHO v1
 already showed that an early architectural win can disappear with more training.
+That warning was correct: uniform/early-heavy finished at loss 3.8861/3.8957 and
+tied free relation at 20.3%. Static early-heavy allocation is retired. The result
+does not prove a training-stage crossover because the short and long experiments
+used budget-sized cosine schedules; it motivates explicit curve measurement or
+adaptive depth only if those mechanisms receive their own controls.
 
-### 3. Sparse shared-core micro-experts — research after V8
+### 3. Sparse shared-core micro-experts — research candidate
 
 Replace each monolithic feed-forward transformation with a dense shared path
 plus several small sparse expert residuals. All tokens retain the same attention
@@ -291,8 +295,8 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
 
 1. Completed: build and run the matched v7 dynamical-memory controls; retire the
    line after learned memory loses free generation and the simpler control.
-2. Run the exact-parameter V8 depth-allocation falsifier; use any replicated
-   winner as the stronger dense baseline.
+2. Completed: run and retire V8 after its replicated short-budget early-heavy
+   win reverses in the 67.11M-token durability comparison.
 3. Add a read-only neural-manifold diagnostic to the maintained Transformer and
    every future survivor. Use it to explain results, never to promote a model.
 4. Research and cost a shared-core sparse micro-expert candidate, then run

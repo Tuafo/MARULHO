@@ -215,30 +215,22 @@ and the runner avoided four redundant graph compiles, but execution quality did
 not become language quality. No checkpoint was saved. The model, runner, exports,
 and tests are deleted; the compact local report retains the evidence.
 
-**Depth-Allocated Transformer v8 (active experiment, uninstalled)** — test
-whether the same 20,976,128 parameters and summed feed-forward matmul budget are
-better placed uniformly, early-heavy, or late-heavy across four attention layers.
-The profiles are 2048/2048/2048/2048, 3072/2560/1536/1024, and
-1024/1536/2560/3072. Every non-MLP tensor is initialized identically across
-profiles; the causal protocol, streaming state, full-vocabulary head, optimizer,
-data schedule, and token budget remain shared. The core currently passes
-parameter-match, causality, streaming-equivalence, generation, telemetry, and
-full-gradient tests. Its two-step CUDA mechanism smoke also hash-matched all
-non-MLP tensors, gave every parameter a gradient, held peak allocation near
-1.54 GB, and passed compiled/eager parity for all profiles with deltas at or
-below 0.000216. Smoke losses and throughput are not quality evidence, and the
-smoke artifact was deleted. V8 is not a checkpoint format or runtime capability.
-The 16.79M-token screen then produced a replicated early-heavy win. With
-model/schedule seeds 1337 and 7331, uniform/early-heavy losses were
-4.6067/4.5843 and 4.6021/4.5839; strict free relation scores were 7.0%/25.4%
-and 9.0%/30.9%. Late-heavy lost both runs at 4.6368/6.2% and 4.6142/7.4%.
-Observed training throughput stayed within 0.27% across profiles, peak allocation
-was about 1.81 GB, every parameter received gradients, and each run used a
-different schedule and common-initialization hash. Early-heavy candidate-ranking
-accuracy was slightly below uniform while free generation improved, so the gain
-is not a candidate-choice shortcut. Branch: continue only uniform and
-early-heavy to a 67.11M-token durability test. V8 remains uninstalled and has no
-checkpoint until that larger comparison survives.
+**Depth-Allocated Transformer v8 (retired)** — exact-budget uniform,
+early-heavy, and late-heavy profiles tested whether fixed nonlinear capacity was
+better placed at different depths. Early-heavy produced a real but non-durable
+short-budget result: at 16.79M tokens it beat uniform under two independent
+model/schedule seeds, with losses 4.5843 versus 4.6067 and 4.5839 versus 4.6021,
+and strict free relation 25.4% versus 7.0% and 30.9% versus 9.0%. Late-heavy lost
+both screens. Successive halving then trained only uniform and early-heavy for
+67.11M tokens under a third seed. Uniform won heldout loss 3.8861 versus 3.8957,
+while free relation tied at 20.3%. Early-heavy candidate ranking reached 100%
+versus uniform's 93.0% but did not improve free generation. Both arms contained
+20,976,128 parameters, ran within 0.30% throughput, used about 2.61 GB including
+the staged schedule, passed parity, and gave every parameter gradients. The
+evidence therefore supports a budget/schedule-sensitive optimization effect, not
+a superior static architecture or a known training-step crossover. No checkpoint
+was saved. The model, runner, and tests are deleted; three local reports retain
+the screen, replication, and durability evidence.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
@@ -620,6 +612,7 @@ The following are not maintained language paths:
 - editable delta-memory v1 as a base-language architecture.
 - distributed predictive organism v1 as a base-language architecture.
 - fixed-stable gated multiscale dynamical memory v7 as a language sidecar.
+- static depth-allocated Transformer v8 as a durable base architecture.
 
 Historical reports may mention these terms. New code, status, and documentation
 must not present them as active capability.
@@ -645,8 +638,9 @@ must not present them as active capability.
 10. Retire v3-v7 after matched controls show that duplicated language cells,
     associative workspaces, hyperspherical constraints, and fixed-stable memory
     sidecars do not beat the maintained Transformer.
-11. Test exact-budget capacity placement in v8 before adding conditional expert
-    routing; replicate any quality winner before using it as a new baseline.
+11. Retire static depth allocation v8 after its two replicated 16.79M wins
+    reverse at 67.11M; retain the budget-sensitive optimization insight without
+    promoting the architecture.
 12. Continue only non-dominated arms through successive halving, then fit the
     first defensible local scaling law only for architectures that
     survive the pilot, using repeated seeds near a branch boundary.

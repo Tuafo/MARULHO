@@ -37,40 +37,6 @@ Inductor execution uses the same parity contract as the primary runner; wall
 clock comparisons include compile time rather than comparing only steady-state
 steps.
 
-**`language_depth_allocation_falsification.py`** — the active uninstalled v8
-runner. It compares uniform, early-heavy, and late-heavy SwiGLU allocation at
-exactly 20,976,128 parameters and equal summed MLP width. All non-MLP initial
-tensors are hash-checked for identity; each arm receives the same staged schedule,
-fresh optimizer, full gradient audit, heldout loss, candidate-likelihood, and
-strict free-generation evaluation. Each distinct shape gets its own parity-gated
-compiled graph, and compile time remains in amortized throughput. Partial reports
-are written after every arm; no checkpoint is allowed before a replicated
-loss-plus-free-generation win.
-
-The two-step CUDA mechanism smoke compiled all three shape graphs, preserved one
-common non-MLP initialization hash, gave every parameter a gradient, and passed
-compiled/eager parity with absolute loss deltas of 0.000023/0.000135/0.000216.
-Peak allocation stayed near 1.54 GB. Its short-step throughput and losses are not
-quality measurements; the smoke report is deleted rather than retained as
-evidence.
-
-The first full report is
-`reports/language_scaling/depth-allocation-v8-falsification-16m-20260711.json`;
-the independent replication is
-`reports/language_scaling/depth-allocation-v8-replication-seed7331-16m-20260711.json`.
-Uniform/early-heavy/late-heavy losses were 4.6067/4.5843/4.6368 and
-4.6021/4.5839/4.6142. Strict free relation scores were 7.0%/25.4%/6.2% and
-9.0%/30.9%/7.4%. The runs used distinct schedule and initialization hashes;
-training throughput stayed within 0.27%, peak allocation remained about 1.81 GB,
-and all parameters received gradients. Both decisions are
-`replicate_v8_early_heavy_before_scale`. Successive halving now advances only
-uniform and early-heavy to 67.11M tokens; neither report installs a model or
-saves a checkpoint.
-
-The runner's `durability` comparison stage requires exactly those two arms and
-at least 67,108,864 processed tokens each. It cannot emit a promotion decision
-from a short smoke or a missing control.
-
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
 explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. Automated passes are diagnostic and do not alone
@@ -141,6 +107,20 @@ graph compiles rather than six and retained no checkpoint. Decision:
 deleted. Candidate-likelihood relation accuracy was 96.9% for learned memory
 versus 93.0% for the Transformer, so its opposite free-generation result is also
 evidence that candidate ranking cannot stand in for language generation.
+
+The retired v8 reports are
+`reports/language_scaling/depth-allocation-v8-falsification-16m-20260711.json`,
+`reports/language_scaling/depth-allocation-v8-replication-seed7331-16m-20260711.json`,
+and
+`reports/language_scaling/depth-allocation-v8-durability-seed2026-67m-20260711.json`.
+Early-heavy beat uniform twice at 16.79M tokens, then lost the successive-halving
+durability comparison: uniform/early-heavy loss was 3.8861/3.8957 and strict free
+relation tied at 20.3%. Each durable arm processed 67,112,064 tokens. Parameters,
+common initialization, gradients, parity, and theoretical compute matched;
+observed throughput differed by 0.30%. The excluded source tails were one partial
+batch from each general corpus and are recorded in the report. Decision:
+`retire_v8_early_heavy_not_durable`. No checkpoint was made; the model, runner,
+and tests are deleted.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,

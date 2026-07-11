@@ -107,18 +107,14 @@ Transformer. No checkpoint was saved; the failed model, runner, exports, and
 tests are deleted. The grouped-convolution recurrence was an effective execution
 technique, but it did not earn a maintained language architecture.
 
-`language_depth_allocation.py` is the active uninstalled v8 experiment core. It
-redistributes the four SwiGLU hidden widths while keeping their sum fixed:
-uniform 2048/2048/2048/2048, early-heavy 3072/2560/1536/1024, and late-heavy
-1024/1536/2560/3072. All profiles contain exactly 20,976,128 parameters at the
-8192-token vocabulary, and every non-MLP parameter is initialized identically.
-The core reuses the maintained attention, state, loss, and generation protocol;
-it is not a checkpoint or runtime path. Only matched heldout loss and strict free
-generation can promote an allocation. Early-heavy has now passed that boundary
-twice at 16.79M tokens: loss improved by 0.0224 and 0.0182, and strict free
-relation improved by 18.4 and 21.9 points under independent model/schedule
-seeds. Late-heavy lost both controls. V8 remains experimental until the
-early-heavy result survives a 67.11M-token comparison.
+Static depth allocation v8 is retired. Uniform, early-heavy, and late-heavy
+profiles held total MLP width and all 20,976,128 parameters fixed. Early-heavy
+improved loss by 0.0224/0.0182 and strict free relation by 18.4/21.9 points in two
+independent 16.79M-token screens, but the advantage reversed at 67.11M: uniform/
+early-heavy loss was 3.8861/3.8957 and free relation tied at 20.3%. The durable
+arms ran within 0.30% throughput and passed initialization, gradient, memory, and
+parity audits. No checkpoint was saved; the failed core, runner, and tests are
+deleted. Static layer width is not a maintained language option.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
