@@ -30,8 +30,9 @@ There are five different levels of truth:
    currently admitted.
 4. **Active optimizer experiment:** V29 keeps the exact 20.976M Transformer
    fixed and compares AdamW with matrix-orthogonalized Muon at two learning
-   rates. A 1.05M-token diagnostic gives Muon a 0.3538 heldout-loss advantage;
-   this is promising but below the durable decision budget.
+   rates. At 16.78M tokens, Muon 1e-3 beats same-rate AdamW by 0.1645 heldout
+   loss and 12.11 points of exact free generation. This admits checkpoint
+   reproduction and unseen review, not runtime installation.
 5. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free

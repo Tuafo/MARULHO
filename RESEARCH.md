@@ -226,10 +226,13 @@ An idea survives only when its behavior and cost survive matched falsification.
   1e-3 peak rates from a common initialization. Compare the best rate per
   optimizer only after every arm sees the same 16.78M tokens. Require complete
   gradients, optimizer-state accounting, loss, and label-free generation.
-- **Early evidence:** at 1.05M tokens the 1e-3 Muon arm reaches loss 5.7527
-  versus AdamW's 6.1065 while using 40% less optimizer state, but trains about
-  42% slower. The 0.3538 loss gain earns the durable run; 0/32 exact generation
-  prevents an early capability claim.
+- **Result:** the 1e-3 Muon arm passes the durable joint gate. Against same-rate
+  AdamW at 16.78M tokens, heldout loss is 4.0961 versus 4.2606 and exact free
+  relation generation is 17.58% versus 5.47%. Muon uses 40% less optimizer
+  state but trains about 42% slower. At 3e-4, Muon improves loss slightly while
+  harming generation, so optimizer and learning rate interact rather than
+  producing a universal gain. V29 advances to exact reproduction and unseen
+  review, not installation; two relation kinds remain at zero free accuracy.
 
 ### Other orthogonal branches
 

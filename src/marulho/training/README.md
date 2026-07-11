@@ -239,8 +239,10 @@ norm parameters. The 20.976M control assigns 16,777,216 parameters to Muon and
 4,198,912 to AdamW. No external weights or optimizer package are loaded.
 `language_matched_support.py` accepts an explicit optimizer builder and records
 the optimizer recipe and tensor-state bytes; existing callers still use fused
-AdamW. The 1.05M-token diagnostic is positive on loss but cannot install the
-optimizer before the four-arm 16.78M quality gate and unseen review.
+AdamW. At the durable 16.78M-token budget, 1e-3 Muon beats same-rate AdamW on
+loss 4.0961/4.2606 and exact free generation 17.58%/5.47%, while using 40% less
+optimizer state and training 42% slower. This passes only into exact checkpoint
+reproduction and unseen review; the installed trainer still owns AdamW.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

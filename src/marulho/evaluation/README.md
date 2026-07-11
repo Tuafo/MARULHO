@@ -634,6 +634,21 @@ routes to redesign; no gain retires Muon. No checkpoint, runtime optimizer, or
 continual-learning claim is admitted before a joint pass and genuinely unseen
 generation.
 
+The durable four-arm report is
+`reports/language_scaling/v29-muon-falsification-16m-20260711.json`, SHA-256
+`940a0649865480f6c7b7a57dfc9c96aadd847e4239738f528eb0ef397eb9d4d4`.
+Every arm processes 16,777,728 identical tokens from common initial weights and
+every parameter receives a gradient. At 1e-3, Muon/AdamW heldout
+loss/perplexity is 4.09608/60.10 versus 4.26061/70.85; exact free relation is
+17.58% versus 5.47%, a +0.16453 loss gain and +0.12109 generation gain. Muon
+candidate ranking is 100% versus 81.64%. It sustains 55.8k versus 96.3k
+tokens/s, uses 96.0 versus 160.0 MiB optimizer state, and peaks at 508.3 versus
+571.3 MiB CUDA allocation. The 3e-4 Muon arm improves loss by 0.0198 but loses
+11.33 generation points, exposing a real learning-rate/behavior interaction.
+Decision: `advance_v29_muon_to_unseen_generation`. Container and ownership free
+generation remain 0%, so the pass admits only an exact candidate reproduction,
+strict checkpoint reload, and unseen prose review.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

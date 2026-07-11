@@ -125,11 +125,15 @@ the historical 3e-4 peak learning rate and the official-reference 1e-3 rate.
 Muon applies momentum plus five-step Newton-Schulz orthogonalization to the
 16,777,216 hidden-matrix parameters and AdamW to the tied embedding and norms.
 The grouped CUDA implementation passes all-gradient and compiled-model parity
-truth. At 1,050,624 diagnostic tokens, Muon/AdamW at 1e-3 reaches heldout loss
-5.7527/6.1065, training throughput 49.1k/84.7k tokens/s, and optimizer state
-96.0/160.0 MiB. This is not promotion. At 16.78M tokens the best Muon rate must
-beat the best AdamW rate by at least 0.01 loss and 0.02 exact free relation
-generation together before unseen review or any optimizer installation.
+truth. At 16,777,728 identical tokens, best Muon/AdamW is the 1e-3 pair:
+heldout loss/perplexity 4.0961/60.10 versus 4.2606/70.85 and exact free relation
+17.58% versus 5.47%. The gains are 0.1645 loss and 12.11 percentage points,
+above the joint 0.01/2-point gate. Muon uses 96.0 versus 160.0 MiB optimizer
+state and trains at 55.8k versus 96.3k tokens/s. The 3e-4 pair is disjoint:
+Muon improves loss by 0.0198 but loses 11.33 generation points. Decision:
+`advance_v29_muon_to_unseen_generation`. No checkpoint, optimizer installation,
+or broad capability claim exists until an exact reproduction and genuinely
+unseen review pass.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
