@@ -148,7 +148,17 @@ shared-only and token-hash modes reuse one graph. Exact tensor transfer proves
 the hash path is functionally equivalent to V10's winning control. This remains
 falsifier-only pending larger-budget durability. Its CUDA/Inductor smoke compiles
 the pruned candidate in 22.8s, peaks at 1.70 GB, and measures 124.2k token-hash
-tokens/s; the two-step quality values are discarded.
+tokens/s; the two-step quality values are discarded. The 67.11M-token run passes
+both controls at loss 3.8747 / 35.9% strict free relation and advances the model
+to checkpoint qualification.
+
+The experimental checkpoint surface is
+`marulho_hashed_micro_expert_language_checkpoint.v1`. It owns the exact V11
+configuration, strict tensor state, tied embeddings, tokenizer state and hash,
+ownership flags, and qualification metadata. Atomic save and strict load reject
+wrong surfaces, tokenizer mismatches, shared-only mode, missing tensors, and
+untied restoration. The installed Transformer loader remains separate until V11
+also passes unseen generation.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

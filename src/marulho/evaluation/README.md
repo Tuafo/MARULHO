@@ -60,6 +60,12 @@ generation while retaining at least half the local throughput. A pass advances
 to checkpoint fidelity and unseen-generation work, not direct runtime install.
 The mechanism smoke compiles the candidate in 22.8s, peaks at 1.70 GB, and keeps
 shared/hash throughput within 1.21%; its report and quality values are discarded.
+The durable report is local at
+`reports/language_scaling/hashed-micro-v11-durability-seed2026-67m-20260711.json`.
+At 67,112,064 tokens, token-hash reaches loss 3.8747 / 35.9% strict free relation
+versus Transformer 3.8951 / 19.1% and shared-only 3.9088 / 25.8%, retaining 96.0%
+of Transformer throughput. Decision:
+`promote_v11_hash_for_checkpoint_and_unseen_generation`.
 
 **`language_micro_expert_falsification.py`** — the active uninstalled v10
 comparison runner. It compares the Transformer with shared-only, frozen-random product-key,

@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import math
+import os
+from pathlib import Path
 from typing import Any, Mapping
+from uuid import uuid4
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
+)
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 from marulho.training.language_transformer import (
     MarulhoCausalTransformerStateBlock,
@@ -19,6 +26,9 @@ from marulho.training.language_transformer import (
 
 HASHED_MICRO_EXPERT_MODES = ("shared_only", "token_hash")
 _MODE_IDS = {name: index for index, name in enumerate(HASHED_MICRO_EXPERT_MODES)}
+HASHED_MICRO_EXPERT_CHECKPOINT_SURFACE = (
+    "marulho_hashed_micro_expert_language_checkpoint.v1"
+)
 
 
 @dataclass(frozen=True)
@@ -496,7 +506,6 @@ class MarulhoHashedMicroExpertLanguageModel(MarulhoLanguageModel):
             "candidate_to_baseline_multiply_ratio": candidate_work / baseline_work,
             "external_llm_used": False,
         }
-
     @torch.no_grad()
     def final_gradient_report(self) -> dict[str, Any]:
         layer = self.state_block.expert_layer
@@ -616,3 +625,86 @@ class MarulhoHashedMicroExpertLanguageModel(MarulhoLanguageModel):
             "promotion_metric": False,
             "external_llm_used": False,
         }
+
+
+def hashed_micro_expert_checkpoint_payload(
+    model: MarulhoHashedMicroExpertLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if int(model.hashed_config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("V11 checkpoint vocab must match its owned tokenizer")
+    if model.state_block.expert_layer._mode_name != "token_hash":
+        raise ValueError("Only the qualified token_hash mode can be checkpointed")
+    return {
+        "artifact_kind": "marulho_hashed_micro_expert_language_checkpoint",
+        "surface": HASHED_MICRO_EXPERT_CHECKPOINT_SURFACE,
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "active_language_path": model.config.active_language_path,
+        "config": asdict(model.hashed_config),
+        "model_state": {
+            name: value.detach().cpu() for name, value in model.state_dict().items()
+        },
+        "tokenizer": tokenizer.state_dict(),
+        "tokenizer_hash": tokenizer.vocabulary_hash(),
+        "metadata": dict(metadata or {}),
+    }
+
+
+def save_hashed_micro_expert_checkpoint(
+    path: str | Path,
+    model: MarulhoHashedMicroExpertLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+) -> Path:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = hashed_micro_expert_checkpoint_payload(model, tokenizer, metadata)
+    temporary = output.with_name(f".{output.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
+def load_hashed_micro_expert_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device | None = None,
+) -> tuple[
+    MarulhoHashedMicroExpertLanguageModel,
+    LanguageTokenizer,
+    dict[str, Any],
+]:
+    payload = torch.load(
+        Path(path),
+        map_location=map_location or "cpu",
+        weights_only=False,
+    )
+    if payload.get("surface") != HASHED_MICRO_EXPERT_CHECKPOINT_SURFACE:
+        raise ValueError("Rejected non-V11 hashed micro-expert checkpoint")
+    if payload.get("owned_by_marulho") is not True:
+        raise ValueError("V11 checkpoint must be MARULHO-owned")
+    if payload.get("external_llm_used") is not False:
+        raise ValueError("V11 checkpoint cannot declare external language use")
+    tokenizer = load_language_tokenizer_state(payload["tokenizer"])
+    if tokenizer.vocabulary_hash() != str(payload.get("tokenizer_hash")):
+        raise ValueError("V11 checkpoint tokenizer hash mismatch")
+    config = HashedMicroExpertConfig(**dict(payload["config"]))
+    if config.mode != "token_hash":
+        raise ValueError("V11 checkpoint config must use token_hash mode")
+    if int(config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("V11 checkpoint config/tokenizer vocab mismatch")
+    model = MarulhoHashedMicroExpertLanguageModel(config)
+    model.load_state_dict(dict(payload["model_state"]), strict=True)
+    if model.lm_head.weight.data_ptr() != model.token_embedding.weight.data_ptr():
+        raise RuntimeError("V11 checkpoint failed tied-embedding restoration")
+    return model, tokenizer, dict(payload.get("metadata") or {})

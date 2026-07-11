@@ -4,10 +4,14 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_hashed_micro_experts import (
     HASHED_MICRO_EXPERT_MODES,
     HashedMicroExpertConfig,
     MarulhoHashedMicroExpertLanguageModel,
+    hashed_micro_expert_checkpoint_payload,
+    load_hashed_micro_expert_checkpoint,
+    save_hashed_micro_expert_checkpoint,
 )
 from marulho.training.language_micro_experts import (
     MarulhoProductKeyMicroExpertLanguageModel,
@@ -152,6 +156,81 @@ def test_hashed_owned_generation_uses_candidate_path() -> None:
     )
     assert generated["new_token_count"] >= 1
     assert generated["external_llm_used"] is False
+
+
+def test_hashed_checkpoint_round_trip_is_strict_and_exact(tmp_path) -> None:
+    torch.manual_seed(81)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = _model(vocab_size=tokenizer.vocab_size).train()
+    input_ids = torch.randint(0, tokenizer.vocab_size, (2, 8))
+    target_ids = torch.randint(0, tokenizer.vocab_size, (2, 8))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1.0e-3)
+    loss = F.cross_entropy(
+        model(input_ids, collect_telemetry=False)["logits"].reshape(
+            -1,
+            tokenizer.vocab_size,
+        ),
+        target_ids.reshape(-1),
+    )
+    loss.backward()
+    optimizer.step()
+    model.eval()
+    expected_logits = model(input_ids, collect_telemetry=False)["logits"].detach()
+    expected_state = {
+        name: value.detach().clone() for name, value in model.state_dict().items()
+    }
+    path = save_hashed_micro_expert_checkpoint(
+        tmp_path / "hashed.pt",
+        model,
+        tokenizer,
+        metadata={"decision": "qualified"},
+    )
+    restored, restored_tokenizer, metadata = load_hashed_micro_expert_checkpoint(
+        path
+    )
+    restored.eval()
+    actual_logits = restored(input_ids, collect_telemetry=False)["logits"]
+    torch.testing.assert_close(actual_logits, expected_logits)
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+    assert metadata == {"decision": "qualified"}
+    assert restored.lm_head.weight.data_ptr() == restored.token_embedding.weight.data_ptr()
+    for name, value in restored.state_dict().items():
+        torch.testing.assert_close(value, expected_state[name])
+
+
+def test_hashed_checkpoint_rejects_surface_hash_and_missing_tensor(tmp_path) -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = _model(vocab_size=tokenizer.vocab_size).eval()
+    payload = hashed_micro_expert_checkpoint_payload(model, tokenizer)
+
+    wrong_surface = dict(payload)
+    wrong_surface["surface"] = "legacy"
+    wrong_surface_path = tmp_path / "wrong-surface.pt"
+    torch.save(wrong_surface, wrong_surface_path)
+    with pytest.raises(ValueError, match="non-V11"):
+        load_hashed_micro_expert_checkpoint(wrong_surface_path)
+
+    wrong_hash = dict(payload)
+    wrong_hash["tokenizer_hash"] = "not-the-owned-hash"
+    wrong_hash_path = tmp_path / "wrong-hash.pt"
+    torch.save(wrong_hash, wrong_hash_path)
+    with pytest.raises(ValueError, match="tokenizer hash mismatch"):
+        load_hashed_micro_expert_checkpoint(wrong_hash_path)
+
+    missing = dict(payload)
+    missing["model_state"] = dict(payload["model_state"])
+    missing["model_state"].pop("state_block.layers.1.expert_input.weight")
+    missing_path = tmp_path / "missing.pt"
+    torch.save(missing, missing_path)
+    with pytest.raises(RuntimeError, match="Missing key"):
+        load_hashed_micro_expert_checkpoint(missing_path)
+
+
+def test_hashed_checkpoint_refuses_shared_only_mode() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = _model(vocab_size=tokenizer.vocab_size, mode="shared_only")
+    with pytest.raises(ValueError, match="qualified token_hash"):
+        hashed_micro_expert_checkpoint_payload(model, tokenizer)
 
 
 @pytest.mark.parametrize(

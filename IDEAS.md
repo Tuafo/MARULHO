@@ -221,6 +221,13 @@ steady rate rises from roughly 114k to 124.2k tokens/s. Shared-only is 122.7k,
 within 1.21%, and parity plus expert-row gradients pass. The two-step scores are
 discarded; these facts only admit the durability run.
 
+Durability passes. At 67,112,064 tokens, Transformer/shared-only/token-hash loss
+is 3.8951/3.9088/3.8747 and strict free relation is 19.1%/25.8%/35.9%.
+Token-hash runs at 125.2k tokens/s versus 130.4k, peaks at 2.70 GB including the
+staged schedule, and improves throughout the long training trace. The result
+promotes V11 to checkpoint fidelity and unseen generation. It does not yet prove
+continual learning, general coherence, or a superior scaling law.
+
 [PEER](https://arxiv.org/abs/2407.04153) establishes product-key retrieval and
 single-neuron experts as the closest prior architecture; V10 is a small-scale,
 causal, controlled test rather than a novelty claim for those primitives.

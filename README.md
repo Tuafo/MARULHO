@@ -111,10 +111,14 @@ The active uninstalled v11 candidate removes the failed router completely. It
 keeps the shared path, 16,384 singleton functions, and eight deterministic
 token-hash assignments in a 36.18M-parameter model. The replaced block now uses
 50.26% of the dense MLP's theoretical multiplies before gather overhead, and its
-hash path exactly reproduces V10 after surviving tensors are copied. Larger-budget
-quality is not measured yet. A CUDA/Inductor smoke reduced candidate compile to
+hash path exactly reproduces V10 after surviving tensors are copied. A
+CUDA/Inductor smoke reduced candidate compile to
 22.8s, peak memory to 1.70 GB, and reached 124.2k token-hash tokens/s; its tiny
-quality values are discarded.
+quality values are discarded. The 67.11M-token durability run then passes:
+token-hash reaches loss 3.8747 / 35.9% strict free relation versus Transformer
+3.8951 / 19.1% and shared-only 3.9088 / 25.8%, while retaining 96.0% of
+Transformer throughput. V11 now advances to strict checkpoint and genuinely
+unseen-generation qualification; it is not installed at runtime yet.
 
 ## Current Evidence
 

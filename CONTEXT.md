@@ -294,8 +294,14 @@ shared-only control, gradient coverage, and active-compute accounting pass. It
 also passes a CUDA/Inductor smoke: candidate compile fell from V10's 39.4s to
 22.8s, peak memory from 1.80 GB to 1.70 GB, and shared/hash steady rates reached
 122.7k/124.2k tokens/s within 1.21%. The smoke report and two-step scores are
-discarded. V11 must now preserve the token-hash gain at a larger budget before
-any checkpoint or runtime installation.
+discarded. At the 67,112,064-token durability budget,
+Transformer/shared-only/token-hash loss is 3.8951/3.9088/3.8747 and strict free
+relation is 19.1%/25.8%/35.9%. Token-hash sustains 125.2k tokens/s versus the
+Transformer's 130.4k, peaks at 2.70 GB including the 1.07 GB staged schedule,
+passes parity and all gradients, and beats both controls on both required
+margins. Decision: `promote_v11_hash_for_checkpoint_and_unseen_generation`.
+This promotes checkpoint and unseen-generation qualification, not runtime
+installation.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.

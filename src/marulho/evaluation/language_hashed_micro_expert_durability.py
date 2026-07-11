@@ -6,6 +6,7 @@ import argparse
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 import gc
+import json
 from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
@@ -31,6 +32,7 @@ from marulho.training.language_hashed_micro_experts import (
     HASHED_MICRO_EXPERT_MODES,
     HashedMicroExpertConfig,
     MarulhoHashedMicroExpertLanguageModel,
+    save_hashed_micro_expert_checkpoint,
 )
 from marulho.training.language_model import (
     LanguageBatch,
@@ -269,6 +271,49 @@ def hashed_micro_expert_durability_decision(
     return "retire_v11_hashed_micro_experts_not_durable"
 
 
+def _load_qualification_report(
+    path: str | Path,
+    *,
+    config: HashedMicroExpertDurabilityConfig,
+    prepared: PreparedMatchedLanguageData,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if payload.get("surface") != SURFACE:
+        raise ValueError("Qualification report must be a V11 durability report")
+    if payload.get("decision") != (
+        "promote_v11_hash_for_checkpoint_and_unseen_generation"
+    ):
+        raise ValueError("Qualification report does not promote V11 token_hash")
+    expected_config = asdict(config)
+    observed_config = dict(payload.get("configuration") or {})
+    for key, expected in expected_config.items():
+        if observed_config.get(key) != expected:
+            raise ValueError(f"Qualification config mismatch for {key}")
+    if payload.get("schedule", {}).get("sha256") != prepared.schedule_sha256:
+        raise ValueError("Qualification schedule does not match reproduction")
+    if payload.get("tokenizer", {}).get("hash") != (
+        prepared.tokenizer.vocabulary_hash()
+    ):
+        raise ValueError("Qualification tokenizer does not match reproduction")
+    qualified = next(
+        (
+            dict(row)
+            for row in payload.get("arms") or []
+            if row.get("name") == "token_hash"
+        ),
+        None,
+    )
+    if qualified is None:
+        raise ValueError("Qualification report has no token_hash arm")
+    return payload, {
+        "path": str(source),
+        "sha256": sha256_file(source),
+        "decision": payload["decision"],
+        "qualified_arm": qualified,
+    }
+
+
 def _assemble_report(
     *,
     config: HashedMicroExpertDurabilityConfig,
@@ -277,6 +322,7 @@ def _assemble_report(
     architecture_runs: Mapping[str, Mapping[str, Any]],
     executed_names: Sequence[str],
     elapsed_seconds: float,
+    checkpoint_record: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     arms = [dict(combined[name]) for name in ARM_NAMES if name in combined]
     counts = {row["name"]: int(row["parameters"]) for row in arms}
@@ -399,6 +445,7 @@ def _assemble_report(
         "arms": arms,
         "arms_executed_this_run": list(executed_names),
         "experiment_wall_seconds_this_run": elapsed_seconds,
+        "checkpoint": dict(checkpoint_record or {}),
         "decision": hashed_micro_expert_durability_decision(arms),
         "decision_contract": {
             "heldout_loss_margin": 0.005,
@@ -441,6 +488,8 @@ def run_hashed_micro_expert_durability(
     ),
     device: str = "auto",
     arm_names: Sequence[str] = ARM_NAMES,
+    checkpoint_output_path: str | Path | None = None,
+    qualification_report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if config.execution_backend not in {"eager", "inductor"}:
         raise ValueError("execution_backend must be 'eager' or 'inductor'")
@@ -463,11 +512,19 @@ def run_hashed_micro_expert_durability(
         config=_data_config(config),
         device=resolved,
     )
+    qualification_record: dict[str, Any] | None = None
+    if qualification_report_path is not None:
+        _qualification_payload, qualification_record = _load_qualification_report(
+            qualification_report_path,
+            config=config,
+            prepared=prepared,
+        )
     combined: dict[str, Mapping[str, Any]] = {}
     architecture_runs: dict[str, Mapping[str, Any]] = {}
     executed_names: list[str] = []
     expected_common_hash: str | None = None
     output = Path(output_path)
+    checkpoint_record: dict[str, Any] | None = None
     previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     previous_matmul_precision = torch.get_float32_matmul_precision()
     if resolved.type == "cuda":
@@ -574,6 +631,100 @@ def run_hashed_micro_expert_durability(
                     f"{row['relation']['generation_exact_accuracy']:.3f}",
                     flush=True,
                 )
+                if name == "token_hash" and checkpoint_output_path is not None:
+                    current_arms = [
+                        dict(combined[arm]) for arm in ARM_NAMES if arm in combined
+                    ]
+                    current_decision = hashed_micro_expert_durability_decision(
+                        current_arms
+                    )
+                    qualified_here = current_decision == (
+                        "promote_v11_hash_for_checkpoint_and_unseen_generation"
+                    )
+                    if qualification_record is not None:
+                        qualified_arm = qualification_record["qualified_arm"]
+                        if int(qualified_arm["processed_tokens"]) != int(
+                            row["processed_tokens"]
+                        ):
+                            raise RuntimeError(
+                                "Checkpoint reproduction token count mismatch"
+                            )
+                        expected_loss = float(
+                            qualified_arm["heldout"]["heldout_loss"]
+                        )
+                        observed_loss = float(row["heldout"]["heldout_loss"])
+                        if abs(expected_loss - observed_loss) > 1.0e-4:
+                            raise RuntimeError(
+                                "Checkpoint reproduction heldout loss mismatch"
+                            )
+                        expected_free = float(
+                            qualified_arm["relation"][
+                                "generation_exact_accuracy"
+                            ]
+                        )
+                        observed_free = float(
+                            row["relation"]["generation_exact_accuracy"]
+                        )
+                        if expected_free != observed_free:
+                            raise RuntimeError(
+                                "Checkpoint reproduction free behavior mismatch"
+                            )
+                        qualified_here = True
+                    if qualified_here:
+                        checkpoint = save_hashed_micro_expert_checkpoint(
+                            checkpoint_output_path,
+                            model,
+                            prepared.tokenizer,
+                            metadata={
+                                "decision": (
+                                    "promote_v11_hash_for_checkpoint_and_"
+                                    "unseen_generation"
+                                ),
+                                "processed_tokens": int(row["processed_tokens"]),
+                                "seed": int(config.seed),
+                                "model_seed": int(config.model_seed),
+                                "schedule_sha256": prepared.schedule_sha256,
+                                "heldout_loss": float(
+                                    row["heldout"]["heldout_loss"]
+                                ),
+                                "free_relation_accuracy": float(
+                                    row["relation"][
+                                        "generation_exact_accuracy"
+                                    ]
+                                ),
+                                "qualification_report": (
+                                    None
+                                    if qualification_record is None
+                                    else qualification_record["path"]
+                                ),
+                                "qualification_report_sha256": (
+                                    None
+                                    if qualification_record is None
+                                    else qualification_record["sha256"]
+                                ),
+                                "external_llm_used": False,
+                            },
+                        )
+                        checkpoint_record = {
+                            "path": str(checkpoint),
+                            "sha256": sha256_file(checkpoint),
+                            "saved_after_qualification": True,
+                            "qualification": (
+                                None
+                                if qualification_record is None
+                                else {
+                                    key: value
+                                    for key, value in qualification_record.items()
+                                    if key != "qualified_arm"
+                                }
+                            ),
+                            "reproduced_heldout_loss": float(
+                                row["heldout"]["heldout_loss"]
+                            ),
+                            "reproduced_free_relation_accuracy": float(
+                                row["relation"]["generation_exact_accuracy"]
+                            ),
+                        }
                 write_json_report_with_readme(
                     output,
                     _assemble_report(
@@ -583,6 +734,7 @@ def run_hashed_micro_expert_durability(
                         architecture_runs=architecture_runs,
                         executed_names=executed_names,
                         elapsed_seconds=time.perf_counter() - run_started,
+                        checkpoint_record=checkpoint_record,
                     ),
                     title="MARULHO Hashed Micro-Experts v11 Durability",
                 )
@@ -602,6 +754,7 @@ def run_hashed_micro_expert_durability(
         architecture_runs=architecture_runs,
         executed_names=executed_names,
         elapsed_seconds=time.perf_counter() - run_started,
+        checkpoint_record=checkpoint_record,
     )
     write_json_report_with_readme(
         output,
@@ -609,6 +762,8 @@ def run_hashed_micro_expert_durability(
         title="MARULHO Hashed Micro-Experts v11 Durability",
     )
     print(f"[hashed-micro-v11] decision {report['decision']}", flush=True)
+    if checkpoint_output_path is not None and checkpoint_record is None:
+        raise RuntimeError("V11 checkpoint was requested but did not qualify")
     return report
 
 
@@ -620,6 +775,8 @@ def main() -> int:
     parser.add_argument("--general-train", action="append", type=Path, required=True)
     parser.add_argument("--general-eval", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--checkpoint-output", type=Path)
+    parser.add_argument("--qualification-report", type=Path)
     parser.add_argument("--token-budget", type=int, default=67_108_864)
     parser.add_argument("--train-sample-mib", type=int, default=64)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
@@ -651,6 +808,8 @@ def main() -> int:
         config=config,
         device=args.device,
         arm_names=tuple(args.arm) or ARM_NAMES,
+        checkpoint_output_path=args.checkpoint_output,
+        qualification_report_path=args.qualification_report,
     )
     return 0
 
