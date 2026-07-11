@@ -509,6 +509,16 @@ becomes a fresh-seed top-one replication with off/random-one/lexical-one/
 oracle-one. Top-two is not maintained. A failed replication retires raw context
 memory; a pass advances to anchored review before checkpointing.
 
+The live runner now owns only V25. It changes training/evaluation/model seeds to
+12101/12201/12301 and restores off, random-one, lexical-one, and non-promotable
+oracle-one from the identical parent under the 50/50 schedule. Lexical-one must
+include the target in at least 68% of cases, beat off by +0.01 with a positive
+paired lower bound, beat equal-token random-one by +0.005, and never lose to off
+on either corpus. True history must beat a guaranteed wrong span by +0.02 with a
+positive lower bound, oracle-one must clear +0.02, and each general regression
+must remain at or below +0.10. This is the final raw-context replication; no
+further top-k, seed, threshold, or replay sweep follows a failure.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

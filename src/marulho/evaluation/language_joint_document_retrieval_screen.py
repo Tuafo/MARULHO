@@ -55,10 +55,10 @@ from marulho.training.language_hashed_micro_experts import (
 )
 
 
-SURFACE = "marulho_balanced_joint_document_retrieval_screen.v2"
-ARTIFACT_KIND = "marulho_balanced_joint_document_retrieval_screen"
-ARM_NAMES = ("off", "random2", "lexical1", "lexical2", "oracle2")
-ADVANCE_DECISION = "advance_v24_balanced_top_two_to_anchored_review"
+SURFACE = "marulho_balanced_top_one_replication.v3"
+ARTIFACT_KIND = "marulho_balanced_top_one_replication"
+ARM_NAMES = ("off", "random1", "lexical1", "oracle1")
+ADVANCE_DECISION = "advance_v25_replicated_top_one_to_anchored_review"
 MINIMUM_DECISION_STEPS = 512
 
 
@@ -89,18 +89,18 @@ class JointDocumentRetrievalConfig:
     weight_decay: float = 0.10
     gradient_clip: float = 1.0
     precision: str = "bfloat16"
-    train_data_seed: int = 11101
-    evaluation_seed: int = 11201
-    model_seed: int = 11301
+    train_data_seed: int = 12101
+    evaluation_seed: int = 12201
+    model_seed: int = 12301
     bootstrap_samples: int = 4096
     generation_cases_per_source: int = 4
     generation_max_tokens: int = 32
     minimum_oracle_gain_over_off: float = 0.02
-    minimum_lexical2_gain_over_off: float = 0.01
-    minimum_lexical2_gain_over_random2: float = 0.005
-    minimum_lexical2_gain_over_lexical1: float = 0.005
+    minimum_lexical1_gain_over_off: float = 0.01
+    minimum_lexical1_gain_over_random1: float = 0.005
     minimum_true_over_wrong_gain: float = 0.02
-    minimum_lexical2_target_inclusion: float = 0.85
+    minimum_lexical1_target_inclusion: float = 0.68
+    minimum_per_source_gain: float = 0.0
     maximum_general_loss_regression: float = 0.10
 
 
@@ -289,10 +289,9 @@ def build_document_training_schedule(
         groups=group_tensor,
         target_slots=slot_tensor,
         rankings={
-            "random2": random_rankings,
+            "random1": random_rankings,
             "lexical1": lexical,
-            "lexical2": lexical,
-            "oracle2": oracle,
+            "oracle1": oracle,
         },
     )
 
@@ -328,16 +327,13 @@ def build_document_evaluation_schedule(
     oracle_scores = torch.zeros(groups.shape, dtype=torch.float32)
     oracle_scores.scatter_(1, target_slots.unsqueeze(1), 1.0)
     wrong_scores = torch.zeros(groups.shape, dtype=torch.float32)
-    wrong_slots_1 = (target_slots + 1) % int(facts_per_query)
-    wrong_slots_2 = (target_slots + 2) % int(facts_per_query)
-    wrong_scores.scatter_(1, wrong_slots_1.unsqueeze(1), 2.0)
-    wrong_scores.scatter_(1, wrong_slots_2.unsqueeze(1), 1.0)
+    wrong_slots = (target_slots + 1) % int(facts_per_query)
+    wrong_scores.scatter_(1, wrong_slots.unsqueeze(1), 1.0)
     return groups, target_slots, {
-        "random2": rankings_from_scores(random_scores),
+        "random1": rankings_from_scores(random_scores),
         "lexical1": rankings_from_scores(lexical_scores),
-        "lexical2": rankings_from_scores(lexical_scores),
-        "oracle2": rankings_from_scores(oracle_scores),
-        "wrong2": rankings_from_scores(wrong_scores),
+        "oracle1": rankings_from_scores(oracle_scores),
+        "wrong1": rankings_from_scores(wrong_scores),
     }
 
 
@@ -347,11 +343,9 @@ def selected_slots_for_mode(
 ) -> torch.Tensor | None:
     if mode == "off":
         return None
-    if mode == "lexical1":
+    if mode in {"random1", "lexical1", "oracle1", "wrong1"}:
         return rankings[mode][..., :1]
-    if mode in {"random2", "lexical2", "oracle2", "wrong2"}:
-        return rankings[mode][..., :2]
-    raise ValueError(f"unknown V24 mode: {mode}")
+    raise ValueError(f"unknown V25 mode: {mode}")
 
 
 def document_task_batch(
@@ -388,7 +382,7 @@ def document_task_loss(
 ) -> torch.Tensor:
     combined = torch.cat((retrieved, query_input), dim=1)
     if int(combined.shape[1]) > int(model.hashed_config.context_length):
-        raise ValueError("V24 task context exceeds the cortex window")
+        raise ValueError("V25 task context exceeds the cortex window")
     hidden = model._forward_hidden(combined, collect_telemetry=False)["hidden"]
     logits = model.lm_head(hidden[:, -int(query_input.shape[1]) :])
     return F.cross_entropy(logits[loss_mask], targets[loss_mask])
@@ -475,13 +469,13 @@ def _run_training_arm(
                 general_tokens += int(batch.target_ids.numel())
                 cortex_positions += int(batch.input_ids.numel())
         if not bool(torch.isfinite(loss)):
-            raise RuntimeError(f"non-finite V24 loss in {mode}")
+            raise RuntimeError(f"non-finite V25 loss in {mode}")
         loss.backward()
         gradient_norm = torch.nn.utils.clip_grad_norm_(
             model.parameters(), float(config.gradient_clip)
         )
         if not bool(torch.isfinite(gradient_norm)):
-            raise RuntimeError(f"non-finite V24 gradient in {mode}")
+            raise RuntimeError(f"non-finite V25 gradient in {mode}")
         optimizer.step()
         if step in trace_steps:
             trace.append(
@@ -495,7 +489,7 @@ def _run_training_arm(
         interval = max(1, int(config.train_steps) // 10)
         if (step + 1) % interval == 0 or step + 1 == int(config.train_steps):
             print(
-                f"[balanced-document-v24] {mode} {step + 1}/{config.train_steps}",
+                f"[top-one-replication-v25] {mode} {step + 1}/{config.train_steps}",
                 flush=True,
             )
     if model.device.type == "cuda":
@@ -583,11 +577,10 @@ def evaluate_document_suite(
     raw_accuracy = {}
     for context_mode in (
         "off",
-        "random2",
+        "random1",
         "lexical1",
-        "lexical2",
-        "oracle2",
-        "wrong2",
+        "oracle1",
+        "wrong1",
     ):
         selected = selected_slots_for_mode(context_mode, rankings)
         row = evaluate_document_arm(
@@ -606,20 +599,20 @@ def evaluate_document_suite(
     primary = contexts[mode]
     source_use = {
         "true_over_wrong": paired_bootstrap_gain(
-            raw_losses["wrong2"],
-            raw_losses["oracle2"],
+            raw_losses["wrong1"],
+            raw_losses["oracle1"],
             samples=int(config.bootstrap_samples),
             seed=int(config.evaluation_seed) + 200,
         ),
         "true_over_local": paired_bootstrap_gain(
             raw_losses["off"],
-            raw_losses["oracle2"],
+            raw_losses["oracle1"],
             samples=int(config.bootstrap_samples),
             seed=int(config.evaluation_seed) + 201,
         ),
         "lexical_over_local": paired_bootstrap_gain(
             raw_losses["off"],
-            raw_losses["lexical2"],
+            raw_losses["lexical1"],
             samples=int(config.bootstrap_samples),
             seed=int(config.evaluation_seed) + 202,
         ),
@@ -721,44 +714,49 @@ def joint_document_decision(
     config: JointDocumentRetrievalConfig,
 ) -> str:
     if set(rows) != set(ARM_NAMES):
-        return "incomplete_v24_missing_control_arm"
+        return "incomplete_v25_missing_control_arm"
     if int(train_steps) < MINIMUM_DECISION_STEPS:
-        return "diagnostic_v24_below_screen_step_floor"
-    oracle = rows["oracle2"]["matched_to_off"]
+        return "diagnostic_v25_below_screen_step_floor"
+    oracle = rows["oracle1"]["matched_to_off"]
     if (
         float(oracle["mean_loss_gain"])
         < float(config.minimum_oracle_gain_over_off)
         or float(oracle["bootstrap_95_ci"][0]) <= 0.0
     ):
-        return "retire_v24_document_task_not_learnable_with_oracle_history"
-    lexical = rows["lexical2"]
+        return "retire_v25_document_task_not_learnable_with_oracle_history"
+    lexical = rows["lexical1"]
     lexical_gain = lexical["matched_to_off"]
     lexical_loss = float(lexical["evaluation"]["primary"]["heldout_loss"])
-    random_loss = float(rows["random2"]["evaluation"]["primary"]["heldout_loss"])
-    lexical1_loss = float(rows["lexical1"]["evaluation"]["primary"]["heldout_loss"])
+    random_loss = float(rows["random1"]["evaluation"]["primary"]["heldout_loss"])
     true_wrong = lexical["evaluation"]["source_use"]["true_over_wrong"]
     maximum_general_regression = max(
         float(source["heldout_loss_delta"])
         for source in lexical["general_language"]["sources"]
     )
     if maximum_general_regression > float(config.maximum_general_loss_regression):
-        return "retire_v24_lexical_two_breaks_general_language"
+        return "retire_v25_lexical_one_breaks_general_language"
+    off_sources = rows["off"]["evaluation"]["primary"]["per_source"]
+    lexical_sources = lexical["evaluation"]["primary"]["per_source"]
+    per_source_gains = [
+        float(off_sources[name]["heldout_loss"])
+        - float(lexical_sources[name]["heldout_loss"])
+        for name in off_sources
+    ]
     if (
         float(lexical["evaluation"]["primary"]["target_inclusion"])
-        >= float(config.minimum_lexical2_target_inclusion)
+        >= float(config.minimum_lexical1_target_inclusion)
         and float(lexical_gain["mean_loss_gain"])
-        >= float(config.minimum_lexical2_gain_over_off)
+        >= float(config.minimum_lexical1_gain_over_off)
         and float(lexical_gain["bootstrap_95_ci"][0]) > 0.0
         and random_loss - lexical_loss
-        >= float(config.minimum_lexical2_gain_over_random2)
-        and lexical1_loss - lexical_loss
-        >= float(config.minimum_lexical2_gain_over_lexical1)
+        >= float(config.minimum_lexical1_gain_over_random1)
+        and min(per_source_gains) >= float(config.minimum_per_source_gain)
         and float(true_wrong["mean_loss_gain"])
         >= float(config.minimum_true_over_wrong_gain)
         and float(true_wrong["bootstrap_95_ci"][0]) > 0.0
     ):
         return ADVANCE_DECISION
-    return "retire_v24_balanced_top_two_no_joint_language_win"
+    return "retire_v25_balanced_top_one_no_replicated_language_win"
 
 
 def run_joint_document_retrieval_screen(
@@ -773,16 +771,16 @@ def run_joint_document_retrieval_screen(
     device: str = "auto",
 ) -> dict[str, Any]:
     if int(config.facts_per_query) != 4:
-        raise ValueError("V24 currently requires four archive candidates")
+        raise ValueError("V25 currently requires four archive candidates")
     if not 0.0 < float(config.document_fraction) < 1.0:
-        raise ValueError("V24 document_fraction must be strictly between zero and one")
+        raise ValueError("V25 document_fraction must be strictly between zero and one")
     resolved = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if device == "auto"
         else torch.device(device)
     )
     if resolved.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA requested for V24 but unavailable")
+        raise RuntimeError("CUDA requested for V25 but unavailable")
     started = time.perf_counter()
     parent_path = Path(parent_checkpoint_path)
     model, tokenizer, parent_metadata = load_hashed_micro_expert_checkpoint(
@@ -790,9 +788,9 @@ def run_joint_document_retrieval_screen(
     )
     parent_tokens = _validate_parent(model, parent_metadata)
     if parent_tokens < 1_000_000_000:
-        raise ValueError("V24 requires the one-billion-token V11 parent")
+        raise ValueError("V25 requires the one-billion-token V11 parent")
     active_length = (
-        2 * int(config.source_length)
+        int(config.source_length)
         + int(config.prefix_length)
         + int(config.target_length)
         - 1
@@ -800,9 +798,9 @@ def run_joint_document_retrieval_screen(
     if max(active_length, int(config.general_sequence_length)) > int(
         model.hashed_config.context_length
     ):
-        raise ValueError("V24 active sequence exceeds the parent context")
+        raise ValueError("V25 active sequence exceeds the parent context")
 
-    print("[balanced-document-v24] preparing causal document splits", flush=True)
+    print("[top-one-replication-v25] preparing causal document splits", flush=True)
     train_split = prepare_document_split(
         tokenizer,
         document_train_paths,
@@ -825,7 +823,7 @@ def run_joint_document_retrieval_screen(
     eval_hashes = {case.document_sha256 for case in eval_split.cases}
     overlap = train_hashes & eval_hashes
     if overlap:
-        raise RuntimeError("V24 train/eval document hashes overlap")
+        raise RuntimeError("V25 train/eval document hashes overlap")
     document_steps = _scheduled_relation_steps(
         int(config.train_steps), float(config.document_fraction)
     )
@@ -871,12 +869,12 @@ def run_joint_document_retrieval_screen(
         name: value.detach().clone() for name, value in model.state_dict().items()
     }
     model = model.to(resolved)
-    print("[balanced-document-v24] evaluating untouched general baseline", flush=True)
+    print("[top-one-replication-v25] evaluating untouched general baseline", flush=True)
     general_baseline = evaluate_general_language(model, prepared_general.eval_batches)
 
     rows: dict[str, dict[str, Any]] = {}
     for mode in ARM_NAMES:
-        print(f"[balanced-document-v24] training {mode}", flush=True)
+        print(f"[top-one-replication-v25] training {mode}", flush=True)
         training, general_after = _run_training_arm(
             mode,
             model=model,
@@ -908,14 +906,14 @@ def run_joint_document_retrieval_screen(
         )
         rows[mode] = {
             "mode": mode,
-            "promotable": mode != "oracle2",
+            "promotable": mode != "oracle1",
             "training": training,
             "general_language": general_after,
             "evaluation": evaluation,
             "generation": generation,
         }
         print(
-            f"[balanced-document-v24] {mode} loss="
+            f"[top-one-replication-v25] {mode} loss="
             f"{evaluation['primary']['heldout_loss']:.4f} general_delta="
             f"{general_after['aggregate_heldout_loss_delta']:+.4f}",
             flush=True,
@@ -937,19 +935,19 @@ def run_joint_document_retrieval_screen(
         rows[mode]["evaluation"].pop("_primary_case_losses")
         rows[mode]["evaluation"].pop("_primary_case_accuracy")
 
-    train_lexical = document_schedule.rankings["lexical2"]
+    train_lexical = document_schedule.rankings["lexical1"]
     train_inclusion = float(
         (
-            train_lexical[..., :2]
+            train_lexical[..., :1]
             == document_schedule.target_slots.unsqueeze(-1)
         )
         .any(dim=-1)
         .float()
         .mean()
     )
-    eval_lexical = eval_rankings["lexical2"]
+    eval_lexical = eval_rankings["lexical1"]
     eval_inclusion = float(
-        (eval_lexical[:, :2] == eval_target_slots.unsqueeze(1)).any(dim=1).float().mean()
+        (eval_lexical[:, :1] == eval_target_slots.unsqueeze(1)).any(dim=1).float().mean()
     )
     report = {
         "artifact_kind": ARTIFACT_KIND,
@@ -969,8 +967,8 @@ def run_joint_document_retrieval_screen(
         "architecture": {
             "archive_content": "exact_prior_document_token_spans",
             "archive_key": "checkpoint_bpe_tfidf",
-            "candidate_selected_episode_count": 2,
-            "maximum_active_source_tokens": 2 * int(config.source_length),
+            "candidate_selected_episode_count": 1,
+            "maximum_active_source_tokens": int(config.source_length),
             "ordinary_cortex_attention_reads_episode": True,
             "separate_memory_reader": False,
             "selector_learned": False,
@@ -992,8 +990,8 @@ def run_joint_document_retrieval_screen(
             "document_lexical_ranking_sha256": _tensor_sha256(train_lexical),
             "eval_group_sha256": _tensor_sha256(eval_groups, eval_target_slots),
             "eval_lexical_ranking_sha256": _tensor_sha256(eval_lexical),
-            "train_lexical2_target_inclusion": train_inclusion,
-            "eval_lexical2_target_inclusion": eval_inclusion,
+            "train_lexical1_target_inclusion": train_inclusion,
+            "eval_lexical1_target_inclusion": eval_inclusion,
             "document_steps": document_steps,
             "general_steps": int(config.train_steps) - document_steps,
         },
@@ -1036,9 +1034,9 @@ def run_joint_document_retrieval_screen(
     write_json_report_with_readme(
         output_path,
         report,
-        title="MARULHO V24 Balanced Top-Two Document Retrieval Screen",
+        title="MARULHO V25 Balanced Top-One Replication",
     )
-    print(f"[balanced-document-v24] decision {decision}", flush=True)
+    print(f"[top-one-replication-v25] decision {decision}", flush=True)
     return report
 
 
