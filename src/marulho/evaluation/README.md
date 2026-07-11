@@ -70,9 +70,13 @@ At 16.79M matched tokens, monolith/average/no-message/shuffled/real losses were
 tokens/s with compile/eager loss deltas at or below 0.000026. Real communication
 lost both required controls, so the model, runner, and tests are deleted.
 
-The depth-preserving modular workspace v4 core exists under `training`; its
-matched real-language runner and report are not complete. No v4 quality claim
-exists from parameter matching or unit tests.
+**`language_modular_workspace_falsification.py`** — the v4 matched runner. It
+uses the frozen tokenizer, source ranges, schedule, optimizer, and 16.79M-token
+budget across the 21M monolith, parallel cells/no exchange, cross-batch shuffled
+workspace, and real workspace. It uses the shared parity-checked compile path,
+records compile-amortized speed and state cost, and requires real exchange to
+beat both controls on heldout loss and free relation behavior. No v4 quality
+report exists yet.
 
 The retired integrated-PMRM runner established the architecture-neutral matched
 experiment contract now used for replacements: same checkpoint-owned tokenizer,

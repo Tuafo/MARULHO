@@ -56,8 +56,8 @@ Real messages lost to no messages and shuffled messages. The failed model,
 runner, and tests are deleted. The next hypothesis keeps one shared language
 interface and full-gradient depth while testing parallel latent cells around a
 narrow workspace. Its parameter-matched experimental core now exists, but it is
-not installed and has no quality claim before no-exchange, shuffled, and real
-workspace arms complete the matched comparison.
+not installed and has no quality claim before its matched monolith, no-exchange,
+shuffled, and real-workspace run completes.
 
 ## Current Evidence
 

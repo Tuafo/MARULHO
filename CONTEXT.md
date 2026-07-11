@@ -177,8 +177,11 @@ under): two 368-wide shared layers, four parallel 256-wide cells with one layer
 on each side of a 64-dimensional token-causal workspace, then two shared
 integration layers and one tied vocabulary head. Monolith, parallel/no exchange,
 shuffled workspace, and real workspace remain required controls. The core is
-uninstalled and has no quality evidence yet. Ordinary transient communication
-is tested before persistent Hopfield memory or heterogeneous cell roles.
+uninstalled and has no quality evidence yet. The matched runner freezes the
+same source-balanced schedule used by v2/v3, uses parity-checked compilation,
+and measures heldout loss plus label-safe free behavior. Ordinary transient
+communication is tested before persistent Hopfield memory or heterogeneous cell
+roles.
 
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
