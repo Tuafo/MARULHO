@@ -170,20 +170,15 @@ sampled full batch is stored once on host and transferred only when selected,
 instead of materializing the expanded schedule on CUDA. Expanded-device mode
 remains available for exact historical recipes.
 
-The current candidate contains 251,662,464 cumulative update tokens at heldout
-loss 3.4865. It is
-`reports/language_scaling/hashed-micro-v11-general-continuation-251m-candidate-20260711.pt`,
+The current research candidate contains exactly 1,000,001,664 cumulative update
+tokens at context 256 and heldout loss 3.0805. It is
+`reports/language_scaling/hashed-micro-v11-indexed-continuation-1b-candidate-20260711.pt`,
 154.3 MiB with SHA-256
-`fbf874923ebce6f4d36497f52a622dc8e222e01672b60876c910941af3fc1894`.
-Strict reload restores all model/tokenizer identity and qualification metadata;
-the artifact remains uninstalled because unseen coherence is still blocked.
-
-The parity-gated long-context control rebuilds that same state at rotary context
-256 without changing a learned tensor or parameter. After 67,112,960 matched
-updates it saves the unpromoted 318,775,424-token control at
-`reports/language_scaling/hashed-micro-v11-long-context-318m-candidate-20260711.pt`.
-The strict 154.3 MiB checkpoint has SHA-256
-`cebe5ac7b5a84da1208d61c61715f58f61aa91c1ae2211208d005ac3f99506ae`.
+`9e98a5f517f6f93f8d89544979990be8849ab4d03b2c206a98483ca3b3b68d64`.
+Strict reload restores all 36,180,480 parameters, tokenizer identity, tied
+weights, token-hash mode, context, parent/schedule hashes, and ownership. The
+artifact remains uninstalled: controlled generation is readable but generic,
+and all eight anchored source cases still fail grounding.
 
 The V13 future-prediction trainer is retired and deleted. Three temporary
 2/4/8-token heads learned their auxiliary losses, but the stripped inference

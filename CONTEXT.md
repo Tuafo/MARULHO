@@ -383,6 +383,24 @@ growth; the disposable benchmark report is deleted. This admits a materially
 larger next-token scale test on the 3060 without changing training order or
 quality semantics.
 
+That scale test reaches exactly 1,000,001,664 cumulative tokens. The indexed-host
+continuation adds 681,226,240 tokens and improves heldout loss 3.3243 to 3.0805 /
+perplexity 27.78 to 21.77 at 121.9k tokens/s, 1.97 GB peak CUDA allocation, and
+6,003.5 seconds total wall time. It stores 2.06 GB of unique full-shard batches
+on host while avoiding a 10.90 GB expanded CUDA schedule. The strict 154.3 MiB
+checkpoint is
+`reports/language_scaling/hashed-micro-v11-indexed-continuation-1b-candidate-20260711.pt`
+(SHA-256 `9e98a5f517f6f93f8d89544979990be8849ab4d03b2c206a98483ca3b3b68d64`).
+FineWeb-Edu/Cosmopedia source-continuation loss reaches 3.9678/3.1405, but all
+eight anchored cases still fail. Controlled Cosmopedia decoding raises bigram
+diversity to 0.960 and produces readable paragraphs, yet remains generic and can
+lose the prompt topic. FineWeb proposition loops worsen. Frozen relation ranking
+rises 34.8% to 47.7% with no replay, while free relation generation stays 0%.
+Decision: `retain_v11_1b_sparse_base_redesign_persistent_semantic_state`. Scaling
+remains productive for likelihood, but the checkpoint is not runtime-qualified.
+The next candidate must add a persistent semantic/topic state under ordinary
+next-token loss, with V11 retained as the matched sparse token-capacity baseline.
+
 **Execution-Coupled Structured Memory** — a possible later reasoning organ,
 inspired by LCWM's retained markerless role/path evidence and its V10 diagnosis.
 Candidate memories or latent programs should earn selection because executing

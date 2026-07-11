@@ -196,6 +196,21 @@ evaluation-only split. It no longer re-tokenizes and packs both full training
 shards merely to discard that split. Evaluation token streams, selected windows,
 and split hashes are exact against the prior paired builder.
 
+The full indexed continuation report is
+`reports/language_scaling/hashed-micro-v11-indexed-continuation-1b-20260711.json`.
+It adds 681,226,240 tokens and reaches exactly 1,000,001,664 cumulative tokens.
+Heldout loss improves 3.3243 to 3.0805 / perplexity 27.78 to 21.77 at 121.9k
+tokens/s and 1.97 GB peak CUDA allocation. The 2.06 GB unique host pool replaces
+a 10.90 GB expanded CUDA schedule. The strict candidate is
+`reports/language_scaling/hashed-micro-v11-indexed-continuation-1b-candidate-20260711.pt`
+with SHA-256
+`9e98a5f517f6f93f8d89544979990be8849ab4d03b2c206a98483ca3b3b68d64`.
+FineWeb-Edu/Cosmopedia source loss is 3.9678/3.1405. All eight cases still fail
+source grounding; controlled Cosmopedia reaches 0.960 bigram diversity and
+readable paragraphs but remains generic and can lose topic. Decision:
+`retain_v11_1b_sparse_base_redesign_persistent_semantic_state`. This checkpoint
+is the retained sparse baseline for the next architecture, not a runtime model.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and

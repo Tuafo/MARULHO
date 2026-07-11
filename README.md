@@ -110,41 +110,35 @@ against both qualified controls. Its 154.3 MiB strict checkpoint reloads all
 36.18M parameters, tied weights, tokenizer identity, and ownership metadata:
 `reports/language_scaling/hashed-micro-v11-qualified-seed2026-67m-20260711.pt`
 (SHA-256 `6303ba4beabe49e163d4b8842ff798bc89215780c3ba269404895d1249f4b81b`).
-V11 is not installed at runtime. Its first unseen screen generates grammatical
-multi-sentence text but remains generic, repetitive, and semantically unstable:
-FineWeb-Edu/Cosmopedia source loss is 4.3092/3.6194 and all eight prompts miss the
-source-prefix gate. Decode controls improve Cosmopedia bigram diversity from
-0.675 to 0.948 but do not improve loss or source agreement. The branch continues
-the same architecture on general language toward roughly 251M cumulative tokens
-before another quality decision; memory and runtime installation remain paused.
+V11 is not installed at runtime. Its current research checkpoint reaches exactly
+1,000,001,664 cumulative update tokens at 256-token context. The final 681.23M
+token continuation improves heldout loss 3.3243 to 3.0805 / perplexity 27.78 to
+21.77 at 121.9k tokens/s and 1.97 GB peak CUDA allocation. Indexed-host scheduling
+keeps the 10.90 GB expanded schedule off the GPU. The strict 154.3 MiB artifact is
+`reports/language_scaling/hashed-micro-v11-indexed-continuation-1b-candidate-20260711.pt`
+with SHA-256
+`9e98a5f517f6f93f8d89544979990be8849ab4d03b2c206a98483ca3b3b68d64`.
 
-The 251.66M-token continuation now improves heldout loss 3.8709 to 3.4865 at
-124.9k tokens/s. Prompt-local FineWeb-Edu/Cosmopedia loss improves to
-4.0272/3.3689. V11 ties the local 251M Transformer on FineWeb loss with much
-higher diversity, but trails its 3.2047 Cosmopedia loss; both pass 0/8 source
-gates. The phase also forgets frozen relations catastrophically (95.7% to 32.8%
-candidate ranking, 30.9% to 0% free generation). The strict candidate is retained
-for research, not installed. The next branch redesigns token-only routing for
-causal context sensitivity and tests longer training context at matched compute
-before another large scale run.
+Scaling improves likelihood but does not finish Base-Language Qualification.
+FineWeb-Edu/Cosmopedia anchored source loss is 3.9678/3.1405, but all eight cases
+still miss source grounding. Greedy FineWeb repeats whole propositions; controlled
+Cosmopedia decoding reaches 0.960 distinct-bigram fraction and produces readable
+multi-sentence paragraphs, yet remains generic and can abandon a vague prompt's
+topic. Frozen relation ranking rises 34.8% to 47.7% without replay, while free
+relation generation remains 0%. Decision:
+`retain_v11_1b_sparse_base_redesign_persistent_semantic_state`. This is the
+strongest MARULHO-owned sparse base and a rollbackable research checkpoint, not
+the installed language model.
 
-A frozen counterfactual audit now finds a concrete V12 opportunity. On 4,608
-heldout contexts, four equal-compute alternative micro-assemblies give a
-metrics-only oracle mean loss gain of 0.1911, with ≥0.05 regret on 40.5% of
-tokens; the gain is about four times larger on fragile than confident tokens.
-Every alternative is much worse as a fixed global policy, so a static rehash is
-not the answer. Exact forced-route parity, zero duplicates, unchanged parameter
-hashes, and label-safe prediction paths pass. This admits training a tiny causal
-gate to predict route utility from hidden state; the oracle itself cannot run at
-inference and does not promote V11/V12.
-
-The actual gate-learning test is negative. The linear gate underfits and worsens
-FineWeb-Edu/Cosmopedia loss by 0.0381/0.0334. The small MLP learns the training
-counterfactuals (+0.1126) but overfits and loses 0.0757 on combined holdouts.
-The frozen parent remains bit-identical, evaluation routing is label-safe, and no
-gate checkpoint is saved. V12's simple utility predictor is retired and its code
-deleted. The next independent ablation targets the current 72-token training
-window rather than tuning on failed routing holdouts.
+Two tempting repairs are already falsified. The V12 counterfactual audit finds
+real oracle route regret, but linear and nonlinear causal gates fail disjoint
+heldout prediction and are deleted. V13's temporary +2/+4/+8 token heads learn
+their auxiliary tasks but catastrophically worsen ordinary heldout loss to
+4.9522 versus the matched 3.3243 control; no checkpoint or live code remains.
+Longer context, more next-token data, decode controls, and route prediction all
+help narrower symptoms without creating a durable semantic/topic state. The next
+candidate must add that state while retaining ordinary next-token training and
+V11 as the matched token-capacity baseline.
 
 ## Current Evidence
 

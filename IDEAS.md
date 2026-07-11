@@ -416,7 +416,54 @@ at these horizons creates gradient interference rather than the desired macro
 state; a later semantic-state target must be materially different and tested on
 fresh evidence.
 
-### 7. Gated multiscale dynamical memory — v7 retired
+### 7. Causal segment associative state — next V14 falsifier
+
+The 1B scale point closes the “just train the small model properly” question
+without closing the architecture question. At 1,000,001,664 cumulative tokens,
+V11 reaches 3.0805 heldout loss and 3.9678/3.1405 FineWeb-Edu/Cosmopedia source
+loss. Controlled Cosmopedia generation is readable and diverse, but remains
+generic; FineWeb loops whole propositions, and all eight anchored cases still
+fail grounding. More tokens improve likelihood, not a persistent representation
+of what the paragraph is about. Decision:
+`retain_v11_1b_sparse_base_redesign_persistent_semantic_state`.
+
+V14 should preserve V11's full token path and add one materially different organ:
+a bank of small causal associative states updated once per segment. Lower-layer
+tokens form a segment key/value summary. Later segments query matrices containing
+only earlier summaries. A gated delta rule corrects stored values instead of
+merely adding or exponentially averaging another vector. The readout is injected
+through a zero-initialized residual, so attaching the organ must leave every V11
+logit exact before training. Training remains ordinary next-token cross-entropy;
+there is no V13-style distant-token loss and no label-dependent write policy.
+
+The primitives have close prior work and are not claimed as independently new.
+[Gated Delta Networks](https://arxiv.org/abs/2412.06464) show that gated erasure
+and error-correcting delta updates complement one another. [TransformerFAM](https://arxiv.org/abs/2404.09173)
+shows that feedback latent representations can act as working memory, while
+[Titans](https://arxiv.org/abs/2501.00663) combines attention with longer-lived
+neural memory. [Large Concept Models](https://arxiv.org/abs/2412.08821) support
+the broader need for representations above individual tokens, but rely on an
+external sentence space and trillion-token scale; V14 must learn its segment
+state end-to-end inside MARULHO.
+
+The required matched arms start from the exact 1B checkpoint and one shared
+67.11M-token schedule:
+
+- ordinary V11 continuation;
+- a parameter-matched local residual using the same projections but no state
+  carried between segments;
+- causal delta-state read/write without a learned gate;
+- causal delta-state with a learned, label-safe write/erase gate.
+
+All candidate arms reuse one parameter graph and exact initial tensors. Survival
+requires the gated state to improve heldout loss by at least 0.03 over both V11
+and the local residual, avoid regression on either source-continuation loss,
+preserve generation diversity, and show less direct topic drift on the fixed
+prompts. State bytes, matrix rank, gate entropy, write frequency, perturbation
+growth, throughput, and active multiplies explain the result but cannot promote
+it. Failure deletes V14 rather than retuning old V7 decays or V13 loss weights.
+
+### 8. Gated multiscale dynamical memory — v7 retired
 
 V7 performed the required memory-off, single-scale, always-write,
 fixed-random-write, and learned-write comparison with one exact-reset parameter
@@ -484,7 +531,7 @@ V7 met the kill condition because its learned gate could not beat the simpler
 control on both loss and free behavior. The broader literature remains useful,
 but this fixed-stable sidecar is no longer an active architecture direction.
 
-### 8. Wavelet-style temporal resolution — promising component
+### 9. Wavelet-style temporal resolution — promising component
 
 Wavelets provide an exact way to separate slow approximation from fast detail.
 The first implementation should use a fixed orthogonal Haar transform so that
@@ -501,7 +548,7 @@ is relevant inspiration for linear-cost multiresolution sequence mixing, but its
 claims are not treated as MARULHO evidence. The local falsifier remains matched
 next-token loss, behavior, memory, and wall time on MARULHO data.
 
-### 9. Memory gates — high-value mechanism, not a complete architecture
+### 10. Memory gates — high-value mechanism, not a complete architecture
 
 A memory gate answers a concrete problem: which new information is worth
 overwriting persistent state? The gate should be trained through future
@@ -518,7 +565,7 @@ Modern evidence makes gating worth testing:
 These works do not prove that a MARULHO gate will help. They justify a direct
 learned-versus-random-versus-always-write comparison.
 
-### 10. Toroidal phase memory — narrow use for time and order
+### 11. Toroidal phase memory — narrow use for time and order
 
 MARULHO already uses RoPE, which represents position through products of planar
 rotations; mathematically, this already introduces circular/toroidal phase
@@ -534,7 +581,7 @@ it. Do not use toroidal geometry as a semantic claim without evidence.
 relevant baseline: any toroidal proposal must add something beyond the rotations
 already in the active model.
 
-### 11. Hyperdimensional or vector-symbolic memory — binding organ only
+### 12. Hyperdimensional or vector-symbolic memory — binding organ only
 
 High-dimensional distributed vectors can bind roles, entities, and relations by
 algebraic operations and store several items in superposition. This connects to
@@ -547,7 +594,7 @@ surveys the relevant binding and superposition algebra. High ambient dimension
 alone is not a contribution; the binding operation, retrieval contract, and
 capacity/interference curve must be explicit.
 
-### 12. Autonomous local pattern generation — grounded research, not next LM
+### 13. Autonomous local pattern generation — grounded research, not next LM
 
 Neural or adaptive cellular automata demonstrate that shared local rules can
 produce robust global organization. That is a real example of micro rules making
@@ -562,7 +609,7 @@ and [Locally adaptive cellular automata for goal-oriented self-organization](htt
 Any language use must define the neighborhood, conserved information, global
 objective, and credit path first.
 
-### 13. Free-energy principle — translate or reject
+### 14. Free-energy principle — translate or reject
 
 The free-energy principle is too broad to install as an architecture. In passive
 text training, full-vocabulary next-token cross-entropy already minimizes a
@@ -595,19 +642,21 @@ The proposal is rejected if it only renames cross-entropy or backpropagation.
    catastrophically lose to the matched next-token control; delete and retire.
 8. Completed: indexed-host scheduling preserves exact batch values/order and
    runs at 121.8k tokens/s while removing linear token-budget CUDA storage.
-9. Next: scale the retained 318M next-token checkpoint to a materially larger
-   token/parameter point before claiming an architectural ceiling.
-10. Add a read-only neural-manifold diagnostic only when it can explain a branch;
+9. Completed: scale V11 to 1.000B tokens. Likelihood still improves, but fixed
+   prompts expose persistent proposition loops and topic drift.
+10. Next: compare V11, a parameter-matched local residual, ungated segment delta
+   state, and gated segment delta state from the exact 1B parent.
+11. Add a read-only neural-manifold diagnostic only when it can explain a branch;
    it never promotes a model.
-11. Test wavelet-style compression only as a causal old-context mechanism on a
+12. Test wavelet-style compression only as a causal old-context mechanism on a
    task where context exceeds the local attention window, followed by a base
    language retention guard.
-12. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
+13. Keep toroidal phase, vector-symbolic binding, cellular self-organization, and
    active-inference ideas scoped to the memory/grounded problems they actually
    address unless evidence earns broader use.
 
-The next creative bet is therefore specific: **many small conditional units may
-increase useful capacity inside one full-strength predictive interface without
-requiring every parameter for every token**. This is meaningfully different from
-both a fully dense monolith and the retired design of several incomplete language
-models or recurrent sidecars exchanging messages.
+The next creative bet is therefore specific: **many small associative states may
+organize a paragraph-level trajectory inside one full-strength predictive
+interface without duplicating the language model**. This is meaningfully
+different from a dense monolith, fixed token experts alone, and the retired
+designs of several incomplete language models or decaying vector sidecars.
