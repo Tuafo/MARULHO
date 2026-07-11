@@ -413,6 +413,23 @@ threshold. The next audit must calibrate retrieval or abstention on separate
 replay documents, freeze the threshold, and evaluate once against equal-write-
 rate controls on the disjoint V22 documents.
 
+`language_confidence_gated_document_retrieval_audit.py` preregisters V22b. It
+samples 256 causal cases from each replay corpus for calibration, then freezes
+one lexical top-one-minus-top-two margin threshold before loading 128 cases from
+each disjoint eval corpus. Calibration uses same-document identity but never the
+future continuation or language loss. The selected threshold maximizes coverage
+subject to at least 95% global precision, 90% precision per corpus, 25% global
+coverage, and 15% coverage per corpus.
+
+Evaluation either prepends one 48-token episode or abstains. Lexical, random,
+recency, and non-promotable oracle selection share the exact lexical gate mask,
+so active cases and source-token budgets match. Advancement requires at least
+90% transferred precision and 20% coverage, a +0.005 paired loss gain with a
+positive 4,096-sample bootstrap lower bound, +0.0025 over both equal-write-rate
+controls and the always-read lexical arm, and no source regression. A pass only
+admits joint training and anchored-generation evaluation; it does not save or
+install a checkpoint.
+
 The deleted V10 product-key falsifier is retained only as two compact local
 reports:
 `reports/language_scaling/micro-experts-v10-falsification-16m-20260711.json` and
