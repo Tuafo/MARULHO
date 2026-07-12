@@ -253,7 +253,12 @@ general-only arms train at context 72/batch 32 and context 256/batch 9, giving
 both 2,304 tokens per optimizer step, 7,282 steps, identical parameters and
 initial tensors, and zero relation updates. Context length is configuration, not
 additional capacity. The strict V29 model is evaluation-only and does not seed
-either candidate's weights.
+either candidate's weights. General72 wins common loss 4.0093 versus 4.0258 for
+general256 and 4.0955 for V29. Its strict checkpoint remains 0/8 on unseen
+sources, so the recipe advances to a unique-data 67M scale point rather than
+runtime installation. V31 keeps the same model and optimizer while consuming
+29,128 non-repeated batches selected across 256 MiB from each full replay-shard
+span. It is a data/optimization scaling point, not a new architecture.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

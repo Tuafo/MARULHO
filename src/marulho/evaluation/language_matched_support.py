@@ -509,7 +509,11 @@ def prepare_matched_language_data(
         source_selections={
             "relation": relation_selection,
             "general_train": [row for _text, row in train_samples],
+            "general_train_splits": [
+                dict(split.report) for split in general_splits
+            ],
             "general_eval": [row for _text, row in eval_samples],
+            "general_eval_split": dict(eval_split.report),
             "training_batch_filter": {
                 "required_batch_size": config.batch_size,
                 "relation_batches_before": (

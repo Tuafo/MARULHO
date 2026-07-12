@@ -35,10 +35,12 @@ There are six different levels of truth:
    reproduction, which passes bit-exact reload. Unseen prose remains 0/8 and
    semantically unstable, so Muon is retained as a training improvement rather
    than a quality-qualified model or runtime optimizer.
-5. **Active base-language experiment:** V30 removes synthetic relation updates
-   and compares fresh Muon training at context 72 and 256. Both arms process
-   exactly 2,304 tokens per step and face V29's strict checkpoint on a common
-   general-language holdout before any new unseen review.
+5. **General-first base candidate:** V30 selects context 72 after removing
+   synthetic relation updates: common loss improves 4.0955→4.0093, while
+   context 256 reaches 4.0258 and does not earn its cost. Unseen source loss
+   improves modestly but remains 0/8 and semantically unstable. The next point
+   scales one fresh model to about 67M non-repeated tokens, stratified across
+   both complete replay shards.
 6. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free

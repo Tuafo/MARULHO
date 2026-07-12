@@ -257,6 +257,15 @@ An idea survives only when its behavior and cost survive matched falsification.
   longer optimizes a synthetic task.
 - **Boundary:** only a selected, bit-exact checkpoint may face the same unseen
   FineWeb-Edu/Cosmopedia suite. Readable but generic output is still a failure.
+- **Result:** general72 wins. Common V29/general72/general256 loss is
+  4.0955/4.0093/4.0258, so removing synthetic relation updates helps and longer
+  context alone does not. Both candidates lose free relation completely.
+  FineWeb-Edu/Cosmopedia source loss improves by 0.1151/0.0387, but all unseen
+  cases still fail and text remains unstable. The next scale point uses a
+  256 MiB, 16-range sample from each replay shard and stratifies selected token
+  windows across the resulting full-source spans for one fresh approximately
+  67M-token pass at context 72. Repeating the 16M subset would not be credible
+  evidence.
 
 ### Other orthogonal branches
 

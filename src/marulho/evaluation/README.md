@@ -704,6 +704,44 @@ complete gradients, common source ranges, no checkpoint write, and
 compiled/eager loss deltas 0.000055/0.000195. These are mechanical facts, not
 quality evidence.
 
+The durable report is
+`reports/language_scaling/v30-general-context-falsification-16m-20260711.json`,
+SHA-256
+`fc78d39f7ee27522298e50c041c864d5b6242952637d414f455eeefd669497d6`.
+Both arms process 16,777,728 tokens with all gradients and identical initial
+tensors. V29/general72/general256 common loss is 4.09555/4.00933/4.02583;
+general72 therefore clears the 0.05 baseline gate and context256 misses its
+extra 0.02 premium. General72/general256 train at 55.85k/55.57k tokens/s and
+both produce 0% exact free relation after zero relation updates. The selected
+strict checkpoint is
+`reports/language_scaling/v30-general-context-qualified-16m-20260711.pt`,
+SHA-256
+`a0863eaa85f354f4eacb4c7c0ae422f516d93630c8d11d47de87eabe053440b2`;
+tensor, tokenizer, config, tying, and sample-logit fidelity are exact.
+
+FineWeb-Edu/Cosmopedia unseen source loss improves from V29's 4.5952/3.8875 to
+4.4801/3.8488, but the three V30 unseen reports remain 0/4, 0/4, and 0/4.
+Controlled Cosmopedia reaches 0.968 distinct-bigram fraction without correcting
+generic templates, repetition, factual confusion, or semantic drift. Decision:
+`retain_v30_general72_scale_unique_general_data_before_redesign`. The 16M
+schedule uses 7,282 unique batches exactly once. The complete local FineWeb-Edu
+and Cosmopedia replay shards total about 647 MB, enough for a fresh roughly
+67M-token scale test without fabricated repeated-data progress.
+
+`language_general_scaling.py` owns V31. It preserves V30's 20,976,128-parameter
+context-72 model, exact initial tensors, Muon 1e-3 recipe, tokenizer, and common
+holdout, but trains a fresh state for 29,128 steps. Each source contributes a
+256 MiB sample built from 16 ranges spanning the full shard. The split builder
+then selects windows across each sampled stream rather than taking a prefix.
+The reloaded V30 holdout must reproduce its recorded loss within 1e-5; the
+actual value, absolute delta, and tolerance are all persisted.
+The report must prove that all 67,110,912 scheduled tokens are unique within
+the run, every prepared general batch is consumed exactly once, byte and token
+windows span both sources, all parameters receive gradients, and the strict
+checkpoint reloads exactly. Advancement requires at least 0.15 heldout-loss
+gain over V30 before the same unseen suite is allowed. Relation scores remain
+metrics-only diagnostics and do not select the model.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

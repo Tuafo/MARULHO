@@ -142,7 +142,7 @@ confusion, and semantic drift. V29 is retained as promising training geometry,
 not a qualified base model or installed optimizer. V30 must test general-first
 training and longer context before another relation-heavy or memory phase.
 
-**General-First Context v30 (active falsifier, uninstalled)** — V30 holds the
+**General-First Context v30 (selected baseline, uninstalled)** — V30 holds the
 20,976,128-parameter Transformer, Muon 1e-3 recipe, tokenizer, initial tensors,
 general-source byte ranges, 16,777,728 processed tokens, and 7,282 optimizer
 steps fixed. It compares context 72/batch 32 with context 256/batch 9; both
@@ -153,8 +153,18 @@ base-language selection. The CUDA preflight passes exact initialization,
 complete gradients, and compiled/eager parity at 0.000055/0.000195 while the
 long arm peaks near 0.51 GB. A candidate needs at least 0.05 common-heldout loss
 gain; context 256 must beat a qualifying context-72 arm by 0.02 to justify its
-extra attention cost. Only the selected arm may be checkpointed for unseen
-review. No quality, runtime, memory, or continual-learning claim exists yet.
+extra attention cost. General72 wins: common heldout loss/perplexity is
+4.0093/55.11 versus V29's 4.0955/60.07 and general256's 4.0258/56.03. Both
+relation free scores are 0%, confirming that the synthetic skill is not learned
+without its data. The selected checkpoint reloads bit-exactly. FineWeb-Edu/
+Cosmopedia source loss improves from 4.5952/3.8875 to 4.4801/3.8488, but all
+eight source cases still fail and direct text remains generic, repetitive, and
+factually unstable. Decision:
+`retain_v30_general72_scale_unique_general_data_before_redesign`. V31 scales a
+fresh model to about 67M unique scheduled tokens using a 256 MiB, 16-range
+sample from each replay shard. Both byte ranges and selected token windows must
+span each full source, and no prepared batch may repeat. No base quality,
+runtime, memory, or continual-learning claim exists.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
