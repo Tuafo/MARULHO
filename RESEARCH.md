@@ -313,6 +313,28 @@ An idea survives only when its behavior and cost survive matched falsification.
   to the retired delta loop and does not require modular units. V32 establishes
   the stronger control that such a replacement must beat.
 
+### V32 result: diminishing return closes fixed-21M data scaling
+
+- **Valid run:** all 87,380 steps complete, processing 201,323,520 tokens. Each
+  of five disjoint sources contributes 17,476 unique batches; byte and token
+  coverage audits pass. Every parameter receives a final gradient, V31 loss
+  reproduces exactly, and compiled/eager loss differs by 0.000103.
+- **Result:** V31/V32 heldout loss is 3.6291/3.4983 and perplexity is
+  37.68/33.06. The 0.1308 gain is positive but misses the preregistered 0.20
+  requirement. Throughput remains 56.2k tokens/s, optimizer state 96.0 MiB, and
+  peak CUDA allocation 593.6 MiB. Candidate likelihood rises to 48.8%, but
+  metrics-only relation behavior is not a selection criterion and free exact
+  generation remains 0%.
+- **Decision:** `stop_v32_general_scaling_no_durable_loss_gain`. Changing the
+  gate after observing 0.1308 would be post-hoc. No checkpoint and no unseen
+  review are admitted. The compact report remains as the third scaling point;
+  rematerialized raw text is deleted because its manifests can reproduce it.
+- **Next branch:** redesign the fixed 21M core. The leading bet is a genuinely
+  current chunk-parallel editable-state/local-attention hybrid, compared against
+  V31 under matched parameters, tokens, initialization, optimizer, and data.
+  This is neither a defense of Transformers nor a return to small-unit
+  modularity.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**

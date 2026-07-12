@@ -268,7 +268,9 @@ V32 uses the same model and Muon code for a fresh 201,323,520-token run. The
 general data preparer now builds five source splits sequentially, limiting raw
 host-memory residency, and schedules 17,476 non-repeated batches from each
 source. This changes data scale only; V31 remains the evaluation baseline and
-does not seed candidate weights.
+does not seed candidate weights. V32 reaches loss 3.4983 versus V31's 3.6291,
+but the 0.1308 gain misses its frozen 0.20 gate. No V32 checkpoint exists; the
+fixed 21M training path does not receive another data-only scale point.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

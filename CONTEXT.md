@@ -183,16 +183,18 @@ Decision: `retain_v31_scaling_curve_expand_unique_data_not_base_quality`. V31 is
 a credible scaling point and current research checkpoint, not an installed
 runtime, qualified continual model, or commitment to the Transformer.
 
-**General Scaling v32 (active falsifier, uninstalled)** — V32 keeps the exact
+**General Scaling v32 (closed; redesign decision)** — V32 keeps the exact
 V31 model shape, tokenizer, initial tensors, context 72, Muon 1e-3 recipe, and
 common holdout while training a fresh state on 201,323,520 tokens. Five disjoint
 FineWeb-Edu/Cosmopedia shards contribute exactly 17,476 unique batches each;
-raw byte selections and token windows must span every source. The V31 checkpoint
-is evaluation-only and may not initialize V32. A candidate needs at least 0.20
-heldout-loss gain over V31, complete gradients, compiled/eager parity, exact
-data audits, and bit-exact checkpoint reload before unseen review. This is a
-third data-scaling point at about 9.6 update tokens per parameter, not a
-Transformer commitment or a delay of the independent architecture search.
+raw byte selections and token windows span every source. The V31 checkpoint is
+evaluation-only and does not initialize V32. V32 reaches heldout
+loss/perplexity 3.4983/33.06 versus V31's 3.6291/37.68: a real 0.1308 gain, but
+below the frozen 0.20 requirement. All parameters receive gradients, parity
+passes at 0.000103, and training sustains 56.2k tokens/s, so the miss is not a
+broken run. Decision: `stop_v32_general_scaling_no_durable_loss_gain`. No
+checkpoint or unseen review is admitted. Fixed 21M data scaling stops here; the
+next base experiment changes the computational architecture.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus

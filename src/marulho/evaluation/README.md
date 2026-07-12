@@ -787,6 +787,20 @@ uniqueness, full-span byte/window coverage, complete gradients, V31 loss exact
 reproduction, and compiled/eager parity at 0.000367. It writes no checkpoint
 and its temporary report is deleted.
 
+The durable V32 report is
+`reports/language_scaling/v32-general-scaling-201m-20260711.json`, SHA-256
+`0c305ba84ae259bdaeb94e511a007aef4de50a0161b2d37ccf0a05f166742d64`.
+All five sources contribute exactly 17,476 distinct batch indices and all
+201,323,520 tokens are unique within the run. V31 loss reproduces exactly;
+every parameter receives a final gradient; compiled/eager delta is 0.000103.
+V31/V32 heldout loss is 3.62911/3.49830 and V32 perplexity is 33.06. The 0.13082
+gain misses the frozen 0.20 requirement despite 56,177.4 training tokens/s,
+96.04 MiB optimizer state, and 593.58 MiB peak CUDA allocation. Metrics-only
+candidate accuracy is 48.83% while free exact relation generation is 0%.
+Decision: `stop_v32_general_scaling_no_durable_loss_gain`. No checkpoint is
+written and the unseen suite is not run. The result closes fixed-21M data-only
+scaling and routes to architecture redesign.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight
