@@ -659,6 +659,32 @@ tokenizer/config identity, and reproduce sample logits exactly. The checkpoint
 records that optimizer state is not saved and admits only unseen generation,
 not continuation or runtime installation.
 
+The independent reproduction report is
+`reports/language_scaling/v29-muon-checkpoint-reproduction-16m-20260711.json`,
+SHA-256
+`7c98acb3ff77869943f72974c582b0f996cd0b9d6ba617689689339555492f88`.
+It reaches heldout loss/perplexity 4.09555/60.07 and 26.95% exact free relation,
+independently clearing the recorded AdamW margins. The strict checkpoint is
+`reports/language_scaling/v29-muon-qualified-16m-20260711.pt`, 100,933,330
+bytes, SHA-256
+`e4ad48aea9d02cabca457255637c884131d55ac7f65998e3b9e025475e13415d`.
+Every model tensor, tied embedding/head storage, tokenizer hash, config, and
+sample logit reloads exactly. Optimizer state is explicitly absent.
+
+The ensuing unseen reports are
+`reports/language_scaling/v29-muon-unseen-fineweb-greedy-20260711.json`,
+`reports/language_scaling/v29-muon-unseen-cosmopedia-greedy-20260711.json`, and
+`reports/language_scaling/v29-muon-unseen-cosmopedia-controlled-20260711.json`.
+FineWeb-Edu and Cosmopedia remain 0/4 source passes with mean source loss
+4.5952/3.8875. Controlled decoding leaves source loss unchanged but raises
+Cosmopedia distinct-bigram fraction from 0.794 to 0.976. Direct review finds
+some grammatical, topical educational paragraphs, but FineWeb generations are
+often repetitive or nonsensical and Cosmopedia drifts into generic templates,
+factual confusion, and unstable entities. Decision:
+`retain_v29_muon_redesign_base_curriculum_and_context`. Muon remains an
+uninstalled training candidate; the checkpoint is a V30 baseline, not a
+quality-qualified language model.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

@@ -245,6 +245,8 @@ optimizer state and training 42% slower. This passes only into exact checkpoint
 reproduction and unseen review; the installed trainer still owns AdamW. The
 reproduction checkpoint intentionally stores model/tokenizer/qualification
 truth but not Muon state, so it cannot claim resumable optimizer continuity.
+That strict 100.9 MB artifact reloads every tensor and sample logit bit-exactly,
+but its 0/8 unseen source result blocks base-quality and runtime promotion.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

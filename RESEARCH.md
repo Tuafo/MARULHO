@@ -233,6 +233,14 @@ An idea survives only when its behavior and cost survive matched falsification.
   harming generation, so optimizer and learning rate interact rather than
   producing a universal gain. V29 advances to exact reproduction and unseen
   review, not installation; two relation kinds remain at zero free accuracy.
+  Reproduction strengthens the result at loss 4.0955 and 26.95% free relation
+  and produces a bit-exact strict checkpoint. Unseen review still fails all
+  eight source cases: controlled Cosmopedia is readable but generic and
+  semantically unstable, while FineWeb is often repetitive or nonsensical.
+  Therefore Muon survives as better learning geometry, not as proof that the
+  current Transformer/curriculum is sufficient. V30 should remove the synthetic
+  relation task from base-language optimization and test a longer paragraph
+  context before adding memory or another substrate.
 
 ### Other orthogonal branches
 

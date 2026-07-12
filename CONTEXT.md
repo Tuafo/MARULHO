@@ -132,8 +132,15 @@ above the joint 0.01/2-point gate. Muon uses 96.0 versus 160.0 MiB optimizer
 state and trains at 55.8k versus 96.3k tokens/s. The 3e-4 pair is disjoint:
 Muon improves loss by 0.0198 but loses 11.33 generation points. Decision:
 `advance_v29_muon_to_unseen_generation`. No checkpoint, optimizer installation,
-or broad capability claim exists until an exact reproduction and genuinely
-unseen review pass.
+or broad capability claim follows from that gate alone. The independent
+reproduction reaches loss 4.0955 and 26.95% exact free generation, then saves a
+strict 100.9 MB checkpoint whose tensors, tied weights, tokenizer, config, and
+sample logits reload bit-exactly. Unseen FineWeb-Edu/Cosmopedia source suites
+remain 0/4 and 0/4; controlled Cosmopedia raises distinct-bigram fraction to
+0.976 but direct text review still finds generic templates, repetition, factual
+confusion, and semantic drift. V29 is retained as promising training geometry,
+not a qualified base model or installed optimizer. V30 must test general-first
+training and longer context before another relation-heavy or memory phase.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus

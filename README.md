@@ -32,7 +32,9 @@ There are five different levels of truth:
    fixed and compares AdamW with matrix-orthogonalized Muon at two learning
    rates. At 16.78M tokens, Muon 1e-3 beats same-rate AdamW by 0.1645 heldout
    loss and 12.11 points of exact free generation. This admits checkpoint
-   reproduction and unseen review, not runtime installation.
+   reproduction, which passes bit-exact reload. Unseen prose remains 0/8 and
+   semantically unstable, so Muon is retained as a training improvement rather
+   than a quality-qualified model or runtime optimizer.
 5. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free
