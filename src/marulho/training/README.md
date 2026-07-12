@@ -248,6 +248,13 @@ truth but not Muon state, so it cannot claim resumable optimizer continuity.
 That strict 100.9 MB artifact reloads every tensor and sample logit bit-exactly,
 but its 0/8 unseen source result blocks base-quality and runtime promotion.
 
+V30 reuses the same Muon implementation without installing it. Fresh
+general-only arms train at context 72/batch 32 and context 256/batch 9, giving
+both 2,304 tokens per optimizer step, 7,282 steps, identical parameters and
+initial tensors, and zero relation updates. Context length is configuration, not
+additional capacity. The strict V29 model is evaluation-only and does not seed
+either candidate's weights.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

@@ -142,6 +142,20 @@ confusion, and semantic drift. V29 is retained as promising training geometry,
 not a qualified base model or installed optimizer. V30 must test general-first
 training and longer context before another relation-heavy or memory phase.
 
+**General-First Context v30 (active falsifier, uninstalled)** — V30 holds the
+20,976,128-parameter Transformer, Muon 1e-3 recipe, tokenizer, initial tensors,
+general-source byte ranges, 16,777,728 processed tokens, and 7,282 optimizer
+steps fixed. It compares context 72/batch 32 with context 256/batch 9; both
+process exactly 2,304 tokens per step and receive zero synthetic relation
+updates. The strict V29 checkpoint supplies the common context-72 general
+holdout baseline. Relation cases are metrics-only diagnostics and cannot block
+base-language selection. The CUDA preflight passes exact initialization,
+complete gradients, and compiled/eager parity at 0.000055/0.000195 while the
+long arm peaks near 0.51 GB. A candidate needs at least 0.05 common-heldout loss
+gain; context 256 must beat a qualifying context-72 arm by 0.02 to justify its
+extra attention cost. Only the selected arm may be checkpointed for unseen
+review. No quality, runtime, memory, or continual-learning claim exists yet.
+
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
 recurrent agreement, complete gradients, owned generation, and compiled-loss

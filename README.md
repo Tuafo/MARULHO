@@ -14,7 +14,7 @@ generally capable continual model.
 
 ## Current architecture
 
-There are five different levels of truth:
+There are six different levels of truth:
 
 1. **Installed runtime:** `MarulhoBrain` owns a 21M-parameter decoder-only causal
    Transformer and its checkpoint-owned BPE tokenizer. This remains the stable
@@ -35,7 +35,11 @@ There are five different levels of truth:
    reproduction, which passes bit-exact reload. Unseen prose remains 0/8 and
    semantically unstable, so Muon is retained as a training improvement rather
    than a quality-qualified model or runtime optimizer.
-5. **Architecture search:** V28's matched particle-field test is retired. Its
+5. **Active base-language experiment:** V30 removes synthetic relation updates
+   and compares fresh Muon training at context 72 and 256. Both arms process
+   exactly 2,304 tokens per step and face V29's strict checkpoint on a common
+   general-language holdout before any new unseen review.
+6. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free
    generation. No biological metaphor or many-small-units design is a project

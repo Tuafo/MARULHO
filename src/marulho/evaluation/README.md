@@ -685,6 +685,25 @@ factual confusion, and unstable entities. Decision:
 uninstalled training candidate; the checkpoint is a V30 baseline, not a
 quality-qualified language model.
 
+`language_general_context_falsification.py` preregisters V30 around the unseen
+failure rather than the synthetic relation win. Two fresh Muon 1e-3 arms use
+the same 20,976,128 parameters, exact initial tensors, tokenizer, sampled
+FineWeb-Edu/Cosmopedia ranges, and 16,777,728 general-only update tokens.
+Context 72/batch 32 and context 256/batch 9 both process 2,304 tokens per step
+for 7,282 steps. Relation fraction is exactly zero; the label-safe 256-case
+relation suite is diagnostic only.
+
+The strict V29 checkpoint is never used to initialize the candidates. It owns
+the common context-72 general holdout baseline. A candidate advances only with
+at least 0.05 lower common loss. If both pass, context 256 must beat context 72
+by at least 0.02 to justify its extra attention cost; otherwise the shorter arm
+wins. Only the selected state may be checkpointed, and strict tensor/tokenizer/
+config/tied-weight/logit fidelity must pass before unseen review. The discarded
+eight-step preflight establishes equal 2,304-token steps, exact initial hashes,
+complete gradients, common source ranges, no checkpoint write, and
+compiled/eager loss deltas 0.000055/0.000195. These are mechanical facts, not
+quality evidence.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

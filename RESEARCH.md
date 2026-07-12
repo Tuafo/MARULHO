@@ -242,6 +242,22 @@ An idea survives only when its behavior and cost survive matched falsification.
   relation task from base-language optimization and test a longer paragraph
   context before adding memory or another substrate.
 
+### Third branch: general-first context
+
+- **Question:** did the 20% synthetic relation curriculum and 72-token window
+  teach fast template completion at the expense of paragraph language?
+- **Falsifier:** train fresh, exactly initialized Muon models with zero relation
+  updates at context 72/batch 32 and context 256/batch 9. Both consume 2,304
+  tokens per update and the same 16.78M total tokens from identical general
+  source ranges. Compare both on V29's common context-72 heldout batches.
+- **Selection:** require a 0.05 common general-loss gain over the strict V29
+  checkpoint. Prefer context 72 unless context 256 adds at least 0.02 more gain,
+  because longer quadratic attention is a cost rather than a capability by
+  declaration. Relation behavior is recorded but base-language selection no
+  longer optimizes a synthetic task.
+- **Boundary:** only a selected, bit-exact checkpoint may face the same unseen
+  FineWeb-Edu/Cosmopedia suite. Readable but generic output is still a failure.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**
