@@ -166,6 +166,23 @@ sample from each replay shard. Both byte ranges and selected token windows must
 span each full source, and no prepared batch may repeat. No base quality,
 runtime, memory, or continual-learning claim exists.
 
+**General Scaling v31 (strongest base checkpoint, uninstalled)** — V31 keeps
+V30's 20,976,128 parameters, context 72, Muon 1e-3 recipe, tokenizer, initial
+tensors, and holdout while increasing fresh general-only training to 67,110,912
+tokens. All 29,128 batches are unique within the run and span both sampled
+sources. Heldout loss/perplexity improves from V30's 4.0093/55.11 to
+3.6291/37.68, a 0.3802 loss gain that exceeds the preregistered 0.15 gate.
+Training sustains 56.1k tokens/s, peaks at 593.6 MiB CUDA allocation, and gives
+every parameter a final gradient. The 100,933,202-byte checkpoint reloads every
+tensor and sample logit bit-exactly. Unseen FineWeb-Edu/Cosmopedia source loss
+also improves to 4.2053/3.4896, but all eight anchored cases still fail. Direct
+text is more locally grammatical yet remains generic, repetitive without decode
+controls, and factually or semantically unstable. Controlled decoding restores
+0.960 distinct-bigram fraction on Cosmopedia without grounding the answers.
+Decision: `retain_v31_scaling_curve_expand_unique_data_not_base_quality`. V31 is
+a credible scaling point and current research checkpoint, not an installed
+runtime, qualified continual model, or commitment to the Transformer.
+
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
 recurrent agreement, complete gradients, owned generation, and compiled-loss

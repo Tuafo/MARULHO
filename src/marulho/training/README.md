@@ -258,7 +258,11 @@ general256 and 4.0955 for V29. Its strict checkpoint remains 0/8 on unseen
 sources, so the recipe advances to a unique-data 67M scale point rather than
 runtime installation. V31 keeps the same model and optimizer while consuming
 29,128 non-repeated batches selected across 256 MiB from each full replay-shard
-span. It is a data/optimization scaling point, not a new architecture.
+span. It reaches heldout loss/perplexity 3.6291/37.68 versus V30's 4.0093/55.11
+at 56.1k tokens/s, with complete gradients and exact checkpoint reload. Unseen
+loss improves but anchored generation remains 0/8 and unstable. It is a
+retained data/optimization scaling point, not a new architecture or installed
+base model.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

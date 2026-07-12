@@ -742,6 +742,31 @@ checkpoint reloads exactly. Advancement requires at least 0.15 heldout-loss
 gain over V30 before the same unseen suite is allowed. Relation scores remain
 metrics-only diagnostics and do not select the model.
 
+The durable report is
+`reports/language_scaling/v31-general-scaling-67m-20260711.json`, SHA-256
+`f65fcef87445004c5fbbeacd9240e89e1b46be4b6d6770108e86ff20037f5798`.
+It processes 67,110,912 unique scheduled tokens in 29,128 steps, with exact
+14,564/14,564 source balance and full-span byte/window audits. V30/V31 common
+loss is 4.00934/3.62911, a 0.38022 gain; V31 perplexity is 37.68. It sustains
+56,126.7 training tokens/s, uses 96.04 MiB optimizer state, peaks at 593.58 MiB
+CUDA allocation, gives all parameters gradients, and passes compiled/eager
+parity at 0.0000496. The strict 100,933,202-byte checkpoint is
+`reports/language_scaling/v31-general-scaling-qualified-67m-20260711.pt`,
+SHA-256
+`d4250e16cf69ea7e13d222826f41068be01b5c319475b71cd1685a149e4a73bc`.
+Tensor, tokenizer, config, tied-weight, and sample-logit fidelity are exact.
+
+The unseen FineWeb-Edu greedy, Cosmopedia greedy, and Cosmopedia controlled
+reports have SHA-256
+`0622e1bc80d51c5bd055251f2a138244dd309aa8dd5a006384e7f235c983faf8`,
+`2f7901de2428520a6aa25b76cfc8cfa69b1c1cad05d8e127c329ffa0027a4dfc`,
+and `db9216ea57d4d075abadd5ba612b8afc8286c3510e6d1d51af04b18555a2c550`.
+FineWeb-Edu/Cosmopedia source loss is 4.2053/3.4896, improving on V30, but all
+three suites remain 0/4. Controlled decoding corrects the worst repetition and
+raises Cosmopedia distinct-bigram fraction 0.667→0.960 without grounding the
+answer. Decision: `retain_v31_scaling_curve_expand_unique_data_not_base_quality`.
+No runtime, memory, continual-learning, or qualified-coherence claim follows.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

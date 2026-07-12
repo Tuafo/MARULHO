@@ -35,12 +35,13 @@ There are six different levels of truth:
    reproduction, which passes bit-exact reload. Unseen prose remains 0/8 and
    semantically unstable, so Muon is retained as a training improvement rather
    than a quality-qualified model or runtime optimizer.
-5. **General-first base candidate:** V30 selects context 72 after removing
-   synthetic relation updates: common loss improves 4.0955→4.0093, while
-   context 256 reaches 4.0258 and does not earn its cost. Unseen source loss
-   improves modestly but remains 0/8 and semantically unstable. The next point
-   scales one fresh model to about 67M non-repeated tokens, stratified across
-   both complete replay shards.
+5. **Strongest general base candidate:** V30 selects context 72 after removing
+   synthetic relation updates. V31 then trains the same fresh 20.976M model on
+   67.11M non-repeated tokens and improves common loss/perplexity from
+   4.0093/55.11 to 3.6291/37.68. FineWeb-Edu/Cosmopedia unseen loss also falls
+   to 4.2053/3.4896. Text is more grammatical, but remains 0/8 on anchored
+   cases, generic, and factually unstable, so the checkpoint is retained for a
+   larger data curve rather than installed as a qualified base.
 6. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free

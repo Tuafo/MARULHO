@@ -267,6 +267,28 @@ An idea survives only when its behavior and cost survive matched falsification.
   67M-token pass at context 72. Repeating the 16M subset would not be credible
   evidence.
 
+### V31 result: scaling works, base quality is still blocked
+
+- **Mechanical truth:** 29,128 distinct batches process 67,110,912 tokens. Each
+  source contributes 14,564 unique batch indices; 16 byte ranges and the
+  selected token windows span each source. All parameters receive a final
+  gradient, compiled/eager loss differs by 0.0000496, and strict reload is
+  bit-exact.
+- **Scaling result:** common V30/V31 heldout loss is 4.0093/3.6291 and
+  perplexity is 55.11/37.68. The 0.3802 gain decisively clears the 0.15 gate.
+  V31 sustains 56.1k tokens/s, uses 96.0 MiB optimizer state, and peaks at
+  593.6 MiB CUDA allocation.
+- **Unseen result:** FineWeb-Edu loss improves 4.4801→4.2053 and Cosmopedia
+  3.8488→3.4896, but both greedy suites remain 0/4. Repetition controls raise
+  Cosmopedia distinct-bigram fraction from 0.667 to 0.960 without grounding the
+  continuation. Direct prose is more locally coherent but remains generic,
+  repetitive, and prone to invented or unstable facts.
+- **Decision:** `retain_v31_scaling_curve_expand_unique_data_not_base_quality`.
+  At 3.2 update tokens per parameter, the model is still far from a decisive
+  data-scaling test. Build a much larger unique-data point before judging this
+  base, but keep architecture search independent: this result does not make the
+  Transformer, small units, or any metaphor part of MARULHO's identity.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**
