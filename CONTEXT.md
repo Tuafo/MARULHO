@@ -183,6 +183,17 @@ Decision: `retain_v31_scaling_curve_expand_unique_data_not_base_quality`. V31 is
 a credible scaling point and current research checkpoint, not an installed
 runtime, qualified continual model, or commitment to the Transformer.
 
+**General Scaling v32 (active falsifier, uninstalled)** — V32 keeps the exact
+V31 model shape, tokenizer, initial tensors, context 72, Muon 1e-3 recipe, and
+common holdout while training a fresh state on 201,323,520 tokens. Five disjoint
+FineWeb-Edu/Cosmopedia shards contribute exactly 17,476 unique batches each;
+raw byte selections and token windows must span every source. The V31 checkpoint
+is evaluation-only and may not initialize V32. A candidate needs at least 0.20
+heldout-loss gain over V31, complete gradients, compiled/eager parity, exact
+data audits, and bit-exact checkpoint reload before unseen review. This is a
+third data-scaling point at about 9.6 update tokens per parameter, not a
+Transformer commitment or a delay of the independent architecture search.
+
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
 recurrent agreement, complete gradients, owned generation, and compiled-loss

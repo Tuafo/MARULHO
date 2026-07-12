@@ -264,6 +264,12 @@ loss improves but anchored generation remains 0/8 and unstable. It is a
 retained data/optimization scaling point, not a new architecture or installed
 base model.
 
+V32 uses the same model and Muon code for a fresh 201,323,520-token run. The
+general data preparer now builds five source splits sequentially, limiting raw
+host-memory residency, and schedules 17,476 non-repeated batches from each
+source. This changes data scale only; V31 remains the evaluation baseline and
+does not seed candidate weights.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 

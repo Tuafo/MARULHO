@@ -289,6 +289,30 @@ An idea survives only when its behavior and cost survive matched falsification.
   base, but keep architecture search independent: this result does not make the
   Transformer, small units, or any metaphor part of MARULHO's identity.
 
+### V32 preregistration: third data-scaling point
+
+- **Why scale again:** V31 used only 3.2 update tokens per parameter. The
+  direction predicted by [compute-optimal scaling](https://arxiv.org/abs/2203.15556)
+  and the heavy overtraining used by modern small models such as
+  [SmolLM2](https://arxiv.org/abs/2502.02737) both make an architecture verdict
+  at that ratio premature. These references motivate the direction, not an
+  imported universal constant for MARULHO's data or hardware.
+- **Frozen model:** 20,976,128 parameters, context 72, tied 8,192-token BPE,
+  Muon 1e-3, exact V31 initialization seed, general-only causal loss, and the
+  same FineWeb-Edu/Cosmopedia holdout. V31 is evaluation-only.
+- **Fresh data:** five disjoint parquet shards supply 201,323,520 scheduled
+  tokens in 87,380 steps. Each source contributes exactly 17,476 unique batches
+  and 40,264,704 tokens. Every byte selection and stratified token-window set
+  must span its source; any repeated index invalidates the run.
+- **Kill rule:** require at least 0.20 heldout-loss gain over V31, every
+  parameter receiving a gradient, compiled/eager parity, and bit-exact strict
+  reload. Only then run the unchanged unseen suite. Better loss with unstable
+  prose remains a scaling result, not base qualification.
+- **Architecture boundary:** the parallel candidate remains a current editable-
+  state hybrid such as Gated DeltaNet plus local attention. It is not a return
+  to the retired delta loop and does not require modular units. V32 establishes
+  the stronger control that such a replacement must beat.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**

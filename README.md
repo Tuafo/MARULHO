@@ -41,7 +41,9 @@ There are six different levels of truth:
    4.0093/55.11 to 3.6291/37.68. FineWeb-Edu/Cosmopedia unseen loss also falls
    to 4.2053/3.4896. Text is more grammatical, but remains 0/8 on anchored
    cases, generic, and factually unstable, so the checkpoint is retained for a
-   larger data curve rather than installed as a qualified base.
+   larger data curve rather than installed as a qualified base. V32 is the
+   active third point: a fresh 201.32M-token run over five disjoint shards with
+   no repeated prepared batch.
 6. **Architecture search:** V28's matched particle-field test is retired. Its
    20.972M-parameter recurrent core was mechanically valid but substantially
    worse than the 20.976M Transformer on heldout language and exact free

@@ -45,6 +45,24 @@ def test_shared_schedule_changes_with_seed() -> None:
     )
 
 
+def test_shared_schedule_balances_five_sources_without_repeats() -> None:
+    schedule = build_matched_schedule(
+        step_count=50,
+        relation_fraction=0.0,
+        relation_batch_count=0,
+        general_batch_counts=(10, 10, 10, 10, 10),
+        seed=42,
+    )
+    for source_index in range(5):
+        indices = [
+            index
+            for kind, index in schedule
+            if kind == f"general_{source_index}"
+        ]
+        assert len(indices) == 10
+        assert len(set(indices)) == 10
+
+
 def test_full_batch_filter_excludes_partial_tails() -> None:
     full = LanguageBatch(
         input_ids=torch.zeros((4, 8), dtype=torch.long),

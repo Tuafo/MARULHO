@@ -1,4 +1,4 @@
-"""Scale the selected V30 general-first Muon recipe on unique local data."""
+"""Scale the selected general-first Muon recipe on unique local data."""
 
 from __future__ import annotations
 
@@ -39,11 +39,85 @@ from marulho.training.language_model import (
 from marulho.training.language_muon import build_language_muon
 
 
-SURFACE = "marulho_general_scaling.v1"
+SURFACE = "marulho_general_scaling.v2"
 ARTIFACT_KIND = "marulho_general_scaling"
-ADVANCE_DECISION = "save_v31_general_scaling_67m_for_unseen_generation"
-STOP_DECISION = "stop_v31_general_scaling_no_durable_loss_gain"
-INVALID_DECISION = "invalid_v31_general_scaling_evidence"
+
+
+@dataclass(frozen=True)
+class GeneralScalingStage:
+    name: str
+    candidate_name: str
+    progress_prefix: str
+    active_language_path: str
+    required_baseline_artifact_kind: str
+    required_baseline_decision: str
+    required_selected_arm: str | None
+    baseline_loss_path: tuple[str, ...]
+    baseline_initial_hash_path: tuple[str, ...]
+    token_budget: int
+    train_sample_bytes: int
+    minimum_loss_gain: float
+    advance_decision: str
+    stop_decision: str
+    invalid_decision: str
+    report_title: str
+
+
+V31_STAGE = GeneralScalingStage(
+    name="v31",
+    candidate_name="general72_67m",
+    progress_prefix="general-scaling-v31",
+    active_language_path="marulho_transformer_v31_general72",
+    required_baseline_artifact_kind="marulho_general_context_falsification",
+    required_baseline_decision=(
+        "save_v30_general_context_candidate_for_unseen_generation"
+    ),
+    required_selected_arm="general72",
+    baseline_loss_path=(
+        "arms",
+        "general72",
+        "common_context_heldout",
+        "heldout_loss",
+    ),
+    baseline_initial_hash_path=(
+        "matched_truth",
+        "initial_state_hashes",
+        "general72",
+    ),
+    token_budget=67_108_864,
+    train_sample_bytes=256 * 1024 * 1024,
+    minimum_loss_gain=0.15,
+    advance_decision="save_v31_general_scaling_67m_for_unseen_generation",
+    stop_decision="stop_v31_general_scaling_no_durable_loss_gain",
+    invalid_decision="invalid_v31_general_scaling_evidence",
+    report_title="MARULHO V31 General Scaling",
+)
+
+
+V32_STAGE = GeneralScalingStage(
+    name="v32",
+    candidate_name="general72_201m",
+    progress_prefix="general-scaling-v32",
+    active_language_path="marulho_transformer_v32_general72",
+    required_baseline_artifact_kind=ARTIFACT_KIND,
+    required_baseline_decision=V31_STAGE.advance_decision,
+    required_selected_arm=None,
+    baseline_loss_path=("candidate", "heldout", "heldout_loss"),
+    baseline_initial_hash_path=("initial_state", "sha256"),
+    token_budget=201_323_520,
+    train_sample_bytes=512 * 1024 * 1024,
+    minimum_loss_gain=0.20,
+    advance_decision="save_v32_general_scaling_201m_for_unseen_generation",
+    stop_decision="stop_v32_general_scaling_no_durable_loss_gain",
+    invalid_decision="invalid_v32_general_scaling_evidence",
+    report_title="MARULHO V32 General Scaling",
+)
+
+
+STAGES = {stage.name: stage for stage in (V31_STAGE, V32_STAGE)}
+ADVANCE_DECISION = V31_STAGE.advance_decision
+STOP_DECISION = V31_STAGE.stop_decision
+INVALID_DECISION = V31_STAGE.invalid_decision
 
 
 @dataclass(frozen=True)
@@ -72,7 +146,7 @@ class GeneralScalingConfig:
     layers: int = 4
     heads: int = 8
     mlp_ratio: float = 4.0
-    minimum_loss_gain_over_v30: float = 0.15
+    minimum_loss_gain: float = 0.15
     baseline_loss_reproduction_tolerance: float = 1.0e-5
 
 
@@ -114,6 +188,7 @@ def build_model(
     *,
     vocab_size: int,
     config: GeneralScalingConfig,
+    stage: GeneralScalingStage = V31_STAGE,
 ) -> MarulhoLanguageModel:
     return MarulhoLanguageModel(
         LanguageModelConfig(
@@ -126,7 +201,7 @@ def build_model(
             transformer_mlp_ratio=float(config.mlp_ratio),
             transformer_dropout=0.0,
             tie_embeddings=True,
-            active_language_path="marulho_transformer_v31_general72",
+            active_language_path=str(stage.active_language_path),
         )
     )
 
@@ -138,17 +213,48 @@ def scaling_decision(
     config: GeneralScalingConfig,
     unique_schedule_passed: bool,
     checkpoint_fidelity_passed: bool,
+    stage: GeneralScalingStage = V31_STAGE,
 ) -> str:
     if not bool(row.get("all_parameters_received_final_gradient")):
-        return INVALID_DECISION
+        return stage.invalid_decision
     if not bool(unique_schedule_passed):
-        return INVALID_DECISION
+        return stage.invalid_decision
     loss_gain = float(baseline_loss) - float(row["heldout"]["heldout_loss"])
-    if loss_gain < float(config.minimum_loss_gain_over_v30):
-        return STOP_DECISION
+    if loss_gain < float(config.minimum_loss_gain):
+        return stage.stop_decision
     if not bool(checkpoint_fidelity_passed):
-        return INVALID_DECISION
-    return ADVANCE_DECISION
+        return stage.invalid_decision
+    return stage.advance_decision
+
+
+def _nested_value(payload: Mapping[str, Any], path: Sequence[str]) -> Any:
+    value: Any = payload
+    for key in path:
+        if not isinstance(value, Mapping) or key not in value:
+            raise ValueError(f"missing scaling evidence field: {'.'.join(path)}")
+        value = value[key]
+    return value
+
+
+def _validate_baseline(
+    report: Mapping[str, Any],
+    *,
+    stage: GeneralScalingStage,
+) -> tuple[float, str]:
+    if report.get("artifact_kind") != stage.required_baseline_artifact_kind:
+        raise ValueError(f"{stage.name} baseline artifact kind is invalid")
+    if report.get("decision") != stage.required_baseline_decision:
+        raise ValueError(f"{stage.name} baseline decision is invalid")
+    if stage.required_selected_arm is not None:
+        selection = report.get("selection")
+        if not isinstance(selection, Mapping) or selection.get(
+            "selected_arm"
+        ) != stage.required_selected_arm:
+            raise ValueError(f"{stage.name} baseline arm is invalid")
+    return (
+        float(_nested_value(report, stage.baseline_loss_path)),
+        str(_nested_value(report, stage.baseline_initial_hash_path)),
+    )
 
 
 def _schedule_uniqueness(schedule: Sequence[tuple[str, int]]) -> dict[str, Any]:
@@ -181,6 +287,7 @@ def _source_coverage_audit(
         expected_bytes = min(int(requested_bytes_per_source), source_size)
         byte_budget_filled = selected_size >= int(expected_bytes * 0.99)
         range_count = len(ranges)
+        full_source_selected = selected_size == source_size
         stratified = range_count >= min(2, int(requested_range_count))
         span_fraction = (covered_end - covered_start) / max(1, source_size)
         rows.append(
@@ -191,9 +298,11 @@ def _source_coverage_audit(
                 "selected_fraction": selected_size / max(1, source_size),
                 "range_count": range_count,
                 "range_span_fraction": span_fraction,
+                "full_source_selected": full_source_selected,
                 "byte_budget_filled": bool(byte_budget_filled),
                 "stratified_across_source": bool(
-                    stratified and span_fraction >= 0.95
+                    (full_source_selected or stratified)
+                    and span_fraction >= 0.95
                 ),
             }
         )
@@ -257,24 +366,23 @@ def run_general_scaling(
     checkpoint_output_path: str | Path,
     report_output_path: str | Path,
     config: GeneralScalingConfig = GeneralScalingConfig(),
+    stage: GeneralScalingStage = V31_STAGE,
     device: str = "auto",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     resolved = _resolve_device(device)
     if resolved.type != "cuda":
-        raise ValueError("V31 general scaling requires CUDA")
+        raise ValueError(f"{stage.name} general scaling requires CUDA")
     baseline_checkpoint = Path(baseline_checkpoint_path)
     baseline_report_file = Path(baseline_report_path)
     baseline_report = json.loads(baseline_report_file.read_text(encoding="utf-8"))
-    if baseline_report.get("decision") != (
-        "save_v30_general_context_candidate_for_unseen_generation"
-    ):
-        raise ValueError("V31 requires the selected V30 report")
-    if baseline_report["selection"]["selected_arm"] != "general72":
-        raise ValueError("V31 requires V30 general72 selection")
+    recorded_baseline_loss, expected_initial_hash = _validate_baseline(
+        baseline_report,
+        stage=stage,
+    )
     checkpoint_output = Path(checkpoint_output_path)
     if checkpoint_output.exists():
-        raise ValueError("V31 checkpoint output already exists")
+        raise ValueError(f"{stage.name} checkpoint output already exists")
     baseline_model, baseline_tokenizer, baseline_metadata = (
         load_language_model_checkpoint(baseline_checkpoint, map_location="cpu")
     )
@@ -296,22 +404,19 @@ def run_general_scaling(
             cases=prepared.cases[: int(config.relation_case_limit)],
         )
     if baseline_tokenizer.vocabulary_hash() != prepared.tokenizer.vocabulary_hash():
-        raise ValueError("V31 tokenizer differs from V30")
+        raise ValueError(f"{stage.name} tokenizer differs from its baseline")
     baseline_model = baseline_model.to(resolved)
     baseline_heldout = evaluate_language_model(
         baseline_model,
         prepared.eval_batches,
     )
-    recorded_baseline_loss = float(
-        baseline_report["arms"]["general72"]["common_context_heldout"][
-            "heldout_loss"
-        ]
-    )
     baseline_loss_delta = abs(
         float(baseline_heldout["heldout_loss"]) - recorded_baseline_loss
     )
     if baseline_loss_delta > float(config.baseline_loss_reproduction_tolerance):
-        raise ValueError("V31 common holdout does not reproduce V30 baseline loss")
+        raise ValueError(
+            f"{stage.name} common holdout does not reproduce its baseline loss"
+        )
     del baseline_model
     torch.cuda.empty_cache()
     gc.collect()
@@ -321,13 +426,11 @@ def run_general_scaling(
     model = build_model(
         vocab_size=int(prepared.tokenizer.vocab_size),
         config=config,
+        stage=stage,
     ).to(resolved)
     initial_state_hash = model_state_sha256(model)
-    expected_initial_hash = str(
-        baseline_report["matched_truth"]["initial_state_hashes"]["general72"]
-    )
     if initial_state_hash != expected_initial_hash:
-        raise ValueError("V31 initial state differs from V30")
+        raise ValueError(f"{stage.name} initial state differs from its baseline")
     initial_state = {
         name: value.detach().cpu().clone()
         for name, value in model.state_dict().items()
@@ -341,7 +444,7 @@ def run_general_scaling(
         batch_size=int(config.batch_size),
     )
     warm_batch = prepared.staged.batch(0, resolved)
-    print("[general-scaling-v31] compiling general72", flush=True)
+    print(f"[{stage.progress_prefix}] compiling general72", flush=True)
     training_loss, execution = _prepare_language_loss_backend(
         model,
         warm_batch,
@@ -359,9 +462,9 @@ def run_general_scaling(
             ),
         )
 
-    print("[general-scaling-v31] training general72", flush=True)
+    print(f"[{stage.progress_prefix}] training general72", flush=True)
     row = run_matched_training_arm(
-        "general72_67m",
+        stage.candidate_name,
         architecture="causal_transformer_general_first",
         model=model,
         initial_state=initial_state,
@@ -375,7 +478,7 @@ def run_general_scaling(
         relation_eval_batch_size=int(config.relation_eval_batch_size),
         model_seed=int(config.model_seed),
         device=resolved,
-        progress_prefix="general-scaling-v31",
+        progress_prefix=stage.progress_prefix,
         extra_row={
             "initial_heldout": initial_heldout,
             "training_context_length": int(config.sequence_length),
@@ -415,16 +518,17 @@ def run_general_scaling(
         config=config,
         unique_schedule_passed=unique_schedule_passed,
         checkpoint_fidelity_passed=True,
+        stage=stage,
     )
     checkpoint_fidelity: dict[str, Any] = {"performed": False, "passed": False}
     checkpoint_sha256 = None
-    if precheckpoint_decision == ADVANCE_DECISION:
+    if precheckpoint_decision == stage.advance_decision:
         save_language_model_checkpoint(
             checkpoint_output,
             model,
             prepared.tokenizer,
             metadata={
-                "decision": ADVANCE_DECISION,
+                "decision": stage.advance_decision,
                 "checkpoint_reproduction": True,
                 "processed_tokens": int(row["processed_tokens"]),
                 "heldout_loss": float(row["heldout"]["heldout_loss"]),
@@ -455,12 +559,14 @@ def run_general_scaling(
         config=config,
         unique_schedule_passed=unique_schedule_passed,
         checkpoint_fidelity_passed=bool(checkpoint_fidelity["passed"]),
+        stage=stage,
     )
     report = {
         "artifact_kind": ARTIFACT_KIND,
         "surface": SURFACE,
         "owned_by_marulho": True,
         "external_llm_used": False,
+        "stage": asdict(stage),
         "configuration": asdict(config),
         "baseline": {
             "checkpoint_path": str(baseline_checkpoint),
@@ -482,7 +588,7 @@ def run_general_scaling(
         },
         "initial_state": {
             "sha256": initial_state_hash,
-            "matches_v30": initial_state_hash == expected_initial_hash,
+            "matches_baseline": initial_state_hash == expected_initial_hash,
         },
         "schedule": {
             "sha256": prepared.schedule_sha256,
@@ -504,7 +610,7 @@ def run_general_scaling(
             "candidate_loss": float(row["heldout"]["heldout_loss"]),
             "loss_gain": float(baseline_heldout["heldout_loss"])
             - float(row["heldout"]["heldout_loss"]),
-            "minimum_loss_gain": float(config.minimum_loss_gain_over_v30),
+            "minimum_loss_gain": float(config.minimum_loss_gain),
             "relation_behavior_is_diagnostic_not_selection": True,
         },
         "checkpoint": {
@@ -516,7 +622,7 @@ def run_general_scaling(
         },
         "decision": decision,
         "promotion_boundary": {
-            "unseen_generation_admitted": decision == ADVANCE_DECISION,
+            "unseen_generation_admitted": decision == stage.advance_decision,
             "base_quality_promoted": False,
             "runtime_install_allowed": False,
             "continual_learning_claimed": False,
@@ -526,14 +632,15 @@ def run_general_scaling(
     write_json_report_with_readme(
         report_output_path,
         report,
-        title="MARULHO V31 General Scaling",
+        title=stage.report_title,
     )
-    print(f"[general-scaling-v31] decision {decision}", flush=True)
+    print(f"[{stage.progress_prefix}] decision {decision}", flush=True)
     return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stage", choices=tuple(STAGES), default="v31")
     parser.add_argument("--baseline-checkpoint", type=Path, required=True)
     parser.add_argument("--baseline-report", type=Path, required=True)
     parser.add_argument("--relation-corpus", type=Path, required=True)
@@ -542,13 +649,15 @@ def main() -> int:
     parser.add_argument("--general-eval", action="append", type=Path, required=True)
     parser.add_argument("--checkpoint-output", type=Path, required=True)
     parser.add_argument("--report-output", type=Path, required=True)
-    parser.add_argument("--token-budget", type=int, default=67_108_864)
+    parser.add_argument("--token-budget", type=int, default=None)
     parser.add_argument("--eval-batches", type=int, default=16)
     parser.add_argument("--relation-case-limit", type=int, default=0)
-    parser.add_argument("--train-sample-mib", type=int, default=256)
+    parser.add_argument("--train-sample-mib", type=int, default=None)
     parser.add_argument("--eval-sample-mib", type=int, default=32)
+    parser.add_argument("--minimum-loss-gain", type=float, default=None)
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
+    stage = STAGES[str(args.stage)]
     report = run_general_scaling(
         baseline_checkpoint_path=args.baseline_checkpoint,
         baseline_report_path=args.baseline_report,
@@ -559,19 +668,39 @@ def main() -> int:
         checkpoint_output_path=args.checkpoint_output,
         report_output_path=args.report_output,
         config=GeneralScalingConfig(
-            token_budget=max(1, int(args.token_budget)),
+            token_budget=max(
+                1,
+                int(
+                    stage.token_budget
+                    if args.token_budget is None
+                    else args.token_budget
+                ),
+            ),
             eval_batches=max(1, int(args.eval_batches)),
             relation_case_limit=max(0, int(args.relation_case_limit)),
-            sample_bytes_per_train_source=max(1, int(args.train_sample_mib))
+            sample_bytes_per_train_source=max(
+                1,
+                int(
+                    stage.train_sample_bytes // (1024 * 1024)
+                    if args.train_sample_mib is None
+                    else args.train_sample_mib
+                ),
+            )
             * 1024
             * 1024,
             sample_bytes_per_eval_source=max(1, int(args.eval_sample_mib))
             * 1024
             * 1024,
+            minimum_loss_gain=float(
+                stage.minimum_loss_gain
+                if args.minimum_loss_gain is None
+                else args.minimum_loss_gain
+            ),
         ),
+        stage=stage,
         device=args.device,
     )
-    return 0 if report["decision"] == ADVANCE_DECISION else 1
+    return 0 if report["decision"] == stage.advance_decision else 1
 
 
 if __name__ == "__main__":

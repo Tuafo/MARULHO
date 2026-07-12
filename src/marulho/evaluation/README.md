@@ -767,6 +767,26 @@ raises Cosmopedia distinct-bigram fraction 0.667→0.960 without grounding the
 answer. Decision: `retain_v31_scaling_curve_expand_unique_data_not_base_quality`.
 No runtime, memory, continual-learning, or qualified-coherence claim follows.
 
+`language_general_scaling.py` is now a stage-driven v2 engine rather than a
+copied V32 runner. The V31 stage remains reproducible from V30; V32 strictly
+accepts only V31's advancing report and checkpoint as evaluation evidence.
+`language_matched_support.py` accepts two or more general training sources,
+derives per-source preparation depth from the actual source count, and releases
+each raw source string after its batches are built. Existing two-source
+experiments are numerically unchanged.
+
+V32 preregisters 201,323,520 tokens: 87,380 context-72/batch-32 steps across five
+disjoint shards, exactly 17,476 batches and 40,264,704 tokens per source. The
+default sample cap is 512 MiB per source; a smaller source may be selected whole
+only when its single recorded range spans the entire file. Prepared token
+windows remain stratified over each selected stream. V31's reloaded common loss
+must reproduce within 1e-5. Advancement requires at least 0.20 lower loss,
+complete gradients, unique scheduling, coverage audits, and exact checkpoint
+fidelity. The discarded ten-step CUDA audit passes five-source balance,
+uniqueness, full-span byte/window coverage, complete gradients, V31 loss exact
+reproduction, and compiled/eager parity at 0.000367. It writes no checkpoint
+and its temporary report is deleted.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

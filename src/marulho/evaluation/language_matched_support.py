@@ -390,14 +390,17 @@ def prepare_matched_language_data(
     config: MatchedLanguageDataConfig,
     device: torch.device,
 ) -> PreparedMatchedLanguageData:
-    if len(general_train_paths) != 2 or len(general_eval_paths) != 2:
-        raise ValueError("Exactly two general train and two eval sources are required")
+    if len(general_train_paths) < 2 or len(general_eval_paths) != 2:
+        raise ValueError(
+            "At least two general train and exactly two eval sources are required"
+        )
     tokenizer_checkpoint = Path(tokenizer_checkpoint_path)
     relation_cases_file = Path(relation_cases_path)
     tokenizer = _load_tokenizer(tokenizer_checkpoint)
     cases = _load_cases(relation_cases_file)
     steps = math.ceil(
-        int(config.token_budget) / (int(config.batch_size) * int(config.sequence_length))
+        int(config.token_budget)
+        / (int(config.batch_size) * int(config.sequence_length))
     )
     relation_enabled = float(config.relation_fraction) > 0.0
     relation_steps = (
@@ -405,7 +408,10 @@ def prepare_matched_language_data(
         if relation_enabled
         else 0
     )
-    general_steps = max(1, math.ceil((steps - relation_steps) / 2))
+    general_steps = max(
+        1,
+        math.ceil((steps - relation_steps) / len(general_train_paths)),
+    )
     if relation_enabled:
         relation_text, relation_selection = sample_corpus_ranges(
             relation_corpus_path,
@@ -420,14 +426,31 @@ def prepare_matched_language_data(
             "selected_size_bytes": 0,
             "ranges": [],
         }
-    train_samples = [
-        sample_corpus_ranges(
+    train_selections: list[dict[str, Any]] = []
+    general_splits = []
+    for source_index, path in enumerate(general_train_paths):
+        print(
+            "[matched-data] preparing general train source "
+            f"{source_index + 1}/{len(general_train_paths)}",
+            flush=True,
+        )
+        text, selection = sample_corpus_ranges(
             path,
             byte_budget=config.sample_bytes_per_train_source,
             range_count=config.sample_range_count,
         )
-        for path in general_train_paths
-    ]
+        general_splits.append(
+            build_language_model_splits(
+                [text],
+                tokenizer,
+                sequence_length=config.sequence_length,
+                stride=config.sequence_length,
+                batch_size=config.batch_size,
+                max_train_batches=general_steps,
+                max_eval_batches=1,
+            )
+        )
+        train_selections.append(selection)
     eval_samples = [
         sample_corpus_ranges(
             path,
@@ -449,18 +472,6 @@ def prepare_matched_language_data(
         if relation_enabled
         else None
     )
-    general_splits = [
-        build_language_model_splits(
-            [text],
-            tokenizer,
-            sequence_length=config.sequence_length,
-            stride=config.sequence_length,
-            batch_size=config.batch_size,
-            max_train_batches=general_steps,
-            max_eval_batches=1,
-        )
-        for text, _selection in train_samples
-    ]
     eval_split = build_language_model_splits(
         [],
         tokenizer,
@@ -508,7 +519,7 @@ def prepare_matched_language_data(
         schedule_sha256=schedule_sha256(schedule),
         source_selections={
             "relation": relation_selection,
-            "general_train": [row for _text, row in train_samples],
+            "general_train": train_selections,
             "general_train_splits": [
                 dict(split.report) for split in general_splits
             ],
