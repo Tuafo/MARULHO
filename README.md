@@ -183,10 +183,11 @@ positive controlled result—not a replacement for frontier Transformers.
    answers, and improves old-language loss to 3.1124, but misses the 50% free
    gate. V39 must improve exact answer formation under the same replay/compute
    budget; do not add capacity, weaken evaluation, or repeat replay ratios.
-8. V39 tests 2x and 4x causal loss emphasis on answer-bearing tokens while
-   preserving V38's exact 50/50 replay schedule and compute. A passing arm must
-   cross the original 50% strict-free gate with bounded old-language loss and
-   exact checkpoint reload; candidate recognition alone still cannot pass.
+8. Retain V39 as the first continual-qualified 100M checkpoint. Its 4x
+   answer-emphasis arm reaches exactly 50% strict free relations, 98.44% ranked,
+   improves general loss to 3.1134, and reloads exactly after 218.11M cumulative
+   tokens. Preserve the uneven boundary: ownership is 4/64 and container 15/64,
+   so this is not yet general binding competence.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

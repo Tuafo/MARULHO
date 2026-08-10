@@ -331,11 +331,12 @@ loss while learning the relation holdout, but strict free accuracy stops at
 so V39 targets answer-bearing token learning or structured lexical realization
 instead of more replay, capacity, or candidate scoring.
 
-V39's experimental compiled loss detects answer spans directly in tokenizer ID
-space and moderately reweights them while preserving ordinary causal loss on
-the rest of each batch. It is not an installed training default. Only a joint
-free-generation/retention pass can serialize the resulting standard Transformer
-state and justify retaining the objective implementation.
+**`language_answer_objective.py`** — V39's retained continual-learning objective
+detects answer spans directly in tokenizer ID space and moderately reweights
+them while preserving ordinary causal loss elsewhere. The selected 4x objective
+crosses the joint free-generation/retention gate and saves a standard exact-
+reload Transformer checkpoint. It is a domain-training tool, not the universal
+base-language default.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

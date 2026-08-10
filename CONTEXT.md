@@ -308,16 +308,18 @@ blocker is exact answer formation. Decision:
 `redesign_v38_relation_objective_no_free_learning`. Report SHA-256 is
 `e356bf9a44ccb7fd1986be256c41128c2bb79a086c903d1be7bd110a841cc1d2`.
 
-**Answer Objective v39 (active falsifier)** — V39 preserves V38's exact V35R
-parent, 50/50 relation/general schedule, sources, seeds, 16,773,120-token budget,
-batch 256, Muon 3e-4 recipe, and exact evaluation. Only the causal loss changes:
-tokens after the complete `Answer:` marker and before EOS receive 2x or 4x
-relative weight, normalized within each batch; all prompt and general-language
-tokens retain ordinary next-token loss. The immutable V38 report is the
-unweighted control. A V39 arm must cross 50% strict free accuracy and 80%
-candidate accuracy with at most +0.10 old-language loss before its state is
-saved and strict-reloaded. This tests answer realization without adding model
-capacity, changing decoding, or weakening the evaluator.
+**Answer Objective v39 (continual-qualified, uneven binding)** — V39 preserves
+V38's 50/50 schedule and changes only normalized causal credit on answer spans.
+The 4x arm reaches exactly 128/256 strict free answers (50.00%), 98.44% candidate
+accuracy, and general loss 3.11336 versus V35R's 3.16492 at 24.86k tokens/s.
+Its 58/64 property and 51/64 event-order answers are strong, but container is
+15/64 and ownership only 4/64. Open prose remains coherent but small-model
+repetition and occasional odd semantics remain. The 100,679,424-parameter state
+has 218,108,160 cumulative tokens and reloads exactly from a 428,148,518-byte
+checkpoint with tokenizer identity. Decision:
+`advance_v39_answer_objective_continual_checkpoint`. Checkpoint/report SHA-256
+are `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`
+and `3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

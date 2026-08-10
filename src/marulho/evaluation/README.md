@@ -892,12 +892,12 @@ replay works and answer realization is now limiting. The one-shot V38 runner is
 deleted; V39 must change the answer objective/interface without weakening exact
 evaluation.
 
-V39 reuses the exact V38 50/50 intervention and hash-pins its raw report as the
-unweighted baseline. Its two arms apply normalized 2x or 4x loss to targets
-after the complete `Answer:` marker through EOS; all other relation-prompt and
-general tokens keep unit weight. Nothing about decoding, cases, capacity,
-sources, or compute changes. The original 50% strict-free, 80% ranking, +0.10
-general-loss, complete-gradient, and exact-reload gates remain binding.
+V39's selected 4x answer objective reaches exactly 50% strict free accuracy,
+98.44% candidate accuracy, and general loss 3.11336 at 24.86k tokens/s. It saves
+and exactly reloads the 428.1 MB standard Transformer checkpoint. Per-kind free
+accuracy remains uneven: property/event-order/container/ownership is
+90.62%/79.69%/23.44%/6.25%. The one-shot evaluator is deleted after retaining
+the report; checkpoint fidelity and the maintained training objective survive.
 
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter

@@ -673,6 +673,24 @@ free accuracy, 80% ranking, no more than +0.10 general-loss regression, complete
 gradients, and exact checkpoint/tokenizer reload. Decoding controls, model
 capacity, replay fraction, and evaluator normalization are frozen.
 
+V39 passes narrowly and saves the first continual-qualified checkpoint from the
+100M base. The 2x arm reaches 46.09% free / 98.44% ranked at general loss
+3.11275. The selected 4x arm reaches exactly 50.00% free / 98.44% ranked at loss
+3.11336, processing 24.86k tokens/s with 7.99 GiB peak allocation. Marked answer
+targets occupy 7.48% of the representative mixed batch. The checkpoint reloads
+with exact model and tokenizer hashes after 218,108,160 cumulative tokens.
+
+This is a real but bounded continual result. The selected arm gets 58/64
+property and 51/64 event-order cases freely correct, versus only 15/64 container
+and 4/64 ownership. Reloaded open prompts remain grammatical and multi-sentence,
+although repetition and semantic oddities remain at this scale. V39 proves that
+moderate causal credit assignment crosses the joint learning/retention boundary;
+it does not prove general relational reasoning or lifelong learning. The
+maintained answer objective moves to the training package, while the one-shot
+runner is deleted. Report/checkpoint SHA-256 are
+`3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127` and
+`6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
