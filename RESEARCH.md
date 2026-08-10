@@ -372,25 +372,33 @@ delta-event controls.
   `reports/language_scaling/v33-editable-state-falsification-16m-20260810.json`,
   SHA-256 `3eb9ae16cc5c039c69b0a8a68bb4c743314f02ac463c441361cae954943b9082`.
 
-### V34 hypothesis: integrate-and-fire patch hierarchy
+### V34 hypothesis: qualify a stronger local semantic cortex
 
-The stronger SNN/Transformer synthesis keeps continuous vectors and attention
-as the language substrate. A causal scalar or low-rank membrane accumulates
-representation innovation. A firing event closes the current patch, emits a
-continuous summary to a slower global Transformer, resets the membrane, and
-allows only completed past summaries to affect later tokens. Spikes therefore
-choose *when scales communicate*; they do not encode words or replace gradients.
+The architecture search has repeatedly confounded two questions: whether a new
+mechanism is useful, and whether a 21M model trained on modest data can produce a
+semantic substrate worth augmenting. V34 separates them. It is a fresh
+100,679,424-parameter dense Transformer—width 768, ten layers, twelve heads—on
+V31's 8,192-token BPE, context 72, Muon 1e-3 recipe, two-source 67.11M unique
+schedule, and common holdout. V31 remains evaluation-only. The larger state is
+randomly initialized from the same seed policy but cannot share an initial tensor
+hash with a different shape.
 
-The first falsifier needs four arms: a total-parameter-matched dense Transformer,
-the patch hierarchy with uniform boundaries, the same hierarchy with random
-equal-rate boundaries, and learned causal integrate-and-fire boundaries. All
-hierarchy arms share weights and patch count where possible. The null is that
-uniform/random boundaries match learned firing and the dense Transformer matches
-or beats the hierarchy. A hierarchy advantage without a learned-boundary
-advantage promotes multiscale computation only, not the SNN mechanism. Execution
-must report both dense training work and genuinely skipped global-token work;
-nominal masks around already-computed dense branches do not count as sparse
-compute.
+The null is that five times more parameters at the same data budget are too
+undertrained or too inefficient to improve local language enough. Advancement
+requires at least 0.20 lower heldout loss than V31's reproduced 3.6291, complete
+gradients, compiled/eager parity, full source/unique-schedule audits, and strict
+checkpoint fidelity. Only then run the unchanged unseen suite. A pass means the
+local pipeline can build a stronger cortex; it does not mean a Transformer is the
+successor architecture. A miss means local capacity scaling at 67M tokens is a
+poor substrate strategy and should not be rescued by an expensive 1B-token run.
+
+The full production shape passes a disposable CUDA/Inductor preflight. Full-graph
+compile takes 52.5 seconds, compiled/eager BF16 loss differs by 0.00063, steady
+two-step training measures 11.3k tokens/s, and peak CUDA allocation is 3.32 GB.
+Muon shape warmup and three optimizer warm steps are excluded from measurement;
+weights, optimizer, and RNG are reset before counted updates. V31 holdout loss
+reproduces exactly. The smoke establishes feasibility only; its candidate loss
+and report are deleted.
 
 ### Other orthogonal branches
 
@@ -416,7 +424,13 @@ compute.
   [Byte Latent Transformer](https://arxiv.org/abs/2412.09871) is relevant to a
   future tokenizer replacement, but its reported advantage emerges at much
   larger model/data scales and its local byte encoder/decoder is a large fixed
-  overhead for MARULHO's current 21M--36M regime. It is not the next 3060 test.
+  overhead for MARULHO's current regime. [H-Net](https://arxiv.org/abs/2507.07955)
+  strengthens the case: learned causal dynamic chunks decide when the expensive
+  inner model runs and beat fixed/heuristic chunking under matched FLOPs. But its
+  controlled English models start around 680M parameters, and crossovers require
+  tens of billions of training bytes. Applying the idea after BPE at 21M would
+  remove its tokenizer-free advantage. Keep it as a later scale-aware direction,
+  not the next 3060 test.
 
 ### Self-extending causal computation
 

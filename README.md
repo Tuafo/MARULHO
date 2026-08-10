@@ -140,15 +140,17 @@ positive controlled result—not a replacement for frontier Transformers.
 
 1. Treat V33 as closed evidence: replacing half the token Transformer with an
    editable matrix state did not buy enough language quality, speed, or memory.
-2. Test a different SNN/deep-learning synthesis: keep a continuous token
-   Transformer as the semantic cortex, let causal integrate-and-fire events close
-   variable patches, run slower global Transformer computation on continuous
-   patch summaries, and feed only past summaries back to later tokens.
-3. Compare learned events with equal-rate uniform and random boundaries, and
-   compare the whole hierarchy with a total-parameter-matched dense Transformer.
-   A hierarchy win with no event win promotes hierarchy only, not an SNN claim.
-4. Require heldout improvement, viable execution, and genuinely unseen prose;
-   then save and strictly reload only the survivor.
+2. Stop rotating exotic mixers at 21M. V34 trains a fresh 100,679,424-parameter
+   dense continuous cortex locally: width 768, ten Transformer layers, twelve
+   heads, the same BPE/context-72/Muon recipe, and the same 67.11M unique-token
+   schedule as V31. It must improve heldout loss by at least 0.20.
+3. Save/reload and review genuinely unseen prose only if that capacity jump wins.
+   This does not claim that a larger Transformer is MARULHO's final architecture;
+   it tests whether the local pipeline can build a semantic substrate worth
+   augmenting.
+4. Keep dynamic byte hierarchies as a later scale-aware direction. Published
+   H-Net evidence begins around 680M parameters and tens of billions of bytes,
+   so a 21M imitation is not the next credible 3060 experiment.
 5. Only after base quality survives, reopen exact episodic memory, online
    learning, consolidation, forgetting, active compute, and the sustained
    524,288-token runtime ladder.

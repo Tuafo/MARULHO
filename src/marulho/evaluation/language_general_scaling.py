@@ -36,7 +36,10 @@ from marulho.training.language_model import (
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
-from marulho.training.language_muon import build_language_muon
+from marulho.training.language_muon import (
+    build_language_muon,
+    warm_language_muon_orthogonalizer_shapes,
+)
 
 
 SURFACE = "marulho_general_scaling.v2"
@@ -61,6 +64,11 @@ class GeneralScalingStage:
     stop_decision: str
     invalid_decision: str
     report_title: str
+    model_width: int = 512
+    model_layers: int = 4
+    model_heads: int = 8
+    require_initial_state_match: bool = True
+    architecture: str = "causal_transformer_general_first"
 
 
 V31_STAGE = GeneralScalingStage(
@@ -114,7 +122,32 @@ V32_STAGE = GeneralScalingStage(
 )
 
 
-STAGES = {stage.name: stage for stage in (V31_STAGE, V32_STAGE)}
+V34_STAGE = GeneralScalingStage(
+    name="v34",
+    candidate_name="general72_100m",
+    progress_prefix="capacity-scaling-v34",
+    active_language_path="marulho_transformer_v34_general72_100m",
+    required_baseline_artifact_kind=ARTIFACT_KIND,
+    required_baseline_decision=V31_STAGE.advance_decision,
+    required_selected_arm=None,
+    baseline_loss_path=("candidate", "heldout", "heldout_loss"),
+    baseline_initial_hash_path=("initial_state", "sha256"),
+    token_budget=67_108_864,
+    train_sample_bytes=256 * 1024 * 1024,
+    minimum_loss_gain=0.20,
+    advance_decision="save_v34_capacity_scaling_100m_for_unseen_generation",
+    stop_decision="stop_v34_capacity_scaling_no_durable_loss_gain",
+    invalid_decision="invalid_v34_capacity_scaling_evidence",
+    report_title="MARULHO V34 Capacity Scaling",
+    model_width=768,
+    model_layers=10,
+    model_heads=12,
+    require_initial_state_match=False,
+    architecture="causal_transformer_capacity_scaled",
+)
+
+
+STAGES = {stage.name: stage for stage in (V31_STAGE, V32_STAGE, V34_STAGE)}
 ADVANCE_DECISION = V31_STAGE.advance_decision
 STOP_DECISION = V31_STAGE.stop_decision
 INVALID_DECISION = V31_STAGE.invalid_decision
@@ -429,7 +462,9 @@ def run_general_scaling(
         stage=stage,
     ).to(resolved)
     initial_state_hash = model_state_sha256(model)
-    if initial_state_hash != expected_initial_hash:
+    if bool(stage.require_initial_state_match) and (
+        initial_state_hash != expected_initial_hash
+    ):
         raise ValueError(f"{stage.name} initial state differs from its baseline")
     initial_state = {
         name: value.detach().cpu().clone()
@@ -438,6 +473,20 @@ def run_general_scaling(
     model.eval()
     initial_heldout = evaluate_language_model(model, prepared.eval_batches)
     model.train()
+    shape_counts = Counter(
+        tuple(int(value) for value in parameter.shape)
+        for name, parameter in model.named_parameters()
+        if parameter.ndim == 2
+        and not name.startswith("token_embedding.")
+        and not name.startswith("lm_head.")
+    )
+    optimizer_orthogonalizer_warmup = warm_language_muon_orthogonalizer_shapes(
+        (
+            (int(count), int(shape[0]), int(shape[1]))
+            for shape, count in shape_counts.items()
+        ),
+        device=resolved,
+    )
     training_config = _training_config(
         v30_config,
         sequence_length=int(config.sequence_length),
@@ -465,7 +514,7 @@ def run_general_scaling(
     print(f"[{stage.progress_prefix}] training general72", flush=True)
     row = run_matched_training_arm(
         stage.candidate_name,
-        architecture="causal_transformer_general_first",
+        architecture=str(stage.architecture),
         model=model,
         initial_state=initial_state,
         training_loss=training_loss,
@@ -485,6 +534,7 @@ def run_general_scaling(
             "relation_training_fraction": 0.0,
         },
         optimizer_builder=optimizer_builder,
+        optimizer_warmup_steps=3,
     )
     schedule_uniqueness = _schedule_uniqueness(prepared.schedule)
     general_sources = prepared.source_selections["general_train"]
@@ -589,6 +639,8 @@ def run_general_scaling(
         "initial_state": {
             "sha256": initial_state_hash,
             "matches_baseline": initial_state_hash == expected_initial_hash,
+            "match_required": bool(stage.require_initial_state_match),
+            "baseline_sha256": expected_initial_hash,
         },
         "schedule": {
             "sha256": prepared.schedule_sha256,
@@ -605,6 +657,7 @@ def run_general_scaling(
             "unique_data_gate_passed": unique_schedule_passed,
         },
         "candidate": row,
+        "optimizer_orthogonalizer_warmup": optimizer_orthogonalizer_warmup,
         "comparison": {
             "baseline_loss": float(baseline_heldout["heldout_loss"]),
             "candidate_loss": float(row["heldout"]["heldout_loss"]),
@@ -696,6 +749,9 @@ def main() -> int:
                 if args.minimum_loss_gain is None
                 else args.minimum_loss_gain
             ),
+            width=int(stage.model_width),
+            layers=int(stage.model_layers),
+            heads=int(stage.model_heads),
         ),
         stage=stage,
         device=args.device,

@@ -272,6 +272,17 @@ does not seed candidate weights. V32 reaches loss 3.4983 versus V31's 3.6291,
 but the 0.1308 gain misses its frozen 0.20 gate. No V32 checkpoint exists; the
 fixed 21M training path does not receive another data-only scale point.
 
+V34 reuses the maintained Transformer/Muon machinery at a different capacity:
+width 768, ten layers, twelve heads, and 100,679,424 parameters. The tokenizer,
+context 72, 67.11M-token source-balanced schedule, optimizer recipe, and holdout
+remain V31-compatible, but the larger model is freshly initialized and does not
+pretend to share an initial-state hash with V31. This is an uninstalled semantic
+substrate test; a checkpoint exists only after a 0.20 heldout-loss gain and exact
+reload.
+The full shape is locally feasible: a disposable Inductor preflight passes
+compiled/eager BF16 parity, trains at 11.3k tokens/s, and peaks at 3.32 GB on the
+RTX 3060. Those two steps carry no quality meaning and are not retained.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

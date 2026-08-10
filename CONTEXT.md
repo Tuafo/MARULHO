@@ -214,14 +214,29 @@ zero relation training all pass, so this is a valid negative. Decision:
 controller survives; the model, runner, tests, and experimental checkpoint
 surface are deleted. The compact report retains the evidence.
 
-**Integrate-and-fire patch hierarchy v34 (hypothesis, not evidence)** — the next
-SNN/deep-learning synthesis does not replace continuous language representations.
-A token Transformer remains the semantic cortex. A causal membrane accumulates
-representation innovation and fires to close a variable-length patch; a slower
-Transformer operates on continuous patch summaries and can influence only later
-tokens. Equal-rate uniform and random boundaries distinguish hierarchy utility
-from event utility, and a total-parameter-matched dense Transformer remains the
-primary control. A hierarchy win without an event-boundary win is not an SNN win.
+**Capacity Scaling v34 (active hypothesis, uninstalled)** — repeated 21M mixer
+swaps now have enough negative evidence that another tiny exotic core is a poor
+use of the 3060. V34 instead asks whether the existing local pipeline can train a
+materially stronger continuous semantic cortex. The preregistered model has
+100,679,424 parameters (width 768, ten Transformer layers, twelve heads) and uses
+the same 8,192-token BPE, context 72, Muon 1e-3 recipe, source-balanced 67.11M
+unique-token schedule, and common holdout as V31. V31 is evaluation-only and
+does not initialize V34. Advancement requires at least 0.20 lower heldout loss,
+complete gradients, compiled/eager parity, source/uniqueness audits, and exact
+checkpoint reload before unseen generation. This is substrate qualification,
+not a claim that scaling Transformers is MARULHO's final architecture. A
+disposable full-shape CUDA preflight compiles in 52.5 seconds, passes BF16 parity
+at 0.00063, trains at 11.3k tokens/s, and peaks at 3.32 GB; its two-step quality
+values and report are deleted.
+
+**Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
+SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
+match token pipelines under controlled compute. H-Net is especially relevant to
+the user's event idea because learned causal boundaries decide when its large
+inner model runs. Its published controlled language models, however, begin near
+680M parameters and require tens of billions of bytes before crossover. A 21M
+BPE-level imitation would discard the mechanism's tokenizer-free advantage and
+is not the immediate V34 experiment.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus

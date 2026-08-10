@@ -7,6 +7,7 @@ from marulho.evaluation.language_general_scaling import (
     GeneralScalingConfig,
     V31_STAGE,
     V32_STAGE,
+    V34_STAGE,
     _schedule_uniqueness,
     _source_coverage_audit,
     _split_coverage_audit,
@@ -38,6 +39,20 @@ def test_v32_changes_stage_identity_without_changing_parameter_shape() -> None:
     )
     assert sum(parameter.numel() for parameter in model.parameters()) == 20_976_128
     assert model.config.active_language_path == "marulho_transformer_v32_general72"
+
+
+def test_v34_is_a_preregistered_100m_capacity_jump_not_an_initial_state_match() -> None:
+    config = GeneralScalingConfig(
+        width=V34_STAGE.model_width,
+        layers=V34_STAGE.model_layers,
+        heads=V34_STAGE.model_heads,
+    )
+    model = build_model(vocab_size=8192, config=config, stage=V34_STAGE)
+    assert sum(parameter.numel() for parameter in model.parameters()) == 100_679_424
+    assert model.config.transformer_context_length == 72
+    assert model.config.active_language_path == "marulho_transformer_v34_general72_100m"
+    assert V34_STAGE.require_initial_state_match is False
+    assert V34_STAGE.minimum_loss_gain == 0.20
 
 
 def test_v31_decision_requires_loss_unique_data_gradients_and_fidelity() -> None:

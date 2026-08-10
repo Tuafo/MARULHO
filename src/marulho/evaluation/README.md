@@ -779,7 +779,10 @@ No runtime, memory, continual-learning, or qualified-coherence claim follows.
 
 `language_general_scaling.py` is now a stage-driven v2 engine rather than a
 copied V32 runner. The V31 stage remains reproducible from V30; V32 strictly
-accepts only V31's advancing report and checkpoint as evaluation evidence.
+accepts only V31's advancing report and checkpoint as evaluation evidence. V34
+also accepts V31 as evaluation evidence but explicitly does not require an
+initial-state hash match because it is a preregistered capacity change rather
+than a continuation of the same shape.
 `language_matched_support.py` accepts two or more general training sources,
 derives per-source preparation depth from the actual source count, and releases
 each raw source string after its batches are built. Existing two-source
@@ -810,6 +813,19 @@ candidate accuracy is 48.83% while free exact relation generation is 0%.
 Decision: `stop_v32_general_scaling_no_durable_loss_gain`. No checkpoint is
 written and the unseen suite is not run. The result closes fixed-21M data-only
 scaling and routes to architecture redesign.
+
+V34 uses the same maintained runner for a fresh 100,679,424-parameter capacity
+test: width 768, ten layers, twelve heads, context 72, batch 32, Muon 1e-3, and
+V31's 67,110,912-token two-source schedule. V31's checkpoint reproduces the
+common holdout but never initializes the larger candidate. Muon orthogonalizer
+shapes and three optimizer steps warm outside measurement; exact initial weights
+are restored, the optimizer is rebuilt, RNG is reset, and no warmup token is
+counted. Advancement requires at least 0.20 lower loss plus the existing
+gradient, parity, source, uniqueness, and strict-checkpoint audits. The stage is
+a stronger-cortex qualification, not a Transformer-successor claim.
+The disposable production-shape preflight compiles in 52.5 seconds, passes BF16
+parity at 0.00063, trains at 11.3k tokens/s, peaks at 3.32 GB, and reproduces the
+V31 holdout exactly. Its two-step loss and report are deleted as non-evidence.
 
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
