@@ -488,6 +488,104 @@ staging must be timed separately. A faster path is admitted only after numerical
 parity and a matched short quality trajectory; tokens per second cannot replace
 loss quality.
 
+### Frontier open-model audit: mechanisms, not borrowed cognition
+
+Kimi K3, the current open Qwen3.5/3.6 line, and DeepSeek V4 are useful here as
+large-scale evidence, not as MARULHO components. MARULHO will not load their
+weights, distill their outputs, call their APIs, or delegate cognition to them.
+Any surviving idea must be implemented locally, initialized independently, and
+beat the current MARULHO checkpoint under matched data, token, quality, memory,
+and wall-clock controls.
+
+The requested `Qwen 3.8` name is not supported by a current official open report
+or repository. The official public repository presently identifies Qwen3.6 and
+Qwen3.5, so this audit uses those inspectable releases rather than a possible API
+preview or informal name.
+
+#### What the independent frontier designs agree on
+
+- **Do not make one mixer solve every sequence problem.**
+  [Kimi K3](https://github.com/MoonshotAI/Kimi-K3) repeats three Kimi Delta
+  Attention layers followed by one global Gated MLA layer. The official
+  [Qwen3.6 configuration](https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json)
+  likewise repeats three Gated DeltaNet layers followed by one full-attention
+  layer. [DeepSeek V4](https://arxiv.org/abs/2606.19348) instead mixes two forms
+  of learned sequence-compressed attention, one sparse and one dense. The common
+  result is not "delta recurrence won" or "attention won"; it is that cheap
+  lossy mixing and expensive exact/global mixing have distinct jobs.
+- **Sparse width is paired with a dense/common path.** Kimi K3's LatentMoE sends
+  routed experts a half-width latent while two shared experts retain a full-width
+  path, activates 16 of 896 routed experts, normalizes the routed aggregate, and
+  balances dispatch without putting the balancing bias into mixture weights.
+  Qwen3.6-35B-A3B similarly exposes 256 routed experts, eight selected experts,
+  and one shared expert in its official configuration. This is materially
+  different from MARULHO's retired micro-model societies: the experts specialize
+  inside one shared representation rather than duplicating the language model.
+- **Depth is becoming addressable state.** Kimi K3 Attention Residuals retrieve
+  from learned block-level representations across depth. DeepSeek V4 mHC widens
+  the residual stream into a few channels and constrains their learned mixing to
+  a non-expansive doubly stochastic matrix. These are credible modern relatives
+  of the user's columns/small-units intuition, but the units are latent routes
+  inside one jointly trained cortex, not autonomous miniature LMs.
+- **Efficiency is trained and kernel-shaped, not inferred from operation
+  counts.** Kimi lower-bounds KDA decay so all 16-token tiles can use dense Tensor
+  Core matrix multiplication. Qwen provides fused Gated DeltaNet kernels.
+  DeepSeek compresses sequence entries before sparse selection and groups the
+  output projection. All three retain hardware-regular batches and specialized
+  dense kernels. This agrees with MARULHO's finding that irregular nominal
+  sparsity can be slower than dense execution on the RTX 3060.
+- **Batch size, learning rate, schedule, and model shape are coupled.** Kimi K3
+  independently retunes batch size and learning rate for each learning-rate
+  schedule and reports cosine beating WSD only after that retuning. DeepSeek V4
+  explicitly grows its token batch through training. Therefore MARULHO cannot
+  adopt the measured 8x larger batch as a speed switch while holding the old
+  optimizer-step semantics fixed; it needs a short token-matched learning-rate
+  screen.
+
+#### Immediate 3060 implications
+
+The highest-value near-term transfer is optimizer geometry, because profiling
+the exact V35R shape attributes roughly 57% of step time to the optimizer and
+shows that Newton--Schulz orthogonalization dominates that cost. Kimi K3 applies
+Muon independently to each attention-head projection rather than one coupled
+Q/K/V matrix; its report says this balances head update scales and slightly
+reduces optimizer overhead. This maps exactly onto MARULHO's combined
+`qkv.weight`, but changes learning geometry and therefore needs a loss-parity
+test, not just a timing benchmark. DeepSeek V4 also batches same-shaped Muon
+matrices and uses BF16 orthogonalization, both already present in MARULHO, which
+independently supports the current implementation choices.
+
+The next speed gate therefore compares the unchanged V35R optimizer with a
+MARULHO-owned per-head Q/K/V Muon path and evaluates larger physical batches with
+token-progress-aligned schedules. Every arm starts from the same V35R checkpoint,
+consumes the same ordered tokens, and is judged jointly on heldout loss,
+throughput, finite updates, and peak VRAM. A throughput win with worse loss is
+rejected.
+
+The frontier architectures suggest later, separate falsifiers rather than one
+large hybrid rewrite:
+
+1. test block-level attention residuals or a very small constrained residual
+   workspace before another new token mixer, because this adds alternative depth
+   paths without deleting exact token attention;
+2. test a shared-dense plus latent-routed FFN only after the baseline throughput
+   gate, with expert utilization, effective active parameters, and wall time
+   measured explicitly;
+3. revisit delta state only as a 3:1 hybrid with exact attention, bounded decay,
+   parallel chunk execution, and a long-context dependency that context-72
+   attention cannot already solve;
+4. defer compressed/sparse attention, KV quantization such as TurboQuant, and
+   million-token curricula until context length makes KV traffic a measured
+   bottleneck. They do not address today's context-72 training cost or grounding
+   failure.
+
+The reports also reinforce a negative conclusion: frontier quality still comes
+with enormous data, capacity, careful curation, and post-training. Their
+architecture choices can improve MARULHO's compute frontier, but none provides a
+shortcut from 201M local tokens to frontier knowledge. The scientific opportunity
+is a better quality-per-token and quality-per-second curve on consumer hardware,
+followed by continual adaptation that static frontier checkpoints do not offer.
+
 ### Post-V35 direction: spikes control semantic machinery, not semantic bandwidth
 
 Recent results strengthen the hybrid hypothesis but narrow its credible form.
