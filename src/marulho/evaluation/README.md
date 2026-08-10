@@ -856,6 +856,16 @@ anchoring remains 0/8. V35R therefore admits continual-learning and conditional-
 compute research from this checkpoint while memory grounding and runtime
 installation remain unqualified.
 
+V36 is the preregistered consumer-GPU throughput screen for that exact V35R
+state. Six arms consume the same 2,359,296 ordered tokens from the same frozen
+schedule: batch 32 versus physical batch 256, three batch-256 learning rates,
+and whole-QKV versus per-head Q/K/V Muon. Compile and optimizer warmup time are
+reported separately; every arm is reloaded from the same checkpoint tensors.
+A large-batch recipe advances only with at most 0.01 heldout-loss regression and
+at least 1.80 times measured training throughput. Per-head Muon has its own
+at-most-0.005 loss and at-least-1.03 speed gates. Faster but worse learning does
+not advance.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

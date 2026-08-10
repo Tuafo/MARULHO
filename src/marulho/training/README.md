@@ -307,6 +307,12 @@ reduces measured optimizer time from 117.02 to 104.91 ms/step. This is not yet a
 training-quality or end-to-end throughput result, so the default remains the
 unpartitioned V35R optimizer until the token-matched screen passes.
 
+V36 tests that path together with larger physical batches without changing the
+ordered data or total token budget. `run_matched_training_arm` can concatenate
+consecutive immutable schedule entries into one optimizer step while retaining
+source-microbatch accounting. The candidate recipe is research-only until its
+heldout loss and measured end-to-end throughput clear the preregistered gates.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

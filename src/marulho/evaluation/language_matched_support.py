@@ -91,6 +91,30 @@ class StagedSchedule:
         return selected.to(device)
 
 
+def grouped_staged_batch(
+    staged: StagedSchedule,
+    *,
+    start: int,
+    count: int,
+    device: torch.device | str,
+) -> LanguageBatch:
+    """Concatenate consecutive immutable schedule batches for one optimizer step."""
+
+    first = int(start)
+    size = int(count)
+    if size < 1:
+        raise ValueError("grouped staged batch count must be positive")
+    if first < 0 or first + size > int(staged.step_count):
+        raise IndexError("grouped staged batch range is out of bounds")
+    batches = [staged.batch(index, device) for index in range(first, first + size)]
+    if len(batches) == 1:
+        return batches[0]
+    return LanguageBatch(
+        input_ids=torch.cat([batch.input_ids for batch in batches], dim=0),
+        target_ids=torch.cat([batch.target_ids for batch in batches], dim=0),
+    )
+
+
 @dataclass(frozen=True)
 class PreparedMatchedLanguageData:
     tokenizer_checkpoint: Path
@@ -580,6 +604,7 @@ def run_matched_training_arm(
         | None
     ) = None,
     optimizer_warmup_steps: int = 0,
+    microbatches_per_optimizer_step: int = 1,
 ) -> dict[str, Any]:
     model.load_state_dict(dict(initial_state), strict=True)
     if configure_model is not None:
@@ -606,6 +631,13 @@ def run_matched_training_arm(
         return value, bool(value_report.get("fused", False)), value_report
 
     optimizer, fused, optimizer_report = build_optimizer()
+    microbatch_group = int(microbatches_per_optimizer_step)
+    if microbatch_group < 1:
+        raise ValueError("microbatches_per_optimizer_step must be positive")
+    if int(prepared.staged.step_count) % microbatch_group != 0:
+        raise ValueError(
+            "training schedule must divide evenly into optimizer-step microbatches"
+        )
     warmup_count = max(0, int(optimizer_warmup_steps))
     optimizer_warmup_seconds = 0.0
     if warmup_count:
@@ -613,7 +645,12 @@ def run_matched_training_arm(
             torch.cuda.synchronize(device)
         optimizer_warmup_started = time.perf_counter()
         model.train()
-        warm_batch = prepared.staged.batch(0, device)
+        warm_batch = grouped_staged_batch(
+            prepared.staged,
+            start=0,
+            count=microbatch_group,
+            device=device,
+        )
         for _ in range(warmup_count):
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(device, precision):
@@ -634,7 +671,8 @@ def run_matched_training_arm(
         torch.manual_seed(int(model_seed))
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(int(model_seed))
-    total_steps = int(prepared.staged.step_count)
+    total_microbatches = int(prepared.staged.step_count)
+    total_steps = total_microbatches // microbatch_group
     warmup_steps = int(
         round(total_steps * max(0.0, float(training_config.warmup_fraction)))
     )
@@ -661,7 +699,12 @@ def run_matched_training_arm(
             group["lr"] = learning_rate
         optimizer.zero_grad(set_to_none=True)
         with _precision_context(device, precision):
-            training_batch = prepared.staged.batch(step, device)
+            training_batch = grouped_staged_batch(
+                prepared.staged,
+                start=step * microbatch_group,
+                count=microbatch_group,
+                device=device,
+            )
             final_loss = training_loss(
                 training_batch.input_ids,
                 training_batch.target_ids,
@@ -727,7 +770,7 @@ def run_matched_training_arm(
         for value in sample_output["state"].values()
         if isinstance(value, torch.Tensor)
     )
-    processed = total_steps * int(prepared.staged.tokens_per_step)
+    processed = total_microbatches * int(prepared.staged.tokens_per_step)
     end_to_end = training_elapsed + float(allocated_compile_seconds)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
     return {
@@ -760,12 +803,15 @@ def run_matched_training_arm(
                 {
                     "step": trace_step,
                     "processed_tokens": trace_step
-                    * int(prepared.staged.tokens_per_step),
+                    * int(prepared.staged.tokens_per_step)
+                    * microbatch_group,
                     "training_batch_loss": float(value.cpu()),
                 }
                 for trace_step, value in trace_tensors
             ],
             "optimizer_step_count": total_steps,
+            "source_microbatch_count": total_microbatches,
+            "microbatches_per_optimizer_step": microbatch_group,
             "optimizer_step_seconds": training_elapsed,
             "tokens_per_second": processed / max(training_elapsed, 1.0e-9),
             "shared_architecture_compile_seconds_allocated": float(

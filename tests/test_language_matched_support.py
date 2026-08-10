@@ -4,6 +4,7 @@ import torch
 from marulho.evaluation.language_matched_support import (
     build_matched_schedule,
     full_sized_batches,
+    grouped_staged_batch,
     schedule_sha256,
     stage_schedule,
 )
@@ -130,3 +131,27 @@ def test_schedule_storage_mode_is_strict() -> None:
             device=torch.device("cpu"),
             mode="unknown",
         )
+
+
+def test_grouped_staged_batch_concatenates_consecutive_schedule_entries() -> None:
+    batches = tuple(
+        LanguageBatch(
+            torch.full((2, 4), value, dtype=torch.long),
+            torch.full((2, 4), value + 1, dtype=torch.long),
+        )
+        for value in (10, 20, 30)
+    )
+    staged = stage_schedule(
+        (("general_0", 0), ("general_0", 1), ("general_0", 2)),
+        relation_batches=(),
+        general_batches=(batches,),
+        device=torch.device("cpu"),
+        mode="indexed_host",
+    )
+    grouped = grouped_staged_batch(staged, start=1, count=2, device="cpu")
+    assert grouped.input_ids.shape == (4, 4)
+    assert grouped.target_ids.shape == (4, 4)
+    assert grouped.input_ids[:, 0].tolist() == [20, 20, 30, 30]
+    assert grouped.target_ids[:, 0].tolist() == [21, 21, 31, 31]
+    with pytest.raises(IndexError, match="out of bounds"):
+        grouped_staged_batch(staged, start=2, count=2, device="cpu")

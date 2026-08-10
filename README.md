@@ -168,6 +168,9 @@ positive controlled result—not a replacement for frontier Transformers.
 5. Profile and optimize the exact V35R training step on the RTX 3060 before the
    next expensive run. Adopt changes only with matched numerical and short-run
    quality evidence; unused VRAM or nominal kernel fusion is not a speed result.
+   V36 now freezes that screen at 2.36M identical ordered tokens: batch 32 versus
+   batch 256, retuned learning rates, and whole-QKV versus per-head Muon. Speed
+   advances only when heldout loss remains inside the frozen bound.
 6. Reopen exact episodic memory, online learning, consolidation, forgetting,
    active compute, and the sustained 524,288-token runtime ladder from V35R,
    without calling the still-unanchored generator runtime-qualified.
