@@ -272,28 +272,13 @@ does not seed candidate weights. V32 reaches loss 3.4983 versus V31's 3.6291,
 but the 0.1308 gain misses its frozen 0.20 gate. No V32 checkpoint exists; the
 fixed 21M training path does not receive another data-only scale point.
 
-**`language_editable_state_hybrid.py`** — owns the isolated V33 continuous
-candidate. Two bounded local-attention layers alternate with two editable
-matrix-state layers. The matrix state has separate key-channel decay and
-value-channel write gates, evaluates an exact diagonal-affine scan in parallel
-during training, and uses the identical constant-state recurrence for one-token
-decoding. Its 512-wide production shape exactly matches the Transformer's
-20,976,128 parameters by moving capacity from the matrix-layer MLPs into the
-state projections and gates; no padding or inactive parameter is used. The
-installed checkpoint loader does not accept this candidate. Its separate
-`marulho_editable_state_hybrid_language_checkpoint.v1` surface is strict and
-atomic but remains experiment-only; the falsifier writes it only after a durable
-heldout and execution win, then proves bit-exact state, tokenizer, tied-weight,
-metadata, and sample-logit restoration before unseen review.
-
-The first CUDA/Inductor machinery check is non-promotional. Full versus
-recurrent logits match in focused tests, every parameter receives a nonzero
-gradient, compiled/eager BF16 loss differs by less than 0.001, and a disposable
-real-data smoke with separated optimizer warmup retains about 88% of Transformer
-training throughput at about 1.41 times its peak allocation. No language-quality
-result or event-driven compute claim follows from this preflight. A learned event
-controller may be tested only after the fully active matrix branch demonstrates
-language utility; spikes are control signals, not the semantic representation.
+The V33 editable-state hybrid training path is deleted. Its exact parallel
+matrix recurrence, local-attention blocks, strict experimental checkpoint, and
+tests were mechanically valid, but the matched 16.78M-token result was dominated:
+loss 4.0056 versus Transformer 4.0082, 41.1k versus 54.3k tokens/s, and 1.030
+versus 0.733 GB peak CUDA allocation. The 0.0025 gain missed the frozen 0.02
+requirement, so no checkpoint or event controller was retained. The report and
+git history own the evidence; do not restore the path under a new name.
 
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.

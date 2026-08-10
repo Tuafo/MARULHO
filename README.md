@@ -45,11 +45,12 @@ There are six different levels of truth:
    201.32M-token point improves loss only to 3.4983, a +0.1308 gain that misses
    its frozen +0.20 gate. No checkpoint or unseen review survives; fixed 21M
    data scaling stops and the next branch changes architecture.
-6. **Architecture search:** V28's matched particle-field test is retired. Its
-   20.972M-parameter recurrent core was mechanically valid but substantially
-   worse than the 20.976M Transformer on heldout language and exact free
-   generation. No biological metaphor or many-small-units design is a project
-   requirement; the next candidate must earn its place by matched evidence.
+6. **Architecture search:** V28's particle field and V33's local-attention plus
+   editable matrix state are retired. V33 was a valid exact-parameter test and
+   nearly tied loss (4.0056 versus 4.0082), but its 0.0025 gain missed the 0.02
+   gate while retaining only 75.5% throughput and using 1.41 times peak memory.
+   No checkpoint or event-control phase survives. No biological metaphor or
+   many-small-units design is a requirement; every mechanism must earn its place.
 
 ```mermaid
 flowchart LR
@@ -137,18 +138,17 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Compare the V33 continuous editable-state/local-attention candidate with the
-   exact Transformer control under matched parameters, initialization intent,
-   tokenizer, unique data, Muon recipe, and token budget.
-2. Require heldout language improvement and better strict free generation
-   together; throughput, matrix activity, and a completed run cannot promote an
-   inferior language model.
-3. Only if the fully active state branch is useful, compare always-on,
-   fixed-budget, and learned delta-event controls around optional computation.
-   This is the SNN-inspired control plane; continuous vectors remain the
-   language representation.
-4. Save and strictly reload only a joint quality survivor, then re-run genuinely
-   unseen Base-Language Qualification.
+1. Treat V33 as closed evidence: replacing half the token Transformer with an
+   editable matrix state did not buy enough language quality, speed, or memory.
+2. Test a different SNN/deep-learning synthesis: keep a continuous token
+   Transformer as the semantic cortex, let causal integrate-and-fire events close
+   variable patches, run slower global Transformer computation on continuous
+   patch summaries, and feed only past summaries back to later tokens.
+3. Compare learned events with equal-rate uniform and random boundaries, and
+   compare the whole hierarchy with a total-parameter-matched dense Transformer.
+   A hierarchy win with no event win promotes hierarchy only, not an SNN claim.
+4. Require heldout improvement, viable execution, and genuinely unseen prose;
+   then save and strictly reload only the survivor.
 5. Only after base quality survives, reopen exact episodic memory, online
    learning, consolidation, forgetting, active compute, and the sustained
    524,288-token runtime ladder.

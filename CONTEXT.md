@@ -196,8 +196,7 @@ broken run. Decision: `stop_v32_general_scaling_no_durable_loss_gain`. No
 checkpoint or unseen review is admitted. Fixed 21M data scaling stops here; the
 next base experiment changes the computational architecture.
 
-**Editable-State Local-Attention v33 (mechanical preflight, uninstalled)** —
-V33 is the next isolated base candidate after V32. It alternates two bounded
+**Retired Editable-State Local-Attention v33** — V33 alternated two bounded
 local-attention layers with two continuous editable matrix-state layers. The
 state uses separate key-channel decay and value-channel write gates, an exact
 parallel diagonal-affine scan for training, and the equivalent recurrent update
@@ -205,14 +204,24 @@ for decoding. Its production shape contains exactly 20,976,128 useful
 parameters, equal to the Transformer without padding. Focused tests pass
 causality, full/recurrent agreement, bounded state, and nonzero gradients for
 every tensor; BF16 compiled/eager loss parity also passes. A local cached-graph
-Muon smoke with separated optimizer warmup retains about 88% of Transformer
-training throughput at about 1.41 times its peak allocation. This admits a
-matched language falsifier, not a quality claim. An isolated strict checkpoint
-surface is written and reload-audited only if the candidate wins the durable
-loss and execution screen; it does not change the installed loader.
-Event-driven/SNN-inspired
-control remains a later ablation around a useful continuous branch; it is not
-the language representation and is not enabled in V33.
+Muon preflight admitted the matched screen. At 16,777,728 identical update
+tokens, Transformer/V33 loss is 4.0082/4.0056: the 0.0025 candidate gain misses
+the frozen 0.02 requirement. V33 trains at 41.1k versus 54.3k tokens/s and uses
+1.030 versus 0.733 GB peak CUDA allocation. Parameter equality, bit-exact shared
+initialization, complete gradients, compiled/eager parity, source balance, and
+zero relation training all pass, so this is a valid negative. Decision:
+`retire_v33_editable_state_no_heldout_language_win`. No checkpoint or event
+controller survives; the model, runner, tests, and experimental checkpoint
+surface are deleted. The compact report retains the evidence.
+
+**Integrate-and-fire patch hierarchy v34 (hypothesis, not evidence)** — the next
+SNN/deep-learning synthesis does not replace continuous language representations.
+A token Transformer remains the semantic cortex. A causal membrane accumulates
+representation innovation and fires to close a variable-length patch; a slower
+Transformer operates on continuous patch summaries and can influence only later
+tokens. Equal-rate uniform and random boundaries distinguish hierarchy utility
+from event utility, and a total-parameter-matched dense Transformer remains the
+primary control. A hierarchy win without an event-boundary win is not an SNN win.
 
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus

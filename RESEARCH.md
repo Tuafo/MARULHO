@@ -329,34 +329,68 @@ An idea survives only when its behavior and cost survive matched falsification.
   gate after observing 0.1308 would be post-hoc. No checkpoint and no unseen
   review are admitted. The compact report remains as the third scaling point;
   rematerialized raw text is deleted because its manifests can reproduce it.
-- **Next branch:** redesign the fixed 21M core. The leading bet is a genuinely
-  current chunk-parallel editable-state/local-attention hybrid, compared against
-  V31 under matched parameters, tokens, initialization, optimizer, and data.
-  This is neither a defense of Transformers nor a return to small-unit
-  modularity.
+- **Next branch at that boundary:** redesign the fixed 21M core with a current
+  chunk-parallel editable-state/local-attention hybrid, compared against V31
+  under matched parameters, tokens, initialization, optimizer, and data.
 
-The V33 machinery now instantiates that bet without changing the installed
-runtime. It alternates two exact bounded local-attention layers with two
-continuous editable matrix-state layers. Training uses an exact parallel
-diagonal-affine scan rather than the retired token-by-token delta loop; decoding
-uses the equivalent recurrent update. Separate decay and write channels allow
+V33 instantiated that bet without changing the installed runtime. It alternated
+two exact bounded local-attention layers with two continuous editable
+matrix-state layers. Training used an exact parallel diagonal-affine scan rather
+than the retired token-by-token delta loop; decoding used the equivalent
+recurrent update. Separate decay and write channels allowed
 old addresses to fade without forcing the same gate to scale new values. The
-production candidate and Transformer each contain exactly 20,976,128 useful
+production candidate and Transformer each contained exactly 20,976,128 useful
 parameters. Causality, recurrent agreement, bounded state, complete nonzero
-gradients, and BF16 compiled/eager parity pass. A local cached-graph Muon smoke
-with separated optimizer warmup retains roughly 88% of Transformer training
+gradients, and BF16 compiled/eager parity passed. A local cached-graph Muon smoke
+with separated optimizer warmup retained roughly 88% of Transformer training
 throughput at roughly 1.41 times its peak allocation. These are execution facts,
-not evidence of better language. A strict isolated V33 artifact is saved and
-roundtrip-audited only after a durable loss/throughput win, so a survivor can
-proceed directly to unseen generation without retraining; this does not install
-the candidate.
+not evidence of better language. A strict isolated V33 artifact would have been
+saved and roundtrip-audited only after a durable loss/throughput win.
 
-The user's SNN/deep-learning synthesis becomes a second, conditional claim:
-continuous state carries language while learned events may later decide whether
-an optional expensive branch executes. V33 first tests the fully active branch.
-Only a useful branch earns always-on, fixed-budget, and learned delta-event
-controls. This avoids repeating the retired pure-spike core, surprise router,
-or a gate that saves nominal activity after dense work already happened.
+The user's SNN/deep-learning synthesis became a second, conditional claim:
+continuous state would carry language while learned events decided whether an
+optional expensive branch executed. V33 first tested the fully active branch.
+Only a useful branch was allowed to earn always-on, fixed-budget, and learned
+delta-event controls.
+
+### V33 result: editable state ties quality but loses the joint contest
+
+- **Valid matched run:** both 20,976,128-parameter arms process the same
+  16,777,728 general-only tokens in 7,282 steps. The 16,780,800 elements shared
+  by name and shape start bit-exact. Parameter delta is zero, every parameter
+  receives a final gradient, BF16 compiled/eager parity passes, and relation
+  training fraction is exactly zero.
+- **Result:** Transformer/V33 heldout loss is 4.0082/4.0056. The candidate gain
+  is only 0.0025 against the frozen 0.02 requirement. Candidate throughput is
+  41.1k versus 54.3k tokens/s (75.5%), and peak CUDA allocation is 1.030 versus
+  0.733 GB (1.41 times). Both free relation scores remain zero.
+- **Decision:** `retire_v33_editable_state_no_heldout_language_win`. This is not
+  a pure quality loss, but it is a dominated architecture: near-identical loss
+  with worse time and memory. No checkpoint or event-controller screen is
+  admitted. Live V33 model, falsifier, tests, and checkpoint surface are deleted.
+  The compact report is
+  `reports/language_scaling/v33-editable-state-falsification-16m-20260810.json`,
+  SHA-256 `3eb9ae16cc5c039c69b0a8a68bb4c743314f02ac463c441361cae954943b9082`.
+
+### V34 hypothesis: integrate-and-fire patch hierarchy
+
+The stronger SNN/Transformer synthesis keeps continuous vectors and attention
+as the language substrate. A causal scalar or low-rank membrane accumulates
+representation innovation. A firing event closes the current patch, emits a
+continuous summary to a slower global Transformer, resets the membrane, and
+allows only completed past summaries to affect later tokens. Spikes therefore
+choose *when scales communicate*; they do not encode words or replace gradients.
+
+The first falsifier needs four arms: a total-parameter-matched dense Transformer,
+the patch hierarchy with uniform boundaries, the same hierarchy with random
+equal-rate boundaries, and learned causal integrate-and-fire boundaries. All
+hierarchy arms share weights and patch count where possible. The null is that
+uniform/random boundaries match learned firing and the dense Transformer matches
+or beats the hierarchy. A hierarchy advantage without a learned-boundary
+advantage promotes multiscale computation only, not the SNN mechanism. Execution
+must report both dense training work and genuinely skipped global-token work;
+nominal masks around already-computed dense branches do not count as sparse
+compute.
 
 ### Other orthogonal branches
 
