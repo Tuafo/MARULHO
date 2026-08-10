@@ -9,6 +9,7 @@ from marulho.training.language_muon import (
     MarulhoMuon,
     build_language_muon,
     newton_schulz_zeroth_power,
+    warm_language_muon_orthogonalizer_shapes,
 )
 
 
@@ -118,4 +119,11 @@ def test_language_muon_rejects_overlapping_groups() -> None:
             muon_parameters=[parameter],
             adamw_parameters=[parameter],
             learning_rate=1.0e-3,
+        )
+
+
+def test_muon_orthogonalizer_warmup_requires_cuda() -> None:
+    with pytest.raises(ValueError, match="requires CUDA"):
+        warm_language_muon_orthogonalizer_shapes(
+            [(8, 8)], device=torch.device("cpu")
         )

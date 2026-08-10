@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+
 import torch
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_editable_state_hybrid import (
     MarulhoEditableStateHybridLanguageModel,
+    load_editable_state_hybrid_checkpoint,
+    save_editable_state_hybrid_checkpoint,
 )
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
@@ -67,6 +72,7 @@ def test_hybrid_is_causal_and_every_parameter_backpropagates() -> None:
     assert all(torch.isfinite(parameter.grad).all() for parameter in model.parameters())
     assert output["telemetry"]["state_core"] == "editable_state_local_attention_hybrid"
     assert output["telemetry"]["event_control_enabled"] is False
+    json.dumps(output["telemetry"])
 
 
 def test_hybrid_chunk_parallel_and_recurrent_decode_match() -> None:
@@ -109,3 +115,35 @@ def test_hybrid_runtime_state_is_bounded() -> None:
     assert step["telemetry"]["kv_cache_tokens"] == 8
     assert step["telemetry"]["matrix_state_elements"] == 2 * 4 * 4 * 8
 
+
+def test_hybrid_checkpoint_strictly_round_trips_weights_tokenizer_and_logits(
+    tmp_path,
+) -> None:
+    torch.manual_seed(23)
+    tokenizer = ByteLevelLanguageTokenizer()
+    model = _hybrid(vocab_size=tokenizer.vocab_size).eval()
+    prompt = torch.tensor(
+        [tokenizer.encode("MARULHO", add_eos=False)], dtype=torch.long
+    )
+    with torch.no_grad():
+        expected = model(prompt, collect_telemetry=False)["logits"]
+    path = save_editable_state_hybrid_checkpoint(
+        tmp_path / "editable-state.pt",
+        model,
+        tokenizer,
+        metadata={"decision_target": "unseen_generation_only"},
+    )
+
+    restored, restored_tokenizer, metadata = load_editable_state_hybrid_checkpoint(path)
+    restored.eval()
+    with torch.no_grad():
+        actual = restored(prompt, collect_telemetry=False)["logits"]
+
+    assert torch.equal(actual, expected)
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+    assert metadata == {"decision_target": "unseen_generation_only"}
+    assert restored.lm_head.weight.data_ptr() == restored.token_embedding.weight.data_ptr()
+    assert restored.local_attention_window == model.local_attention_window
+    assert tuple(restored.state_block.matrix_layer_indices) == tuple(
+        model.state_block.matrix_layer_indices
+    )

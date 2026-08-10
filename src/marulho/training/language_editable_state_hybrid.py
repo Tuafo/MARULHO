@@ -7,15 +7,28 @@ allowed to decide whether that state executes.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import math
+import os
+from pathlib import Path
 from typing import Any, Mapping, Sequence
+from uuid import uuid4
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
+)
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 from marulho.training.language_transformer import TransformerRMSNorm, _apply_rotary
+
+
+EDITABLE_STATE_HYBRID_CHECKPOINT_SURFACE = (
+    "marulho_editable_state_hybrid_language_checkpoint.v1"
+)
 
 
 class MarulhoLocalCausalAttention(nn.Module):
@@ -501,15 +514,21 @@ class MarulhoEditableStateHybridCore(nn.Module):
             "external_llm_used": False,
         }
         if diagnostic_rows and collect_telemetry:
-            telemetry["mean_decay"] = torch.stack(
-                [row["mean_decay"] for row in diagnostic_rows]
-            ).mean()
-            telemetry["mean_write"] = torch.stack(
-                [row["mean_write"] for row in diagnostic_rows]
-            ).mean()
-            telemetry["matrix_norm"] = torch.stack(
-                [row["matrix_norm"] for row in diagnostic_rows]
-            ).mean()
+            telemetry["mean_decay"] = float(
+                torch.stack([row["mean_decay"] for row in diagnostic_rows])
+                .mean()
+                .cpu()
+            )
+            telemetry["mean_write"] = float(
+                torch.stack([row["mean_write"] for row in diagnostic_rows])
+                .mean()
+                .cpu()
+            )
+            telemetry["matrix_norm"] = float(
+                torch.stack([row["matrix_norm"] for row in diagnostic_rows])
+                .mean()
+                .cpu()
+            )
         return hidden, next_state, telemetry
 
     def step(
@@ -592,3 +611,96 @@ class MarulhoEditableStateHybridLanguageModel(MarulhoLanguageModel):
                 "surface": "marulho_editable_state_hybrid_cross_entropy.v1",
             }
         return result
+
+
+def editable_state_hybrid_checkpoint_payload(
+    model: MarulhoEditableStateHybridLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the isolated, strict V33 artifact without changing runtime loading."""
+    if int(model.config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("editable-state checkpoint vocab must match its tokenizer")
+    return {
+        "artifact_kind": "marulho_editable_state_hybrid_language_checkpoint",
+        "surface": EDITABLE_STATE_HYBRID_CHECKPOINT_SURFACE,
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "loads_external_checkpoint": False,
+        "active_language_path": model.config.active_language_path,
+        "config": asdict(model.config),
+        "hybrid_config": {
+            "local_attention_window": int(model.local_attention_window),
+            "matrix_chunk_size": int(model.matrix_chunk_size),
+            "matrix_decay_scale": float(model.matrix_decay_scale),
+            "matrix_layer_indices": list(model.state_block.matrix_layer_indices),
+        },
+        "model_state": {
+            key: value.detach().cpu() for key, value in model.state_dict().items()
+        },
+        "tokenizer": tokenizer.state_dict(),
+        "tokenizer_hash": tokenizer.vocabulary_hash(),
+        "metadata": dict(metadata or {}),
+    }
+
+
+def save_editable_state_hybrid_checkpoint(
+    path: str | Path,
+    model: MarulhoEditableStateHybridLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any] | None = None,
+) -> Path:
+    """Atomically save an experimental V33 candidate artifact."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = editable_state_hybrid_checkpoint_payload(model, tokenizer, metadata)
+    temporary = output.with_name(f".{output.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
+def load_editable_state_hybrid_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device | None = None,
+) -> tuple[
+    MarulhoEditableStateHybridLanguageModel,
+    LanguageTokenizer,
+    dict[str, Any],
+]:
+    """Strictly load only the isolated V33 candidate surface."""
+    payload = torch.load(Path(path), map_location=map_location or "cpu")
+    if payload.get("surface") != EDITABLE_STATE_HYBRID_CHECKPOINT_SURFACE:
+        raise ValueError("rejected non-editable-state hybrid checkpoint")
+    if payload.get("owned_by_marulho") is not True:
+        raise ValueError("editable-state checkpoint must be MARULHO-owned")
+    if payload.get("external_llm_used") is not False:
+        raise ValueError("editable-state checkpoint cannot use an external LLM")
+    tokenizer = load_language_tokenizer_state(payload["tokenizer"])
+    if tokenizer.vocabulary_hash() != str(payload["tokenizer_hash"]):
+        raise ValueError("editable-state checkpoint tokenizer hash mismatch")
+    config = LanguageModelConfig(**dict(payload["config"]))
+    if int(config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("editable-state checkpoint vocab does not match tokenizer")
+    hybrid = dict(payload["hybrid_config"])
+    model = MarulhoEditableStateHybridLanguageModel(
+        config,
+        local_attention_window=int(hybrid["local_attention_window"]),
+        matrix_chunk_size=int(hybrid["matrix_chunk_size"]),
+        matrix_decay_scale=float(hybrid["matrix_decay_scale"]),
+        matrix_layer_indices=tuple(int(value) for value in hybrid["matrix_layer_indices"]),
+    )
+    model.load_state_dict(dict(payload["model_state"]), strict=True)
+    if bool(model.config.tie_embeddings) and (
+        model.lm_head.weight.data_ptr() != model.token_embedding.weight.data_ptr()
+    ):
+        raise ValueError("editable-state checkpoint failed tied-weight restoration")
+    return model, tokenizer, dict(payload.get("metadata") or {})

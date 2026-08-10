@@ -344,9 +344,12 @@ old addresses to fade without forcing the same gate to scale new values. The
 production candidate and Transformer each contain exactly 20,976,128 useful
 parameters. Causality, recurrent agreement, bounded state, complete nonzero
 gradients, and BF16 compiled/eager parity pass. A local cached-graph Muon smoke
-measures roughly 37.0k candidate versus 56.0k Transformer tokens/s and about
-0.96/0.50 GiB peak allocation. These are execution facts, not evidence of
-better language.
+with separated optimizer warmup retains roughly 88% of Transformer training
+throughput at roughly 1.41 times its peak allocation. These are execution facts,
+not evidence of better language. A strict isolated V33 artifact is saved and
+roundtrip-audited only after a durable loss/throughput win, so a survivor can
+proceed directly to unseen generation without retraining; this does not install
+the candidate.
 
 The user's SNN/deep-learning synthesis becomes a second, conditional claim:
 continuous state carries language while learned events may later decide whether

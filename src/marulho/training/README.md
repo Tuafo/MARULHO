@@ -280,16 +280,18 @@ during training, and uses the identical constant-state recurrence for one-token
 decoding. Its 512-wide production shape exactly matches the Transformer's
 20,976,128 parameters by moving capacity from the matrix-layer MLPs into the
 state projections and gates; no padding or inactive parameter is used. The
-installed checkpoint loader does not accept this candidate.
+installed checkpoint loader does not accept this candidate. Its separate
+`marulho_editable_state_hybrid_language_checkpoint.v1` surface is strict and
+atomic but remains experiment-only; the falsifier writes it only after a durable
+heldout and execution win, then proves bit-exact state, tokenizer, tied-weight,
+metadata, and sample-logit restoration before unseen review.
 
 The first CUDA/Inductor machinery check is non-promotional. Full versus
 recurrent logits match in focused tests, every parameter receives a nonzero
-gradient, compiled/eager BF16 loss differs by less than 0.001, and a cached
-30-step-style Muon measurement reaches about 37.0k training tokens/s versus
-56.0k for the exact Transformer control, at about 0.96 versus 0.50 GiB peak
-allocation. The initial full compile is materially slower than the Transformer
-and remains separately reportable. No language-quality result, checkpoint, or
-event-driven compute claim follows from this preflight. A learned event
+gradient, compiled/eager BF16 loss differs by less than 0.001, and a disposable
+real-data smoke with separated optimizer warmup retains about 88% of Transformer
+training throughput at about 1.41 times its peak allocation. No language-quality
+result or event-driven compute claim follows from this preflight. A learned event
 controller may be tested only after the fully active matrix branch demonstrates
 language utility; spikes are control signals, not the semantic representation.
 

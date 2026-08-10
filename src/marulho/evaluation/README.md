@@ -40,9 +40,25 @@ steps.
 **`language_matched_support.py`** — shared mechanics for replacement falsifiers:
 deterministic corpus range selection, full-batch filtering, mixed-source schedule
 construction, one-time device staging, optimizer/gradient accounting, heldout and
-label-safe relation evaluation, and optional post-arm diagnostics. Architecture
-decisions remain owned by the specific runner; this support cannot promote a
-model.
+label-safe relation evaluation, and optional post-arm diagnostics. An explicit
+optimizer warmup may compile optimizer kernels, then restores the exact initial
+weights, discards the warmed optimizer, rebuilds fresh state, resets RNG, and
+counts none of those tokens as training. Architecture decisions remain owned by
+the specific runner; this support cannot promote a model.
+
+**`language_editable_state_falsification.py`** — the V33 architecture screen.
+It compares the exact 20,976,128-parameter Transformer with the alternating
+local-attention/editable-matrix-state candidate on one source-balanced,
+general-only 16,777,216-token schedule. Every unchanged same-shape tensor is
+copied bit-exactly from the control; relation cases are metrics-only. Both arms
+use Muon 1e-3, compiled/eager parity, complete-gradient checks, separate
+optimizer warmup, heldout loss, throughput, and peak-memory accounting. The
+candidate needs at least 0.02 lower heldout loss and 25% of control throughput.
+Only a durable survivor is atomically saved through the isolated V33 checkpoint
+surface and strict-reloaded for bit-exact state, tokenizer, metadata, tied
+weights, and sample logits. This admits unseen generation only. Event control is
+disabled; it becomes a separate always-on/fixed-budget/learned-delta ablation
+only after the fully active continuous branch wins.
 
 **`language_geometry.py`** — generic read-only depth instrumentation for the
 Transformer and compatible candidates. It captures bounded hidden samples after

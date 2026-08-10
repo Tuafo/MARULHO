@@ -579,6 +579,7 @@ def run_matched_training_arm(
         ]
         | None
     ) = None,
+    optimizer_warmup_steps: int = 0,
 ) -> dict[str, Any]:
     model.load_state_dict(dict(initial_state), strict=True)
     if configure_model is not None:
@@ -587,21 +588,52 @@ def run_matched_training_arm(
     torch.manual_seed(int(model_seed))
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(model_seed))
-    if optimizer_builder is None:
-        optimizer, fused = _optimizer(model, training_config)
-        optimizer_report: Mapping[str, Any] = {
-            "kind": "adamw",
-            "fused": bool(fused),
-            "learning_rate": float(training_config.learning_rate),
-            "betas": [
-                float(training_config.adam_beta1),
-                float(training_config.adam_beta2),
-            ],
-            "weight_decay": float(training_config.weight_decay),
-        }
-    else:
-        optimizer, optimizer_report = optimizer_builder(model, training_config)
-        fused = bool(optimizer_report.get("fused", False))
+    def build_optimizer():
+        if optimizer_builder is None:
+            value, value_fused = _optimizer(model, training_config)
+            value_report: Mapping[str, Any] = {
+                "kind": "adamw",
+                "fused": bool(value_fused),
+                "learning_rate": float(training_config.learning_rate),
+                "betas": [
+                    float(training_config.adam_beta1),
+                    float(training_config.adam_beta2),
+                ],
+                "weight_decay": float(training_config.weight_decay),
+            }
+            return value, value_fused, value_report
+        value, value_report = optimizer_builder(model, training_config)
+        return value, bool(value_report.get("fused", False)), value_report
+
+    optimizer, fused, optimizer_report = build_optimizer()
+    warmup_count = max(0, int(optimizer_warmup_steps))
+    optimizer_warmup_seconds = 0.0
+    if warmup_count:
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        optimizer_warmup_started = time.perf_counter()
+        model.train()
+        warm_batch = prepared.staged.batch(0, device)
+        for _ in range(warmup_count):
+            optimizer.zero_grad(set_to_none=True)
+            with _precision_context(device, precision):
+                warm_loss = training_loss(
+                    warm_batch.input_ids,
+                    warm_batch.target_ids,
+                )
+            warm_loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), float(gradient_clip))
+            optimizer.step()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        optimizer_warmup_seconds = time.perf_counter() - optimizer_warmup_started
+        model.load_state_dict(dict(initial_state), strict=True)
+        model.zero_grad(set_to_none=True)
+        del optimizer
+        optimizer, fused, optimizer_report = build_optimizer()
+        torch.manual_seed(int(model_seed))
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(int(model_seed))
     total_steps = int(prepared.staged.step_count)
     warmup_steps = int(
         round(total_steps * max(0.0, float(training_config.warmup_fraction)))
@@ -712,6 +744,14 @@ def run_matched_training_arm(
         "optimizer": dict(optimizer_report),
         "optimizer_state_bytes": optimizer_state_bytes,
         "optimizer_state_fresh_for_arm": True,
+        "optimizer_warmup": {
+            "performed": warmup_count > 0,
+            "step_count": warmup_count,
+            "elapsed_seconds": optimizer_warmup_seconds,
+            "weights_restored_after_warmup": warmup_count > 0,
+            "optimizer_rebuilt_after_warmup": warmup_count > 0,
+            "tokens_counted_as_training": False,
+        },
         "initial_weights_restored_for_arm": True,
         "processed_tokens": processed,
         "training": {

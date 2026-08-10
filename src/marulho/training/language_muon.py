@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+import time
 from typing import Any, Iterable, Mapping
 
 import torch
@@ -251,4 +252,47 @@ def build_language_muon(
         "paper": MUON_PAPER_URL,
         "reference_implementation": MUON_REFERENCE_URL,
         "external_weights_loaded": False,
+    }
+
+
+def warm_language_muon_orthogonalizer_shapes(
+    shapes: Iterable[tuple[int, ...]],
+    *,
+    device: torch.device,
+) -> Mapping[str, Any]:
+    """Compile Muon's dynamic orthogonalizer outside measured training steps."""
+
+    normalized: set[tuple[int, int, int]] = set()
+    for shape in shapes:
+        if len(shape) == 2:
+            rows, columns = shape
+            batch = 1
+        elif len(shape) == 3:
+            batch, rows, columns = shape
+        else:
+            raise ValueError("Muon warmup shapes must be [rows, columns] or [batch, rows, columns]")
+        normalized.add((int(batch), int(rows), int(columns)))
+    unique_shapes = tuple(sorted(normalized))
+    if device.type != "cuda":
+        raise ValueError("Muon orthogonalizer warmup requires CUDA")
+    if not unique_shapes:
+        raise ValueError("Muon orthogonalizer warmup requires matrix shapes")
+    torch.cuda.synchronize(device)
+    started = time.perf_counter()
+    with torch.no_grad():
+        for batch, rows, columns in unique_shapes:
+            probe = torch.zeros(
+                batch, rows, columns, device=device, dtype=torch.bfloat16
+            )
+            result = _compiled_newton_schulz5(probe)
+            if not bool(torch.isfinite(result).all().item()):
+                raise RuntimeError("Muon orthogonalizer warmup produced non-finite output")
+    torch.cuda.synchronize(device)
+    return {
+        "surface": "marulho_muon_orthogonalizer_warmup.v1",
+        "dynamic_shapes": True,
+        "stacked_matrix_shapes": [list(shape) for shape in unique_shapes],
+        "shape_count": len(unique_shapes),
+        "elapsed_seconds": time.perf_counter() - started,
+        "included_in_arm_training_seconds": False,
     }

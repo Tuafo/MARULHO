@@ -205,9 +205,12 @@ for decoding. Its production shape contains exactly 20,976,128 useful
 parameters, equal to the Transformer without padding. Focused tests pass
 causality, full/recurrent agreement, bounded state, and nonzero gradients for
 every tensor; BF16 compiled/eager loss parity also passes. A local cached-graph
-Muon smoke measures about 37.0k candidate versus 56.0k Transformer training
-tokens/s and about 0.96 versus 0.50 GiB peak allocation. This admits a matched
-language falsifier, not a checkpoint or quality claim. Event-driven/SNN-inspired
+Muon smoke with separated optimizer warmup retains about 88% of Transformer
+training throughput at about 1.41 times its peak allocation. This admits a
+matched language falsifier, not a quality claim. An isolated strict checkpoint
+surface is written and reload-audited only if the candidate wins the durable
+loss and execution screen; it does not change the installed loader.
+Event-driven/SNN-inspired
 control remains a later ablation around a useful continuous branch; it is not
 the language representation and is not enabled in V33.
 
