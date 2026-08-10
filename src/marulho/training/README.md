@@ -283,6 +283,12 @@ The full shape is locally feasible: a disposable Inductor preflight passes
 compiled/eager BF16 parity, trains at 11.3k tokens/s, and peaks at 3.32 GB on the
 RTX 3060. Those two steps carry no quality meaning and are not retained.
 
+The durable V34 state reaches heldout loss 3.3902 after 67.11M unique updates,
+passes its +0.20 gate over V31, and strict-reloads from a 428.1 MB checkpoint.
+It produces substantially more coherent unseen prose but remains 0/8 grounded.
+V35 continues this exact model on three non-overlapping shards with fresh Muon
+state at 3e-4; optimizer state is deliberately not claimed to resume.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

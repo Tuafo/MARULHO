@@ -214,7 +214,7 @@ zero relation training all pass, so this is a valid negative. Decision:
 controller survives; the model, runner, tests, and experimental checkpoint
 surface are deleted. The compact report retains the evidence.
 
-**Capacity Scaling v34 (active hypothesis, uninstalled)** — repeated 21M mixer
+**Capacity Scaling v34 (likelihood-qualified, generation-blocked)** — repeated 21M mixer
 swaps now have enough negative evidence that another tiny exotic core is a poor
 use of the 3060. V34 instead asks whether the existing local pipeline can train a
 materially stronger continuous semantic cortex. The preregistered model has
@@ -223,11 +223,29 @@ the same 8,192-token BPE, context 72, Muon 1e-3 recipe, source-balanced 67.11M
 unique-token schedule, and common holdout as V31. V31 is evaluation-only and
 does not initialize V34. Advancement requires at least 0.20 lower heldout loss,
 complete gradients, compiled/eager parity, source/uniqueness audits, and exact
-checkpoint reload before unseen generation. This is substrate qualification,
-not a claim that scaling Transformers is MARULHO's final architecture. A
+checkpoint reload before unseen generation. The valid run processes exactly
+67,110,912 unique tokens and reaches loss/perplexity 3.3902/29.67 versus V31's
+3.6291/37.68, a 0.2389 gain. It sustains 11.14k tokens/s, peaks at 3.319 GB CUDA,
+gives every parameter a final gradient, and strict-reloads its 428.1 MB checkpoint
+bit-exactly. Decision: `save_v34_capacity_scaling_100m_for_unseen_generation`.
+
+Fresh FineWeb/Cosmopedia review improves source loss to 4.0012/3.2831 and produces
+readable multi-sentence English, but remains 0/8 anchored. Controlled decoding
+raises Cosmopedia distinct-bigram fraction 0.817 to 0.952 without grounding.
+Scientific branch: `retain_v34_capacity_checkpoint_continue_unique_data_not_base_quality`.
+This is substrate progress, not a claim that scaling Transformers is MARULHO's
+final architecture. The earlier
 disposable full-shape CUDA preflight compiles in 52.5 seconds, passes BF16 parity
 at 0.00063, trains at 11.3k tokens/s, and peaks at 3.32 GB; its two-step quality
 values and report are deleted.
+
+**Capacity Continuation v35 (preregistered, uninstalled)** — V35 strict-loads
+V34 and adds 134,219,520 tokens from exactly three hash-pinned shards absent from V34:
+FineWeb-Edu train shard 0 and Cosmopedia train shards 1 and 3. Cumulative updates
+become 201,330,432 tokens. Muon state is fresh, peak learning rate is reduced to 3e-4,
+and the parent model state must match bit-exactly before training. Advancement
+requires another 0.15 heldout-loss gain plus the existing parity, gradient,
+unique-source, checkpoint, and unseen-generation contracts.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

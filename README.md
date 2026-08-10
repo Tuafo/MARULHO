@@ -43,8 +43,12 @@ There are six different levels of truth:
    cases, generic, and factually unstable, so the checkpoint is retained for a
    larger data curve rather than installed as a qualified base. V32's fresh
    201.32M-token point improves loss only to 3.4983, a +0.1308 gain that misses
-   its frozen +0.20 gate. No checkpoint or unseen review survives; fixed 21M
-   data scaling stops and the next branch changes architecture.
+   its frozen +0.20 gate. V34 then expands the same general recipe to a fresh
+   100.68M-parameter Transformer. At the same 67.11M-token budget it reaches
+   loss/perplexity 3.3902/29.67 versus V31's 3.6291/37.68, passing its +0.20
+   gate with exact checkpoint reload. Unseen prose is clearly more grammatical
+   and multi-sentence, but remains generic and 0/8 source-anchored; the checkpoint
+   is retained for a new-data continuation, not installed.
 6. **Architecture search:** V28's particle field and V33's local-attention plus
    editable matrix state are retired. V33 was a valid exact-parameter test and
    nearly tied loss (4.0056 versus 4.0082), but its 0.0025 gain missed the 0.02
@@ -140,14 +144,12 @@ positive controlled result—not a replacement for frontier Transformers.
 
 1. Treat V33 as closed evidence: replacing half the token Transformer with an
    editable matrix state did not buy enough language quality, speed, or memory.
-2. Stop rotating exotic mixers at 21M. V34 trains a fresh 100,679,424-parameter
-   dense continuous cortex locally: width 768, ten Transformer layers, twelve
-   heads, the same BPE/context-72/Muon recipe, and the same 67.11M unique-token
-   schedule as V31. It must improve heldout loss by at least 0.20.
-3. Save/reload and review genuinely unseen prose only if that capacity jump wins.
-   This does not claim that a larger Transformer is MARULHO's final architecture;
-   it tests whether the local pipeline can build a semantic substrate worth
-   augmenting.
+2. Retain V34 as the first local 100.68M cortex: its +0.2389 heldout gain and
+   coherent prose validate the capacity jump, while 0/8 source grounding blocks
+   base/runtime qualification.
+3. Continue that exact checkpoint in V35 on three preregistered shards absent
+   from V34, adding 134.22M tokens for 201.33M cumulative updates. Require at
+   least another 0.15 heldout gain and exact reload before repeating unseen prose.
 4. Keep dynamic byte hierarchies as a later scale-aware direction. Published
    H-Net evidence begins around 680M parameters and tens of billions of bytes,
    so a 21M imitation is not the next credible 3060 experiment.

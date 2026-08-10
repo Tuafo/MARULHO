@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from marulho.evaluation.language_general_scaling import (
     ADVANCE_DECISION,
     INVALID_DECISION,
@@ -8,6 +10,7 @@ from marulho.evaluation.language_general_scaling import (
     V31_STAGE,
     V32_STAGE,
     V34_STAGE,
+    V35_STAGE,
     _schedule_uniqueness,
     _source_coverage_audit,
     _split_coverage_audit,
@@ -53,6 +56,52 @@ def test_v34_is_a_preregistered_100m_capacity_jump_not_an_initial_state_match() 
     assert model.config.active_language_path == "marulho_transformer_v34_general72_100m"
     assert V34_STAGE.require_initial_state_match is False
     assert V34_STAGE.minimum_loss_gain == 0.20
+
+
+def test_v35_continues_the_100m_checkpoint_on_new_tokens() -> None:
+    config = GeneralScalingConfig(
+        width=V35_STAGE.model_width,
+        layers=V35_STAGE.model_layers,
+        heads=V35_STAGE.model_heads,
+    )
+    model = build_model(vocab_size=8192, config=config, stage=V35_STAGE)
+    assert sum(parameter.numel() for parameter in model.parameters()) == 100_679_424
+    assert V35_STAGE.initialization_mode == "baseline_checkpoint"
+    assert V35_STAGE.parent_processed_tokens == 67_110_912
+    assert V35_STAGE.token_budget == 134_219_520
+    assert V35_STAGE.parent_processed_tokens + V35_STAGE.token_budget == 201_330_432
+    assert V35_STAGE.learning_rate == 3.0e-4
+    assert V35_STAGE.minimum_loss_gain == 0.15
+    assert set(dict(V35_STAGE.required_training_sources)) == {
+        "fineweb-edu-train-75k-shard0-20260710.txt",
+        "cosmopedia-v2-train-150k-shard1-20260710.txt",
+        "cosmopedia-v2-train-75k-shard3-20260710.txt",
+    }
+    assert all(
+        len(sha256) == 64
+        for sha256 in dict(V35_STAGE.required_training_sources).values()
+    )
+
+
+def test_v35_baseline_contract_accepts_only_the_v34_survivor() -> None:
+    report = {
+        "artifact_kind": "marulho_general_scaling",
+        "decision": "save_v34_capacity_scaling_100m_for_unseen_generation",
+        "candidate": {"heldout": {"heldout_loss": 3.39018}},
+        "schedule": {"processed_tokens": 67_110_912},
+    }
+    assert _validate_baseline(report, stage=V35_STAGE) == (3.39018, None)
+
+
+def test_v35_baseline_contract_rejects_the_wrong_parent_token_count() -> None:
+    report = {
+        "artifact_kind": "marulho_general_scaling",
+        "decision": "save_v34_capacity_scaling_100m_for_unseen_generation",
+        "candidate": {"heldout": {"heldout_loss": 3.39018}},
+        "schedule": {"processed_tokens": 67_110_911},
+    }
+    with pytest.raises(ValueError, match="baseline report token count is invalid"):
+        _validate_baseline(report, stage=V35_STAGE)
 
 
 def test_v31_decision_requires_loss_unique_data_gradients_and_fidelity() -> None:

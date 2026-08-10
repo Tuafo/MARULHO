@@ -56,7 +56,7 @@ class GeneralScalingStage:
     required_baseline_decision: str
     required_selected_arm: str | None
     baseline_loss_path: tuple[str, ...]
-    baseline_initial_hash_path: tuple[str, ...]
+    baseline_initial_hash_path: tuple[str, ...] | None
     token_budget: int
     train_sample_bytes: int
     minimum_loss_gain: float
@@ -69,6 +69,10 @@ class GeneralScalingStage:
     model_heads: int = 8
     require_initial_state_match: bool = True
     architecture: str = "causal_transformer_general_first"
+    initialization_mode: str = "fresh_seed"
+    parent_processed_tokens: int = 0
+    learning_rate: float = 1.0e-3
+    required_training_sources: tuple[tuple[str, str], ...] = ()
 
 
 V31_STAGE = GeneralScalingStage(
@@ -147,7 +151,51 @@ V34_STAGE = GeneralScalingStage(
 )
 
 
-STAGES = {stage.name: stage for stage in (V31_STAGE, V32_STAGE, V34_STAGE)}
+V35_STAGE = GeneralScalingStage(
+    name="v35",
+    candidate_name="general72_100m_201m",
+    progress_prefix="capacity-continuation-v35",
+    active_language_path="marulho_transformer_v35_general72_100m_201m",
+    required_baseline_artifact_kind=ARTIFACT_KIND,
+    required_baseline_decision=V34_STAGE.advance_decision,
+    required_selected_arm=None,
+    baseline_loss_path=("candidate", "heldout", "heldout_loss"),
+    baseline_initial_hash_path=None,
+    token_budget=134_219_520,
+    train_sample_bytes=512 * 1024 * 1024,
+    minimum_loss_gain=0.15,
+    advance_decision="save_v35_capacity_continuation_201m_for_unseen_generation",
+    stop_decision="stop_v35_capacity_continuation_no_durable_loss_gain",
+    invalid_decision="invalid_v35_capacity_continuation_evidence",
+    report_title="MARULHO V35 Capacity Continuation",
+    model_width=768,
+    model_layers=10,
+    model_heads=12,
+    require_initial_state_match=True,
+    architecture="causal_transformer_capacity_continuation",
+    initialization_mode="baseline_checkpoint",
+    parent_processed_tokens=67_110_912,
+    learning_rate=3.0e-4,
+    required_training_sources=(
+        (
+            "fineweb-edu-train-75k-shard0-20260710.txt",
+            "75f07f85c15c971e1d6eeba623c3f8e20d794e81b9c356ad6fadff2366c99434",
+        ),
+        (
+            "cosmopedia-v2-train-150k-shard1-20260710.txt",
+            "c4c846e1d08965c2c3f0e615b67d5b23554965e9222eb72bbb9ecaa4d7199b65",
+        ),
+        (
+            "cosmopedia-v2-train-75k-shard3-20260710.txt",
+            "3a135b5f9c8386ca2edd7c18deefec82cafc6e5922691324428d050158d6da51",
+        ),
+    ),
+)
+
+
+STAGES = {
+    stage.name: stage for stage in (V31_STAGE, V32_STAGE, V34_STAGE, V35_STAGE)
+}
 ADVANCE_DECISION = V31_STAGE.advance_decision
 STOP_DECISION = V31_STAGE.stop_decision
 INVALID_DECISION = V31_STAGE.invalid_decision
@@ -273,7 +321,7 @@ def _validate_baseline(
     report: Mapping[str, Any],
     *,
     stage: GeneralScalingStage,
-) -> tuple[float, str]:
+) -> tuple[float, str | None]:
     if report.get("artifact_kind") != stage.required_baseline_artifact_kind:
         raise ValueError(f"{stage.name} baseline artifact kind is invalid")
     if report.get("decision") != stage.required_baseline_decision:
@@ -284,10 +332,16 @@ def _validate_baseline(
             "selected_arm"
         ) != stage.required_selected_arm:
             raise ValueError(f"{stage.name} baseline arm is invalid")
-    return (
-        float(_nested_value(report, stage.baseline_loss_path)),
-        str(_nested_value(report, stage.baseline_initial_hash_path)),
+    initial_hash = (
+        None
+        if stage.baseline_initial_hash_path is None
+        else str(_nested_value(report, stage.baseline_initial_hash_path))
     )
+    if int(stage.parent_processed_tokens) > 0 and int(
+        _nested_value(report, ("schedule", "processed_tokens"))
+    ) != int(stage.parent_processed_tokens):
+        raise ValueError(f"{stage.name} baseline report token count is invalid")
+    return float(_nested_value(report, stage.baseline_loss_path)), initial_hash
 
 
 def _schedule_uniqueness(schedule: Sequence[tuple[str, int]]) -> dict[str, Any]:
@@ -406,6 +460,23 @@ def run_general_scaling(
     resolved = _resolve_device(device)
     if resolved.type != "cuda":
         raise ValueError(f"{stage.name} general scaling requires CUDA")
+    requested_training_sources = {
+        Path(value).name: Path(value) for value in general_train_paths
+    }
+    required_training_sources = dict(stage.required_training_sources)
+    if required_training_sources:
+        if (
+            set(requested_training_sources) != set(required_training_sources)
+            or len(tuple(general_train_paths)) != len(required_training_sources)
+        ):
+            raise ValueError(
+                f"{stage.name} requires its preregistered non-overlapping training sources"
+            )
+        for source_name, expected_sha256 in required_training_sources.items():
+            if sha256_file(requested_training_sources[source_name]) != expected_sha256:
+                raise ValueError(
+                    f"{stage.name} training source hash differs for {source_name}"
+                )
     baseline_checkpoint = Path(baseline_checkpoint_path)
     baseline_report_file = Path(baseline_report_path)
     baseline_report = json.loads(baseline_report_file.read_text(encoding="utf-8"))
@@ -419,6 +490,13 @@ def run_general_scaling(
     baseline_model, baseline_tokenizer, baseline_metadata = (
         load_language_model_checkpoint(baseline_checkpoint, map_location="cpu")
     )
+    if int(stage.parent_processed_tokens) > 0:
+        if int(baseline_metadata.get("processed_tokens", -1)) != int(
+            stage.parent_processed_tokens
+        ):
+            raise ValueError(f"{stage.name} baseline checkpoint token count is invalid")
+        if str(baseline_metadata.get("decision")) != stage.required_baseline_decision:
+            raise ValueError(f"{stage.name} baseline checkpoint decision is invalid")
     v30_config = _v30_config(config)
     prepared = _prepare_data(
         tokenizer_checkpoint_path=baseline_checkpoint,
@@ -450,10 +528,7 @@ def run_general_scaling(
         raise ValueError(
             f"{stage.name} common holdout does not reproduce its baseline loss"
         )
-    del baseline_model
-    torch.cuda.empty_cache()
-    gc.collect()
-
+    baseline_checkpoint_state_hash = model_state_sha256(baseline_model)
     torch.manual_seed(int(config.model_seed))
     torch.cuda.manual_seed_all(int(config.model_seed))
     model = build_model(
@@ -461,9 +536,20 @@ def run_general_scaling(
         config=config,
         stage=stage,
     ).to(resolved)
+    if str(stage.initialization_mode) == "baseline_checkpoint":
+        model.load_state_dict(baseline_model.state_dict(), strict=True)
+        expected_candidate_initial_hash = baseline_checkpoint_state_hash
+    elif str(stage.initialization_mode) == "fresh_seed":
+        expected_candidate_initial_hash = expected_initial_hash
+    else:
+        raise ValueError(f"unknown {stage.name} initialization mode")
+    del baseline_model
+    torch.cuda.empty_cache()
+    gc.collect()
     initial_state_hash = model_state_sha256(model)
     if bool(stage.require_initial_state_match) and (
-        initial_state_hash != expected_initial_hash
+        expected_candidate_initial_hash is None
+        or initial_state_hash != expected_candidate_initial_hash
     ):
         raise ValueError(f"{stage.name} initial state differs from its baseline")
     initial_state = {
@@ -581,6 +667,8 @@ def run_general_scaling(
                 "decision": stage.advance_decision,
                 "checkpoint_reproduction": True,
                 "processed_tokens": int(row["processed_tokens"]),
+                "cumulative_processed_tokens": int(stage.parent_processed_tokens)
+                + int(row["processed_tokens"]),
                 "heldout_loss": float(row["heldout"]["heldout_loss"]),
                 "free_relation_accuracy": float(
                     row["relation"]["generation_exact_accuracy"]
@@ -638,15 +726,20 @@ def run_general_scaling(
         },
         "initial_state": {
             "sha256": initial_state_hash,
-            "matches_baseline": initial_state_hash == expected_initial_hash,
+            "matches_baseline": initial_state_hash
+            == expected_candidate_initial_hash,
             "match_required": bool(stage.require_initial_state_match),
-            "baseline_sha256": expected_initial_hash,
+            "baseline_sha256": expected_candidate_initial_hash,
+            "initialization_mode": str(stage.initialization_mode),
         },
         "schedule": {
             "sha256": prepared.schedule_sha256,
             "step_count": int(prepared.staged.step_count),
             "tokens_per_step": int(prepared.staged.tokens_per_step),
             "processed_tokens": int(row["processed_tokens"]),
+            "parent_processed_tokens": int(stage.parent_processed_tokens),
+            "cumulative_processed_tokens": int(stage.parent_processed_tokens)
+            + int(row["processed_tokens"]),
             "source_selections": prepared.source_selections,
             "uniqueness": schedule_uniqueness,
             "schedule_covers_every_prepared_general_batch": (
@@ -752,6 +845,7 @@ def main() -> int:
             width=int(stage.model_width),
             layers=int(stage.model_layers),
             heads=int(stage.model_heads),
+            learning_rate=float(stage.learning_rate),
         ),
         stage=stage,
         device=args.device,

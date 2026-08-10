@@ -827,6 +827,19 @@ The disposable production-shape preflight compiles in 52.5 seconds, passes BF16
 parity at 0.00063, trains at 11.3k tokens/s, peaks at 3.32 GB, and reproduces the
 V31 holdout exactly. Its two-step loss and report are deleted as non-evidence.
 
+The durable V34 run processes 67,110,912 unique tokens and reaches loss 3.3902
+versus V31 3.6291, passing the 0.20 gate by 0.0389. It sustains 11.14k tokens/s,
+peaks at 3.319 GB, and saves a 428.1 MB strict checkpoint with exact fidelity.
+FineWeb/Cosmopedia source loss improves to 4.0012/3.2831 and prose is more
+coherent, but anchored generation remains 0/8. The checkpoint is retained for
+V35, not installed.
+
+The V35 stage requires the V34 advancing report/checkpoint and initializes the
+same 100,679,424-parameter shape from that strict state. It rejects any training
+source list or content hashes except FineWeb shard 0 and Cosmopedia shards 1/3, which do not overlap
+V34. It adds 134,219,520 tokens, records 201,330,432 cumulative updates, uses a
+fresh Muon optimizer at 3e-4, and requires another 0.15 loss gain before saving.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

@@ -383,7 +383,7 @@ schedule, and common holdout. V31 remains evaluation-only. The larger state is
 randomly initialized from the same seed policy but cannot share an initial tensor
 hash with a different shape.
 
-The null is that five times more parameters at the same data budget are too
+The null was that five times more parameters at the same data budget were too
 undertrained or too inefficient to improve local language enough. Advancement
 requires at least 0.20 lower heldout loss than V31's reproduced 3.6291, complete
 gradients, compiled/eager parity, full source/unique-schedule audits, and strict
@@ -399,6 +399,39 @@ Muon shape warmup and three optimizer warm steps are excluded from measurement;
 weights, optimizer, and RNG are reset before counted updates. V31 holdout loss
 reproduces exactly. The smoke establishes feasibility only; its candidate loss
 and report are deleted.
+
+### V34 result: capacity produces the first clearly stronger local cortex
+
+- **Valid run:** the fresh 100,679,424-parameter model consumes V31's exact
+  67,110,912-token unique schedule in 29,128 steps. V31 holdout reproduces
+  exactly; source coverage, schedule uniqueness, complete gradients, and BF16
+  parity at 0.000414 all pass.
+- **Likelihood result:** V31/V34 loss is 3.6291/3.3902 and perplexity is
+  37.68/29.67. The +0.2389 gain passes the frozen +0.20 gate. Training sustains
+  11.14k tokens/s and peaks at 3.319 GB CUDA. The strict 428,148,134-byte
+  checkpoint reloads tensors, tied weights, tokenizer, config, and sample logits
+  bit-exactly.
+- **Unseen result:** FineWeb-Edu/Cosmopedia source loss improves to
+  4.0012/3.2831. Greedy output is grammatical and multi-sentence but generic,
+  repetitive, and 0/8 anchored. Repetition controls improve Cosmopedia
+  distinct-bigram fraction 0.817 to 0.952 but do not change grounding.
+- **Decision:** `retain_v34_capacity_checkpoint_continue_unique_data_not_base_quality`.
+  This is the strongest base progress so far, not Base-Language Qualification.
+  Training report SHA-256 is
+  `8d623cee476b35f3f8e19168838417f748ab2610b3df69625d6eaa5f5021b5e6`;
+  checkpoint SHA-256 is
+  `69ce5856b8b34d8579d034375c4e1206501c6a4e44b81ff4bee951437636c79c`.
+
+### V35 hypothesis: continue the survivor on non-overlapping data
+
+V35 starts from the strict V34 checkpoint rather than discarding a successful
+trajectory. It admits exactly three new training files excluded from V34:
+FineWeb-Edu train shard 0, Cosmopedia 150k shard 1, and Cosmopedia 75k shard 3.
+The phase adds 134,219,520 tokens for 201,330,432 cumulative updates. It rebuilds
+fresh Muon state with a 3e-4 peak and warmup; the parent checkpoint state must
+load bit-exactly before any update. The null is that V34's improvement was mostly
+capacity-at-fixed-data and additional data yields less than 0.15 loss gain.
+Only a pass writes a new checkpoint and repeats the unchanged unseen suite.
 
 ### Other orthogonal branches
 
