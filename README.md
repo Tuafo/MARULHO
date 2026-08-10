@@ -172,8 +172,12 @@ positive controlled result—not a replacement for frontier Transformers.
    Per-head Muon is useful at batch 32 but does not justify replacing whole-QKV
    Muon at the advancing batch size.
 6. Reopen exact episodic memory, online learning, consolidation, forgetting,
-   active compute, and the sustained 524,288-token runtime ladder from V35R,
-   without calling the still-unanchored generator runtime-qualified.
+   active compute, and the sustained 524,288-token runtime ladder from V35R.
+   V37 first tests a 45-parameter, identity-initialized depth assembly that lets
+   blocks selectively reuse earlier representations. It must improve heldout
+   loss by at least 0.02 at matched tokens while retaining 90% throughput before
+   any checkpoint integration. Do not call the still-unanchored generator
+   runtime-qualified.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

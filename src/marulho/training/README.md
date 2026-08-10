@@ -319,6 +319,13 @@ unchanged 3e-4 learning rate: 25.07k versus 11.08k tokens/s and heldout loss
 but at batch 256 its same-rate gain is only 1.76% with slightly worse loss. It
 remains an opt-in measured path, not the next durable default.
 
+**`language_depth_assembly.py`** — the V37 research candidate reuses the exact
+V35R attention and MLP blocks but adds a triangular set of bounded depth
+corrections. Every route is zero-initialized, so the candidate is bit-exact to
+the ordinary residual chain before training in both batch and cached-step modes.
+It is not checkpoint-installable or active runtime machinery; the matched V37
+loss/throughput/memory gate decides whether that integration work is warranted.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

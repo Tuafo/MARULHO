@@ -875,6 +875,15 @@ the project's quality-first rule resolves the next recipe to whole-QKV/3e-4.
 Per-head Muon separately passes at batch 32 but does not clear its speed gate at
 batch 256. No V36 checkpoint is saved.
 
+V37 is the next architecture falsifier. It compares unchanged V35R with an
+exactly identity-initialized depth-assembly block whose 45 bounded scalar routes
+can reuse representations from earlier blocks. Both arms consume the same
+16,773,120 unique ordered tokens with batch 256, whole-QKV Muon 3e-4, and
+separately compiled graphs. Promotion requires at least 0.02 lower heldout loss,
+at least 90% throughput, at most 1.25 times peak memory, complete gradients, and
+all routes moving away from zero. A passing screen still requires durable
+confirmation and checkpoint support.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

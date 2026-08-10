@@ -591,6 +591,26 @@ chooses batch 256, whole-QKV Muon, and 3e-4 for the next durable stage. No V36
 checkpoint is saved. The raw report SHA-256 is
 `e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
 
+### V37: learned depth assembly
+
+The next architecture test asks whether a monolithic residual chain is losing
+useful intermediate representations. MARULHO Depth Assembly gives block `i` a
+triangular set of bounded scalar corrections toward every representation before
+its current input. Forty-five learned scalars augment the ten-layer V35R model;
+there are no imported weights, external inference calls, additional token
+mixers, or hidden labels. Zero initialization is exactly the existing network,
+including cached incremental decoding, so the comparison starts from identical
+function and tensors rather than a fresh candidate initialization.
+
+The frozen control and candidate each consume 16,773,120 identical unique
+ordered tokens at physical batch 256, whole-QKV Muon 3e-4, context 72, and BF16
+compiled execution. The candidate needs at least 0.02 lower heldout loss while
+retaining 90% throughput and using no more than 1.25 times peak memory. Every
+parameter must receive a final gradient and all 45 route coefficients must move
+away from zero. A failure deletes the module and runner after retaining the
+report; a pass admits a longer confirmation and checkpoint integration, not
+immediate runtime promotion.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

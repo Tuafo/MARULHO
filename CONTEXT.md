@@ -285,6 +285,18 @@ makes batch-256/whole-QKV/3e-4 the recipe for the next durable stage. The raw
 artifact remains unchanged and no checkpoint is saved. Report SHA-256 is
 `e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
 
+**Depth Assembly v37 (active falsifier, uninstalled)** — V37 adds 45
+MARULHO-owned scalar routes across the ten Transformer depths. Each block can
+learn a bounded correction toward representations produced before its current
+input; all routes initialize to zero, making full-sequence logits and cached
+one-token execution exactly equal to V35R before training. The candidate and
+unchanged control restart from the same V35R tensors and consume the same
+16,773,120 unique ordered tokens using V36's batch-256, whole-QKV Muon 3e-4
+recipe. It advances only with at least 0.02 heldout-loss improvement, at least
+90% control throughput, at most 1.25 times peak CUDA memory, live gradients, and
+nonzero learned routes. No checkpoint or runtime installation exists before
+that joint gate passes.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
