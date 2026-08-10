@@ -6,11 +6,12 @@ evaluation are owned by this repository. The research target is a model that can
 learn from an ongoing stream, recall useful past experience under bounded active
 compute, and remain rollbackable while it changes.
 
-MARULHO is not currently an AGI or a frontier model. Its strongest base can
-produce readable English, but it is still generic and unreliable on genuinely
-unseen, source-grounded continuations. Current results isolate useful exact-
-history information but do not yet provide an admitted memory interface or a
-generally capable continual model.
+MARULHO is not currently an AGI or a frontier model. Its strongest research
+checkpoint produces coherent multi-sentence English and has passed one narrow
+continual-learning test: it learned held-out synthetic relations while retaining
+its general-language loss. It remains repetitive, semantically unreliable, and
+uneven across relation types. There is still no admitted long-term memory read
+interface or generally capable continual model.
 
 ## Current architecture
 
@@ -64,6 +65,14 @@ There are six different levels of truth:
    gate while retaining only 75.5% throughput and using 1.41 times peak memory.
    No checkpoint or event-control phase survives. No biological metaphor or
    many-small-units design is a requirement; every mechanism must earn its place.
+7. **Strongest continual research checkpoint:** V39 starts from V35R and mixes
+   new relation examples with fresh general-language replay. A normalized 4x
+   answer-span objective reaches 50.00% strict free recall and 98.44% candidate
+   accuracy while improving heldout general loss from 3.1649 to 3.1134. The
+   100.68M-parameter checkpoint reloads exactly after 218.11M cumulative tokens.
+   This is a narrow learning-without-forgetting result, not general reasoning:
+   property and event-order relations are strong, while container and ownership
+   remain weak.
 
 ```mermaid
 flowchart LR

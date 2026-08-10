@@ -12,8 +12,10 @@ and checkpointed online learning can produce a system that is more useful per
 local compute budget than a conventional static model.
 
 Current evidence supports a small causal Transformer as the language base.
-Current evidence does not support coherent general language, frontier
-capability, continual learning, or a superior scaling law.
+Current evidence supports coherent but imperfect general-language generation
+and one narrow continual-learning result with bounded old-language loss. It does
+not support frontier capability, general continual learning, an admitted durable
+memory interface, or a superior scaling law.
 
 ## Runtime Owners
 
