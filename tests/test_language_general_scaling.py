@@ -11,9 +11,11 @@ from marulho.evaluation.language_general_scaling import (
     V32_STAGE,
     V34_STAGE,
     V35_STAGE,
+    V35R_STAGE,
     _schedule_uniqueness,
     _source_coverage_audit,
     _split_coverage_audit,
+    _validate_locked_training_manifest,
     _validate_baseline,
     build_model,
     scaling_decision,
@@ -102,6 +104,47 @@ def test_v35_baseline_contract_rejects_the_wrong_parent_token_count() -> None:
     }
     with pytest.raises(ValueError, match="baseline report token count is invalid"):
         _validate_baseline(report, stage=V35_STAGE)
+
+
+def test_v35r_repairs_only_the_two_batch_manifest_mismatch() -> None:
+    config = GeneralScalingConfig(
+        token_budget=V35R_STAGE.token_budget,
+        sample_bytes_per_train_source=V35R_STAGE.train_sample_bytes,
+        minimum_loss_gain=V35R_STAGE.minimum_loss_gain,
+        width=V35R_STAGE.model_width,
+        layers=V35R_STAGE.model_layers,
+        heads=V35R_STAGE.model_heads,
+        learning_rate=V35R_STAGE.learning_rate,
+    )
+    model = build_model(vocab_size=8192, config=config, stage=V35R_STAGE)
+    assert sum(parameter.numel() for parameter in model.parameters()) == 100_679_424
+    assert V35R_STAGE.required_prepared_general_batch_counts == (
+        19_419,
+        19_419,
+        19_419,
+    )
+    assert V35R_STAGE.token_budget // (72 * 32) == 58_257
+    assert V35R_STAGE.token_budget == 134_224_128
+    assert V35R_STAGE.parent_processed_tokens + V35R_STAGE.token_budget == 201_335_040
+    assert V35R_STAGE.minimum_loss_gain == V35_STAGE.minimum_loss_gain
+    assert V35R_STAGE.learning_rate == V35_STAGE.learning_rate
+    assert V35R_STAGE.required_training_sources == V35_STAGE.required_training_sources
+    assert V35R_STAGE.lock_training_manifest is True
+    _validate_locked_training_manifest(config, stage=V35R_STAGE)
+
+
+def test_v35r_rejects_a_post_hoc_manifest_override() -> None:
+    config = GeneralScalingConfig(
+        token_budget=V35R_STAGE.token_budget - 2_304,
+        sample_bytes_per_train_source=V35R_STAGE.train_sample_bytes,
+        minimum_loss_gain=V35R_STAGE.minimum_loss_gain,
+        width=V35R_STAGE.model_width,
+        layers=V35R_STAGE.model_layers,
+        heads=V35R_STAGE.model_heads,
+        learning_rate=V35R_STAGE.learning_rate,
+    )
+    with pytest.raises(ValueError, match="token budget"):
+        _validate_locked_training_manifest(config, stage=V35R_STAGE)
 
 
 def test_v31_decision_requires_loss_unique_data_gradients_and_fidelity() -> None:

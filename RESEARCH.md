@@ -433,6 +433,28 @@ load bit-exactly before any update. The null is that V34's improvement was mostl
 capacity-at-fixed-data and additional data yields less than 0.15 loss gain.
 Only a pass writes a new checkpoint and repeats the unchanged unseen suite.
 
+### V35 result: promising loss, invalid schedule coverage
+
+V35 reaches heldout loss 3.1654 from V34's reproduced 3.3902, a diagnostic
+0.2248 gain above the frozen 0.15 requirement. It processes exactly 134,219,520
+unique tokens at 11.20k tokens/s, peaks at 3.330 GB CUDA, matches the V34 initial
+state, passes BF16 parity and complete gradients, and never repeats a scheduled
+source index. This is not promotable evidence. The prepared pools contain
+19,419 batches per source, but the token budget schedules counts
+19,419/19,418/19,418. The existing requirement that every prepared batch be
+consumed therefore fails. Decision: `invalid_v35_capacity_continuation_evidence`.
+No checkpoint or unseen-generation review exists. Report SHA-256 is
+`de18b99e21d89fd9741d6c27a4d3c89612b72c00075b82dae6419c9a7b53657f`.
+
+V35R corrects the manifest rather than weakening the gate after observing the
+result. It restarts from the exact V34 checkpoint and schedules all 58,257
+prepared batches, adding only the two previously omitted batches. The corrected
+budget is 134,224,128 new and 201,335,040 cumulative tokens. V34 report and
+checkpoint hashes, the three source hashes, 19,419/19,419/19,419 prepared counts,
+model shape, 3e-4 learning rate, and +0.15 quality requirement are locked. This
+is a fresh confirmatory run; V35's final loss is diagnostic and cannot initialize
+or select it.
+
 ### Post-V35 direction: spikes control semantic machinery, not semantic bandwidth
 
 Recent results strengthen the hybrid hypothesis but narrow its credible form.

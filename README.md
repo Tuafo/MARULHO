@@ -48,7 +48,11 @@ There are six different levels of truth:
    loss/perplexity 3.3902/29.67 versus V31's 3.6291/37.68, passing its +0.20
    gate with exact checkpoint reload. Unseen prose is clearly more grammatical
    and multi-sentence, but remains generic and 0/8 source-anchored; the checkpoint
-   is retained for a new-data continuation, not installed.
+   is retained for a new-data continuation, not installed. V35's continuation
+   reaches diagnostic loss 3.1654, but its manifest schedules 58,255 of 58,257
+   prepared unique batches. The full-coverage gate correctly marks it invalid
+   and no checkpoint survives. V35R reruns from V34 with exactly the two missing
+   batches and no quality-gate change.
 6. **Architecture search:** V28's particle field and V33's local-attention plus
    editable matrix state are retired. V33 was a valid exact-parameter test and
    nearly tied loss (4.0056 versus 4.0082), but its 0.0025 gain missed the 0.02
@@ -147,9 +151,10 @@ positive controlled result—not a replacement for frontier Transformers.
 2. Retain V34 as the first local 100.68M cortex: its +0.2389 heldout gain and
    coherent prose validate the capacity jump, while 0/8 source grounding blocks
    base/runtime qualification.
-3. Continue that exact checkpoint in V35 on three preregistered shards absent
-   from V34, adding 134.22M tokens for 201.33M cumulative updates. Require at
-   least another 0.15 heldout gain and exact reload before repeating unseen prose.
+3. Treat V35's 3.1654 loss as diagnostic only: two prepared batches were absent
+   from its frozen schedule, so the evidence is invalid and no checkpoint exists.
+   V35R reruns from V34 on all 58,257 hash-pinned batches (134,224,128 new;
+   201,335,040 cumulative tokens) with the unchanged +0.15 gate.
 4. Keep dynamic byte hierarchies as a later scale-aware direction. Published
    H-Net evidence begins around 680M parameters and tens of billions of bytes,
    so a 21M imitation is not the next credible 3060 experiment.

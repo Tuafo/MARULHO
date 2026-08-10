@@ -839,6 +839,15 @@ same 100,679,424-parameter shape from that strict state. It rejects any training
 source list or content hashes except FineWeb shard 0 and Cosmopedia shards 1/3, which do not overlap
 V34. It adds 134,219,520 tokens, records 201,330,432 cumulative updates, uses a
 fresh Muon optimizer at 3e-4, and requires another 0.15 loss gain before saving.
+The run's diagnostic loss improves 3.3902 to 3.1654, but the manifest consumes
+58,255 of 58,257 prepared unique batches. Full coverage fails, the decision is
+`invalid_v35_capacity_continuation_evidence`, and no checkpoint is saved.
+
+V35R is the corrected immutable stage. It pins the exact V34 report/checkpoint
+hashes, three corpus hashes, and 19,419 prepared batches per source. Exactly
+58,257 updates consume 134,224,128 new tokens for 201,335,040 cumulative tokens.
+Model shape, initialization, optimizer, learning rate, and +0.15 quality gate do
+not change; CLI changes to this repair manifest are rejected.
 
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter

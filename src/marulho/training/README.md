@@ -287,7 +287,11 @@ The durable V34 state reaches heldout loss 3.3902 after 67.11M unique updates,
 passes its +0.20 gate over V31, and strict-reloads from a 428.1 MB checkpoint.
 It produces substantially more coherent unseen prose but remains 0/8 grounded.
 V35 continues this exact model on three non-overlapping shards with fresh Muon
-state at 3e-4; optimizer state is deliberately not claimed to resume.
+state at 3e-4; optimizer state is deliberately not claimed to resume. Its first
+run is invalid because the token budget leaves two of 58,257 prepared batches
+unused, despite a diagnostic loss gain from 3.3902 to 3.1654. V35R restarts from
+V34 under a hash-pinned, override-locked manifest that consumes all batches; the
+quality gate and training recipe remain unchanged.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

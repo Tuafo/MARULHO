@@ -73,6 +73,10 @@ class GeneralScalingStage:
     parent_processed_tokens: int = 0
     learning_rate: float = 1.0e-3
     required_training_sources: tuple[tuple[str, str], ...] = ()
+    required_baseline_checkpoint_sha256: str | None = None
+    required_baseline_report_sha256: str | None = None
+    required_prepared_general_batch_counts: tuple[int, ...] = ()
+    lock_training_manifest: bool = False
 
 
 V31_STAGE = GeneralScalingStage(
@@ -193,8 +197,46 @@ V35_STAGE = GeneralScalingStage(
 )
 
 
+V35R_STAGE = GeneralScalingStage(
+    name="v35r",
+    candidate_name="general72_100m_201m_repair",
+    progress_prefix="capacity-continuation-v35r",
+    active_language_path="marulho_transformer_v35r_general72_100m_201m",
+    required_baseline_artifact_kind=ARTIFACT_KIND,
+    required_baseline_decision=V34_STAGE.advance_decision,
+    required_selected_arm=None,
+    baseline_loss_path=("candidate", "heldout", "heldout_loss"),
+    baseline_initial_hash_path=None,
+    token_budget=134_224_128,
+    train_sample_bytes=512 * 1024 * 1024,
+    minimum_loss_gain=0.15,
+    advance_decision="save_v35r_capacity_continuation_201m_for_unseen_generation",
+    stop_decision="stop_v35r_capacity_continuation_no_durable_loss_gain",
+    invalid_decision="invalid_v35r_capacity_continuation_evidence",
+    report_title="MARULHO V35R Capacity Continuation Repair",
+    model_width=768,
+    model_layers=10,
+    model_heads=12,
+    require_initial_state_match=True,
+    architecture="causal_transformer_capacity_continuation",
+    initialization_mode="baseline_checkpoint",
+    parent_processed_tokens=67_110_912,
+    learning_rate=3.0e-4,
+    required_training_sources=V35_STAGE.required_training_sources,
+    required_baseline_checkpoint_sha256=(
+        "69ce5856b8b34d8579d034375c4e1206501c6a4e44b81ff4bee951437636c79c"
+    ),
+    required_baseline_report_sha256=(
+        "8d623cee476b35f3f8e19168838417f748ab2610b3df69625d6eaa5f5021b5e6"
+    ),
+    required_prepared_general_batch_counts=(19_419, 19_419, 19_419),
+    lock_training_manifest=True,
+)
+
+
 STAGES = {
-    stage.name: stage for stage in (V31_STAGE, V32_STAGE, V34_STAGE, V35_STAGE)
+    stage.name: stage
+    for stage in (V31_STAGE, V32_STAGE, V34_STAGE, V35_STAGE, V35R_STAGE)
 }
 ADVANCE_DECISION = V31_STAGE.advance_decision
 STOP_DECISION = V31_STAGE.stop_decision
@@ -229,6 +271,63 @@ class GeneralScalingConfig:
     mlp_ratio: float = 4.0
     minimum_loss_gain: float = 0.15
     baseline_loss_reproduction_tolerance: float = 1.0e-5
+
+
+def _validate_locked_training_manifest(
+    config: GeneralScalingConfig,
+    *,
+    stage: GeneralScalingStage,
+) -> None:
+    if not bool(stage.lock_training_manifest):
+        return
+    locked_values = {
+        "token budget": (int(config.token_budget), int(stage.token_budget)),
+        "training sample bytes": (
+            int(config.sample_bytes_per_train_source),
+            int(stage.train_sample_bytes),
+        ),
+        "minimum loss gain": (
+            float(config.minimum_loss_gain),
+            float(stage.minimum_loss_gain),
+        ),
+        "model width": (int(config.width), int(stage.model_width)),
+        "model layers": (int(config.layers), int(stage.model_layers)),
+        "model heads": (int(config.heads), int(stage.model_heads)),
+        "learning rate": (float(config.learning_rate), float(stage.learning_rate)),
+        "sequence length": (int(config.sequence_length), 72),
+        "batch size": (int(config.batch_size), 32),
+        "evaluation batches": (int(config.eval_batches), 16),
+        "relation evaluation batch size": (
+            int(config.relation_eval_batch_size),
+            8,
+        ),
+        "relation case limit": (int(config.relation_case_limit), 0),
+        "minimum learning-rate fraction": (
+            float(config.minimum_learning_rate_fraction),
+            0.10,
+        ),
+        "warmup fraction": (float(config.warmup_fraction), 0.05),
+        "weight decay": (float(config.weight_decay), 0.10),
+        "gradient clip": (float(config.gradient_clip), 1.0),
+        "precision": (str(config.precision), "bfloat16"),
+        "data seed": (int(config.data_seed), 16_121),
+        "model seed": (int(config.model_seed), 16_131),
+        "evaluation sample bytes": (
+            int(config.sample_bytes_per_eval_source),
+            32 * 1024 * 1024,
+        ),
+        "sample range count": (int(config.sample_range_count), 16),
+        "schedule mode": (str(config.schedule_mode), "indexed_host"),
+    }
+    mismatched = [
+        name for name, (actual, expected) in locked_values.items()
+        if actual != expected
+    ]
+    if mismatched:
+        raise ValueError(
+            f"{stage.name} locks its corrected training manifest: "
+            + ", ".join(mismatched)
+        )
 
 
 def _v30_config(config: GeneralScalingConfig) -> GeneralContextFalsificationConfig:
@@ -460,6 +559,7 @@ def run_general_scaling(
     resolved = _resolve_device(device)
     if resolved.type != "cuda":
         raise ValueError(f"{stage.name} general scaling requires CUDA")
+    _validate_locked_training_manifest(config, stage=stage)
     requested_training_sources = {
         Path(value).name: Path(value) for value in general_train_paths
     }
@@ -479,6 +579,17 @@ def run_general_scaling(
                 )
     baseline_checkpoint = Path(baseline_checkpoint_path)
     baseline_report_file = Path(baseline_report_path)
+    if (
+        stage.required_baseline_checkpoint_sha256 is not None
+        and sha256_file(baseline_checkpoint)
+        != stage.required_baseline_checkpoint_sha256
+    ):
+        raise ValueError(f"{stage.name} baseline checkpoint hash is invalid")
+    if (
+        stage.required_baseline_report_sha256 is not None
+        and sha256_file(baseline_report_file) != stage.required_baseline_report_sha256
+    ):
+        raise ValueError(f"{stage.name} baseline report hash is invalid")
     baseline_report = json.loads(baseline_report_file.read_text(encoding="utf-8"))
     recorded_baseline_loss, expected_initial_hash = _validate_baseline(
         baseline_report,
@@ -513,6 +624,19 @@ def run_general_scaling(
         prepared = replace(
             prepared,
             cases=prepared.cases[: int(config.relation_case_limit)],
+        )
+    prepared_counts = tuple(
+        int(value)
+        for value in prepared.source_selections["training_batch_filter"][
+            "general_batches_after"
+        ]
+    )
+    if (
+        stage.required_prepared_general_batch_counts
+        and prepared_counts != stage.required_prepared_general_batch_counts
+    ):
+        raise ValueError(
+            f"{stage.name} prepared batch counts differ from its corrected manifest"
         )
     if baseline_tokenizer.vocabulary_hash() != prepared.tokenizer.vocabulary_hash():
         raise ValueError(f"{stage.name} tokenizer differs from its baseline")

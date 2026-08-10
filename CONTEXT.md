@@ -239,13 +239,26 @@ disposable full-shape CUDA preflight compiles in 52.5 seconds, passes BF16 parit
 at 0.00063, trains at 11.3k tokens/s, and peaks at 3.32 GB; its two-step quality
 values and report are deleted.
 
-**Capacity Continuation v35 (preregistered, uninstalled)** — V35 strict-loads
+**Capacity Continuation v35 (invalid evidence, no checkpoint)** — V35 strict-loads
 V34 and adds 134,219,520 tokens from exactly three hash-pinned shards absent from V34:
 FineWeb-Edu train shard 0 and Cosmopedia train shards 1 and 3. Cumulative updates
 become 201,330,432 tokens. Muon state is fresh, peak learning rate is reduced to 3e-4,
 and the parent model state must match bit-exactly before training. Advancement
 requires another 0.15 heldout-loss gain plus the existing parity, gradient,
-unique-source, checkpoint, and unseen-generation contracts.
+unique-source, checkpoint, and unseen-generation contracts. The run reaches
+loss 3.1654, a diagnostic +0.2248 gain, but preparation contains 19,419 batches
+per source while the manifest schedules 19,419/19,418/19,418. Unique indices,
+hashes, parity, gradients, and exact tokens pass; full prepared-batch coverage
+does not. Decision: `invalid_v35_capacity_continuation_evidence`. No checkpoint
+or unseen review is admitted. Report SHA-256 is
+`de18b99e21d89fd9741d6c27a4d3c89612b72c00075b82dae6419c9a7b53657f`.
+
+**Capacity Continuation v35r (corrected manifest, uninstalled)** — V35R is a
+new immutable manifest rather than a post-hoc relabel. It restarts from the exact
+hash-pinned V34 report/checkpoint and consumes all 19,419 batches from each of
+the same three sources: 58,257 updates, 134,224,128 new tokens, and 201,335,040
+cumulative tokens. Model, initialization, data, Muon 3e-4 recipe, and +0.15 loss
+gate are unchanged. The runner rejects CLI changes to the corrected manifest.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
