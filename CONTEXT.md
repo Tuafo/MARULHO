@@ -196,6 +196,21 @@ broken run. Decision: `stop_v32_general_scaling_no_durable_loss_gain`. No
 checkpoint or unseen review is admitted. Fixed 21M data scaling stops here; the
 next base experiment changes the computational architecture.
 
+**Editable-State Local-Attention v33 (mechanical preflight, uninstalled)** —
+V33 is the next isolated base candidate after V32. It alternates two bounded
+local-attention layers with two continuous editable matrix-state layers. The
+state uses separate key-channel decay and value-channel write gates, an exact
+parallel diagonal-affine scan for training, and the equivalent recurrent update
+for decoding. Its production shape contains exactly 20,976,128 useful
+parameters, equal to the Transformer without padding. Focused tests pass
+causality, full/recurrent agreement, bounded state, and nonzero gradients for
+every tensor; BF16 compiled/eager loss parity also passes. A local cached-graph
+Muon smoke measures about 37.0k candidate versus 56.0k Transformer training
+tokens/s and about 0.96 versus 0.50 GiB peak allocation. This admits a matched
+language falsifier, not a checkpoint or quality claim. Event-driven/SNN-inspired
+control remains a later ablation around a useful continuous branch; it is not
+the language representation and is not enabled in V33.
+
 **Retired Particle-Field Recurrent Core v28** — a MARULHO-owned implementation
 of positive particle dynamics inspired by BDH-GPU passed causal parallel versus
 recurrent agreement, complete gradients, owned generation, and compiled-loss

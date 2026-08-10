@@ -137,16 +137,21 @@ positive controlled result—not a replacement for frontier Transformers.
 
 ## Current research program
 
-1. Interleave one shared gated cross-attention reader after early/middle V11
-   layers while keeping evidence outside the local causal position sequence.
-2. Compare gate-zero, shuffled-source, true-source, raw-context, and oracle
-   controls on disjoint likelihood, source interventions, anchored generation,
-   and general retention.
-3. If a selected-evidence arm survives, save one cortex-plus-archive checkpoint
-   and test strict reload/rollback.
-4. Re-run genuinely unseen Base-Language Qualification from that artifact.
-5. Only after base quality survives, test online learning, consolidation,
-   forgetting, active compute, and the sustained-runtime ladder.
+1. Compare the V33 continuous editable-state/local-attention candidate with the
+   exact Transformer control under matched parameters, initialization intent,
+   tokenizer, unique data, Muon recipe, and token budget.
+2. Require heldout language improvement and better strict free generation
+   together; throughput, matrix activity, and a completed run cannot promote an
+   inferior language model.
+3. Only if the fully active state branch is useful, compare always-on,
+   fixed-budget, and learned delta-event controls around optional computation.
+   This is the SNN-inspired control plane; continuous vectors remain the
+   language representation.
+4. Save and strictly reload only a joint quality survivor, then re-run genuinely
+   unseen Base-Language Qualification.
+5. Only after base quality survives, reopen exact episodic memory, online
+   learning, consolidation, forgetting, active compute, and the sustained
+   524,288-token runtime ladder.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

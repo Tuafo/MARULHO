@@ -44,7 +44,7 @@ def newton_schulz_zeroth_power(
     return work
 
 
-@torch.compile(fullgraph=True, dynamic=False)
+@torch.compile(fullgraph=True, dynamic=True)
 def _compiled_newton_schulz5(update: torch.Tensor) -> torch.Tensor:
     return newton_schulz_zeroth_power(update, steps=5)
 
@@ -247,6 +247,7 @@ def build_language_muon(
         ),
         "orthogonalization_grouped_by_matrix_shape": True,
         "orthogonalizer_compile_requested": bool(compile_orthogonalizer),
+        "orthogonalizer_dynamic_matrix_shapes": bool(compile_orthogonalizer),
         "paper": MUON_PAPER_URL,
         "reference_implementation": MUON_REFERENCE_URL,
         "external_weights_loaded": False,

@@ -335,6 +335,26 @@ An idea survives only when its behavior and cost survive matched falsification.
   This is neither a defense of Transformers nor a return to small-unit
   modularity.
 
+The V33 machinery now instantiates that bet without changing the installed
+runtime. It alternates two exact bounded local-attention layers with two
+continuous editable matrix-state layers. Training uses an exact parallel
+diagonal-affine scan rather than the retired token-by-token delta loop; decoding
+uses the equivalent recurrent update. Separate decay and write channels allow
+old addresses to fade without forcing the same gate to scale new values. The
+production candidate and Transformer each contain exactly 20,976,128 useful
+parameters. Causality, recurrent agreement, bounded state, complete nonzero
+gradients, and BF16 compiled/eager parity pass. A local cached-graph Muon smoke
+measures roughly 37.0k candidate versus 56.0k Transformer tokens/s and about
+0.96/0.50 GiB peak allocation. These are execution facts, not evidence of
+better language.
+
+The user's SNN/deep-learning synthesis becomes a second, conditional claim:
+continuous state carries language while learned events may later decide whether
+an optional expensive branch executes. V33 first tests the fully active branch.
+Only a useful branch earns always-on, fixed-budget, and learned delta-event
+controls. This avoids repeating the retired pure-spike core, surprise router,
+or a gate that saves nominal activity after dense work already happened.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**

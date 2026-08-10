@@ -272,6 +272,27 @@ does not seed candidate weights. V32 reaches loss 3.4983 versus V31's 3.6291,
 but the 0.1308 gain misses its frozen 0.20 gate. No V32 checkpoint exists; the
 fixed 21M training path does not receive another data-only scale point.
 
+**`language_editable_state_hybrid.py`** — owns the isolated V33 continuous
+candidate. Two bounded local-attention layers alternate with two editable
+matrix-state layers. The matrix state has separate key-channel decay and
+value-channel write gates, evaluates an exact diagonal-affine scan in parallel
+during training, and uses the identical constant-state recurrence for one-token
+decoding. Its 512-wide production shape exactly matches the Transformer's
+20,976,128 parameters by moving capacity from the matrix-layer MLPs into the
+state projections and gates; no padding or inactive parameter is used. The
+installed checkpoint loader does not accept this candidate.
+
+The first CUDA/Inductor machinery check is non-promotional. Full versus
+recurrent logits match in focused tests, every parameter receives a nonzero
+gradient, compiled/eager BF16 loss differs by less than 0.001, and a cached
+30-step-style Muon measurement reaches about 37.0k training tokens/s versus
+56.0k for the exact Transformer control, at about 0.96 versus 0.50 GiB peak
+allocation. The initial full compile is materially slower than the Transformer
+and remains separately reportable. No language-quality result, checkpoint, or
+event-driven compute claim follows from this preflight. A learned event
+controller may be tested only after the fully active matrix branch demonstrates
+language utility; spikes are control signals, not the semantic representation.
+
 **`checkpointing.py`** — the broader `MarulhoTrainer` checkpoint lifecycle
 used by `MarulhoBrain`.
 
