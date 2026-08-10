@@ -297,6 +297,16 @@ strict-reloads the resulting checkpoint. Its 10.65k tokens/s and 3.330 GB peak
 allocation define the exact step to optimize; throughput changes require matched
 numerical and short-run quality evidence before entering another durable stage.
 
+The optimizer now exposes an opt-in `per_head_attention_qkv` research path.
+It keeps the combined QKV parameter and full-size momentum buffer unchanged, but
+views the momentum update as independent Q/K/V head matrices during
+Newton--Schulz orthogonalization. This is MARULHO-owned code derived from the
+mechanism described in the Kimi K3 report; no external optimizer or weights are
+loaded. On the exact V35R model shape, a 20-step optimizer-only CUDA benchmark
+reduces measured optimizer time from 117.02 to 104.91 ms/step. This is not yet a
+training-quality or end-to-end throughput result, so the default remains the
+unpartitioned V35R optimizer until the token-matched screen passes.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

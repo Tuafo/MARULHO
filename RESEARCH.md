@@ -562,6 +562,13 @@ consumes the same ordered tokens, and is judged jointly on heldout loss,
 throughput, finite updates, and peak VRAM. A throughput win with worse loss is
 rejected.
 
+The first optimizer-only implementation check is positive but deliberately not
+promoted: on the exact 100.68M-parameter V35R shape, 20 measured CUDA updates take
+117.02 ms each with whole-QKV Muon and 104.91 ms with per-head Q/K/V Muon, a
+10.3% optimizer reduction. Given the full-step phase profile, the isolated gain
+projects to only about 6% end-to-end. It therefore remains one arm in the larger
+batch/learning-rate screen rather than replacing the baseline by timing alone.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

@@ -112,6 +112,72 @@ def test_language_muon_updates_every_trainable_parameter() -> None:
     }
 
 
+def test_per_head_muon_partitions_combined_qkv_without_changing_state_shape() -> None:
+    torch.manual_seed(53)
+    model = MarulhoLanguageModel(
+        LanguageModelConfig(
+            vocab_size=64,
+            embedding_dim=32,
+            state_dim=32,
+            state_layers=2,
+            attention_heads=4,
+            transformer_context_length=8,
+        )
+    )
+    optimizer, report = build_language_muon(
+        model,
+        learning_rate=1.0e-3,
+        weight_decay=0.1,
+        compile_orthogonalizer=False,
+        per_head_attention_qkv=True,
+    )
+    expected_names = {
+        "state_block.layers.0.attention.qkv.weight",
+        "state_block.layers.1.attention.qkv.weight",
+    }
+    assert report["per_head_attention_qkv"] is True
+    assert set(report["row_partitioned_parameter_names"]) == expected_names
+    assert set(report["row_partition_count_by_parameter"].values()) == {12}
+
+    qkv = model.state_block.layers[0].attention.qkv.weight
+    original_shape = qkv.shape
+    input_ids = torch.randint(0, 64, (4, 8))
+    targets = torch.randint(0, 64, (4, 8))
+    model.next_token_loss(input_ids, targets)["loss"].backward()
+    optimizer.step()
+    assert qkv.shape == original_shape
+    assert torch.isfinite(qkv).all()
+    assert optimizer._matrix_row_partitions[id(qkv)] == 12
+
+
+def test_per_head_muon_matches_independent_partition_orthogonalization() -> None:
+    torch.manual_seed(59)
+    parameter = nn.Parameter(torch.randn(12, 4))
+    optimizer = MarulhoMuon(
+        muon_parameters=[parameter],
+        adamw_parameters=[],
+        learning_rate=1.0e-3,
+        weight_decay=0.0,
+        momentum=0.0,
+        nesterov=False,
+        compile_orthogonalizer=False,
+        matrix_row_partitions={parameter: 3},
+    )
+    gradient = torch.randn_like(parameter)
+    parameter.grad = gradient.clone()
+    before = parameter.detach().clone()
+    expected_direction = torch.cat(
+        [
+            newton_schulz_zeroth_power(part, steps=5)
+            for part in gradient.reshape(3, 4, 4)
+        ],
+        dim=0,
+    ).to(dtype=parameter.dtype)
+    expected = before - (1.0e-3 * 0.2 * (12.0**0.5)) * expected_direction
+    optimizer.step()
+    torch.testing.assert_close(parameter, expected, atol=0.0, rtol=0.0)
+
+
 def test_language_muon_rejects_overlapping_groups() -> None:
     parameter = nn.Parameter(torch.randn(4, 4))
     with pytest.raises(ValueError, match="disjoint"):
