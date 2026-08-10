@@ -295,16 +295,18 @@ a systems failure but makes no language-quality claim. The full-width history
 module, runner, and tests are deleted. Timeout artifact SHA-256 is
 `cf7465cdeec25be68bbb75af07096e2ae420d233260aaa1a985496c2cee86442`.
 
-**Continual Replay v38 (active falsifier)** — V38 restarts three arms from the
-exact V35R state and gives each 16,773,120 tokens with V36's batch-256,
-whole-QKV Muon 3e-4 recipe. Relation exposure is 100%, 50%, or 20%; the latter
-two fill the remaining budget with hash-pinned FineWeb shard 2 and Cosmopedia
-shard 4, neither used to train V35R. The new domain is the separate 800k-document
-procedural corpus with its 256 compositionally held-out cases. A replay arm
-qualifies only at 50% strict free-answer accuracy, 80% label-safe candidate
-accuracy, and at most +0.10 old-language loss. Only a joint pass saves and
-strict-reloads a checkpoint; relation-only learning separates replay failure
-from failure to acquire the domain at all.
+**Continual Replay v38 (retained near-positive, no checkpoint)** — All arms
+complete 16,773,120 tokens at about 25.0k tokens/s. The 50/50 replay arm reaches
+100% label-safe candidate accuracy and 46.88% strict free-answer accuracy while
+improving old-language loss from 3.1649 to 3.1124. It misses the frozen 50% free
+gate by 3.12 points, so no checkpoint is saved. Relation-only training reaches
+only 37.50% free accuracy and catastrophically regresses general loss to
+15.8373; 20/80 replay reaches 37.11% free and loss 3.0769. The 50/50 free result
+is 85.94% event order, 76.56% property, 20.31% container, and 4.69% ownership.
+Recognition is solved on this holdout, replay bounds forgetting, and the live
+blocker is exact answer formation. Decision:
+`redesign_v38_relation_objective_no_free_learning`. Report SHA-256 is
+`e356bf9a44ccb7fd1986be256c41128c2bb79a086c903d1be7bd110a841cc1d2`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -637,6 +637,24 @@ best arm and requires exact model/tokenizer reload. If focused learning works
 but replay does not, the next branch is parameter isolation; if focused learning
 also fails, the relation objective/interface is redesigned.
 
+V38 completes in 2,633 seconds. The 50/50 replay arm is the clear Pareto point:
+100% candidate accuracy, 46.875% strict free generation, general loss 3.11237,
+25.02k tokens/s, and 7.73 GiB peak allocation. The initial state is 39.06% / 0%
+candidate/free at loss 3.16492. Relation-only reaches 100% / 37.50% but destroys
+general language at loss 15.83729. The 20/80 arm reaches 100% / 37.11% and loss
+3.07688. No arm meets the frozen 50% free gate, so no checkpoint exists.
+
+The failure distribution localizes the objective/interface gap. For 50/50,
+free event-order/property/container/ownership accuracy is
+85.94%/76.56%/20.31%/4.69%. Many misses express the right relation with malformed
+or fused lexical forms (`coins`, `orangecoin`) that fail exact answer matching.
+More replay is not indicated: replay already improves general loss and 50/50
+outperforms focused relation training on free answers. V39 must emphasize the
+answer-bearing tokens or structured lexical realization under the same replay
+and compute budget; lowering the evaluator or promoting 100% ranking is not an
+acceptable repair. Raw report SHA-256 is
+`e356bf9a44ccb7fd1986be256c41128c2bb79a086c903d1be7bd110a841cc1d2`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

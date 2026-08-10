@@ -325,11 +325,11 @@ exceeded the bounded one-hour screen and reached 11.74/12.29 GiB observed device
 allocation. No quality result or checkpoint was produced. Do not restore the
 module; a future depth mechanism must use fused low-rank or few-channel compute.
 
-V38 keeps the installed Transformer unchanged and tests continual adaptation as
-a training intervention. Its relation-only and replay arms all use V36's
-batch-256 whole-QKV Muon recipe. Only a replay arm that jointly learns strict
-free relations and bounds old-language forgetting is serialized; the resulting
-checkpoint must restore exact model tensors and tokenizer identity.
+V38 confirms that 50/50 replay preserves and slightly improves old-language
+loss while learning the relation holdout, but strict free accuracy stops at
+46.88% against the 50% gate. No checkpoint is serialized. Recognition is 100%,
+so V39 targets answer-bearing token learning or structured lexical realization
+instead of more replay, capacity, or candidate scoring.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
