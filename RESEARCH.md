@@ -433,6 +433,45 @@ load bit-exactly before any update. The null is that V34's improvement was mostl
 capacity-at-fixed-data and additional data yields less than 0.15 loss gain.
 Only a pass writes a new checkpoint and repeats the unchanged unseen suite.
 
+### Post-V35 direction: spikes control semantic machinery, not semantic bandwidth
+
+Recent results strengthen the hybrid hypothesis but narrow its credible form.
+[SpikeLM](https://arxiv.org/abs/2406.03287) explicitly reports that binary spikes
+do not carry enough semantic information and restores capacity with signed,
+elastic amplitudes and frequencies. That is useful evidence that converting the
+language stream itself into binary events gives up the part deep continuous
+models already do well. [SMixer](https://openreview.net/forum?id=78glEsQB0v)
+also separates the label *spiking* from real asynchronous execution: high-performing
+spiking Transformers may retain unsupported synchronous operations, while temporal
+unrolling makes GPU training expensive. MARULHO will not claim efficiency from
+spike counts or addition-only arithmetic without measured wall-clock execution.
+
+The stronger role for spikes is temporal control. [Mixture-of-Depths](https://arxiv.org/abs/2404.02258)
+shows that a Transformer can route context-dependent tokens through expensive
+layers while retaining a fixed compute capacity and GPU-friendly tensor shapes.
+[Titans](https://arxiv.org/abs/2501.00663) shows that attention and learned
+persistent memory can have distinct short- and long-term roles. MARULHO's own
+prompt-memory experiments already showed that raw surprise is not synonymous
+with write utility, so neither result is copied as a solution.
+
+If V35 earns a coherent base, the next falsifier will keep continuous hidden
+states and add a small stateful event controller around an independently useful
+slow branch. Its membrane integrates predicted marginal utility across chunks;
+threshold crossings request extra compute, retrieval, writing, or bounded
+plasticity. Actions execute in fixed-capacity chunk batches so nominal sparsity
+has a chance to become real CUDA speed. The slow branch must first beat `off`
+when always enabled. A temporal spike gate then competes with parameter-matched
+dense-sigmoid, independent top-k, random rate-matched, always-on, and always-off
+controls. It survives only if it preserves or improves heldout language and
+long-range behavior at lower measured active-branch rate and wall-clock cost.
+
+The prospective novelty is not conditional computation alone. It is persistent
+event state and hysteresis across chunks, trained against the *marginal utility*
+of actions, with multiple action types and durable memory receipts. A per-token
+score followed by top-k is a Mixture-of-Depths control, not evidence for an SNN.
+Likewise, irregular per-token spikes that save analytic operations but slow the
+RTX 3060 are a systems failure, regardless of biological appeal.
+
 ### Other orthogonal branches
 
 - **Modern editable matrix state:**
