@@ -253,12 +253,23 @@ does not. Decision: `invalid_v35_capacity_continuation_evidence`. No checkpoint
 or unseen review is admitted. Report SHA-256 is
 `de18b99e21d89fd9741d6c27a4d3c89612b72c00075b82dae6419c9a7b53657f`.
 
-**Capacity Continuation v35r (corrected manifest, uninstalled)** — V35R is a
+**Capacity Continuation v35r (base-language-qualified, grounding-blocked)** — V35R is a
 new immutable manifest rather than a post-hoc relabel. It restarts from the exact
 hash-pinned V34 report/checkpoint and consumes all 19,419 batches from each of
 the same three sources: 58,257 updates, 134,224,128 new tokens, and 201,335,040
 cumulative tokens. Model, initialization, data, Muon 3e-4 recipe, and +0.15 loss
 gate are unchanged. The runner rejects CLI changes to the corrected manifest.
+The valid rerun reaches loss/perplexity 3.1649/23.69, a 0.2253 gain over the
+bit-exact V34 baseline, at 10.65k tokens/s and 3.330 GB peak CUDA allocation.
+Every prepared batch is consumed exactly once, every parameter receives a final
+gradient, BF16 compiled/eager parity passes, and the 428.1 MB checkpoint reloads
+bit-exactly. FineWeb/Cosmopedia unseen source loss improves from V34's
+4.0012/3.2831 to 3.8020/2.9282. Repetition-controlled Cosmopedia generation has
+0.968 distinct bigrams and produces coherent multi-sentence paragraphs. Exact
+source anchoring remains 0/8, so V35R qualifies the continuous base needed to
+reopen continual-learning and conditional-compute experiments but does not
+qualify memory grounding or runtime installation. Decision:
+`save_v35r_capacity_continuation_201m_for_unseen_generation`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

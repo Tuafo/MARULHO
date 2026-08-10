@@ -455,6 +455,39 @@ model shape, 3e-4 learning rate, and +0.15 quality requirement are locked. This
 is a fresh confirmatory run; V35's final loss is diagnostic and cannot initialize
 or select it.
 
+### V35R result: the continuous base earns the next research phase
+
+- **Valid continuation:** all 19,419 batches from each of the three pinned
+  sources are consumed exactly once: 58,257 optimizer updates, 134,224,128 new
+  tokens, and 201,335,040 cumulative tokens. Initial-state identity, full
+  coverage, schedule uniqueness, complete gradients, and BF16 compiled/eager
+  parity all pass.
+- **Quality curve:** heldout loss/perplexity improves from V34's reproduced
+  3.3902/29.67 to 3.1649/23.69. The 0.2253 gain passes the unchanged 0.15 gate.
+  Training sustains 10.65k tokens/s and peaks at 3.330 GB CUDA allocation.
+- **Checkpoint:** the 428,148,198-byte checkpoint strict-reloads model tensors,
+  tied weights, tokenizer, config, and sample logits. Training report/checkpoint
+  SHA-256 values are
+  `132555f649483c19999c16a66688691872b37ee316e5561b8b741e87eed34bb9`
+  and `48bfe82a70d9c537f10dc6d898c3cf18906716bd90acfefb7089ccd30477d9df`.
+- **Unseen language:** FineWeb/Cosmopedia continuation loss improves from
+  4.0012/3.2831 to 3.8020/2.9282. Controlled Cosmopedia generation reaches
+  0.968 distinct-bigram fraction and produces coherent multi-sentence English.
+  It still copies too little of the hidden source continuation and remains 0/8
+  anchored.
+- **Decision:** `save_v35r_capacity_continuation_201m_for_unseen_generation`.
+  V35R is the first checkpoint strong enough to reopen continual-learning and
+  conditional-compute tests. It is not evidence that grounding, memory, sparse
+  compute, or runtime installation is solved.
+
+Before another long run, profile the exact V35R CUDA training step. The measured
+3.330 GB allocation leaves substantial physical capacity on the 12 GB RTX 3060,
+but memory headroom alone does not prove under-utilization. Batch shape, forward/
+backward, gradient clipping, Muon orthogonalization, parameter updates, and host
+staging must be timed separately. A faster path is admitted only after numerical
+parity and a matched short quality trajectory; tokens per second cannot replace
+loss quality.
+
 ### Post-V35 direction: spikes control semantic machinery, not semantic bandwidth
 
 Recent results strengthen the hybrid hypothesis but narrow its credible form.

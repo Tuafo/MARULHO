@@ -291,7 +291,11 @@ state at 3e-4; optimizer state is deliberately not claimed to resume. Its first
 run is invalid because the token budget leaves two of 58,257 prepared batches
 unused, despite a diagnostic loss gain from 3.3902 to 3.1654. V35R restarts from
 V34 under a hash-pinned, override-locked manifest that consumes all batches; the
-quality gate and training recipe remain unchanged.
+quality gate and training recipe remain unchanged. The valid V35R run reaches
+loss 3.1649 after 134.22M new tokens, passes its +0.15 gate by 0.0753, and
+strict-reloads the resulting checkpoint. Its 10.65k tokens/s and 3.330 GB peak
+allocation define the exact step to optimize; throughput changes require matched
+numerical and short-run quality evidence before entering another durable stage.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

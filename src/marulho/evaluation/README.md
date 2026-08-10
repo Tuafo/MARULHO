@@ -847,7 +847,14 @@ V35R is the corrected immutable stage. It pins the exact V34 report/checkpoint
 hashes, three corpus hashes, and 19,419 prepared batches per source. Exactly
 58,257 updates consume 134,224,128 new tokens for 201,335,040 cumulative tokens.
 Model shape, initialization, optimizer, learning rate, and +0.15 quality gate do
-not change; CLI changes to this repair manifest are rejected.
+not change; CLI changes to this repair manifest are rejected. The valid rerun
+reaches loss/perplexity 3.1649/23.69 from V34's reproduced 3.3902/29.67, with
+complete coverage, gradients, parity, and strict checkpoint fidelity. Unseen
+FineWeb/Cosmopedia continuation loss is 3.8020/2.9282. Controlled Cosmopedia
+output is coherent and reaches 0.968 distinct-bigram fraction, but exact source
+anchoring remains 0/8. V35R therefore admits continual-learning and conditional-
+compute research from this checkpoint while memory grounding and runtime
+installation remain unqualified.
 
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter

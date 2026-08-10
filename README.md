@@ -52,7 +52,12 @@ There are six different levels of truth:
    reaches diagnostic loss 3.1654, but its manifest schedules 58,255 of 58,257
    prepared unique batches. The full-coverage gate correctly marks it invalid
    and no checkpoint survives. V35R reruns from V34 with exactly the two missing
-   batches and no quality-gate change.
+   batches and no quality-gate change. The valid rerun reaches loss/perplexity
+   3.1649/23.69 after 201.34M cumulative tokens and strict-reloads its checkpoint.
+   Unseen FineWeb and Cosmopedia loss improve to 3.8020 and 2.9282; controlled
+   generations are now coherent multi-sentence paragraphs. Exact source anchoring
+   remains 0/8, so this qualifies a base-language research checkpoint, not
+   grounded memory or runtime installation.
 6. **Architecture search:** V28's particle field and V33's local-attention plus
    editable matrix state are retired. V33 was a valid exact-parameter test and
    nearly tied loss (4.0056 versus 4.0082), but its 0.0025 gain missed the 0.02
@@ -148,19 +153,24 @@ positive controlled result—not a replacement for frontier Transformers.
 
 1. Treat V33 as closed evidence: replacing half the token Transformer with an
    editable matrix state did not buy enough language quality, speed, or memory.
-2. Retain V34 as the first local 100.68M cortex: its +0.2389 heldout gain and
-   coherent prose validate the capacity jump, while 0/8 source grounding blocks
-   base/runtime qualification.
+2. Retain V34 as the parent of the first local 100.68M trajectory: its +0.2389
+   heldout gain justified continuation, but V35R supersedes it as the live
+   research checkpoint.
 3. Treat V35's 3.1654 loss as diagnostic only: two prepared batches were absent
    from its frozen schedule, so the evidence is invalid and no checkpoint exists.
    V35R reruns from V34 on all 58,257 hash-pinned batches (134,224,128 new;
-   201,335,040 cumulative tokens) with the unchanged +0.15 gate.
+   201,335,040 cumulative tokens), passes the unchanged +0.15 gate by 0.0753,
+   and produces coherent unseen paragraphs. Preserve the 0/8 anchoring failure
+   as the boundary between base-language qualification and grounded memory.
 4. Keep dynamic byte hierarchies as a later scale-aware direction. Published
    H-Net evidence begins around 680M parameters and tens of billions of bytes,
    so a 21M imitation is not the next credible 3060 experiment.
-5. Only after base quality survives, reopen exact episodic memory, online
-   learning, consolidation, forgetting, active compute, and the sustained
-   524,288-token runtime ladder.
+5. Profile and optimize the exact V35R training step on the RTX 3060 before the
+   next expensive run. Adopt changes only with matched numerical and short-run
+   quality evidence; unused VRAM or nominal kernel fusion is not a speed result.
+6. Reopen exact episodic memory, online learning, consolidation, forgetting,
+   active compute, and the sustained 524,288-token runtime ladder from V35R,
+   without calling the still-unanchored generator runtime-qualified.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
