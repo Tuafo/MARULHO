@@ -591,7 +591,7 @@ chooses batch 256, whole-QKV Muon, and 3e-4 for the next durable stage. No V36
 checkpoint is saved. The raw report SHA-256 is
 `e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
 
-### V37: learned depth assembly
+### V37: full-width depth assembly is too expensive
 
 The next architecture test asks whether a monolithic residual chain is losing
 useful intermediate representations. MARULHO Depth Assembly gives block `i` a
@@ -602,14 +602,20 @@ mixers, or hidden labels. Zero initialization is exactly the existing network,
 including cached incremental decoding, so the comparison starts from identical
 function and tensors rather than a fresh candidate initialization.
 
-The frozen control and candidate each consume 16,773,120 identical unique
+The frozen control and candidate were assigned 16,773,120 identical unique
 ordered tokens at physical batch 256, whole-QKV Muon 3e-4, context 72, and BF16
-compiled execution. The candidate needs at least 0.02 lower heldout loss while
-retaining 90% throughput and using no more than 1.25 times peak memory. Every
-parameter must receive a final gradient and all 45 route coefficients must move
-away from zero. A failure deletes the module and runner after retaining the
-report; a pass admits a longer confirmation and checkpoint integration, not
-immediate runtime promotion.
+compiled execution. V37 does not complete within the fixed 3,600-second command
+budget. Live samples reach 11,744/12,288 MiB device allocation, and the process
+must be explicitly terminated after its parent timeout. No terminal report is
+emitted, so there is no admissible heldout or route-value result and no claim
+that the mechanism helps or hurts language quality.
+
+This is nevertheless a terminal systems result: many scalar-weighted full-width
+history tensors are a poor GPU primitive and fail the consumer-hardware goal.
+The candidate, runner, and tests are deleted. Any future depth cooperation must
+be a new hypothesis expressed through a few fused dense or low-rank operations,
+not a repaired or longer-running V37. Timeout artifact SHA-256 is
+`cf7465cdeec25be68bbb75af07096e2ae420d233260aaa1a985496c2cee86442`.
 
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:

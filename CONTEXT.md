@@ -285,17 +285,15 @@ makes batch-256/whole-QKV/3e-4 the recipe for the next durable stage. The raw
 artifact remains unchanged and no checkpoint is saved. Report SHA-256 is
 `e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
 
-**Depth Assembly v37 (active falsifier, uninstalled)** — V37 adds 45
-MARULHO-owned scalar routes across the ten Transformer depths. Each block can
-learn a bounded correction toward representations produced before its current
-input; all routes initialize to zero, making full-sequence logits and cached
-one-token execution exactly equal to V35R before training. The candidate and
-unchanged control restart from the same V35R tensors and consume the same
-16,773,120 unique ordered tokens using V36's batch-256, whole-QKV Muon 3e-4
-recipe. It advances only with at least 0.02 heldout-loss improvement, at least
-90% control throughput, at most 1.25 times peak CUDA memory, live gradients, and
-nonzero learned routes. No checkpoint or runtime installation exists before
-that joint gate passes.
+**Depth Assembly v37 (retired on bounded runtime)** — The identity-initialized
+45-route candidate passes exact batch/cached parity and gradient tests, but its
+frozen 16,773,120-token matched run cannot finish within 3,600 seconds. Observed
+device allocation reaches 11,744 of 12,288 MiB while the process remains active;
+the unchanged V36 recipe previously runs at 25.07k tokens/s and 7.72 GiB. No
+terminal arm report, heldout score, or checkpoint is emitted, so V37 establishes
+a systems failure but makes no language-quality claim. The full-width history
+module, runner, and tests are deleted. Timeout artifact SHA-256 is
+`cf7465cdeec25be68bbb75af07096e2ae420d233260aaa1a985496c2cee86442`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
