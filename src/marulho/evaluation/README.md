@@ -866,6 +866,15 @@ at least 1.80 times measured training throughput. Per-head Muon has its own
 at-most-0.005 loss and at-least-1.03 speed gates. Faster but worse learning does
 not advance.
 
+The completed screen advances physical batch 256 with whole-QKV Muon at 3e-4.
+It reaches heldout loss 3.1423 at 25.07k tokens/s versus the batch-32 control's
+3.2455 at 11.08k, a 2.262x speedup with better loss, and peaks at 7.72 GiB.
+The frozen fastest-arm selector reports per-head/8.5e-4, but that arm has 0.0844
+worse loss for only 1.68% more throughput. The artifact is retained unchanged;
+the project's quality-first rule resolves the next recipe to whole-QKV/3e-4.
+Per-head Muon separately passes at batch 32 but does not clear its speed gate at
+batch 256. No V36 checkpoint is saved.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight

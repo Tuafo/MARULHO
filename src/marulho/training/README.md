@@ -313,6 +313,12 @@ consecutive immutable schedule entries into one optimizer step while retaining
 source-microbatch accounting. The candidate recipe is research-only until its
 heldout loss and measured end-to-end throughput clear the preregistered gates.
 
+The screen advances grouped physical batch 256 with whole-QKV Muon and the
+unchanged 3e-4 learning rate: 25.07k versus 11.08k tokens/s and heldout loss
+3.1423 versus 3.2455. Per-head Muon gains 7.27% at batch 32 within its loss gate,
+but at batch 256 its same-rate gain is only 1.76% with slightly worse loss. It
+remains an opt-in measured path, not the next durable default.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:

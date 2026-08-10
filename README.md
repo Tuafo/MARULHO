@@ -165,12 +165,12 @@ positive controlled result—not a replacement for frontier Transformers.
 4. Keep dynamic byte hierarchies as a later scale-aware direction. Published
    H-Net evidence begins around 680M parameters and tens of billions of bytes,
    so a 21M imitation is not the next credible 3060 experiment.
-5. Profile and optimize the exact V35R training step on the RTX 3060 before the
-   next expensive run. Adopt changes only with matched numerical and short-run
-   quality evidence; unused VRAM or nominal kernel fusion is not a speed result.
-   V36 now freezes that screen at 2.36M identical ordered tokens: batch 32 versus
-   batch 256, retuned learning rates, and whole-QKV versus per-head Muon. Speed
-   advances only when heldout loss remains inside the frozen bound.
+5. Use V36's quality-safe RTX 3060 recipe for the next durable run. On 2.36M
+   identical ordered tokens, physical batch 256 with whole-QKV Muon at 3e-4
+   reaches loss 3.1423 at 25.07k tokens/s versus batch 32's 3.2455 at 11.08k:
+   2.262 times the throughput and better loss. Higher learning rates are worse.
+   Per-head Muon is useful at batch 32 but does not justify replacing whole-QKV
+   Muon at the advancing batch size.
 6. Reopen exact episodic memory, online learning, consolidation, forgetting,
    active compute, and the sustained 524,288-token runtime ladder from V35R,
    without calling the still-unanchored generator runtime-qualified.

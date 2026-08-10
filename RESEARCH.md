@@ -569,6 +569,28 @@ promoted: on the exact 100.68M-parameter V35R shape, 20 measured CUDA updates ta
 projects to only about 6% end-to-end. It therefore remains one arm in the larger
 batch/learning-rate screen rather than replacing the baseline by timing alone.
 
+#### V36 result: use the GPU harder without paying a quality penalty
+
+The six-arm CUDA screen completes in 1,361.27 seconds and passes all source,
+schedule, gradient, and compiled/eager parity checks. The batch-32 whole-QKV
+control reaches 3.24553 heldout loss at 11,080 tokens/s. Physical batch 256 at
+the same 3e-4 learning rate reaches 3.14227 at 25,065 tokens/s, a 2.262x speedup
+and a 0.10326 loss improvement. It uses 7.72 GiB peak CUDA allocation, leaving
+enough headroom on the 12 GB card for a durable run. Larger-batch learning-rate
+scaling is not useful here: 8.5e-4 reaches 3.22290 and 1.2e-3 reaches 3.27892,
+with the latter failing the frozen +0.01 loss bound.
+
+Per-head Q/K/V Muon passes its independent batch-32 gate: 11,886 versus 11,080
+tokens/s, a 7.27% gain, for +0.00238 heldout loss. At batch 256, however, the
+same-rate 8.5e-4 comparison gains only 1.76% and loses 0.00381 loss. The frozen
+selector chooses the fastest qualifying arm, batch-256/per-head/8.5e-4, but that
+arm is scientifically dominated by batch-256/whole-QKV/3e-4: the latter gives
+0.08443 better loss for only 1.68% less throughput. The immutable V36 artifact
+keeps the preregistered selector output; MARULHO's standing quality-first rule
+chooses batch 256, whole-QKV Muon, and 3e-4 for the next durable stage. No V36
+checkpoint is saved. The raw report SHA-256 is
+`e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

@@ -271,6 +271,20 @@ reopen continual-learning and conditional-compute experiments but does not
 qualify memory grounding or runtime installation. Decision:
 `save_v35r_capacity_continuation_201m_for_unseen_generation`.
 
+**Consumer-GPU Throughput v36 (batch-256 recipe advances)** — All six arms
+restart from the exact V35R tensors and consume the same 2,359,296 ordered
+tokens. Batch 32 with whole-QKV Muon reaches heldout loss 3.2455 at 11.08k
+tokens/s. Batch 256 with the unchanged 3e-4 learning rate reaches 3.1423 at
+25.07k tokens/s: 2.262 times throughput with 0.1033 better loss, 7.72 GiB peak
+CUDA allocation, and compiled/eager parity. The 8.5e-4 and 1.2e-3 large-batch
+rates are worse; 1.2e-3 fails the loss gate. Per-head Muon passes its separate
+batch-32 gate at +7.27% throughput and +0.00238 loss, but adds only 1.76% at
+batch 256 while slightly worsening same-rate loss. The frozen fastest-arm
+selector names batch-256/per-head/8.5e-4, but the standing quality-first rule
+makes batch-256/whole-QKV/3e-4 the recipe for the next durable stage. The raw
+artifact remains unchanged and no checkpoint is saved. Report SHA-256 is
+`e57ec348e588c073712c6c1a03613a6fc7b3400c205a7fae8e28fcc42f346719`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
