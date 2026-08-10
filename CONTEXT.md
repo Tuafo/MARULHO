@@ -308,6 +308,17 @@ blocker is exact answer formation. Decision:
 `redesign_v38_relation_objective_no_free_learning`. Report SHA-256 is
 `e356bf9a44ccb7fd1986be256c41128c2bb79a086c903d1be7bd110a841cc1d2`.
 
+**Answer Objective v39 (active falsifier)** — V39 preserves V38's exact V35R
+parent, 50/50 relation/general schedule, sources, seeds, 16,773,120-token budget,
+batch 256, Muon 3e-4 recipe, and exact evaluation. Only the causal loss changes:
+tokens after the complete `Answer:` marker and before EOS receive 2x or 4x
+relative weight, normalized within each batch; all prompt and general-language
+tokens retain ordinary next-token loss. The immutable V38 report is the
+unweighted control. A V39 arm must cross 50% strict free accuracy and 80%
+candidate accuracy with at most +0.10 old-language loss before its state is
+saved and strict-reloaded. This tests answer realization without adding model
+capacity, changing decoding, or weakening the evaluator.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

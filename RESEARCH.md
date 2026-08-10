@@ -655,6 +655,24 @@ and compute budget; lowering the evaluator or promoting 100% ranking is not an
 acceptable repair. Raw report SHA-256 is
 `e356bf9a44ccb7fd1986be256c41128c2bb79a086c903d1be7bd110a841cc1d2`.
 
+### V39: emphasize answer-bearing tokens
+
+V39 changes only how the fixed 50/50 V38 token stream contributes loss. A
+compiled causal mask finds the full tokenizer-owned ` Answer:` marker and
+weights subsequent target tokens through the document EOS by 2x or 4x. Loss is
+renormalized by total token weight, general rows without the marker remain
+ordinary next-token training, and the exact V38 report is hash-pinned as the
+unweighted control. Both arms restart from V35R and receive the same 16,773,120
+tokens, Muon 3e-4 schedule, and strict evaluation.
+
+The mechanism is intentionally between ordinary loss and the previously failed
+answer-only objective: V38 shows that full prompt modeling supplies useful
+relation representations, while its 100% ranking/46.88% free split says answer
+tokens need more gradient share. Promotion still requires at least 50% strict
+free accuracy, 80% ranking, no more than +0.10 general-loss regression, complete
+gradients, and exact checkpoint/tokenizer reload. Decoding controls, model
+capacity, replay fraction, and evaluator normalization are frozen.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

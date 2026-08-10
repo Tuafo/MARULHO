@@ -331,6 +331,12 @@ loss while learning the relation holdout, but strict free accuracy stops at
 so V39 targets answer-bearing token learning or structured lexical realization
 instead of more replay, capacity, or candidate scoring.
 
+V39's experimental compiled loss detects answer spans directly in tokenizer ID
+space and moderately reweights them while preserving ordinary causal loss on
+the rest of each batch. It is not an installed training default. Only a joint
+free-generation/retention pass can serialize the resulting standard Transformer
+state and justify retaining the objective implementation.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:
