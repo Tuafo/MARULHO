@@ -178,6 +178,10 @@ positive controlled result—not a replacement for frontier Transformers.
    quality evidence. A successor may test fused low-rank depth channels, but may
    not restore all-depth activation retention. Do not call the still-unanchored
    generator runtime-qualified.
+7. Run V38 from V35R to test actual continual learning: relation-only versus
+   50/50 and 20/80 general replay at equal 16.77M-token compute. Promotion needs
+   at least 50% strict free relation generation, 80% label-safe ranking, at most
+   +0.10 old-language loss, and exact checkpoint reload.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

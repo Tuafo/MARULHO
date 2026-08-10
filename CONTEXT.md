@@ -295,6 +295,17 @@ a systems failure but makes no language-quality claim. The full-width history
 module, runner, and tests are deleted. Timeout artifact SHA-256 is
 `cf7465cdeec25be68bbb75af07096e2ae420d233260aaa1a985496c2cee86442`.
 
+**Continual Replay v38 (active falsifier)** — V38 restarts three arms from the
+exact V35R state and gives each 16,773,120 tokens with V36's batch-256,
+whole-QKV Muon 3e-4 recipe. Relation exposure is 100%, 50%, or 20%; the latter
+two fill the remaining budget with hash-pinned FineWeb shard 2 and Cosmopedia
+shard 4, neither used to train V35R. The new domain is the separate 800k-document
+procedural corpus with its 256 compositionally held-out cases. A replay arm
+qualifies only at 50% strict free-answer accuracy, 80% label-safe candidate
+accuracy, and at most +0.10 old-language loss. Only a joint pass saves and
+strict-reloads a checkpoint; relation-only learning separates replay failure
+from failure to acquire the domain at all.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

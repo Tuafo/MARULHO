@@ -617,6 +617,26 @@ be a new hypothesis expressed through a few fused dense or low-rank operations,
 not a repaired or longer-running V37. Timeout artifact SHA-256 is
 `cf7465cdeec25be68bbb75af07096e2ae420d233260aaa1a985496c2cee86442`.
 
+### V38: continual learning on the qualified base
+
+V38 returns to MARULHO's central claim now that V35R has coherent general
+language and V36 supplies a quality-safe fast recipe. Three equal-compute arms
+continue the exact V35R tensors for 16,773,120 tokens at physical batch 256 and
+Muon 3e-4. The focused arm is 100% new procedural relations. Two replay arms use
+50/50 and 20/80 relation/general schedules; replay comes only from FineWeb shard
+2 and Cosmopedia shard 4, which V35R did not train on. The new domain uses the
+larger 800k-document relation corpus and a separate 256-case compositional
+holdout.
+
+Success is autonomous behavior, not candidate ranking alone. A replay arm must
+reach at least 50% strict free-answer accuracy, at least 80% label-safe ranking,
+and no more than +0.10 regression on the old general holdout. The relation-only
+arm diagnoses whether the base can acquire the domain under the same compute;
+it cannot be promoted as continual learning. A joint replay pass saves the one
+best arm and requires exact model/tokenizer reload. If focused learning works
+but replay does not, the next branch is parameter isolation; if focused learning
+also fails, the relation objective/interface is redesigned.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

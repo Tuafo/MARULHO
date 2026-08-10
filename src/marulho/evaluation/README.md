@@ -883,6 +883,14 @@ no quality claim. The candidate and one-shot evaluator are deleted; the timeout
 artifact and git history retain the evidence. Future depth routing must use a
 few fused dense or low-rank operations rather than full-width history retention.
 
+V38 is the first continual-learning screen from the quality-qualified V35R
+base. It compares 100% relation continuation with 50/50 and 20/80 relation to
+new general-replay mixtures, holding 16,773,120 tokens, batch 256, Muon 3e-4,
+initial tensors, and held-out evaluation fixed. The replay sources were not used
+in V35R training. A replay arm advances only with at least 50% strict free
+generation, 80% candidate accuracy, no more than +0.10 general-loss regression,
+complete gradients, and exact checkpoint/model-tokenizer reload.
+
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
 positive particle-field core: width 256, 24,576 particles, four heads, eight
