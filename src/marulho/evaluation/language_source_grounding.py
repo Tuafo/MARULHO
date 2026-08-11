@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -280,6 +281,66 @@ def fetch_squad_rows(
     return rows, provenance
 
 
+def fetch_squad_parquet_rows(
+    *,
+    row_count: int,
+    split: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fetch one immutable converted Parquet shard instead of many row pages."""
+
+    index_url = f"{DATASET_SERVER}/parquet?{urlencode({'dataset': DATASET})}"
+    request = Request(
+        index_url,
+        headers={"User-Agent": "MARULHO-source-grounding/1"},
+    )
+    with urlopen(request, timeout=60) as response:
+        index_raw = response.read()
+    index = json.loads(index_raw)
+    candidates = [
+        dict(value)
+        for value in index["parquet_files"]
+        if str(value["config"]) == CONFIG and str(value["split"]) == str(split)
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"expected one {CONFIG}/{split} Parquet shard, found {len(candidates)}"
+        )
+    parquet_url = str(candidates[0]["url"])
+    parquet_request = Request(
+        parquet_url,
+        headers={"User-Agent": "MARULHO-source-grounding/1"},
+    )
+    with urlopen(parquet_request, timeout=120) as response:
+        parquet_raw = response.read()
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(BytesIO(parquet_raw))
+    count = min(max(1, int(row_count)), int(table.num_rows))
+    records = table.slice(0, count).to_pylist()
+    rows = [
+        {"row_idx": index, "row": dict(row)}
+        for index, row in enumerate(records)
+    ]
+    provenance = [
+        {
+            "kind": "parquet_index",
+            "url": index_url,
+            "response_sha256": hashlib.sha256(index_raw).hexdigest(),
+        },
+        {
+            "kind": "parquet_shard",
+            "url": parquet_url,
+            "filename": str(candidates[0]["filename"]),
+            "declared_size_bytes": int(candidates[0]["size"]),
+            "downloaded_size_bytes": len(parquet_raw),
+            "response_sha256": hashlib.sha256(parquet_raw).hexdigest(),
+            "total_row_count": int(table.num_rows),
+            "selected_row_count": count,
+        },
+    ]
+    return rows, provenance
+
+
 def materialize_squad_grounding_manifest(
     tokenizer: LanguageTokenizer,
     *,
@@ -289,11 +350,21 @@ def materialize_squad_grounding_manifest(
     maximum_prompt_tokens: int = 64,
     split: str = DEFAULT_SPLIT,
     maximum_cases_per_title: int = 6,
+    fetch_mode: str = "rows",
 ) -> dict[str, Any]:
-    rows, pages = fetch_squad_rows(
-        row_count=int(fetch_row_count),
-        split=str(split),
-    )
+    mode = str(fetch_mode).strip().lower()
+    if mode == "rows":
+        rows, pages = fetch_squad_rows(
+            row_count=int(fetch_row_count),
+            split=str(split),
+        )
+    elif mode == "parquet":
+        rows, pages = fetch_squad_parquet_rows(
+            row_count=int(fetch_row_count),
+            split=str(split),
+        )
+    else:
+        raise ValueError("fetch_mode must be 'rows' or 'parquet'")
     cases = build_squad_grounding_cases(
         rows,
         tokenizer,
@@ -307,6 +378,7 @@ def materialize_squad_grounding_manifest(
         "config": CONFIG,
         "split": str(split),
         "dataset_server": DATASET_SERVER,
+        "fetch_mode": mode,
         "external_text_data": True,
         "external_model_used": False,
         "fetched_row_count": int(len(rows)),
@@ -565,6 +637,7 @@ def main() -> int:
     parser.add_argument("--maximum-prompt-tokens", type=int, default=64)
     parser.add_argument("--split", default=DEFAULT_SPLIT)
     parser.add_argument("--maximum-cases-per-title", type=int, default=6)
+    parser.add_argument("--fetch-mode", choices=("rows", "parquet"), default="rows")
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--map-location", default="cuda")
     args = parser.parse_args()
@@ -584,6 +657,7 @@ def main() -> int:
             maximum_prompt_tokens=int(args.maximum_prompt_tokens),
             split=str(args.split),
             maximum_cases_per_title=int(args.maximum_cases_per_title),
+            fetch_mode=str(args.fetch_mode),
         )
     manifest["path"] = str(args.manifest)
     report = evaluate_source_grounding(
