@@ -545,6 +545,19 @@ checkpoint survives. The generic document-aligned batch/loss contract remains
 active for V53; the one-off V52 runner and gate tests are deleted. Report SHA-256
 is `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`.
 
+**Frozen Source Pointer v53 (preregistered)** — V53 keeps the exact V39 language
+model immutable and trains only a rank-64 source pointer on V52's aligned records.
+The pointer attends from frozen final query states to token states located inside
+the explicit `Context:` field, scatters that attention into tokenizer-vocabulary
+copy probability, and learns a scalar mix with unchanged V39 vocabulary
+probability. It receives exactly 2,096,640 aligned SQuAD positions with answer-
+only loss and no replay. Added parameters must remain below 0.25%; inactive parent
+checkpoint/state/logits/general/relation evidence must be exact. Promotion needs
+at least 18/64 intact answers, at least +20 source-control points, no more than one
+case below V52, full pointer gradients, bounded runtime, and strict reload. A miss
+deletes the complete path and advances to a trainable source encoder or explicit
+span supervision.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

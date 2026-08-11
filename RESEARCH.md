@@ -1192,6 +1192,36 @@ SHA-256 is `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`;
 source audit SHA-256 is
 `ff2b6aec6c8a000cddea1004c1f8124b1edb01b75f6fe89550fbd15001d290bd`.
 
+### V53 preregistration: frozen-base source pointer
+
+V52 proves that intact causal records can teach source-grounded answering, while
+its retention failure proves that the signal must not rewrite the shared cortex.
+V53 freezes the exact V39 checkpoint and adds a MARULHO-owned rank-64 pointer
+head. Queries come from the frozen final hidden state; keys come only from token
+states structurally located between `Context:` and `Question:`. A causal
+attention distribution is scattered through the checkpoint tokenizer IDs to
+form a copy distribution, then a learned scalar gate mixes copy probability with
+the frozen vocabulary distribution. The head can therefore point to rare source
+tokens without storing a second language model. When the source route is
+inactive, V39 executes unchanged.
+
+The head receives exactly 2,096,640 processed positions from V52's 512 aligned
+SQuAD records, no replay, batch 8, 28-way gradient accumulation, and 130 optimizer
+updates. Only answer targets contribute loss; post-EOS pads are excluded. The
+parent checkpoint, state, tokenizer, logits, general loss, and relation panel
+must remain exact. Every pointer parameter must receive a final gradient, added
+parameters must stay below 0.25% of V39, the runtime projection must stay below
+1,200 seconds, and a passing artifact must strict-reload against the exact parent
+hash.
+
+Capability requires at least 18/64 intact answers, at least +20 points over the
+stronger question-only or mismatched-source control, and no more than one case
+below V52's 19/64. A pass advances the frozen-base copy route to learned routing,
+broader domains, and checkpoint-bank integration. A miss deletes the head,
+runner, tests, and checkpoint surface; it means frozen final states do not expose
+enough answer-localization geometry, so V54 must add a trainable source encoder
+or explicit span supervision rather than another residual adapter.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
