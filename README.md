@@ -241,6 +241,12 @@ positive controlled result—not a replacement for frontier Transformers.
     exact state hashes, zero invalid or nonfinite outputs, bounded state, and
     100% observed parameter execution. It remains a dense runtime, and preview
     drift prevents a long-generation-quality claim.
+15. Retain V46 as a corrected exact-continuation negative, not a grounding test.
+    V39 remains 0/12 from three-word heldout prefixes; versus V35R its loss is
+    +0.0395 on FineWeb-Edu and -0.0686 on Cosmopedia. The evaluator now excludes
+    a spurious second BOS and scans only a bounded stable token prefix. Because
+    the source document is hidden from the model, the next benchmark supplies
+    real unseen evidence and uses question-only/corrupted-source controls.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

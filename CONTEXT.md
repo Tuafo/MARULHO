@@ -415,6 +415,22 @@ coherent but drifts and invents facts, so this is not long-generation quality.
 Decision: `qualify_same_checkpoint_sustained_runtime`. Report SHA-256 is
 `51eefbbd66c8869217c4ca5a53fa1e5006f44887de028c654a1a3995d0572175`.
 
+**Unseen Exact-Continuation Reaudit v46 (retained negative, benchmark
+redesign)** — continuation loss no longer inserts a second BOS token or encodes
+the entire 37–51 MB remaining source to keep at most one context window. The
+evaluator expands a bounded source prefix until its requested BPE prefix is
+stable. On the same four FineWeb-Edu and four Cosmopedia prefixes, V35R/V39 loss
+is 3.60076/3.64029 and 2.71844/2.64983 respectively: mixed, bounded change rather
+than catastrophic forgetting. V39 passes 0/4 FineWeb, 0/4 Cosmopedia greedy,
+and 0/4 Cosmopedia controlled cases. Generated-only controls do not repair it.
+The suite exposes only a three-word heldout prefix and hides the source document,
+so it is exact continuation prediction—not evidence-conditioned grounding.
+Decision: `redesign_unseen_grounding_benchmark_keep_exact_continuation_diagnostic`.
+Composite report SHA-256 is
+`9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
+The next benchmark gives MARULHO a visible unseen source passage and compares
+intact, question-only, and corrupted-source conditions before any new training.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

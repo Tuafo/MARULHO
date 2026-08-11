@@ -959,14 +959,23 @@ graph with within-0.14% candidate throughput. No checkpoint was saved; the v9
 model, runner, and tests are deleted.
 
 **`language_generation_coherence.py`** — evaluates checkpoint generation on
-explicit or source-anchored unseen prompt cases. It records text evidence and
-source-continuation loss. The CLI strictly loads either the installed
+explicit prompts or heldout exact-continuation prefixes. It records text evidence
+and source-continuation loss. The source document is metrics-only, so this is not
+evidence-conditioned grounding. The CLI strictly loads either the installed
 Transformer surface or the experimental hashed-micro-expert surface, and records
 checkpoint, tokenizer, source hashes, qualification metadata, and ownership.
 Continuation loss encodes no second BOS token and scans only a progressively
 expanded source prefix until the requested token prefix is stable; it never
 tokenizes a tens-of-megabytes source tail to score at most one context window.
 Automated passes are diagnostic and do not alone promote quality.
+
+V46 reruns the repaired exact-continuation path on V35R and V39. FineWeb-Edu
+loss changes 3.60076 to 3.64029 and Cosmopedia 2.71844 to 2.64983; V39 passes
+0/12 across greedy and corrected-control reports. This is mixed bounded retention
+and a negative exact-continuation result. The next evaluator must supply visible
+heldout evidence with question-only and corrupted-source controls. Composite
+report SHA-256 is
+`9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

@@ -52,6 +52,14 @@ more capable than the old metric showed, but it is still dense and long samples
 still drift; the next idea must improve synthesis/generalization rather than
 repair the already-solved synthetic ownership task.
 
+V46 preserves the older unseen suite as exact-continuation evidence but rejects
+its grounding interpretation. A model cannot use a document it never receives;
+three visible words plus a hidden reference continuation is not source-grounded
+generation. The next falsifier presents real heldout source text inside the
+causal window and asks an extractive natural-language question. Intact source,
+question-only, and mismatched-source conditions measure causal evidence use
+before continual training is allowed.
+
 ## Cross-front synthesis: dynamics need a job
 
 The user's newer list—autonomous pattern generation, modern reservoir

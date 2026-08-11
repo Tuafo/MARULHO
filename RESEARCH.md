@@ -909,6 +909,33 @@ themes, and invent facts, so V45 does not promote long-generation quality.
 Decision: `qualify_same_checkpoint_sustained_runtime`. Report SHA-256 is
 `51eefbbd66c8869217c4ca5a53fa1e5006f44887de028c654a1a3995d0572175`.
 
+### V46: correct the unseen diagnostic, then stop calling it grounding
+
+The old unseen evaluator had two independent defects: it encoded the entire
+remaining 37–51 MB source text to retain at most 64 continuation tokens, and it
+inserted a new BOS token at the start of that continuation. The replacement
+scans progressively larger bounded character prefixes until the requested BPE
+prefix is stable and explicitly encodes continuation tokens without BOS. Focused
+tests cover both properties; the three-report V39 suite falls from a timeout to
+roughly one minute total.
+
+The corrected matched result remains negative. FineWeb-Edu V35R/V39 loss is
+3.60076/3.64029; Cosmopedia is 2.71844/2.64983. V39 passes none of four FineWeb,
+four Cosmopedia greedy, or four corrected-control cases. Its relation update is
+therefore mixed but bounded on these sources, not catastrophic forgetting, and
+does not create exact unseen continuation.
+
+This suite is not actually a grounding test: the model receives only a three-word
+heldout prefix while the source document remains metrics-only. Exact agreement
+with the hidden author's continuation measures predictive specificity, not use
+of visible evidence. The result remains useful under that name, but it cannot
+decide the architecture needed for grounding. Decision:
+`redesign_unseen_grounding_benchmark_keep_exact_continuation_diagnostic`. The
+next test uses a source-visible, heldout extractive QA set with question-only and
+corrupted-source controls, followed by matched continual training only if the
+frozen V39 audit shows headroom. Composite report SHA-256 is
+`9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
