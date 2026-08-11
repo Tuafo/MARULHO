@@ -132,8 +132,9 @@ def role_contrastive_unlikelihood(
         raise ValueError("role contrast expects [batch,time,vocab] logits and ids")
     if logits.shape[:2] != target_ids.shape or target_ids.shape != answer_mask.shape:
         raise ValueError("role contrast logits, targets, and mask must align")
-    total = logits.float().sum() * 0.0
+    total = logits.sum() * 0.0
     count = torch.zeros((), dtype=torch.long, device=logits.device)
+    log_denominators = torch.logsumexp(logits, dim=-1).float()
     for pattern_ids, target_offset, negative_ids in branches:
         pattern_size = int(pattern_ids.numel())
         if pattern_size > int(target_ids.shape[1]):
@@ -141,12 +142,14 @@ def role_contrastive_unlikelihood(
         occurrences = target_ids.unfold(1, pattern_size, 1).eq(pattern_ids).all(dim=-1)
         occurrences = occurrences & answer_mask.unfold(1, pattern_size, 1).all(dim=-1)
         occurrence_count = int(occurrences.shape[1])
-        selected_logits = logits[
+        selected_negative_logits = logits[
             :, int(target_offset) : int(target_offset) + occurrence_count, :
-        ].float()
-        log_denominator = torch.logsumexp(selected_logits, dim=-1)
+        ].index_select(-1, negative_ids).float()
+        log_denominator = log_denominators[
+            :, int(target_offset) : int(target_offset) + occurrence_count
+        ]
         log_negative = torch.logsumexp(
-            selected_logits.index_select(-1, negative_ids), dim=-1
+            selected_negative_logits, dim=-1
         )
         negative_probability = torch.exp(log_negative - log_denominator).clamp(
             max=1.0 - 1.0e-6

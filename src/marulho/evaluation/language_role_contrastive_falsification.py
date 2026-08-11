@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import time
 from typing import Any, Mapping, Sequence
@@ -24,7 +25,6 @@ from marulho.evaluation.language_relation_binding_experiment import (
     COLORS,
     CONTAINERS,
     ENTITIES,
-    evaluate_relation_binding_cases_batched,
 )
 from marulho.evaluation.language_training_experiment import (
     _precision_context,
@@ -34,7 +34,6 @@ from marulho.evaluation.language_training_experiment import (
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_answer_objective import answer_target_mask
 from marulho.training.language_model import (
-    evaluate_language_model,
     language_model_state_sha256,
     load_language_model_checkpoint,
 )
@@ -329,10 +328,18 @@ def run_role_contrastive_pilot(
         name: value.detach().cpu().clone() for name, value in model.state_dict().items()
     }
     initial_hash = language_model_state_sha256(model)
-    initial_heldout = evaluate_language_model(model, prepared.eval_batches)
-    initial_relation = evaluate_relation_binding_cases_batched(
-        model, tokenizer, prepared.cases, batch_size=8
-    )
+    v39_report = json.loads(Path(v39_report_path).read_text(encoding="utf-8"))
+    v39_selected = str(v39_report["selected_arm"])
+    if v39_selected != "answer_weight4":
+        raise ValueError("V42 parent report does not select the frozen V39 arm")
+    parent_reference = {
+        "selected_arm": v39_selected,
+        "heldout": v39_report["arms"][v39_selected]["heldout"],
+        "relation": v39_report["arms"][v39_selected]["relation"],
+        "live_recomputed": False,
+        "gate_dependency": False,
+        "reason": "hash-pinned V39 evidence; V42 gate compares trained arms",
+    }
     marker_values = tokenizer.encode(" Answer:", add_bos=False, add_eos=False)
     marker_ids = torch.tensor(marker_values, dtype=torch.long, device=resolved)
     branches = build_role_contrastive_branches(tokenizer, ROLE_GROUPS)
@@ -437,8 +444,7 @@ def run_role_contrastive_pilot(
         "decision": decision,
         "checkpoint_saved": False,
         "pilot_only": True,
-        "initial_heldout": initial_heldout,
-        "initial_relation": initial_relation,
+        "parent_reference": parent_reference,
         "objective": {
             "kind": "tokenizer_trie_role_unlikelihood",
             "role_groups": {key: list(values) for key, values in ROLE_GROUPS.items()},

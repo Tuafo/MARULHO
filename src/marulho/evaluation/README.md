@@ -1128,6 +1128,9 @@ schedule through the same compiled tokenizer-trie objective graph. A candidate m
 advance only with at least +5 strict-free points, +5 ownership or container
 points, and no more than +0.03 general-loss regression against the trained
 control. A miss deletes this runner and objective; no pilot checkpoint exists.
+The exact V39 report supplies the informational parent baseline by pinned hash;
+the pilot does not spend another full generation pass recomputing a value that
+does not enter its trained-control-relative gate.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
