@@ -172,10 +172,12 @@ def test_runtime_projection_keeps_startup_and_uses_late_step_median() -> None:
 
 
 def test_runtime_projection_rejects_weak_preflight() -> None:
-    with pytest.raises(ValueError, match="at least two"):
+    with pytest.raises(ValueError, match="at least three"):
         project_matched_arm_runtime((1.0,), total_optimizer_steps=10)
+    with pytest.raises(ValueError, match="at least three"):
+        project_matched_arm_runtime((1.0, 1.0), total_optimizer_steps=10)
     with pytest.raises(ValueError, match="positive optimizer"):
-        project_matched_arm_runtime((1.0, 1.0), total_optimizer_steps=0)
+        project_matched_arm_runtime((1.0, 1.0, 1.0), total_optimizer_steps=0)
 
 
 def test_matched_arm_artifact_is_atomic_and_contract_strict(tmp_path) -> None:

@@ -350,8 +350,11 @@ ran for 16,507.6 seconds without persisting an arm result. No quality conclusion
 or checkpoint exists. The shared experiment runner now times complete warmup
 optimizer steps, rejects projected over-budget arms before counted training,
 and can atomically persist exact-contract arm results. Do not restore the loss
-before integrated GPU/Muon parity and a safe larger-microbatch path are
-validated.
+without a new preregistration. The real V39 BF16/Muon runtime preflight selects
+effective batch 224 at 19.22k training tokens/s and 10.49 GB peak allocation;
+batch 256 is rejected after memory pressure collapses throughput. This validates
+execution feasibility and exact restoration, not quality parity across batch
+sizes.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

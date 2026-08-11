@@ -155,8 +155,8 @@ def project_matched_arm_runtime(
     """Project paid arm time from real optimizer steps, retaining startup cost."""
 
     timings = tuple(float(value) for value in warmup_step_seconds)
-    if len(timings) < 2 or any(value <= 0.0 for value in timings):
-        raise ValueError("runtime projection requires at least two positive steps")
+    if len(timings) < 3 or any(value <= 0.0 for value in timings):
+        raise ValueError("runtime projection requires at least three positive steps")
     steps = int(total_optimizer_steps)
     if steps < 1:
         raise ValueError("runtime projection requires positive optimizer steps")
@@ -784,8 +784,8 @@ def run_matched_training_arm(
     total_microbatches = int(prepared.staged.step_count)
     total_steps = total_microbatches // microbatch_group
     warmup_count = max(0, int(optimizer_warmup_steps))
-    if maximum_projected_total_seconds is not None and warmup_count < 2:
-        raise ValueError("runtime budget requires at least two optimizer warmup steps")
+    if maximum_projected_total_seconds is not None and warmup_count < 3:
+        raise ValueError("runtime budget requires at least three optimizer warmup steps")
     optimizer_warmup_seconds = 0.0
     optimizer_warmup_step_seconds: list[float] = []
     if warmup_count:

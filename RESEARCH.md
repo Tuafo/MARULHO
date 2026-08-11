@@ -795,9 +795,14 @@ credibly at acceptable cadence. Decision:
 The shared experiment runner now times complete warmup optimizer steps, rejects
 projected over-budget arms before counted training, and atomically persists each
 exact-contract arm with optional model state. Projection and artifact behavior
-pass focused unit checks. The remaining infrastructure gate is integrated
-GPU/Muon parity plus safe larger-microbatch validation; no V43 mechanism starts
-before it passes.
+pass focused unit checks. The exact V39 100.68M checkpoint also passes integrated
+BF16/Muon GPU rejection and exact restoration. Effective batch 224 is the best
+tested safe point at 19.22k training tokens/s and 10.49 GB peak allocation;
+batch 256 falls to 3.83k tokens/s under memory pressure and is rejected. No
+counted training or quality comparison occurred, so every later mechanism must
+still use the same frozen batch contract across arms. Runtime-preflight report
+SHA-256 is
+`284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:

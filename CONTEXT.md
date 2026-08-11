@@ -33,6 +33,9 @@ sustained generation.
 
 _Avoid_: compatibility loading for retired recurrent checkpoints, mismatched
 tokenizer/model vocabularies, or pretending planned continual memory exists.
+MARULHO is pre-user research: no external compatibility path is retained merely
+in case somebody might depend on it. Retired machinery is deleted after its
+evidence and decision are durable.
 
 **Brain Service Adapter** — the `/brain/*` HTTP and UI adapter. It calls
 `MarulhoBrain` and exposes read-only evidence projections. It does not train,
@@ -360,10 +363,16 @@ result. It was stopped on execution feasibility; no quality conclusion and no
 checkpoint exist. The objective, runner, and tests are deleted. Before another
 architecture falsifier, the shared experiment loop now gates projected wall
 time from complete warmup optimizer steps and atomically persists exact-contract
-arm results with optional model state. Integrated GPU/Muon parity and larger
-microbatches still require optimizer-memory and numerical validation. Decision:
+arm results with optional model state. The exact V39 100.68M model then validates
+the integrated BF16/Muon gate on RTX 3060: effective batch 224 reaches 19.22k
+training tokens/s at 10,490,205,696 bytes peak allocation, restores every weight
+exactly, and executes zero counted steps after forced rejection. Batch 256 slows
+to 3.83k tokens/s at 11,847,494,144 bytes and is rejected. This is runtime
+qualification, not batch-size quality parity. Decision:
 `stop_v42_execution_infeasible_no_quality_conclusion`. Report SHA-256 is
-`9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
+`9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`;
+the matched-runtime preflight report SHA-256 is
+`284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

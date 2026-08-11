@@ -1135,8 +1135,13 @@ SHA-256 is
 `9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
 The shared matched runner now owns real-step wall-time projection and strict,
 atomic per-arm artifacts. Unit checks cover projection, rejection, round-trip,
-and contract-mismatch behavior. Integrated GPU/Muon parity and the best safe
-larger-microbatch path still must pass before another mechanism falsifier.
+and contract-mismatch behavior. On the exact V39 100.68M checkpoint, three-step
+BF16/Muon probes select effective batch 224 at 19.22k training tokens/s and
+10,490,205,696 bytes peak allocation; batch 256 degrades to 3.83k tokens/s at
+11,847,494,144 bytes. Every probe restores the exact model hash and the forced
+budget rejection permits zero counted steps. This qualifies the infrastructure,
+not cross-batch training quality. Compact report SHA-256 is
+`284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

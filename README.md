@@ -215,13 +215,15 @@ positive controlled result—not a replacement for frontier Transformers.
     mechanical checks, but its exact eager pilot saturated the RTX 3060 for
     16,507.6 seconds without persisting an arm result. No checkpoint or live
     V42 code remains. The shared runner now owns real-step wall-time rejection
-    and atomic exact-contract arm artifacts; GPU/Muon parity and a safe larger
-    microbatch remain the final infrastructure gate before another architecture
-    test.
+    and atomic exact-contract arm artifacts. Its real V39/Muon GPU check selects
+    effective batch 224 at 19.22k training tokens/s and 10.49 GB peak allocation;
+    batch 256 is rejected after memory pressure collapses throughput. This clears
+    the execution-infrastructure gate, not a training-quality gate.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
-retained.
+retained. MARULHO has no external users yet, so hypothetical compatibility is
+not a reason to keep dead paths.
 
 ## Scientific boundaries
 
