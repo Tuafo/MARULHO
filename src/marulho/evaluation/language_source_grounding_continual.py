@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import gc
 import hashlib
 import json
@@ -56,6 +56,8 @@ class SourceGroundingContinualConfig:
     microbatches_per_optimizer_step: int = 28
     eval_batches: int = 16
     relation_eval_batch_size: int = 8
+    relation_case_count: int = 64
+    relation_generation_tokens: int = 16
     grounding_fraction: float = 0.50
     learning_rate: float = 3.0e-4
     minimum_learning_rate_fraction: float = 0.10
@@ -105,6 +107,31 @@ def _training_config(
         execution_backend="eager",
         device="cuda",
     )
+
+
+def _stratified_relation_cases(cases, *, case_count: int):
+    count = int(case_count)
+    if count < 1 or count > len(cases):
+        raise ValueError("relation case count is outside the available panel")
+    by_kind: dict[str, list[Any]] = {}
+    for case in cases:
+        by_kind.setdefault(str(case.kind), []).append(case)
+    selected = []
+    positions = {kind: 0 for kind in by_kind}
+    while len(selected) < count:
+        progressed = False
+        for kind in sorted(by_kind):
+            position = positions[kind]
+            if position >= len(by_kind[kind]):
+                continue
+            selected.append(by_kind[kind][position])
+            positions[kind] = position + 1
+            progressed = True
+            if len(selected) >= count:
+                break
+        if not progressed:
+            raise ValueError("could not fill stratified relation panel")
+    return tuple(selected)
 
 
 def _core_gate(
@@ -238,6 +265,7 @@ def run_source_grounding_continual(
         name: value.detach().cpu().clone()
         for name, value in model.state_dict().items()
     }
+    print("[grounding-v48] preparing frozen matched data", flush=True)
     prepared = prepare_matched_language_data(
         tokenizer_checkpoint_path=checkpoint,
         relation_corpus_path=grounding_train_corpus_path,
@@ -260,6 +288,13 @@ def run_source_grounding_continual(
         ),
         device=device,
     )
+    prepared = replace(
+        prepared,
+        cases=_stratified_relation_cases(
+            prepared.cases,
+            case_count=int(config.relation_case_count),
+        ),
+    )
     if int(prepared.staged.step_count) % int(
         config.microbatches_per_optimizer_step
     ):
@@ -269,16 +304,22 @@ def run_source_grounding_continual(
         tokenizer,
     )
     validation_manifest["path"] = str(grounding_validation_manifest_path)
+    print("[grounding-v48] evaluating initial general holdout", flush=True)
     baseline_heldout = evaluate_language_model(model, prepared.eval_batches)
     from marulho.evaluation.language_relation_binding_experiment import (
         evaluate_relation_binding_cases_batched,
     )
 
+    print(
+        "[grounding-v48] evaluating initial stratified relation panel",
+        flush=True,
+    )
     baseline_relation = evaluate_relation_binding_cases_batched(
         model,
         tokenizer,
         prepared.cases,
         batch_size=int(config.relation_eval_batch_size),
+        max_new_tokens=int(config.relation_generation_tokens),
     )
     shape_counts = Counter(
         tuple(int(value) for value in parameter.shape)
@@ -287,6 +328,7 @@ def run_source_grounding_continual(
         and not name.startswith("token_embedding.")
         and not name.startswith("lm_head.")
     )
+    print("[grounding-v48] warming Muon orthogonalizer", flush=True)
     optimizer_warmup = warm_language_muon_orthogonalizer_shapes(
         (
             (int(count), int(shape[0]), int(shape[1]))
@@ -384,6 +426,7 @@ def run_source_grounding_continual(
                 gradient_clip=float(config.gradient_clip),
                 precision=str(config.precision),
                 relation_eval_batch_size=int(config.relation_eval_batch_size),
+                relation_generation_tokens=int(config.relation_generation_tokens),
                 model_seed=int(config.model_seed),
                 device=device,
                 progress_prefix="grounding-v48",

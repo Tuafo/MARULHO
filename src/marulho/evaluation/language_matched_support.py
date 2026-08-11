@@ -711,6 +711,7 @@ def run_matched_training_arm(
     gradient_clip: float,
     precision: str,
     relation_eval_batch_size: int,
+    relation_generation_tokens: int = 32,
     model_seed: int,
     device: torch.device,
     progress_prefix: str,
@@ -926,6 +927,7 @@ def run_matched_training_arm(
         prepared.tokenizer,
         prepared.cases,
         batch_size=int(relation_eval_batch_size),
+        max_new_tokens=int(relation_generation_tokens),
     )
     sample = prepared.eval_batches[0].to(device)
     with torch.no_grad(), _precision_context(device, precision):

@@ -413,6 +413,7 @@ def evaluate_relation_binding_cases_batched(
     cases: Sequence[RelationCase],
     *,
     batch_size: int = 64,
+    max_new_tokens: int = 32,
 ) -> dict[str, Any]:
     """Label-safe relation evaluation with length-grouped model execution."""
 
@@ -487,7 +488,7 @@ def evaluate_relation_binding_cases_batched(
             )
             generation = model.generate(
                 prompts,
-                max_new_tokens=32,
+                max_new_tokens=int(max_new_tokens),
                 eos_id=tokenizer.eos_id,
                 repetition_penalty=1.1,
                 no_repeat_ngram_size=3,
@@ -521,11 +522,13 @@ def evaluate_relation_binding_cases_batched(
                 "label_used_for_generation": False,
             }
         )
-    return _relation_rows_report(
+    report = _relation_rows_report(
         rows,
         evaluation_mode="length_grouped_batched",
         batch_size=size,
     )
+    report["generation_max_new_tokens"] = int(max_new_tokens)
+    return report
 
 
 def relation_binding_branch_decision(
