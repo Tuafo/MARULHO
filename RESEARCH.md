@@ -804,6 +804,70 @@ still use the same frozen batch contract across arms. Runtime-preflight report
 SHA-256 is
 `284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
+### V43 preregistration: grounded prompt-copy readout
+
+V39 exposes a narrower failure than missing candidate knowledge: it ranks the
+correct complete answer in 98.44% of heldout cases but generates it freely in
+only 50.00%. V41 could perturb next-token probabilities but did not recover the
+weak ownership/container bindings, and V42 could not execute its many negative
+branches at useful cadence. V43 therefore tests whether the ordinary vocabulary
+readout is failing to assemble evidence that already exists in the current
+causal window.
+
+The candidate adds one low-rank learned pointer from each output hidden state to
+earlier hidden states. Pointer mass is scattered only onto token IDs that
+actually occur earlier in the same causal window, then enters the existing
+vocabulary logits through one zero-initialized bounded residual scale. At reset,
+the candidate is exactly V39. It does not read answer labels, candidates,
+metrics, a retrieved archive, or future tokens. It is a readout experiment, not
+a long-term-memory claim. Pointer-generators have improved factual reproduction
+in sequence generation, while later work warns that copy mechanisms may fail to
+use their intended path; copying ability can also emerge late in ordinary
+Transformers ([See et al.](https://arxiv.org/abs/1704.04368),
+[Bafna et al.](https://arxiv.org/abs/2403.10963),
+[Lv et al.](https://arxiv.org/abs/2409.09281)). Those results motivate the
+mechanism and the skeptical controls; they do not validate MARULHO's candidate.
+
+Before training, a metrics-only audit must report how many answer BPE tokens and
+complete answer spans are actually copyable from each prompt. If fewer than 85%
+of answer tokens occur in the prompt, stop: this interface cannot explain the
+target gap. Otherwise freeze one 4,194,304-token 50/50 general/relation schedule
+and compare three exact-reset arms at one candidate-safe effective batch:
+
+1. unchanged V39 answer-weight-4 continuation;
+2. the learned content pointer;
+3. an equal-parameter pointer whose source token identities are deterministically
+   shuffled only inside the copy readout while the Transformer sees the true
+   prompt.
+
+The integrated three-step BF16/Muon preflight selects the fastest common batch
+whose peak allocation stays at or below 10.5 GB and whose projected per-arm
+wall time stays at or below 1,200 seconds. Every completed arm is persisted
+atomically under one frozen contract hash. Any projection failure stops before
+counted training; no partial arm becomes evidence.
+
+The pointer advances to a 16,773,120-token confirmation only if it beats both
+controls by at least 10 free-generation points, reaches at least 60% strict free
+accuracy, keeps general heldout loss within +0.05 of the unchanged arm, keeps
+ranked accuracy at or above 98%, and raises both ownership and container by at
+least 10 points. On answer-changing source-swap pairs it must follow the changed
+source at least 65% of the time and beat the unchanged arm by 10 points. Shuffling
+pointer token identities must remove at least half of the candidate's free-
+generation gain. Active scale, gradients, or attention entropy alone cannot
+pass. Failure deletes the V43 implementation and retains only the compact report
+and decision.
+
+V43 stops at that first gate without creating an implementation. Under the exact
+V39 BPE tokenizer, only 66.53% of correct-answer token IDs occur anywhere in the
+prompt, below the frozen 85% requirement, and no complete answer token sequence
+occurs contiguously. Container/ownership/property/event-order coverage is
+68.42%/68.68%/71.49%/57.84%. The generator must synthesize substantial relational
+language rather than merely point to source tokens, so this copy-only residual
+cannot explain the measured gap as proposed. Decision:
+`stop_v43_prompt_copy_insufficient_answer_token_coverage`. No model, runner,
+tests, or checkpoint exist. Compact report SHA-256 is
+`6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

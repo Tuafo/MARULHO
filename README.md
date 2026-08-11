@@ -219,6 +219,10 @@ positive controlled result—not a replacement for frontier Transformers.
     effective batch 224 at 19.22k training tokens/s and 10.49 GB peak allocation;
     batch 256 is rejected after memory pressure collapses throughput. This clears
     the execution-infrastructure gate, not a training-quality gate.
+12. Stop V43 before implementation. Only 66.53% of correct-answer BPE tokens
+    occur anywhere in the prompt against its frozen 85% copyability gate, and no
+    complete answer span occurs. A prompt-copy readout cannot explain the free-
+    generation gap as proposed, so no code or checkpoint is created.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

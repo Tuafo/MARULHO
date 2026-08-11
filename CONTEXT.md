@@ -374,6 +374,17 @@ qualification, not batch-size quality parity. Decision:
 the matched-runtime preflight report SHA-256 is
 `284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
+**Grounded Prompt-Copy Readout v43 (preimplementation stop)** — V43 asked
+whether V39's 98.44% ranked/50.00% free gap could be repaired by pointing from
+the output state to token identities already present in the causal prompt. Its
+frozen prerequisite fails: only 66.53% of correct-answer BPE tokens occur
+anywhere in the prompt against an 85% requirement, event-order reaches only
+57.84%, and no complete answer span is present. The answer requires synthesis,
+not only copying. Decision:
+`stop_v43_prompt_copy_insufficient_answer_token_coverage`. No implementation,
+training, or checkpoint exists. Report SHA-256 is
+`6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

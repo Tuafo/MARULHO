@@ -1143,6 +1143,15 @@ budget rejection permits zero counted steps. This qualifies the infrastructure,
 not cross-batch training quality. Compact report SHA-256 is
 `284b35710e6b59572459a35ff9d79dd9f3a8b02921fbc7a6e3f4bb3d43884c15`.
 
+V43's metrics-only prompt-copy audit stops before implementation. Under the
+checkpoint-owned V39 BPE tokenizer, only 66.53% of correct-answer token IDs occur
+anywhere in their prompt against the frozen 85% gate; event-order coverage is
+57.84%, and complete-span coverage is zero. No runner, model, test, training, or
+checkpoint exists. Decision:
+`stop_v43_prompt_copy_insufficient_answer_token_coverage`. Compact report
+SHA-256 is
+`6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
+
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
 materialized corpus is data evidence, not learned capability. For large public

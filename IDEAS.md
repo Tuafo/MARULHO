@@ -29,6 +29,16 @@ reservoirs, cellular self-organization, and active inference remain scoped
 components or grounded hypotheses until a precise experiment shows what they
 add beyond the retired v7 mechanism.
 
+The first post-V42 falsifier was narrower than another memory organ. V39 already
+ranks the correct complete relation answer 98.44% of the time but emits it freely
+only 50.00% of the time. V43 preregistered a zero-initialized low-rank prompt-copy
+readout, then stopped at its metrics-only prerequisite: only 66.53% of answer BPE
+tokens occur anywhere in their prompt against the frozen 85% gate, and no
+complete answer occurs contiguously. The generator must synthesize relational
+language rather than merely point to source tokens. No V43 implementation exists,
+and this does not reopen the retired prompt-memory, hidden-state kNN, or V42
+contrastive interfaces.
+
 ## Cross-front synthesis: dynamics need a job
 
 The user's newer list—autonomous pattern generation, modern reservoir
