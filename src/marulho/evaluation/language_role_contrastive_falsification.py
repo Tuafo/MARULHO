@@ -1,4 +1,4 @@
-"""V42 byte-trie role-contrastive continual-learning pilot."""
+"""V42 tokenizer-trie role-contrastive continual-learning pilot."""
 
 from __future__ import annotations
 
@@ -440,7 +440,7 @@ def run_role_contrastive_pilot(
         "initial_heldout": initial_heldout,
         "initial_relation": initial_relation,
         "objective": {
-            "kind": "byte_trie_role_unlikelihood",
+            "kind": "tokenizer_trie_role_unlikelihood",
             "role_groups": {key: list(values) for key, values in ROLE_GROUPS.items()},
             "branch_count": len(branches),
             "branches": [asdict(branch) for branch in branches],

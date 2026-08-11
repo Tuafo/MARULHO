@@ -1,4 +1,4 @@
-"""Byte-trie contrastive objective for marked causal-language answers."""
+"""Tokenizer-trie contrastive objective for marked causal-language answers."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from marulho.training.language_answer_objective import answer_target_mask
 
 @dataclass(frozen=True)
 class RoleContrastiveBranch:
-    """One wrong next-byte branch while spelling a known role filler."""
+    """One wrong next-token branch while spelling a known role filler."""
 
     group: str
     value: str
@@ -29,12 +29,12 @@ def build_role_contrastive_branches(
     tokenizer,
     groups: Mapping[str, Sequence[str]],
 ) -> tuple[RoleContrastiveBranch, ...]:
-    """Build trie-divergence negatives for a byte-level tokenizer.
+    """Build trie-divergence negatives from the checkpoint tokenizer.
 
-    Patterns include a leading space to establish a word boundary. At each
-    byte of the true value, only alternative bytes reachable after the same
-    true prefix are negatives. This avoids treating a multi-byte word as one
-    vocabulary token.
+    Each pattern encodes the leading space and value together, establishing a
+    word boundary even when BPE merges that space with the first subtoken. At
+    each true subtoken, only alternatives reachable after the same true prefix
+    are negatives. This avoids assuming either byte or whole-word tokenization.
     """
 
     branches: list[RoleContrastiveBranch] = []
@@ -46,31 +46,22 @@ def build_role_contrastive_branches(
             value: tuple(
                 int(token_id)
                 for token_id in tokenizer.encode(
-                    value, add_bos=False, add_eos=False
+                    f" {value}", add_bos=False, add_eos=False
                 )
             )
             for value in values
         }
-        for value, value_ids in encoded.items():
-            pattern = tuple(
-                int(token_id)
-                for token_id in tokenizer.encode(
-                    f" {value}", add_bos=False, add_eos=False
-                )
-            )
-            leading_size = len(pattern) - len(value_ids)
-            if leading_size < 1:
-                raise ValueError("role patterns must own a leading boundary")
-            for position, correct_id in enumerate(value_ids):
-                prefix = value_ids[:position]
+        for value, pattern in encoded.items():
+            for position, correct_id in enumerate(pattern):
+                prefix = pattern[:position]
                 negatives = sorted(
                     {
-                        other_ids[position]
-                        for other, other_ids in encoded.items()
+                        other_pattern[position]
+                        for other, other_pattern in encoded.items()
                         if other != value
-                        and len(other_ids) > position
-                        and other_ids[:position] == prefix
-                        and other_ids[position] != correct_id
+                        and len(other_pattern) > position
+                        and other_pattern[:position] == prefix
+                        and other_pattern[position] != correct_id
                     }
                 )
                 if negatives:
@@ -79,7 +70,7 @@ def build_role_contrastive_branches(
                             group=str(group),
                             value=value,
                             pattern_ids=pattern,
-                            target_offset=leading_size + position,
+                            target_offset=position,
                             negative_ids=tuple(int(token_id) for token_id in negatives),
                         )
                     )
@@ -131,7 +122,7 @@ def role_contrastive_unlikelihood(
     answer_mask: torch.Tensor,
     branches: Sequence[PreparedRoleBranch],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Penalize probability mass on wrong byte-trie branches.
+    """Penalize probability mass on wrong tokenizer-trie branches.
 
     Returns the mean active-branch penalty and the active branch count. A batch
     without a recognized answer filler returns differentiable zero.
@@ -178,7 +169,7 @@ def role_contrastive_answer_loss(
     answer_weight: float,
     branches: Sequence[PreparedRoleBranch],
 ) -> torch.Tensor:
-    """V39 normalized answer loss plus byte-trie role unlikelihood."""
+    """V39 normalized answer loss plus tokenizer-trie role unlikelihood."""
 
     if contrastive_weight.ndim != 0:
         raise ValueError("contrastive_weight must be a scalar tensor")
