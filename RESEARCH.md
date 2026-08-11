@@ -1051,6 +1051,26 @@ final-state adapter or replay-ratio sweep. The V49 model, runner, checkpoint
 surface, and tests are deleted. Report SHA-256 is
 `204bbd170158834017fe5b52c0874491a02112c257ca912586fecc77d3aef7a1`.
 
+### V50 preregistration: isolated plasticity throughout the hierarchy
+
+V50 keeps V49's successful isolation contract and moves the trainable path to
+the place V49 could not reach. Every V39 attention QKV/output projection and
+SwiGLU gate-up/down projection receives a conditional rank-16 low-rank delta.
+The original linear remains frozen and is called directly when the condition is
+off, so inactive logits, state, loss, and relations must remain bit-exact. When
+on, the deltas can change source selection and feature construction inside all
+ten layers rather than trying to reinterpret only the final frozen state.
+
+The run keeps the V48/V49 SQuAD train and validation manifests, 4x answer loss,
+2,096,640 new-domain tokens, generated-only decode controls, and 18/64 grounding
+floor. It uses no replay because old behavior is structurally isolated. The
+active path must beat V48's 14/64 by at least five points, exceed the stronger
+source control by ten points, keep added parameters below 5% of V39, give every
+delta tensor a final gradient, and strict-reload if promoted. A pass advances
+hierarchical modular plasticity toward a learned router. A miss deletes the
+implementation and rejects low-rank conditional adaptation at this scale; the
+next architecture must own a separate source encoder or change the base cortex.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
