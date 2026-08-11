@@ -336,21 +336,20 @@ runtime stability, not long-generation quality or long-context memory. Decision:
 `qualify_v40_same_checkpoint_sustained_runtime`. Report SHA-256 is
 `4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
 
-**Hidden-State Episodic Memory v41 (active falsifier)** — V41 keeps every V39
-weight frozen and builds an append-only datastore from answer-token hidden
-states in training-only relation documents. At marked answer formation, the
-current final hidden state retrieves top-k cosine neighbors and adds a bounded
-memory distribution to the ordinary full-vocabulary logits. This is different
-from V25 raw-text prepending and the failed V26/V27 cross-attention readers:
-memory acts directly at the next-token decision. Calibration cases, frozen V39
-evaluation cases, and datastore documents are disjoint by signature. A
-deterministically shuffled-value memory shares the exact keys and search cost.
-V41 advances only if true memory reaches at least 65% strict free accuracy,
-keeps candidate accuracy at least 98%, lifts both ownership and container to at
-least 40%, beats shuffled values by at least ten free-accuracy points, preserves
-bit-exact logits whenever the answer gate is off, and exact-reloads the bounded
-datastore. Full cosine search is counted as dense search; top-k reads alone do
-not justify a sparse GPU claim.
+**Hidden-State Episodic Memory v41 (retired)** — V41 froze every V39 weight and
+built 65,536 answer-token hidden keys from 8,192 training-only relation
+documents. Disjoint calibration selected top-1, similarity 0.85, and 0.8
+interpolation. On the frozen 256 cases, base/true/shuffled strict free accuracy
+is 50.00%/51.56%/1.17%. True memory perfects property at 100% but leaves
+ownership at 6.25% and lowers container to 20.31%; candidate accuracy remains
+98.44%. General gate-off logits are bit-exact and model tensors are unchanged.
+The shuffled collapse proves causal logit intervention, but the full datastore
+repeats the 4,096-entry smoke result and does not create relational binding.
+Full search touched 740,950,016 keys while only one value per active query was
+read, so it also earns no sparse-compute claim. Decision:
+`retire_v41_hidden_state_memory_no_joint_free_binding_win`. No checkpoint or
+implementation survives. Report SHA-256 is
+`96a34833e573638b4bcbe06c2fba47b99b709c671a16c47b93089eb9302c0e2a`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

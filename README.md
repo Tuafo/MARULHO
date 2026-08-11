@@ -206,11 +206,11 @@ positive controlled result—not a replacement for frontier Transformers.
    prompted CUDA streams each produce 2,048 consecutive tokens, totaling 524,288
    in 74.84 seconds at 7,005 tokens/s. Model state is immutable and bounded;
    observed parameter coverage is 100%, so there is no sparse-compute win yet.
-10. Test V41 hidden-state episodic memory on the frozen V39 cortex. Retrieve
-    top-k training-only answer states directly into next-token logits, compare
-    identical shuffled values, require bit-exact gate-off behavior, and count
-    full-search cost honestly. Delete the interface if it cannot improve strict
-    ownership/container answers without weight mutation.
+10. Retire V41 hidden-state episodic memory. Its 65,536 training-only keys move
+    strict free accuracy only from 50.00% to 51.56%, entirely through property;
+    ownership stays 6.25% and container falls to 20.31%. Shuffled values prove
+    the intervention is causal, while 740.95M dense key comparisons and no
+    binding gain reject this interface. No checkpoint or code survives.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

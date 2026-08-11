@@ -742,6 +742,21 @@ tensors unchanged, and exact-reload keys, values, normalization, tokenizer hash,
 and provenance. The report separates active top-k values from the dense full-key
 search and measures latency/VRAM; no nominal sparsity claim can pass.
 
+V41 fails terminally. The 65,536-entry store is built from 8,192 training-only
+documents in 6.72 seconds; disjoint calibration selects top-1, threshold 0.85,
+weight 0.8. Frozen base/true/shuffled free accuracy is
+50.00%/51.56%/1.17%, while ranked accuracy is 98.44%/98.44%/91.80%. True memory
+raises property from 90.62% to 100% but ownership remains 6.25% and container
+falls from 23.44% to 20.31%. The same +1.56-point result appeared with only
+4,096 entries, so datastore scale does not repair the representation. General
+loss is exactly unchanged at 3.53110 over 18,432 sampled tokens, gate-off logits
+are bit-identical, and the frozen cortex hash is unchanged. Shuffled values
+establish that logit fusion is causal, but causal intervention is not useful
+binding. Search compares 740,950,016 keys for the terminal true arm and remains
+dense. Decision: `retire_v41_hidden_state_memory_no_joint_free_binding_win`.
+No memory artifact is saved; model, runner, and tests are deleted. Report
+SHA-256 is `96a34833e573638b4bcbe06c2fba47b99b709c671a16c47b93089eb9302c0e2a`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

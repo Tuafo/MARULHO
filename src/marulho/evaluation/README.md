@@ -1113,13 +1113,13 @@ runtime stability while explicitly rejecting a sparsity or long-generation-
 quality claim. Report SHA-256 is
 `4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
 
-**`language_hidden_state_memory_falsification.py`** — V41 freezes the exact V39
-cortex, builds answer-token hidden keys from training-only relation documents,
-selects top-k/threshold/interpolation on signature-disjoint calibration cases,
-and opens the frozen 256-case evaluation only for base, true-memory, and
-identical-key shuffled-value controls. General gate-off logits must remain bit
-exact. A passing memory exact-reloads; a failure leaves no artifact and deletes
-the experimental path. Full-key cosine search is reported as dense.
+The deleted V41 hidden-state-memory falsifier built 65,536 training-only keys and
+compared frozen V39, true values, and identical-key shuffled values. True memory
+improves strict free accuracy only 50.00% to 51.56%, leaves ownership at 6.25%,
+and lowers container to 20.31%; shuffled values collapse to 1.17%. General
+gate-off logits and model tensors remain exact. The causal but unhelpful reader
+performs 740.95M dense key comparisons and leaves no checkpoint or live code.
+Decision: `retire_v41_hidden_state_memory_no_joint_free_binding_win`.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

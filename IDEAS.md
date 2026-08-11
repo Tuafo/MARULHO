@@ -1192,7 +1192,8 @@ should alternate local attention with an editable recurrent or fast-weight
 state from initialization, train on genuinely contiguous documents, and face
 paired source swaps throughout training and evaluation. This is a new cortex
 experiment, not another memory attachment to V11.
-## V41: direct hidden-state episodic memory
+
+## V41: direct hidden-state episodic memory (retired)
 
 The post-V40 branch keeps the dense Transformer as a stable cortex and tests an
 editable nonparametric memory at the only point V38/V39 localized as limiting:
@@ -1209,5 +1210,7 @@ in open-ended decoding. V41 therefore gates memory to the answer span, uses a
 shuffled-value causal control, freezes all model tensors, and requires a large
 free-answer gain concentrated in V39's ownership/container weaknesses. Full
 cosine search touches every stored key and remains dense even though only top-k
-values affect logits. A pass only admits a later learned/semantic gate and an
-indexed search; a fail deletes this read interface.
+values affect logits. The full test fails: 65,536 entries improve free accuracy
+by only 1.56 points, leave ownership unchanged, and worsen container. Shuffled
+values prove causality but not usefulness. The interface and tests are deleted;
+do not rebuild nearest-neighbor logit fusion by merely changing k or store size.

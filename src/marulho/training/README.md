@@ -17,12 +17,6 @@ checkpoint. Decode controls inspect no more history than the active Transformer
 context; sustained output growth no longer causes repeated full-history tensor
 concatenation or scanning.
 
-**`language_hidden_state_memory.py`** — V41's experimental frozen-cortex memory.
-It stores normalized final hidden states with next-token values, applies a
-similarity-gated top-k distribution only on answer spans, records dense-search
-cost separately from active values, and atomically saves/reloads the memory
-without mutating Transformer weights. It is not an installed runtime capability.
-
 **`language_protocol.py`** — the shared causal-language model interface used by
 matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
