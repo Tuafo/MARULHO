@@ -1021,6 +1021,12 @@ V48's 14/64. No model, runner, checkpoint surface, tests, or compatibility path
 survives. Report SHA-256 is
 `c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
 
+**`language_specialist_fork_falsification.py`** — owns V51's full-capacity
+modular upper bound. It trains a complete V39-initialized source-QA specialist
+on the same new-domain exposure while the original checkpoint remains immutable.
+Only one model is active per explicit route; storage is doubled. A survivor must
+beat V48 grounding, preserve the original route exactly, and strict-reload.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
