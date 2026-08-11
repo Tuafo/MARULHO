@@ -51,6 +51,11 @@ contract hash and atomic replacement, so a runner can reuse only an exact
 completed arm after interruption. Architecture decisions remain owned by the
 specific runner; this support cannot promote a model.
 
+For supervised records that individually fit the causal context, the support can
+instead build one right-padded row per document. Padding occurs only after EOS
+and the report includes the counterfactual global-stride boundary count. This
+mode is explicit; continuous language corpora retain ordinary stream windows.
+
 The deleted V33 editable-state falsifier compared an exact 20,976,128-parameter
 Transformer with alternating local-attention/editable-matrix state on the same
 16,777,728 general-only tokens. It passed parameter, shared-initialization,
@@ -1029,7 +1034,8 @@ No specialist checkpoint, runner, test, routing option, or compatibility path
 survives. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
 
-The active V52 falsifier corrects a measured training-data boundary error before
+**`language_aligned_grounding_falsification.py`** — the active V52 falsifier
+corrects a measured training-data boundary error before
 adding architecture. Global stride-72 packing retained the complete prompt and
 answer for only 80/512 individually fitting SQuAD records. V52 uses one padded
 causal row per record, masks only post-EOS pad targets, and otherwise freezes

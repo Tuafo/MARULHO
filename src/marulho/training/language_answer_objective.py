@@ -45,6 +45,7 @@ def answer_weighted_next_token_loss(
     marker_ids: torch.Tensor,
     eos_id: int,
     answer_weight: float,
+    pad_id: int | None = None,
 ) -> torch.Tensor:
     """Renormalized next-token loss with extra credit on marked answer spans."""
 
@@ -58,5 +59,12 @@ def answer_weighted_next_token_loss(
         reduction="none",
     ).reshape(target_ids.shape)
     mask = answer_target_mask(input_ids, marker_ids=marker_ids, eos_id=int(eos_id))
-    weights = 1.0 + mask.to(token_losses.dtype) * (weight - 1.0)
+    valid = (
+        torch.ones_like(target_ids, dtype=torch.bool)
+        if pad_id is None
+        else target_ids.ne(int(pad_id))
+    )
+    weights = valid.to(token_losses.dtype) * (
+        1.0 + mask.to(token_losses.dtype) * (weight - 1.0)
+    )
     return (token_losses * weights).sum() / weights.sum()

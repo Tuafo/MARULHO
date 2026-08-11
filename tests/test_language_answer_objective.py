@@ -50,3 +50,20 @@ def test_answer_weighted_loss_is_finite_and_differentiable() -> None:
             eos_id=2,
             answer_weight=0.5,
         )
+
+
+def test_answer_weighted_loss_ignores_post_eos_padding() -> None:
+    model = _ToyModel()
+    inputs = torch.tensor([[1, 7, 8, 10, 2, 0]])
+    targets = torch.tensor([[7, 8, 10, 2, 0, 0]])
+    loss = answer_weighted_next_token_loss(
+        model,
+        inputs,
+        targets,
+        marker_ids=torch.tensor([7, 8]),
+        eos_id=2,
+        answer_weight=4.0,
+        pad_id=0,
+    )
+    loss.backward()
+    assert torch.count_nonzero(model.logits.grad[:, 4:]) == 0

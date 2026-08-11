@@ -72,6 +72,7 @@ class SourceGroundingContinualConfig:
     sample_bytes_per_eval_source: int = 1 * 1024 * 1024
     sample_range_count: int = 16
     schedule_mode: str = "indexed_host"
+    grounding_window_mode: str = "stream"
     optimizer_warmup_steps: int = 3
     maximum_projected_seconds_per_arm: float = 1_200.0
     minimum_grounding_accuracy: float = 0.25
@@ -285,6 +286,7 @@ def run_source_grounding_continual(
             sample_bytes_per_eval_source=int(config.sample_bytes_per_eval_source),
             sample_range_count=int(config.sample_range_count),
             schedule_mode=str(config.schedule_mode),
+            relation_window_mode=str(config.grounding_window_mode),
         ),
         device=device,
     )
@@ -406,6 +408,11 @@ def run_source_grounding_continual(
                         marker_ids=marker_ids,
                         eos_id=int(tokenizer.eos_id),
                         answer_weight=float(config.answer_weight),
+                        pad_id=(
+                            int(tokenizer.pad_id)
+                            if config.grounding_window_mode == "document_aligned"
+                            else None
+                        ),
                     )
 
             arm_contract = _canonical_sha256(

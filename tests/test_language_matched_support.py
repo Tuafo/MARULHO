@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from marulho.evaluation.language_matched_support import (
+    build_document_aligned_batches,
     load_matched_arm_artifact,
     project_matched_arm_runtime,
     run_matched_training_arm,
@@ -13,6 +14,29 @@ from marulho.evaluation.language_matched_support import (
     stage_schedule,
 )
 from marulho.training.language_model import LanguageBatch
+
+
+class _ToyTokenizer:
+    pad_id = 0
+
+    def encode_batch(self, texts, *, add_bos=True, add_eos=True):
+        assert add_bos and add_eos
+        return [[1, *([3] * int(text)), 2] for text in texts]
+
+
+def test_document_aligned_batches_keep_records_whole_and_audit_stream_cut() -> None:
+    batches, report = build_document_aligned_batches(
+        ["1\n\n1\n\n1"],
+        _ToyTokenizer(),
+        sequence_length=4,
+        batch_size=1,
+    )
+    assert len(batches) == 3
+    assert batches[0].input_ids.tolist() == [[1, 3, 2, 0]]
+    assert batches[0].target_ids.tolist() == [[3, 2, 0, 0]]
+    assert report["aligned_full_record_count"] == 3
+    assert report["global_stride_full_record_count"] == 2
+    assert report["global_stride_cross_boundary_count"] == 1
 
 
 def test_shared_schedule_is_reproducible_and_source_balanced() -> None:

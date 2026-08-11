@@ -361,7 +361,9 @@ detects answer spans directly in tokenizer ID space and moderately reweights
 them while preserving ordinary causal loss elsewhere. The selected 4x objective
 crosses the joint free-generation/retention gate and saves a standard exact-
 reload Transformer checkpoint. It is a domain-training tool, not the universal
-base-language default.
+base-language default. Document-aligned supervised batches may pass a pad ID;
+post-EOS pad targets then receive zero weight while every real token retains the
+same objective.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

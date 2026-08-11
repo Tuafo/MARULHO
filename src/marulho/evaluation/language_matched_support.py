@@ -16,6 +16,7 @@ import torch
 
 from marulho.data.language_tokenizer import (
     LANGUAGE_DOCUMENT_SEPARATOR,
+    iter_language_corpus_documents,
     load_language_tokenizer_state,
 )
 from marulho.evaluation.language_relation_binding_experiment import (
@@ -48,6 +49,7 @@ class MatchedLanguageDataConfig:
     sample_bytes_per_eval_source: int = 32 * 1024 * 1024
     sample_range_count: int = 16
     schedule_mode: str = "expanded_device"
+    relation_window_mode: str = "stream"
 
 
 @dataclass(frozen=True)
@@ -364,6 +366,88 @@ def full_sized_batches(
     return selected
 
 
+def build_document_aligned_batches(
+    texts: Sequence[str],
+    tokenizer,
+    *,
+    sequence_length: int,
+    batch_size: int,
+) -> tuple[tuple[LanguageBatch, ...], dict[str, Any]]:
+    """Build one right-padded causal row per independently fitting document."""
+
+    length = int(sequence_length)
+    size = int(batch_size)
+    if length < 2 or size < 1:
+        raise ValueError("document-aligned batches require positive valid shapes")
+    documents = tuple(iter_language_corpus_documents(texts))
+    if not documents:
+        raise ValueError("document-aligned source contains no documents")
+    encoded = tokenizer.encode_batch(documents, add_bos=True, add_eos=True)
+    window_length = length + 1
+    oversized = [index for index, row in enumerate(encoded) if len(row) > window_length]
+    if oversized:
+        raise ValueError(
+            "document-aligned source contains records longer than the causal window: "
+            f"{oversized[:8]}"
+        )
+    rows = torch.full(
+        (len(encoded), window_length),
+        int(tokenizer.pad_id),
+        dtype=torch.long,
+    )
+    digest = hashlib.sha256()
+    lengths: list[int] = []
+    stream_offset = 0
+    stream_full_record_count = 0
+    for index, row in enumerate(encoded):
+        value = torch.tensor(row, dtype=torch.long)
+        rows[index, : len(row)] = value
+        lengths.append(len(row))
+        digest.update(value.numpy().tobytes())
+        first_window = max(0, (stream_offset - length) // length)
+        last_window = (stream_offset + len(row)) // length
+        if any(
+            stream_offset >= window_index * length
+            and stream_offset + len(row) <= window_index * length + window_length
+            for window_index in range(first_window, last_window + 1)
+        ):
+            stream_full_record_count += 1
+        stream_offset += len(row)
+    full_row_count = len(encoded) - (len(encoded) % size)
+    if full_row_count < size:
+        raise ValueError("document-aligned source contains no full-sized batches")
+    batches = tuple(
+        LanguageBatch(
+            input_ids=rows[start : start + size, :-1].contiguous(),
+            target_ids=rows[start : start + size, 1:].contiguous(),
+        )
+        for start in range(0, full_row_count, size)
+    )
+    return batches, {
+        "surface": "marulho_document_aligned_language_batches.v1",
+        "document_count": len(documents),
+        "selected_document_count": full_row_count,
+        "excluded_partial_batch_document_count": len(documents) - full_row_count,
+        "batch_count": len(batches),
+        "batch_size": size,
+        "sequence_length": length,
+        "minimum_encoded_document_tokens": min(lengths),
+        "maximum_encoded_document_tokens": max(lengths),
+        "all_documents_fit": not oversized,
+        "aligned_full_record_count": full_row_count,
+        "global_stride_full_record_count": stream_full_record_count,
+        "global_stride_cross_boundary_count": (
+            len(documents) - stream_full_record_count
+        ),
+        "global_stride_full_record_fraction": (
+            stream_full_record_count / len(documents)
+        ),
+        "right_padding_only_after_eos": True,
+        "pad_id": int(tokenizer.pad_id),
+        "encoded_documents_sha256": digest.hexdigest(),
+    }
+
+
 def build_matched_schedule(
     *,
     step_count: int,
@@ -623,8 +707,15 @@ def prepare_matched_language_data(
         )
         for path in general_eval_paths
     ]
-    relation_split = (
-        build_language_model_splits(
+    relation_window_mode = str(config.relation_window_mode).strip().lower()
+    if relation_window_mode not in {"stream", "document_aligned"}:
+        raise ValueError(
+            "relation_window_mode must be 'stream' or 'document_aligned'"
+        )
+    relation_split = None
+    relation_alignment: dict[str, Any] | None = None
+    if relation_enabled and relation_window_mode == "stream":
+        relation_split = build_language_model_splits(
             [relation_text],
             tokenizer,
             sequence_length=config.sequence_length,
@@ -633,9 +724,22 @@ def prepare_matched_language_data(
             max_train_batches=relation_steps,
             max_eval_batches=1,
         )
-        if relation_enabled
-        else None
-    )
+        relation_batches = full_sized_batches(
+            relation_split.train,
+            batch_size=config.batch_size,
+        )
+        relation_batches_before = len(relation_split.train)
+    elif relation_enabled:
+        relation_batches, relation_alignment = build_document_aligned_batches(
+            [relation_text],
+            tokenizer,
+            sequence_length=config.sequence_length,
+            batch_size=config.batch_size,
+        )
+        relation_batches_before = len(relation_batches)
+    else:
+        relation_batches = tuple()
+        relation_batches_before = 0
     eval_split = build_language_model_splits(
         [],
         tokenizer,
@@ -645,14 +749,6 @@ def prepare_matched_language_data(
         batch_size=config.batch_size,
         max_train_batches=1,
         max_eval_batches=config.eval_batches,
-    )
-    relation_batches = (
-        full_sized_batches(
-            relation_split.train,
-            batch_size=config.batch_size,
-        )
-        if relation_split is not None
-        else tuple()
     )
     general_batches = [
         full_sized_batches(split.train, batch_size=config.batch_size)
@@ -683,6 +779,8 @@ def prepare_matched_language_data(
         schedule_sha256=schedule_sha256(schedule),
         source_selections={
             "relation": relation_selection,
+            "relation_window_mode": relation_window_mode,
+            "relation_alignment": relation_alignment,
             "general_train": train_selections,
             "general_train_splits": [
                 dict(split.report) for split in general_splits
@@ -691,9 +789,7 @@ def prepare_matched_language_data(
             "general_eval_split": dict(eval_split.report),
             "training_batch_filter": {
                 "required_batch_size": config.batch_size,
-                "relation_batches_before": (
-                    0 if relation_split is None else len(relation_split.train)
-                ),
+                "relation_batches_before": relation_batches_before,
                 "relation_batches_after": len(relation_batches),
                 "general_batches_before": [
                     len(split.train) for split in general_splits
