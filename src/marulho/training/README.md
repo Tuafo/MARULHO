@@ -350,11 +350,13 @@ tokenizer-trie branches for known entity, container, color, and event-polarity
 role fillers. Patterns are built from the checkpoint-owned BPE encoding of the
 leading boundary plus value, so the mechanism assumes neither bytes nor atomic
 words: alternatives sharing a token prefix are contrasted at their real
-divergence. One compiled graph accepts the arm weight as a tensor input, keeping
-the zero-weight control and candidates execution-matched. This remains
-experimental until its frozen pilot and full confirmation gates pass.
-The compiled objective recovers the vocabulary log-normalizer from the existing
-cross-entropy and target logit, avoiding a second full-vocabulary reduction.
+divergence. One eager loss function accepts the arm weight as a tensor input,
+keeping the zero-weight control and candidates execution-matched. The bounded
+pilot deliberately avoids a non-amortizing Inductor compile; compilation may
+return only for a promoted full confirmation. This remains experimental until
+its frozen pilot and full confirmation gates pass. The objective recovers the
+vocabulary log-normalizer from the existing cross-entropy and target logit,
+avoiding a second full-vocabulary reduction.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

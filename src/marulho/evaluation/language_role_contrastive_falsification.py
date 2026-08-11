@@ -28,7 +28,6 @@ from marulho.evaluation.language_relation_binding_experiment import (
 )
 from marulho.evaluation.language_training_experiment import (
     _precision_context,
-    _prepare_triton_compiler_compatibility,
     _resolve_device,
 )
 from marulho.reporting.readme_reports import write_json_report_with_readme
@@ -98,7 +97,7 @@ class RoleContrastivePilotConfig:
     sample_bytes_per_eval_source: int = 32 * 1024 * 1024
     sample_range_count: int = 16
     schedule_mode: str = "indexed_host"
-    execution_backend: str = "inductor"
+    execution_backend: str = "eager"
     compile_loss_tolerance: float = 1.0e-3
     answer_weight: float = 4.0
     minimum_free_gain: float = 0.05
@@ -193,7 +192,7 @@ def select_role_contrastive_candidate(
     return None, RETIRE_DECISION, deltas
 
 
-def _prepare_shared_compiled_loss(
+def _prepare_shared_eager_loss(
     model,
     example_batch,
     *,
@@ -202,7 +201,7 @@ def _prepare_shared_compiled_loss(
     prepared_branches,
     config: RoleContrastivePilotConfig,
 ):
-    """Compile one graph whose scalar weight keeps all arms compute-matched."""
+    """Audit one eager function whose scalar weight keeps arms compute-matched."""
 
     def eager_loss(
         input_ids: torch.Tensor,
@@ -222,54 +221,40 @@ def _prepare_shared_compiled_loss(
 
     device_batch = example_batch.to(model.device)
     audit_weight = torch.tensor(1.0, dtype=torch.float32, device=model.device)
-    cpu_state = torch.get_rng_state()
-    cuda_state = torch.cuda.get_rng_state_all()
-    with torch.no_grad(), _precision_context(model.device, config.precision):
-        reference = eager_loss(
-            device_batch.input_ids, device_batch.target_ids, audit_weight
-        )
-    torch.set_rng_state(cpu_state)
-    torch.cuda.set_rng_state_all(cuda_state)
-    compatibility = _prepare_triton_compiler_compatibility()
-    compiled = torch.compile(eager_loss, backend="inductor", fullgraph=True, dynamic=False)
     torch.cuda.reset_peak_memory_stats(model.device)
     torch.cuda.synchronize(model.device)
     started = time.perf_counter()
     with _precision_context(model.device, config.precision):
-        observed = compiled(
+        observed = eager_loss(
             device_batch.input_ids, device_batch.target_ids, audit_weight
         )
     observed.backward()
     torch.cuda.synchronize(model.device)
-    compile_seconds = time.perf_counter() - started
-    delta = abs(float(reference.detach().float().cpu()) - float(observed.detach().float().cpu()))
+    warmup_seconds = time.perf_counter() - started
+    if not bool(torch.isfinite(observed.detach())):
+        raise RuntimeError("V42 eager role loss is non-finite")
+    if not all(parameter.grad is not None for parameter in model.parameters()):
+        raise RuntimeError("V42 eager role loss misses model gradients")
     model.zero_grad(set_to_none=True)
-    torch.set_rng_state(cpu_state)
-    torch.cuda.set_rng_state_all(cuda_state)
-    if delta > float(config.compile_loss_tolerance):
-        raise RuntimeError("V42 compiled/eager role loss drift exceeds tolerance")
     execution = {
-        "requested_backend": "inductor",
-        "effective_backend": "inductor",
-        "ordinary_step_backend": "torch_compile_inductor_fullgraph",
-        "compile_fullgraph": True,
+        "requested_backend": "eager",
+        "effective_backend": "eager",
+        "ordinary_step_backend": "eager_shared_loss",
+        "compile_fullgraph": False,
         "compile_dynamic_shapes": False,
         "shared_across_all_arms": True,
-        "scalar_weight_is_graph_input": True,
-        "compile_seconds": compile_seconds,
-        "compile_peak_cuda_memory_bytes": int(torch.cuda.max_memory_allocated(model.device)),
-        "triton_compiler_compatibility": compatibility,
+        "scalar_weight_is_function_input": True,
+        "compile_seconds": 0.0,
+        "warmup_seconds": warmup_seconds,
+        "warmup_peak_cuda_memory_bytes": int(torch.cuda.max_memory_allocated(model.device)),
         "warmup_loss_parity": {
-            "performed": True,
+            "performed": False,
+            "reason": "pilot intentionally uses eager execution",
             "contrastive_weight": 1.0,
-            "eager_loss": float(reference.detach().float().cpu()),
-            "compiled_loss": float(observed.detach().float().cpu()),
-            "absolute_delta": delta,
-            "tolerance": float(config.compile_loss_tolerance),
-            "passed": True,
+            "eager_loss": float(observed.detach().float().cpu()),
         },
     }
-    return compiled, execution
+    return eager_loss, execution
 
 
 def run_role_contrastive_pilot(
@@ -366,8 +351,8 @@ def run_role_contrastive_pilot(
         sequence_length=int(config.sequence_length),
         batch_size=int(config.physical_batch_size),
     )
-    print("[V42] compiling shared role-contrastive graph", flush=True)
-    compiled, execution = _prepare_shared_compiled_loss(
+    print("[V42] auditing shared eager role-contrastive loss", flush=True)
+    loss_backend, execution = _prepare_shared_eager_loss(
         model,
         example,
         marker_ids=marker_ids,
@@ -389,7 +374,7 @@ def run_role_contrastive_pilot(
             target_ids: torch.Tensor,
             fixed_weight: torch.Tensor = arm_weight,
         ) -> torch.Tensor:
-            return compiled(input_ids, target_ids, fixed_weight)
+            return loss_backend(input_ids, target_ids, fixed_weight)
 
         print(f"[V42] training {name}", flush=True)
         rows[name] = run_matched_training_arm(
@@ -453,7 +438,7 @@ def run_role_contrastive_pilot(
             "answer_marker_ids": marker_values,
             "answer_mask_fraction_in_example": mask_fraction,
             "active_trie_branches_in_example": active_count,
-            "shared_graph_all_arms": True,
+            "shared_loss_function_all_arms": True,
         },
         "data": {
             "schedule_sha256": prepared.schedule_sha256,
