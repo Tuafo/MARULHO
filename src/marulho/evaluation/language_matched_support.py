@@ -108,12 +108,29 @@ def grouped_staged_batch(
         raise ValueError("grouped staged batch count must be positive")
     if first < 0 or first + size > int(staged.step_count):
         raise IndexError("grouped staged batch range is out of bounds")
-    batches = [staged.batch(index, device) for index in range(first, first + size)]
+    if staged.mode == "expanded_device":
+        if staged.input_ids is None or staged.target_ids is None:
+            raise RuntimeError("expanded schedule tensors are unavailable")
+        inputs = staged.input_ids[first : first + size].flatten(0, 1)
+        targets = staged.target_ids[first : first + size].flatten(0, 1)
+        return LanguageBatch(inputs.to(device), targets.to(device))
+    if staged.mode != "indexed_host":
+        raise RuntimeError(f"unknown training schedule mode: {staged.mode}")
+    batches = [
+        _selected_batch(
+            *staged.schedule[index],
+            relation_batches=staged.relation_batches,
+            general_batches=staged.general_batches,
+        )
+        for index in range(first, first + size)
+    ]
     if len(batches) == 1:
-        return batches[0]
+        return batches[0].to(device)
     return LanguageBatch(
-        input_ids=torch.cat([batch.input_ids for batch in batches], dim=0),
-        target_ids=torch.cat([batch.target_ids for batch in batches], dim=0),
+        input_ids=torch.cat([batch.input_ids for batch in batches], dim=0).to(device),
+        target_ids=torch.cat([batch.target_ids for batch in batches], dim=0).to(
+            device
+        ),
     )
 
 

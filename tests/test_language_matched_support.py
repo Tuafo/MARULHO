@@ -157,6 +157,21 @@ def test_grouped_staged_batch_concatenates_consecutive_schedule_entries() -> Non
     assert grouped.target_ids.shape == (4, 4)
     assert grouped.input_ids[:, 0].tolist() == [20, 20, 30, 30]
     assert grouped.target_ids[:, 0].tolist() == [21, 21, 31, 31]
+    expanded = stage_schedule(
+        (("general_0", 0), ("general_0", 1), ("general_0", 2)),
+        relation_batches=(),
+        general_batches=(batches,),
+        device=torch.device("cpu"),
+        mode="expanded_device",
+    )
+    expanded_group = grouped_staged_batch(
+        expanded,
+        start=1,
+        count=2,
+        device="cpu",
+    )
+    assert torch.equal(expanded_group.input_ids, grouped.input_ids)
+    assert torch.equal(expanded_group.target_ids, grouped.target_ids)
     with pytest.raises(IndexError, match="out of bounds"):
         grouped_staged_batch(staged, start=2, count=2, device="cpu")
 
