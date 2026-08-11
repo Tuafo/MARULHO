@@ -757,6 +757,30 @@ dense. Decision: `retire_v41_hidden_state_memory_no_joint_free_binding_win`.
 No memory artifact is saved; model, runner, and tests are deleted. Report
 SHA-256 is `96a34833e573638b4bcbe06c2fba47b99b709c671a16c47b93089eb9302c0e2a`.
 
+V42 follows the evidence rather than reopening memory. V39 ranks the correct
+candidate at 98.44% but freely emits only 50%; V41 changes next-token
+probabilities causally yet cannot identify ownership/container values. The next
+test makes the training objective contrast role-confusable answer tokens.
+[Unlikelihood training](https://arxiv.org/abs/1908.04319) shows that explicitly
+lowering unwanted token/sequence probabilities can improve generation without
+sacrificing perplexity, and
+[sequence likelihood calibration](https://arxiv.org/abs/2210.00045) shows that
+conditional generation can improve when likelihood ordering is trained rather
+than left to decoding heuristics. V42 borrows neither model nor data; these are
+objective precedents.
+
+All arms restore the exact V39 state and use its frozen 50/50 schedule, Muon
+recipe, 4x normalized answer emphasis, tokenizer, sources, and evaluator. The
+candidate adds unlikelihood only when the correct next token belongs to an
+explicit entity/container/color/event-polarity group; all other answer and
+general tokens are unchanged. A 2,359,296-token pilot compares weights 0, 0.25,
+and 1.0. Successive halving requires +5 free points, +5 ownership or container
+points, and no more than +0.03 general-loss regression before the selected
+candidate and control receive the full 16,773,120-token confirmation. Terminal
+promotion requires 65% free, 98% ranked, 40% ownership, 40% container, bounded
+general loss, full gradients, and exact reload. A pilot miss deletes the entire
+objective rather than tuning more weights.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

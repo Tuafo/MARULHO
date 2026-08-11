@@ -1214,3 +1214,21 @@ values affect logits. The full test fails: 65,536 entries improve free accuracy
 by only 1.56 points, leave ownership unchanged, and worsen container. Shuffled
 values prove causality but not usefulness. The interface and tests are deleted;
 do not rebuild nearest-neighbor logit fusion by merely changing k or store size.
+
+## V42: role-contrastive answer realization
+
+V39's 98.44% candidate ranking says the cortex usually distinguishes the right
+complete answer; 50% free generation says ordinary likelihood does not create a
+large enough local probability margin during decoding. V41 confirms that a
+post-hoc nearest-neighbor bias cannot manufacture the missing binding. V42
+therefore acts during learning: at answer positions whose target is a known
+role filler, it rewards the correct token and applies unlikelihood to the other
+entities, containers, colors, or event-polarity alternatives.
+
+The null is strong: answer-weighted cross-entropy may already contain all useful
+signal, and explicit negatives may only overfit the synthetic vocabulary. The
+same-compute V39 objective is the control; general replay remains half of all
+tokens. A short pilot kills the idea unless weak kinds and strict free decoding
+move together. Even a full pass would validate a continual objective, not a
+general reasoning architecture; transfer to disjoint natural domains would
+remain mandatory.
