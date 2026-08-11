@@ -431,6 +431,21 @@ Composite report SHA-256 is
 The next benchmark gives MARULHO a visible unseen source passage and compares
 intact, question-only, and corrupted-source conditions before any new training.
 
+**Source-Visible Grounding v47 (valid baseline, training admitted)** — a
+tokenizer-bound immutable manifest selects 64 `rajpurkar/squad` validation rows
+through the Hugging Face Dataset Viewer. Every source/question prompt fits 64
+V39 BPE tokens; accepted answers occur in the intact source but not the question
+or mismatched source. The frozen V39 checkpoint answers 3/64 intact cases (4.69%)
+and 0/64 question-only and mismatched-source controls. Model hashes are exact and
+all validity checks pass. The causal source gain is real but misses the frozen
+5-point weak-use threshold by one case and the 25%/+10-point capability gate.
+Decision: `v39_no_visible_source_use_train_grounding_with_replay`. Manifest/
+report SHA-256 are
+`9b3392f137a2ca467bc329815810581a98169da170f74f50e8ccb41cb06e12d6`
+and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
+The official SQuAD training split is now admitted only under matched replay and
+heldout validation; no external model participates.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

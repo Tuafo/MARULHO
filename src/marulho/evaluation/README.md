@@ -987,6 +987,14 @@ stronger control by ten points. External text is data only; MARULHO owns all
 inference and `external_llm_used=false`. The path is a grounding benchmark and
 future continual-training target, not a memory claim.
 
+V47's frozen V39 audit passes every validity check and keeps model hashes exact.
+Intact/question-only/mismatched-source strict answers are 3/64, 0/64, and 0/64.
+The 4.69-point source gain misses the 5-point weak-use threshold and 25%/+10-
+point promotion gate, so the branch admits matched training with replay rather
+than a base-grounding claim. Manifest/report SHA-256 are
+`9b3392f137a2ca467bc329815810581a98169da170f74f50e8ccb41cb06e12d6`
+and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

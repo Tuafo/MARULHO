@@ -948,6 +948,20 @@ source gain may still admit matched continual training, but no activity or loss
 proxy can substitute for generated answers. The official training split remains
 untouched until this validation audit is terminal.
 
+V47 is valid and terminal. The unchanged V39 checkpoint produces 3/64 strict
+answers with intact source and 0/64 for both question-only and answer-absent
+mismatched source. All prompts fit, answers are visible only in the intended
+condition, and pre/post model hashes are exact. The 4.69-point causal gain is
+below the preregistered 5-point weak-use branch by one case and far below the
+25% absolute/+10-point promotion gate. Decision:
+`v39_no_visible_source_use_train_grounding_with_replay`. This establishes a
+credible capability target rather than another likelihood proxy. The disjoint
+official training split may now train two matched arms—ordinary causal loss and
+answer-weighted loss—while replay preserves V39 relations and general text.
+Manifest/report SHA-256 are
+`9b3392f137a2ca467bc329815810581a98169da170f74f50e8ccb41cb06e12d6`
+and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

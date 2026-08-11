@@ -247,6 +247,12 @@ positive controlled result—not a replacement for frontier Transformers.
     a spurious second BOS and scans only a bounded stable token prefix. Because
     the source document is hidden from the model, the next benchmark supplies
     real unseen evidence and uses question-only/corrupted-source controls.
+16. Retain V47 as the first valid source-visible general grounding baseline.
+    On 64 immutable SQuAD validation cases, the unchanged V39 checkpoint answers
+    3/64 with intact evidence and 0/64 under both question-only and mismatched-
+    source controls. The 4.69-point source gain misses the frozen 5-point weak-
+    use threshold and the 25% capability gate, admitting continual grounding
+    training on the disjoint official training split with relation/general replay.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

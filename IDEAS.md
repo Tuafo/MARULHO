@@ -60,6 +60,13 @@ causal window and asks an extractive natural-language question. Intact source,
 question-only, and mismatched-source conditions measure causal evidence use
 before continual training is allowed.
 
+V47 validates that replacement and exposes the real baseline: intact SQuAD
+evidence yields 3/64 answers while question-only and mismatched-source controls
+yield zero. V39 can occasionally use visible natural evidence, but not reliably.
+The next intervention is not a new memory substrate; it is matched continual
+training on the disjoint SQuAD train split with both relation and general replay,
+testing whether ordinary shared Transformer state can first learn the interface.
+
 ## Cross-front synthesis: dynamics need a job
 
 The user's newer list—autonomous pattern generation, modern reservoir
