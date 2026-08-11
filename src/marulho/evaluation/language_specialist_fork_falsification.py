@@ -270,7 +270,7 @@ def run_specialist_fork_falsification(
             microbatches_per_optimizer_step=int(
                 config.microbatches_per_optimizer_step
             ),
-            microbatch_execution="concatenated",
+            microbatch_execution="gradient_accumulation",
             maximum_projected_total_seconds=float(
                 config.maximum_projected_seconds
             ),

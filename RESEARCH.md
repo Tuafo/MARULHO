@@ -1114,6 +1114,15 @@ nor full isolated plasticity learns enough at matched exposure, so the next work
 changes training data/objective or the source-processing architecture rather
 than inventing another adapter.
 
+The first counted execution exposed a GPU-memory cliff rather than a scientific
+result: concatenating 28 source microbatches into a physical batch of 224 kept
+the RTX 3060 at 100% utilization and about 11.9 GB allocated, but produced no
+terminal artifact after roughly 41 minutes. It was terminated and is not counted
+as V51 evidence. The replacement uses exact gradient accumulation across the
+same 28 ordered microbatches, token budget, optimizer-step count, objective, and
+seed. This is an execution correction only; it changes neither the frozen
+hypothesis nor its gates.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

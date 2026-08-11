@@ -1025,7 +1025,10 @@ survives. Report SHA-256 is
 modular upper bound. It trains a complete V39-initialized source-QA specialist
 on the same new-domain exposure while the original checkpoint remains immutable.
 Only one model is active per explicit route; storage is doubled. A survivor must
-beat V48 grounding, preserve the original route exactly, and strict-reload.
+beat V48 grounding, preserve the original route exactly, and strict-reload. Its
+28 source microbatches use true gradient accumulation: the initial concatenated
+batch-224 execution crossed the RTX 3060 memory cliff and was terminated without
+a terminal artifact, so it is execution evidence rather than capability evidence.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
