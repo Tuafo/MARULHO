@@ -1108,11 +1108,12 @@ semantic grounding.
 Transformer generation with explicit aggregate tokens, consecutive tokens per
 stream, elapsed time, throughput, bounded KV/decode history, pre/post model-state
 hashes, finite full-vocabulary logits, bounded output hashes/previews, and
-observed parameter-owning module execution. V40's primary shape is 256 streams
-by 2,048 tokens. It reports the dense V39 path as zero structural sparsity;
-sustained speed does not promote language quality.
+observed parameter-owning module execution. The qualification shape is 256
+streams by 2,048 tokens under an expected checkpoint hash. The generic v4
+surface reports the dense V39 path as zero structural sparsity; sustained speed
+does not promote language quality.
 
-The exact V40 run passes at 524,288/524,288 aggregate tokens: 256 streams each
+The historical V40 run passes at 524,288/524,288 aggregate tokens: 256 streams each
 continue for 2,048 tokens in 74.84 seconds at 7,005 tokens/s and 3.17 GB peak
 allocation. Model hashes remain exact, KV stays at 72, invalid/non-finite counts
 are zero, and hooks observe all 100,679,424 parameters. This qualifies dense
@@ -1164,6 +1165,16 @@ hashes remain exact. This requalifies relation decoding, not general grounding.
 Decision: `promote_v44_generated_only_decode_controls_requalify_v39`. Compact
 report SHA-256 is
 `e413abd919fb25ea546046b76652c7e011666fa0b7c8ecda8e7a454bdb0b2315`.
+
+V45 requalifies sustained runtime under that policy using the generic v4 report
+contract. The exact V39 checkpoint completes 524,288/524,288 tokens across 256
+streams in 73.1564 seconds at 7,166.67 tokens/s and 3,165,493,760 bytes peak
+allocation. Model/checkpoint hashes remain exact, outputs are finite and in
+vocabulary, state is bounded, and observed parameter coverage is 100%. There are
+247 unique continuation hashes; previews still drift, so the evidence promotes
+runtime stability but not long-generation quality or sparsity. Decision:
+`qualify_same_checkpoint_sustained_runtime`. Compact report SHA-256 is
+`51eefbbd66c8869217c4ca5a53fa1e5006f44887de028c654a1a3995d0572175`.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

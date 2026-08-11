@@ -403,6 +403,18 @@ does not prove general grounding. Decision:
 The old V40 long-generation qualification is no longer current for decode-policy
 behavior and must be repeated from the same checkpoint.
 
+**Generated-Only Sustained Runtime v45 (qualified dense runtime)** — the final
+generic v4 runtime contract reloads the exact V39 checkpoint and uses V44's
+generated-continuation-only decode controls. All 256 streams complete 2,048
+tokens each: 524,288/524,288 tokens in 73.1564 seconds at 7,166.67 tokens/s and
+3,165,493,760 bytes peak allocation. Checkpoint and pre/post model hashes match;
+logits and token IDs are valid; KV/control history stays bounded; 247/256 stream
+hashes are unique; observed hooks cover all 100,679,424 parameters. The path is
+still 100% dense with no structural sparsity. Preview text remains locally
+coherent but drifts and invents facts, so this is not long-generation quality.
+Decision: `qualify_same_checkpoint_sustained_runtime`. Report SHA-256 is
+`51eefbbd66c8869217c4ca5a53fa1e5006f44887de028c654a1a3995d0572175`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

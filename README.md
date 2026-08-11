@@ -77,13 +77,13 @@ There are eight different levels of truth:
    This is a narrow learning-without-forgetting result, not general reasoning:
    ownership/property reach 100%, event order 93.75%, and container remains the
    weak type at 60.94%.
-8. **Historical sustained research runtime:** V40 loads that exact V39 artifact
-   and generates 256 independent 2,048-token streams on the RTX 3060. All
-   524,288 tokens complete in 74.84 seconds at 7,005 tokens/s with 3.17 GB peak
-   allocation and unchanged model tensors. Execution hooks observe every one of
-   the 100.68M parameters, so the current path is measured dense, not sparse.
-   V44 changes decode-control scope, so these throughput/state facts remain
-   historical evidence but behavioral runtime qualification is pending rerun.
+8. **Qualified sustained research runtime:** V45 loads that exact V39 artifact
+   under generated-only decode controls and generates 256 independent 2,048-
+   token streams on the RTX 3060. All 524,288 tokens complete in 73.16 seconds
+   at 7,167 tokens/s with 3.17 GB peak allocation and unchanged model tensors.
+   Execution hooks observe every one of the 100.68M parameters, so the current
+   path is measured dense, not sparse. Long samples still drift and hallucinate;
+   this qualifies runtime stability, not long-generation quality.
 
 ```mermaid
 flowchart LR
@@ -236,6 +236,11 @@ positive controlled result—not a replacement for frontier Transformers.
     unchanged V39 checkpoint from 50.00% to 88.67% strict free accuracy while
     ranked accuracy stays 98.44% and model hashes remain exact. V40 must be rerun
     because its long-generation policy changed.
+14. Qualify V45 as that rerun. The exact same checkpoint emits 524,288/524,288
+    tokens in 73.16 seconds at 7,166.7 tokens/s with 3.165 GB peak allocation,
+    exact state hashes, zero invalid or nonfinite outputs, bounded state, and
+    100% observed parameter execution. It remains a dense runtime, and preview
+    drift prevents a long-generation-quality claim.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

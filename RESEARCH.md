@@ -895,6 +895,20 @@ current behavioral evidence, so the exact 524,288-token sustained test must run
 again before runtime is requalified. Report SHA-256 is
 `e413abd919fb25ea546046b76652c7e011666fa0b7c8ecda8e7a454bdb0b2315`.
 
+### V45: generated-only sustained runtime requalifies
+
+The generalized v4 sustained contract reruns the unchanged V39 artifact with
+V44 decoding. It completes 256 streams times 2,048 tokens: 524,288 tokens in
+73.1564 seconds at 7,166.67 tokens/s, with 3,165,493,760 bytes peak allocation.
+Checkpoint and pre/post tensor hashes are exact, all logits are finite, every
+token is in vocabulary, KV and decode-control state stay bounded, and hooks
+observe all 100,679,424 parameters. There are 247 distinct full-continuation
+hashes across 256 streams. The current runtime is therefore qualified and still
+measured as 100% dense. Previews remain locally grammatical but drift, repeat
+themes, and invent facts, so V45 does not promote long-generation quality.
+Decision: `qualify_same_checkpoint_sustained_runtime`. Report SHA-256 is
+`51eefbbd66c8869217c4ca5a53fa1e5006f44887de028c654a1a3995d0572175`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

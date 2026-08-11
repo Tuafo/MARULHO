@@ -46,6 +46,11 @@ checkpoint from 50.00% to 88.67% strict free accuracy without changing a tensor.
 This is not an architecture breakthrough; it is evidence that evaluation and
 decoding are part of the causal system and must be audited before adding organs.
 Container remains the real local weakness, while general grounding remains open.
+V45 then repeats the full 524,288-token CUDA contract under the corrected policy
+and passes at 7,166.7 tokens/s with exact state and bounded history. The cortex is
+more capable than the old metric showed, but it is still dense and long samples
+still drift; the next idea must improve synthesis/generalization rather than
+repair the already-solved synthetic ownership task.
 
 ## Cross-front synthesis: dynamics need a job
 
