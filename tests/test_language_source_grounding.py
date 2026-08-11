@@ -1,6 +1,10 @@
-from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.data.language_tokenizer import (
+    ByteLevelLanguageTokenizer,
+    LANGUAGE_DOCUMENT_SEPARATOR,
+)
 from marulho.evaluation.language_source_grounding import (
     build_squad_grounding_cases,
+    materialize_squad_training_corpus,
 )
 
 
@@ -90,3 +94,25 @@ def test_squad_grounding_cases_reject_question_answer_leakage() -> None:
     )
 
     assert {case["case_id"] for case in cases} == {"case-1", "case-2"}
+
+
+def test_squad_training_corpus_uses_prompt_answer_documents(tmp_path) -> None:
+    output = tmp_path / "train.txt"
+    report = materialize_squad_training_corpus(
+        {
+            "contract_sha256": "frozen",
+            "cases": [
+                {"prompt": "Context: A\nQuestion: Q\nAnswer:", "answers": ["one"]},
+                {"prompt": "Context: B\nQuestion: R\nAnswer:", "answers": ["two"]},
+            ],
+        },
+        output_path=output,
+    )
+
+    assert output.read_text(encoding="utf-8") == (
+        "Context: A\nQuestion: Q\nAnswer: one"
+        + LANGUAGE_DOCUMENT_SEPARATOR
+        + "Context: B\nQuestion: R\nAnswer: two"
+    )
+    assert report["document_count"] == 2
+    assert report["manifest_contract_sha256"] == "frozen"

@@ -17,6 +17,7 @@ from uuid import uuid4
 import torch
 
 from marulho.data.language_tokenizer import LanguageTokenizer
+from marulho.data.language_tokenizer import LANGUAGE_DOCUMENT_SEPARATOR
 from marulho.reporting.readme_reports import write_json_report_with_readme
 from marulho.training.language_model import (
     MarulhoLanguageModel,
@@ -29,7 +30,7 @@ SURFACE = "marulho_source_visible_grounding.v1"
 MANIFEST_SURFACE = "marulho_squad_grounding_manifest.v1"
 DATASET = "rajpurkar/squad"
 CONFIG = "plain_text"
-SPLIT = "validation"
+DEFAULT_SPLIT = "validation"
 DATASET_SERVER = "https://datasets-server.huggingface.co"
 
 
@@ -224,12 +225,17 @@ def build_squad_grounding_cases(
     return tuple(selected)
 
 
-def _fetch_page(offset: int, length: int) -> tuple[int, dict[str, Any], str, str]:
+def _fetch_page(
+    offset: int,
+    length: int,
+    *,
+    split: str,
+) -> tuple[int, dict[str, Any], str, str]:
     query = urlencode(
         {
             "dataset": DATASET,
             "config": CONFIG,
-            "split": SPLIT,
+            "split": str(split),
             "offset": int(offset),
             "length": int(length),
         }
@@ -241,13 +247,21 @@ def _fetch_page(offset: int, length: int) -> tuple[int, dict[str, Any], str, str
     return int(offset), json.loads(raw), hashlib.sha256(raw).hexdigest(), url
 
 
-def fetch_squad_rows(*, row_count: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def fetch_squad_rows(
+    *,
+    row_count: int,
+    split: str = DEFAULT_SPLIT,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     count = max(1, int(row_count))
     offsets = list(range(0, count, 100))
     with ThreadPoolExecutor(max_workers=min(4, len(offsets))) as executor:
         pages = list(
             executor.map(
-                lambda offset: _fetch_page(offset, min(100, count - offset)),
+                lambda offset: _fetch_page(
+                    offset,
+                    min(100, count - offset),
+                    split=str(split),
+                ),
                 offsets,
             )
         )
@@ -273,25 +287,32 @@ def materialize_squad_grounding_manifest(
     case_count: int = 64,
     fetch_row_count: int = 2_000,
     maximum_prompt_tokens: int = 64,
+    split: str = DEFAULT_SPLIT,
+    maximum_cases_per_title: int = 6,
 ) -> dict[str, Any]:
-    rows, pages = fetch_squad_rows(row_count=int(fetch_row_count))
+    rows, pages = fetch_squad_rows(
+        row_count=int(fetch_row_count),
+        split=str(split),
+    )
     cases = build_squad_grounding_cases(
         rows,
         tokenizer,
         case_count=int(case_count),
         maximum_prompt_tokens=int(maximum_prompt_tokens),
+        maximum_cases_per_title=int(maximum_cases_per_title),
     )
     manifest = {
         "surface": MANIFEST_SURFACE,
         "dataset": DATASET,
         "config": CONFIG,
-        "split": SPLIT,
+        "split": str(split),
         "dataset_server": DATASET_SERVER,
         "external_text_data": True,
         "external_model_used": False,
         "fetched_row_count": int(len(rows)),
         "case_count": int(len(cases)),
         "maximum_prompt_tokens": int(maximum_prompt_tokens),
+        "maximum_cases_per_title": int(maximum_cases_per_title),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
         "pages": pages,
         "cases": list(cases),
@@ -299,6 +320,45 @@ def materialize_squad_grounding_manifest(
     manifest["contract_sha256"] = _canonical_sha256(manifest)
     _write_json_atomic(output_path, manifest)
     return manifest
+
+
+def materialize_squad_training_corpus(
+    manifest: Mapping[str, Any],
+    *,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Write manifest prompts and first answers as separator-delimited documents."""
+
+    cases = tuple(dict(value) for value in manifest["cases"])
+    if not cases:
+        raise ValueError("grounding training manifest contains no cases")
+    documents = []
+    for case in cases:
+        answers = tuple(str(value).strip() for value in case["answers"])
+        if not answers or not answers[0]:
+            raise ValueError("grounding training case lacks a first answer")
+        documents.append(f'{str(case["prompt"]).rstrip()} {answers[0]}')
+    text = LANGUAGE_DOCUMENT_SEPARATOR.join(documents)
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return {
+        "path": str(output),
+        "sha256": _sha256_file(output),
+        "document_count": len(documents),
+        "size_bytes": output.stat().st_size,
+        "manifest_contract_sha256": str(manifest["contract_sha256"]),
+        "separator": LANGUAGE_DOCUMENT_SEPARATOR,
+    }
 
 
 def load_squad_grounding_manifest(
@@ -503,6 +563,8 @@ def main() -> int:
     parser.add_argument("--case-count", type=int, default=64)
     parser.add_argument("--fetch-row-count", type=int, default=2_000)
     parser.add_argument("--maximum-prompt-tokens", type=int, default=64)
+    parser.add_argument("--split", default=DEFAULT_SPLIT)
+    parser.add_argument("--maximum-cases-per-title", type=int, default=6)
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--map-location", default="cuda")
     args = parser.parse_args()
@@ -520,6 +582,8 @@ def main() -> int:
             case_count=int(args.case_count),
             fetch_row_count=int(args.fetch_row_count),
             maximum_prompt_tokens=int(args.maximum_prompt_tokens),
+            split=str(args.split),
+            maximum_cases_per_title=int(args.maximum_cases_per_title),
         )
     manifest["path"] = str(args.manifest)
     report = evaluate_source_grounding(
