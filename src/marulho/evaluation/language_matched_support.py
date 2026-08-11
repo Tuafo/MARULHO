@@ -1025,7 +1025,7 @@ def run_matched_training_arm(
     gradient_counts = [
         torch.count_nonzero(parameter.grad)
         for parameter in model.parameters()
-        if parameter.grad is not None
+        if parameter.requires_grad and parameter.grad is not None
     ]
     nonzero_gradient_elements = (
         int(torch.stack(gradient_counts).sum().detach().cpu())
@@ -1035,7 +1035,7 @@ def run_matched_training_arm(
     parameters_with_gradient = sum(
         parameter.numel()
         for parameter in model.parameters()
-        if parameter.grad is not None
+        if parameter.requires_grad and parameter.grad is not None
     )
     optimizer_state_bytes = sum(
         int(value.numel() * value.element_size())
@@ -1072,15 +1072,20 @@ def run_matched_training_arm(
     processed = total_microbatches * int(prepared.staged.tokens_per_step)
     end_to_end = training_elapsed + float(allocated_compile_seconds)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
+    trainable_parameters = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+    )
     row = {
         "name": name,
         "architecture": architecture,
         **dict(extra_row or {}),
         "parameters": total_parameters,
+        "trainable_parameters": trainable_parameters,
+        "frozen_parameters": total_parameters - trainable_parameters,
         "parameters_with_final_gradient": parameters_with_gradient,
         "nonzero_final_gradient_elements": nonzero_gradient_elements,
         "all_parameters_received_final_gradient": (
-            parameters_with_gradient == total_parameters
+            parameters_with_gradient == trainable_parameters
         ),
         "optimizer_fused": bool(fused),
         "optimizer": dict(optimizer_report),

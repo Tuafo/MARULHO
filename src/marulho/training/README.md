@@ -365,6 +365,13 @@ base-language default. Document-aligned supervised batches may pass a pad ID;
 post-EOS pad targets then receive zero weight while every real token retains the
 same objective.
 
+**`language_source_pointer.py`** — owns V53's preregistered frozen-cortex copy
+path. A rank-64 query/key head attends only inside an explicit `Context:` field,
+scatters attention into checkpoint-tokenizer vocabulary probability, and learns
+a scalar mix with frozen V39 probability. Its compact checkpoint contains only
+pointer tensors plus an exact parent-checkpoint hash; inactive language execution
+continues to use V39 directly.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion
