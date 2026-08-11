@@ -481,6 +481,21 @@ form. No candidate checkpoint, model, loader, runner, test, or compatibility
 surface survives. Report SHA-256 is
 `204bbd170158834017fe5b52c0874491a02112c257ca912586fecc77d3aef7a1`.
 
+**Hierarchical Conditional LoRA v50 (retired)** — V50 freezes V39 and installs
+rank-16 conditional deltas on all ten layers' attention QKV/output and SwiGLU
+gate-up/down projections. The 2,457,600 added parameters are 2.44% of V39; every
+delta tensor receives a nonzero final gradient and answer-weighted loss falls
+from about 3.55 to 2.76 across the same 2,096,640 SQuAD tokens as V49. Training
+finishes in 88.76 seconds at 23.62k tokens/s and 8,967,276,544 bytes measured
+peak allocation. Isolation again works exactly: inactive parent state, sample
+logits, 3.149025917 general loss, 98.44% relation ranking, and 89.06% free recall
+are unchanged. Active intact/question-only/mismatched grounding is 5/64, 0/64,
+and 0/64. This improves on V49's final sidecar but loses decisively to V48's
+14/64 shared-weight arm and misses the +10 source-control gate. Decision:
+`retire_v50_hierarchical_lora_insufficient_grounding`. No candidate checkpoint,
+model, runner, test, or compatibility surface survives. Report SHA-256 is
+`c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

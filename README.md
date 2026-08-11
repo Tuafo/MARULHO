@@ -92,8 +92,10 @@ There are nine different levels of truth:
    general loss regresses by 0.1045/0.1023. V48 therefore retires monolithic
    objective-only repair. V49 freezes V39 and trains a 4.13M-parameter final
    causal sidecar: inactive retention is exact and training is fast, but active
-   grounding falls to 1/64. Both the shared-plasticity and final-sidecar repairs
-   are retired; no checkpoint or live compatibility path survives.
+   grounding falls to 1/64. V50 moves rank-16 deltas into every layer and reaches
+   5/64 with exact retention—better, but still far behind V48's 14/64. Shared
+   plasticity, final-sidecar, and hierarchical low-rank repairs are retired; no
+   checkpoint or live compatibility path survives.
 
 ```mermaid
 flowchart LR
@@ -280,6 +282,15 @@ positive controlled result—not a replacement for frontier Transformers.
     inactive. Active grounding nevertheless falls to 1/64 versus V39's 3/64
     and V48's 14/64. The final representation is not a sufficient plasticity
     interface; the model, runner, checkpoint surface, and tests are deleted.
+19. Retire V50's hierarchical conditional low-rank deltas. Rank-16 updates on
+    every attention and SwiGLU projection add 2,457,600 parameters (2.44% of
+    V39); all receive nonzero gradients and loss falls from 3.55 to 2.76. Active
+    grounding improves over V49 to 5/64, but remains nine cases behind V48 and
+    produces only a 7.81-point causal source gain. Inactive parent/logit/loss/
+    relation evidence is exact. Training sustains 23.62k tokens/s for 88.76
+    seconds at 8.35 GiB peak. The implementation and checkpoint surface are
+    deleted. The next module must have substantially more functional freedom
+    than low-rank deltas or own a separate source encoder.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

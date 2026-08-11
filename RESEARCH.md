@@ -1071,6 +1071,29 @@ hierarchical modular plasticity toward a learned router. A miss deletes the
 implementation and rejects low-rank conditional adaptation at this scale; the
 next architecture must own a separate source encoder or change the base cortex.
 
+V50 is terminal and negative. The all-layer rank-16 deltas add 2,457,600
+parameters (2.44% of V39), and every tensor receives a nonzero final gradient.
+Training loss falls steadily from about 3.55 to 2.76 over the matched 2,096,640
+new-domain tokens. The optimized physical-batch-224 path completes 130 updates
+in 88.76 seconds at 23,622 tokens/s, with 8,967,276,544 bytes peak allocation
+and only 9,830,400 bytes of optimizer state.
+
+The inactive path again passes perfectly: parent hashes and sample logits are
+bit-exact, general loss stays exactly 3.149025917, and relation ranking/free
+recall stays 63/64 and 57/64. Active source grounding improves from V49's 1/64
+to 5/64, with 0/64 question-only and mismatched controls. This proves that
+plasticity throughout depth accesses more useful source information than a final
+sidecar, but it remains far below V48's 14/64 full-weight arm and misses the
+ten-point source-gain gate at only 7.81 points.
+
+Decision: `retire_v50_hierarchical_lora_insufficient_grounding`. Low-rank deltas
+solve retention but do not provide enough functional freedom for this capability
+at matched exposure. The next modular architecture must use higher-capacity
+residual functions inside depth or own a separate source encoder; another LoRA
+rank, replay ratio, or final adapter is not justified. The model, runner,
+checkpoint surface, and tests are deleted. Report SHA-256 is
+`c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

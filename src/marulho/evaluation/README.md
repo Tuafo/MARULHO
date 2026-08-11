@@ -1014,11 +1014,12 @@ No model, runner, checkpoint surface, tests, or compatibility import survives.
 Report SHA-256 is
 `204bbd170158834017fe5b52c0874491a02112c257ca912586fecc77d3aef7a1`.
 
-**`language_conditional_lora_falsification.py`** — owns V50's matched rank-16
-all-layer delta screen. It matches V48/V49 new-domain exposure, trains no parent
-tensor, uses no replay, and requires a held-out grounding win plus bit-exact
-inactive general/relation behavior. Temporary full-state artifacts are deleted
-after a terminal decision; only a passing strict checkpoint may survive.
+V50's matched rank-16 all-layer delta falsifier is retired and deleted. It
+preserves inactive V39 evidence exactly, trains all 2.46M deltas at 23.62k
+tokens/s, and improves active grounding over V49 to 5/64, but remains far below
+V48's 14/64. No model, runner, checkpoint surface, tests, or compatibility path
+survives. Report SHA-256 is
+`c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

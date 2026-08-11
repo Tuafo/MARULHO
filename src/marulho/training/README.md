@@ -28,12 +28,10 @@ behavior bit-exactly and trained efficiently, but active grounding fell to 1/64.
 The model and checkpoint surface are deleted; no conditional-adapter option or
 compatibility import remains.
 
-**`language_conditional_lora.py`** — V50's uninstalled hierarchical plasticity
-candidate. Conditional rank-16 deltas wrap every attention and SwiGLU projection
-while the original V39 linears remain frozen. The inactive branch calls each
-original linear directly and must be bit-exact; the active branch can reshape
-representations throughout depth. Promotion is evidence-gated and no runtime
-integration exists.
+V50's hierarchical conditional low-rank path is retired. It preserved inactive
+V39 behavior exactly and improved grounding over the final sidecar, but reached
+only 5/64 versus V48's 14/64. The model and checkpoint surface are deleted; no
+conditional LoRA option or compatibility import remains.
 
 Distributed predictive organism v1 is retired. It beat the matched Transformer
 at 4.20M and 16.79M tokens, but failed source-absent semantic generation and lost
