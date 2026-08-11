@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_role_contrastive_falsification import (
@@ -60,6 +61,45 @@ def test_role_unlikelihood_only_counts_marked_answer_occurrences() -> None:
     loss.backward()
     assert logits.grad is not None
     assert bool(torch.isfinite(logits.grad).all())
+
+
+def test_cross_entropy_denominator_reuse_is_exact() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    inputs, targets = _inputs_and_targets(
+        tokenizer, "Question: Where? Answer: The coin is in the cup."
+    )
+    marker = torch.tensor(
+        tokenizer.encode(" Answer:", add_bos=False, add_eos=False)
+    )
+    mask = answer_target_mask(inputs, marker_ids=marker, eos_id=tokenizer.eos_id)
+    branches = prepare_role_contrastive_branches(
+        build_role_contrastive_branches(
+            tokenizer, {"container": ("cup", "case", "box", "basket")}
+        ),
+        device="cpu",
+    )
+    generator = torch.Generator().manual_seed(42)
+    logits = torch.randn(
+        (1, targets.shape[1], tokenizer.vocab_size), generator=generator
+    )
+    direct, direct_count = role_contrastive_unlikelihood(
+        logits, targets, mask, branches
+    )
+    token_losses = F.cross_entropy(
+        logits.reshape(-1, logits.shape[-1]),
+        targets.reshape(-1),
+        reduction="none",
+    ).reshape(targets.shape)
+    target_logits = logits.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+    reused, reused_count = role_contrastive_unlikelihood(
+        logits,
+        targets,
+        mask,
+        branches,
+        log_denominators=token_losses + target_logits,
+    )
+    assert int(direct_count) == int(reused_count)
+    torch.testing.assert_close(direct, reused, atol=1.0e-6, rtol=1.0e-6)
 
 
 def test_role_unlikelihood_is_zero_without_role_answer() -> None:

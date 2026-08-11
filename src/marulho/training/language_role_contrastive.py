@@ -121,6 +121,8 @@ def role_contrastive_unlikelihood(
     target_ids: torch.Tensor,
     answer_mask: torch.Tensor,
     branches: Sequence[PreparedRoleBranch],
+    *,
+    log_denominators: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Penalize probability mass on wrong tokenizer-trie branches.
 
@@ -134,7 +136,12 @@ def role_contrastive_unlikelihood(
         raise ValueError("role contrast logits, targets, and mask must align")
     total = logits.sum() * 0.0
     count = torch.zeros((), dtype=torch.long, device=logits.device)
-    log_denominators = torch.logsumexp(logits, dim=-1).float()
+    if log_denominators is None:
+        log_denominators = torch.logsumexp(logits, dim=-1).float()
+    elif log_denominators.shape != target_ids.shape:
+        raise ValueError("precomputed log denominators must align with targets")
+    else:
+        log_denominators = log_denominators.float()
     for pattern_ids, target_offset, negative_ids in branches:
         pattern_size = int(pattern_ids.numel())
         if pattern_size > int(target_ids.shape[1]):
@@ -185,7 +192,13 @@ def role_contrastive_answer_loss(
     mask = answer_target_mask(input_ids, marker_ids=marker_ids, eos_id=int(eos_id))
     weights = 1.0 + mask.to(token_losses.dtype) * (float(answer_weight) - 1.0)
     causal_loss = (token_losses * weights).sum() / weights.sum()
+    target_logits = logits.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1).float()
+    log_denominators = token_losses.float() + target_logits
     contrastive_loss, _ = role_contrastive_unlikelihood(
-        logits, target_ids, mask, branches
+        logits,
+        target_ids,
+        mask,
+        branches,
+        log_denominators=log_denominators,
     )
     return causal_loss + contrastive_weight.to(causal_loss.dtype) * contrastive_loss

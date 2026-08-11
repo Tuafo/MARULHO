@@ -353,6 +353,8 @@ words: alternatives sharing a token prefix are contrasted at their real
 divergence. One compiled graph accepts the arm weight as a tensor input, keeping
 the zero-weight control and candidates execution-matched. This remains
 experimental until its frozen pilot and full confirmation gates pass.
+The compiled objective recovers the vocabulary log-normalizer from the existing
+cross-entropy and target logit, avoiding a second full-vocabulary reduction.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
