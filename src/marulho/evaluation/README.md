@@ -1121,6 +1121,14 @@ gate-off logits and model tensors remain exact. The causal but unhelpful reader
 performs 740.95M dense key comparisons and leaves no checkpoint or live code.
 Decision: `retire_v41_hidden_state_memory_no_joint_free_binding_win`.
 
+**`language_role_contrastive_falsification.py`** — V42's bounded pilot restores
+the exact V39 checkpoint for a 4x-answer control and contrastive weights 0.25
+and 1.0. All arms consume one non-repeating 2,359,296-token 50/50 replay
+schedule through the same compiled byte-trie objective graph. A candidate may
+advance only with at least +5 strict-free points, +5 ownership or container
+points, and no more than +0.03 general-loss regression against the trained
+control. A miss deletes this runner and objective; no pilot checkpoint exists.
+
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
 materialized corpus is data evidence, not learned capability. For large public

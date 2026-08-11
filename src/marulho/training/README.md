@@ -344,6 +344,16 @@ crosses the joint free-generation/retention gate and saves a standard exact-
 reload Transformer checkpoint. It is a domain-training tool, not the universal
 base-language default.
 
+**`language_role_contrastive.py`** — V42's active pilot objective retains V39's
+normalized 4x answer loss and adds explicit unlikelihood only at wrong
+byte-trie branches for known entity, container, color, and event-polarity role
+fillers. MARULHO's tokenizer is byte-level, so the mechanism never pretends a
+whole role word is one token: alternatives sharing a prefix are contrasted at
+their actual divergence byte. One compiled graph accepts the arm weight as a
+tensor input, keeping the zero-weight control and candidates execution-matched.
+This remains experimental until its frozen pilot and full confirmation gates
+pass.
+
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
 tests were mechanically valid, but the matched 16.78M-token result was dominated:
