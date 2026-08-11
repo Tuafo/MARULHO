@@ -977,6 +977,16 @@ heldout evidence with question-only and corrupted-source controls. Composite
 report SHA-256 is
 `9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
 
+**`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
+subset of the public SQuAD validation split through the Hugging Face Dataset
+Viewer and evaluates visible heldout evidence. Every case fits the active context,
+keeps an extractive answer in its source passage, excludes answer leakage from
+the question, and owns question-only plus answer-absent mismatched-source
+controls. Intact source must reach 25% strict answer accuracy and beat the
+stronger control by ten points. External text is data only; MARULHO owns all
+inference and `external_llm_used=false`. The path is a grounding benchmark and
+future continual-training target, not a memory claim.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

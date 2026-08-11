@@ -936,6 +936,18 @@ corrupted-source controls, followed by matched continual training only if the
 frozen V39 audit shows headroom. Composite report SHA-256 is
 `9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
 
+V47 preregisters that replacement against `rajpurkar/squad` validation. The
+manifest selects 64 deterministic rows, caps each source/question prompt at 64
+V39 BPE tokens, restricts answers to eight tokens, limits repeated article
+titles, and excludes questions that contain an accepted answer. Each intact
+case is paired with question-only and answer-absent mismatched-source controls;
+all prompts fit the same context bound. The frozen V39 checkpoint sees no labels
+or candidate list. A base grounding pass requires at least 25% strict answer
+accuracy and +10 points over the stronger control. A weaker +5-point causal
+source gain may still admit matched continual training, but no activity or loss
+proxy can substitute for generated answers. The official training split remains
+untouched until this validation audit is terminal.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
