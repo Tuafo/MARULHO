@@ -245,13 +245,49 @@ def _expected_source_continuation(
     }
 
 
+def _bounded_source_continuation_ids(
+    tokenizer: LanguageTokenizer,
+    source_text: str,
+    *,
+    start: int,
+    maximum_tokens: int,
+) -> tuple[list[int], int]:
+    """Encode a stable token prefix without tokenizing the whole source tail."""
+
+    source = str(source_text)
+    cursor = max(0, min(int(start), len(source)))
+    requested = max(0, int(maximum_tokens))
+    remaining = len(source) - cursor
+    if requested == 0 or remaining == 0:
+        return [], 0
+    scanned = min(remaining, max(1_024, requested * 16))
+    previous_prefix: list[int] | None = None
+    while True:
+        ids = tokenizer.encode(
+            source[cursor : cursor + scanned],
+            add_bos=False,
+            add_eos=False,
+        )
+        prefix = [int(value) for value in ids[:requested]]
+        at_source_end = scanned >= remaining
+        stable = (
+            len(prefix) >= requested
+            and previous_prefix is not None
+            and prefix == previous_prefix
+        )
+        if at_source_end or stable:
+            return prefix, scanned
+        previous_prefix = prefix if len(prefix) >= requested else None
+        scanned = min(remaining, scanned * 2)
+
+
 def _source_continuation_loss_case(
     model: MarulhoLanguageModel,
     tokenizer: LanguageTokenizer,
     case: LanguageGenerationPromptCase,
 ) -> dict[str, Any]:
     base = {
-        "surface": "marulho_language_generation_source_continuation_loss.v1",
+        "surface": "marulho_language_generation_source_continuation_loss.v2",
         "enabled": False,
         "reason": None,
         "loss": None,
@@ -263,6 +299,8 @@ def _source_continuation_loss_case(
         "full_model_vocab_logits_materialized": None,
         "model_context_length": None,
         "continuation_clipped_to_context": False,
+        "continuation_add_bos": False,
+        "continuation_source_characters_scanned": 0,
     }
     if not hasattr(model, "forward"):
         return {**base, "reason": "model_forward_unavailable"}
@@ -270,9 +308,7 @@ def _source_continuation_loss_case(
     if source_index < 0:
         return {**base, "reason": "prompt_not_found_in_source"}
     prompt_ids = tokenizer.encode(case.prompt_text, add_eos=False)
-    continuation_text = str(case.source_text)[
-        source_index + len(str(case.prompt_text)) :
-    ]
+    continuation_start_character = source_index + len(str(case.prompt_text))
     if not prompt_ids:
         return {**base, "reason": "empty_prompt_tokens"}
     context_length = int(
@@ -290,9 +326,14 @@ def _source_continuation_loss_case(
             maximum_continuation_tokens,
             max(0, context_length + 1 - len(prompt_ids)),
         )
-    continuation_ids = tokenizer.encode(continuation_text, add_eos=False)[
-        :maximum_continuation_tokens
-    ]
+    continuation_ids, continuation_characters_scanned = (
+        _bounded_source_continuation_ids(
+            tokenizer,
+            case.source_text,
+            start=continuation_start_character,
+            maximum_tokens=maximum_continuation_tokens,
+        )
+    )
     if not continuation_ids:
         return {
             **base,
@@ -303,6 +344,9 @@ def _source_continuation_loss_case(
             ),
             "prompt_token_count": int(len(prompt_ids)),
             "model_context_length": context_length or None,
+            "continuation_source_characters_scanned": int(
+                continuation_characters_scanned
+            ),
         }
     combined_ids = prompt_ids + continuation_ids
     input_ids = torch.tensor([combined_ids[:-1]], dtype=torch.long)
@@ -362,6 +406,9 @@ def _source_continuation_loss_case(
                     maximum_continuation_tokens < requested_continuation_tokens
                 ),
                 "source_continuation_token_count": int(len(continuation_ids)),
+                "continuation_source_characters_scanned": int(
+                    continuation_characters_scanned
+                ),
                 "continuation_target_start_index": int(continuation_start),
                 "generation_vocab_size": generation_vocab_size,
                 "model_vocab_size": model_vocab_size,

@@ -9,6 +9,7 @@ from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.evaluation.language_generation_coherence import (
     SURFACE,
     LanguageGenerationPromptCase,
+    _bounded_source_continuation_ids,
     _source_continuation_loss_case,
     auto_source_prompt_cases,
     run_language_generation_coherence_report,
@@ -27,7 +28,11 @@ class _FakeGenerationModel:
     ) -> None:
         self.config = SimpleNamespace(active_language_path=active_language_path)
         self._tokenizer = tokenizer
-        self._continuation_ids = tokenizer.encode(continuation_text, add_eos=False)
+        self._continuation_ids = tokenizer.encode(
+            continuation_text,
+            add_bos=False,
+            add_eos=False,
+        )
         self._external_llm_used = bool(external_llm_used)
         self._active_language_path = str(active_language_path)
         self.generate_calls = 0
@@ -248,13 +253,14 @@ def test_language_generation_coherence_report_records_prompt_continuation_loss()
     )
 
     loss = report["cases"][0]["source_continuation_loss"]
-    assert loss["surface"] == "marulho_language_generation_source_continuation_loss.v1"
+    assert loss["surface"] == "marulho_language_generation_source_continuation_loss.v2"
     assert loss["enabled"] is True
     assert loss["reason"] is None
     assert loss["loss"] > 0.0
     assert loss["perplexity"] > 0.0
     assert loss["evaluated_token_count"] > 0
     assert loss["decode_vocab_only"] is True
+    assert loss["continuation_add_bos"] is False
     assert report["summary"]["source_continuation_loss_available"] is True
     assert report["summary"]["source_continuation_loss_case_count"] == 1
     assert report["summary"]["mean_source_continuation_loss"] == loss["loss"]
@@ -325,6 +331,21 @@ def test_source_continuation_loss_clips_to_model_context() -> None:
     assert report["model_context_length"] == 16
     assert report["continuation_clipped_to_context"] is True
     assert report["prompt_token_count"] + report["evaluated_token_count"] <= 17
+
+
+def test_source_continuation_tokenization_is_bounded_and_has_no_second_bos() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    source = "prompt " + ("continuation " * 100_000)
+    token_ids, scanned = _bounded_source_continuation_ids(
+        tokenizer,
+        source,
+        start=len("prompt "),
+        maximum_tokens=64,
+    )
+
+    assert len(token_ids) == 64
+    assert token_ids[0] != tokenizer.bos_id
+    assert scanned < len(source) // 100
 
 
 def test_language_generation_coherence_report_blocks_unsupported_generation() -> None:

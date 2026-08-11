@@ -963,6 +963,9 @@ explicit or source-anchored unseen prompt cases. It records text evidence and
 source-continuation loss. The CLI strictly loads either the installed
 Transformer surface or the experimental hashed-micro-expert surface, and records
 checkpoint, tokenizer, source hashes, qualification metadata, and ownership.
+Continuation loss encodes no second BOS token and scans only a progressively
+expanded source prefix until the requested token prefix is stable; it never
+tokenizes a tens-of-megabytes source tail to score at most one context window.
 Automated passes are diagnostic and do not alone promote quality.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
