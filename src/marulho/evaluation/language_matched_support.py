@@ -729,7 +729,26 @@ def run_matched_training_arm(
     optimizer_warmup_steps: int = 0,
     microbatches_per_optimizer_step: int = 1,
     maximum_projected_total_seconds: float | None = None,
+    arm_artifact_path: str | Path | None = None,
+    arm_contract_sha256: str | None = None,
+    reuse_completed_arm: bool = True,
 ) -> dict[str, Any]:
+    if (arm_artifact_path is None) != (arm_contract_sha256 is None):
+        raise ValueError("arm artifact path and contract must be provided together")
+    if (
+        arm_artifact_path is not None
+        and bool(reuse_completed_arm)
+        and Path(arm_artifact_path).is_file()
+    ):
+        completed_row, completed_state = load_matched_arm_artifact(
+            arm_artifact_path,
+            expected_arm_name=name,
+            expected_contract_sha256=str(arm_contract_sha256),
+        )
+        if completed_state is None:
+            raise ValueError("completed arm artifact lacks exact model state")
+        model.load_state_dict(completed_state, strict=True)
+        return completed_row
     model.load_state_dict(dict(initial_state), strict=True)
     if configure_model is not None:
         configure_model(model, name)
@@ -927,7 +946,7 @@ def run_matched_training_arm(
     processed = total_microbatches * int(prepared.staged.tokens_per_step)
     end_to_end = training_elapsed + float(allocated_compile_seconds)
     total_parameters = sum(parameter.numel() for parameter in model.parameters())
-    return {
+    row = {
         "name": name,
         "architecture": architecture,
         **dict(extra_row or {}),
@@ -1000,3 +1019,12 @@ def run_matched_training_arm(
         "telemetry": sample_output["telemetry"],
         "diagnostics": diagnostics,
     }
+    if arm_artifact_path is not None:
+        save_matched_arm_artifact(
+            arm_artifact_path,
+            arm_name=name,
+            contract_sha256=str(arm_contract_sha256),
+            row=row,
+            model_state=model.state_dict(),
+        )
+    return row

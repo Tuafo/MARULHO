@@ -4,6 +4,7 @@ import torch
 from marulho.evaluation.language_matched_support import (
     load_matched_arm_artifact,
     project_matched_arm_runtime,
+    run_matched_training_arm,
     save_matched_arm_artifact,
     build_matched_schedule,
     full_sized_batches,
@@ -203,3 +204,37 @@ def test_matched_arm_artifact_is_atomic_and_contract_strict(tmp_path) -> None:
             expected_arm_name="candidate",
             expected_contract_sha256="different",
         )
+
+
+def test_matched_runner_reuses_completed_arm_and_restores_model(tmp_path) -> None:
+    model = torch.nn.Linear(2, 2, bias=False)
+    restored_weight = torch.full_like(model.weight, 3.0)
+    output = tmp_path / "completed.pt"
+    save_matched_arm_artifact(
+        output,
+        arm_name="candidate",
+        contract_sha256="frozen",
+        row={"name": "candidate", "heldout": {"loss": 0.75}},
+        model_state={"weight": restored_weight},
+    )
+    row = run_matched_training_arm(
+        "candidate",
+        architecture="unused-on-resume",
+        model=model,  # type: ignore[arg-type]
+        initial_state=model.state_dict(),
+        training_loss=lambda _inputs, _targets: torch.tensor(0.0),
+        execution={},
+        allocated_compile_seconds=0.0,
+        prepared=None,  # type: ignore[arg-type]
+        training_config=None,  # type: ignore[arg-type]
+        gradient_clip=1.0,
+        precision="float32",
+        relation_eval_batch_size=1,
+        model_seed=1,
+        device=torch.device("cpu"),
+        progress_prefix="unused",
+        arm_artifact_path=output,
+        arm_contract_sha256="frozen",
+    )
+    assert row == {"name": "candidate", "heldout": {"loss": 0.75}}
+    assert torch.equal(model.weight, restored_weight)
