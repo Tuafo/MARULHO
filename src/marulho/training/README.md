@@ -35,9 +35,11 @@ conditional LoRA option or compatibility import remains.
 
 V51's full specialist fork is retired. A complete V39 copy reached 12/64 with a
 real source-control gain, but still lost to V48 while collapsing training loss
-and worsening its general holdout to 5.1532. The result rejects insufficient
-adapter capacity as the current explanation. No specialist model, checkpoint,
-runner, test, routing option, or compatibility path remains.
+and worsening its general holdout to 5.1532. A later audit found that only 80/512
+stream-packed grounding records retained the full prompt and answer in one
+window, so the result rejects full copying for that pipeline rather than adapter
+capacity in general. No specialist model, checkpoint, runner, test, routing
+option, or compatibility path remains.
 
 Distributed predictive organism v1 is retired. It beat the matched Transformer
 at 4.20M and 16.79M tokens, but failed source-absent semantic generation and lost

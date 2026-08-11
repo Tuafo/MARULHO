@@ -1029,6 +1029,12 @@ No specialist checkpoint, runner, test, routing option, or compatibility path
 survives. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
 
+The active V52 falsifier corrects a measured training-data boundary error before
+adding architecture. Global stride-72 packing retained the complete prompt and
+answer for only 80/512 individually fitting SQuAD records. V52 uses one padded
+causal row per record, masks only post-EOS pad targets, and otherwise freezes
+V48's answer-weighted objective, replay schedule, budget, controls, and gates.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

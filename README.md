@@ -96,7 +96,11 @@ There are nine different levels of truth:
    5/64 with exact retention—better, but still far behind V48's 14/64. V51 removes
    the capacity excuse by training a complete 100.68M-parameter isolated fork;
    it reaches 12/64 with a real 17.19-point source gain, but still loses to V48
-   and overfits its general holdout from 3.1490 to 5.1532. Shared plasticity,
+   and overfits its general holdout from 3.1490 to 5.1532. A post-run alignment
+   audit then found that stream packing kept the complete context, question, and
+   answer together for only 80/512 training records. These arms are terminal for
+   the pipeline they actually ran, but do not establish a capacity-independent
+   limit under correctly aligned records. Shared plasticity,
    compact sidecars, hierarchical low-rank deltas, and full specialist copying
    are retired; no checkpoint or live compatibility path survives.
 
@@ -300,10 +304,22 @@ positive controlled result—not a replacement for frontier Transformers.
     Intact/question-only/mismatched grounding is 12/64, 1/64, and 1/64: genuine
     source use, but two cases worse than V48 and six below the gate. Training loss
     collapses to 0.010 while its general holdout worsens from 3.1490 to 5.1532,
-    identifying narrow memorization rather than insufficient module capacity.
+    identifying narrow memorization in the executed stream-packed curriculum.
+    A subsequent audit finds only 80/512 complete prompt-answer records in one
+    context window, so the broader capacity conclusion is withheld.
     The immutable parent remains exact. The fork runner, tests, and checkpoints
     are deleted; the next falsifier must change source representation or learning
     signal, not add another larger isolated parameter path.
+21. Preregister V52's document-aligned correction. Each SQuAD record already fits
+    in at most 73 tokens, but global stride-72 packing cuts 432/512 records across
+    windows. V52 right-pads each record only after EOS, excludes pad targets, and
+    keeps its full prompt and answer in one causal example. Everything else stays
+    matched to V48's answer-weighted arm: V39 reset, 4,193,280 total processed
+    tokens, 50% SQuAD, 50% identical replay sources, 4x answer loss, optimizer,
+    validation controls, and retention gates. It must reach at least 18/64 intact
+    answers, gain ten points over controls, and beat V48 by five points. A source
+    pass with retention failure advances the aligned signal to isolated copy/span
+    machinery; a source miss retires alignment as an insufficient repair.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

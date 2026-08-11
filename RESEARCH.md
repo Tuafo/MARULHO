@@ -1135,12 +1135,42 @@ exact; no candidate is saved because the capability gate fails.
 
 Decision: `retire_v51_full_specialist_insufficient_grounding`. Increasing the
 isolated path from 2.46M low-rank parameters to a full 100.68M model does not fix
-the matched grounding failure. The bottleneck is now assigned to data diversity,
-objective geometry, and source-answer interaction rather than raw plastic
-capacity. The runner and tests are deleted. Report SHA-256 is
+the grounding failure in the executed stream-packed curriculum. The runner and
+tests are deleted. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`;
 its immutable source audit SHA-256 is
 `92d444b8ab5c097a66102ac42d2ea7488a2e81f46ee5f32a68889b81d0c07cb5`.
+
+### V52 preregistration: repair record alignment before architecture
+
+A post-V51 token audit found a stronger and cheaper falsifier than another
+module. All 512 encoded SQuAD training records are at most 73 tokens and can fit
+the V39 causal window, but the corpus builder concatenates documents and slices
+the global stream every 72 tokens. Only 80/512 records (15.625%) retain their
+complete context, question, and answer in one training window. The answer marker
+and full answer remain together in 466/512, which explains how answer loss can
+collapse while the source evidence needed to answer is often truncated. This
+does not invalidate the measured V48--V51 outputs; it invalidates the broader
+inference that their failure is independent of training-record alignment.
+
+V52 changes one variable. Each grounding record becomes one document-aligned
+73-token row: BOS, complete prompt, first answer, EOS, then right padding after
+EOS. Pad targets contribute zero loss. The real-token objective remains V48's 4x
+answer-weighted causal loss. V39 initialization, 4,193,280 processed positions,
+50% grounding/50% identical replay schedule, batch 8, 28-way exact gradient
+accumulation, 130 optimizer updates, Muon/AdamW settings, seeds, V47 controls,
+relation panel, and general holdout are frozen. Runtime projection must remain
+below 1,200 seconds on the RTX 3060.
+
+The source gate requires at least 18/64 intact answers (28.125%), at least ten
+points over the stronger question-only or mismatched-source control, and at least
+five points over V48's 14/64. The retention gate permits at most five points of
+free-relation regression and +0.05 general-loss regression. If both pass, save a
+strict-reload candidate for confirmation. If source passes but retention fails,
+do not promote the checkpoint; retain the aligned-record contract and test an
+isolated pointer/copy or span-supervised source path. If source fails, alignment
+alone is insufficient: delete the V52 runner, tests, and task-specific alignment
+path before moving to an explicit source-answer interaction architecture.
 
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:

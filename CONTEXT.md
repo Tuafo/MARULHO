@@ -506,12 +506,32 @@ memory cliff. The completed specialist reaches 12/64 intact answers versus 1/64
 question-only and 1/64 mismatched-source controls, a real 17.19-point source
 gain, but loses to V48's 14/64 and misses the 18/64 gate. Its training loss falls
 to 0.010 while general heldout loss worsens from 3.149025917 to 5.153229237.
-Capacity was not the limiting variable: the matched objective overfits a narrow
-corpus without learning robust source-conditioned extraction. The immutable V39
+Under the executed stream-packed curriculum, adding capacity was not the limiting
+variable: the matched objective overfits a narrow corpus without learning robust
+source-conditioned extraction. A post-run alignment audit narrows that inference.
+Although every encoded training record is at most 73 tokens, global stride-72
+packing keeps the complete context, question, and answer together for only
+80/512 records; 432 cross a window boundary. V48--V51 remain valid negatives for
+their executed pipeline, but do not establish a capacity-independent limit under
+correctly aligned supervision. The immutable V39
 checkpoint and state remain exact. Decision:
 `retire_v51_full_specialist_insufficient_grounding`. No specialist checkpoint,
 fork runner, test, or compatibility surface survives. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
+
+**Document-Aligned Grounding v52 (preregistered)** — V52 isolates the newly
+measured packing confound before changing architecture. It creates one causal
+window per SQuAD record, retains BOS, the full context/question/answer, and EOS,
+right-pads only after EOS, and excludes pad targets from the existing 4x
+answer-weighted next-token loss. The parent V39 checkpoint, 4,193,280 processed
+tokens, 50% grounding schedule, replay sources, optimizer, seeds, heldout V47
+controls, relation panel, and general holdout remain frozen against V48. The
+source gate requires at least 18/64 intact answers, at least +10 points over the
+stronger control, and at least +5 points over V48's 14/64. Retention still allows
+at most five relation points and +0.05 general loss regression. Passing both
+saves a candidate for confirmation; source success with retention failure keeps
+only the aligned learning contract and advances to isolated copy/span machinery;
+source failure deletes the V52 runner and alignment path.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
