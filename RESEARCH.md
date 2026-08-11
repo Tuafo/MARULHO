@@ -1123,6 +1123,25 @@ same 28 ordered microbatches, token budget, optimizer-step count, objective, and
 seed. This is an execution correction only; it changes neither the frozen
 hypothesis nor its gates.
 
+V51 is terminal and negative. The corrected run trains all 100,679,424
+specialist parameters for exactly 2,096,640 tokens in 395.80 seconds at 5.30k
+tokens/s with 3.19 GiB measured peak allocation. Intact source grounding reaches
+12/64 (18.75%) while question-only and mismatched-source controls each reach
+1/64, so the 17.19-point causal source gain passes. It nevertheless loses two
+cases to V48's answer-weighted shared model and misses the preregistered 18/64
+floor. Training loss collapses to 0.0101 while the specialist's general heldout
+loss regresses from 3.1490 to 5.1532. The parent checkpoint and state remain
+exact; no candidate is saved because the capability gate fails.
+
+Decision: `retire_v51_full_specialist_insufficient_grounding`. Increasing the
+isolated path from 2.46M low-rank parameters to a full 100.68M model does not fix
+the matched grounding failure. The bottleneck is now assigned to data diversity,
+objective geometry, and source-answer interaction rather than raw plastic
+capacity. The runner and tests are deleted. Report SHA-256 is
+`9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`;
+its immutable source audit SHA-256 is
+`92d444b8ab5c097a66102ac42d2ea7488a2e81f46ee5f32a68889b81d0c07cb5`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

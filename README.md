@@ -93,9 +93,12 @@ There are nine different levels of truth:
    objective-only repair. V49 freezes V39 and trains a 4.13M-parameter final
    causal sidecar: inactive retention is exact and training is fast, but active
    grounding falls to 1/64. V50 moves rank-16 deltas into every layer and reaches
-   5/64 with exact retention—better, but still far behind V48's 14/64. Shared
-   plasticity, final-sidecar, and hierarchical low-rank repairs are retired; no
-   checkpoint or live compatibility path survives.
+   5/64 with exact retention—better, but still far behind V48's 14/64. V51 removes
+   the capacity excuse by training a complete 100.68M-parameter isolated fork;
+   it reaches 12/64 with a real 17.19-point source gain, but still loses to V48
+   and overfits its general holdout from 3.1490 to 5.1532. Shared plasticity,
+   compact sidecars, hierarchical low-rank deltas, and full specialist copying
+   are retired; no checkpoint or live compatibility path survives.
 
 ```mermaid
 flowchart LR
@@ -291,6 +294,16 @@ positive controlled result—not a replacement for frontier Transformers.
     seconds at 8.35 GiB peak. The implementation and checkpoint surface are
     deleted. The next module must have substantially more functional freedom
     than low-rank deltas or own a separate source encoder.
+20. Retire V51's full specialist fork. A complete 100,679,424-parameter V39 copy
+    receives the same 2,096,640 SQuAD tokens and gradients reach every parameter.
+    It trains in 395.80 seconds at 5.30k tokens/s with 3.19 GiB peak allocation.
+    Intact/question-only/mismatched grounding is 12/64, 1/64, and 1/64: genuine
+    source use, but two cases worse than V48 and six below the gate. Training loss
+    collapses to 0.010 while its general holdout worsens from 3.1490 to 5.1532,
+    identifying narrow memorization rather than insufficient module capacity.
+    The immutable parent remains exact. The fork runner, tests, and checkpoints
+    are deleted; the next falsifier must change source representation or learning
+    signal, not add another larger isolated parameter path.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

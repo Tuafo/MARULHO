@@ -1021,14 +1021,13 @@ V48's 14/64. No model, runner, checkpoint surface, tests, or compatibility path
 survives. Report SHA-256 is
 `c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
 
-**`language_specialist_fork_falsification.py`** — owns V51's full-capacity
-modular upper bound. It trains a complete V39-initialized source-QA specialist
-on the same new-domain exposure while the original checkpoint remains immutable.
-Only one model is active per explicit route; storage is doubled. A survivor must
-beat V48 grounding, preserve the original route exactly, and strict-reload. Its
-28 source microbatches use true gradient accumulation: the initial concatenated
-batch-224 execution crossed the RTX 3060 memory cliff and was terminated without
-a terminal artifact, so it is execution evidence rather than capability evidence.
+V51's full-capacity specialist falsifier is retired and deleted. The complete
+100.68M-parameter fork trains every parameter at 5.30k tokens/s and preserves the
+inactive parent exactly. Active grounding reaches 12/64 versus 1/64 for both
+controls, but loses to V48's 14/64 while its general loss regresses to 5.1532.
+No specialist checkpoint, runner, test, routing option, or compatibility path
+survives. Report SHA-256 is
+`9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

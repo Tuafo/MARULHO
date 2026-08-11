@@ -496,6 +496,23 @@ and 0/64. This improves on V49's final sidecar but loses decisively to V48's
 model, runner, test, or compatibility surface survives. Report SHA-256 is
 `c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
 
+**Full Specialist Fork v51 (retired)** — V51 copies all 100,679,424 V39
+parameters to remove adapter capacity as an explanation. Every specialist
+parameter receives a final gradient across exactly 2,096,640 SQuAD tokens. True
+gradient accumulation finishes the 130 updates in 395.80 seconds at 5.30k
+tokens/s and 3,422,686,208 bytes peak allocation; an earlier concatenated
+batch-224 execution was terminated without an artifact after crossing the 12 GB
+memory cliff. The completed specialist reaches 12/64 intact answers versus 1/64
+question-only and 1/64 mismatched-source controls, a real 17.19-point source
+gain, but loses to V48's 14/64 and misses the 18/64 gate. Its training loss falls
+to 0.010 while general heldout loss worsens from 3.149025917 to 5.153229237.
+Capacity was not the limiting variable: the matched objective overfits a narrow
+corpus without learning robust source-conditioned extraction. The immutable V39
+checkpoint and state remain exact. Decision:
+`retire_v51_full_specialist_insufficient_grounding`. No specialist checkpoint,
+fork runner, test, or compatibility surface survives. Report SHA-256 is
+`9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
