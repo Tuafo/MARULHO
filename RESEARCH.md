@@ -1094,6 +1094,26 @@ rank, replay ratio, or final adapter is not justified. The model, runner,
 checkpoint surface, and tests are deleted. Report SHA-256 is
 `c97ba0505aa06c3976802430851abc8a3f321f110960ac437320a26307d46541`.
 
+### V51 preregistration: full specialist fork as the modular upper bound
+
+V48, V49, and V50 leave one ambiguity: modular isolation may be correct while
+the tested modules are simply too constrained. V51 removes that ambiguity by
+copying the complete V39 cortex into a source-QA specialist. The original V39
+checkpoint is immutable and owns the inactive route; the specialist begins
+tensor-identical, receives exactly 2,096,640 SQuAD tokens with 4x answer loss,
+and gets no replay. Only one 100.68M model executes per route, but durable storage
+doubles. This is a capacity upper bound, not the desired efficient endpoint.
+
+The specialist faces the same immutable V47 intact/question-only/mismatched
+validation and must reach at least 18/64 intact answers, exceed the stronger
+control by ten points, and beat V48's 14/64 by at least five points. The original
+route must retain exact checkpoint hashes and live general/relation metrics; a
+passing specialist must strict-reload. A pass advances modular checkpoint banks
+to copy-on-write compression and learned routing. A miss means neither compact
+nor full isolated plasticity learns enough at matched exposure, so the next work
+changes training data/objective or the source-processing architecture rather
+than inventing another adapter.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
