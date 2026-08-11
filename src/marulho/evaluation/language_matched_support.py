@@ -729,6 +729,7 @@ def run_matched_training_arm(
     ) = None,
     optimizer_warmup_steps: int = 0,
     microbatches_per_optimizer_step: int = 1,
+    microbatch_execution: str = "concatenated",
     maximum_projected_total_seconds: float | None = None,
     arm_artifact_path: str | Path | None = None,
     arm_contract_sha256: str | None = None,
@@ -782,6 +783,38 @@ def run_matched_training_arm(
         raise ValueError(
             "training schedule must divide evenly into optimizer-step microbatches"
         )
+    microbatch_mode = str(microbatch_execution).strip().lower()
+    if microbatch_mode not in {"concatenated", "gradient_accumulation"}:
+        raise ValueError(
+            "microbatch_execution must be 'concatenated' or 'gradient_accumulation'"
+        )
+
+    def backward_microbatch_group(start: int) -> torch.Tensor:
+        if microbatch_mode == "concatenated":
+            training_batch = grouped_staged_batch(
+                prepared.staged,
+                start=int(start),
+                count=microbatch_group,
+                device=device,
+            )
+            with _precision_context(device, precision):
+                loss = training_loss(
+                    training_batch.input_ids,
+                    training_batch.target_ids,
+                )
+            loss.backward()
+            return loss.detach()
+        losses: list[torch.Tensor] = []
+        for offset in range(microbatch_group):
+            training_batch = prepared.staged.batch(int(start) + offset, device)
+            with _precision_context(device, precision):
+                loss = training_loss(
+                    training_batch.input_ids,
+                    training_batch.target_ids,
+                )
+            (loss / float(microbatch_group)).backward()
+            losses.append(loss.detach())
+        return torch.stack(losses).mean()
     total_microbatches = int(prepared.staged.step_count)
     total_steps = total_microbatches // microbatch_group
     warmup_count = max(0, int(optimizer_warmup_steps))
@@ -794,23 +827,12 @@ def run_matched_training_arm(
             torch.cuda.synchronize(device)
         optimizer_warmup_started = time.perf_counter()
         model.train()
-        warm_batch = grouped_staged_batch(
-            prepared.staged,
-            start=0,
-            count=microbatch_group,
-            device=device,
-        )
         for _ in range(warmup_count):
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
             warm_step_started = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
-            with _precision_context(device, precision):
-                warm_loss = training_loss(
-                    warm_batch.input_ids,
-                    warm_batch.target_ids,
-                )
-            warm_loss.backward()
+            backward_microbatch_group(0)
             torch.nn.utils.clip_grad_norm_(model.parameters(), float(gradient_clip))
             optimizer.step()
             if device.type == "cuda":
@@ -872,18 +894,7 @@ def run_matched_training_arm(
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
         optimizer.zero_grad(set_to_none=True)
-        with _precision_context(device, precision):
-            training_batch = grouped_staged_batch(
-                prepared.staged,
-                start=step * microbatch_group,
-                count=microbatch_group,
-                device=device,
-            )
-            final_loss = training_loss(
-                training_batch.input_ids,
-                training_batch.target_ids,
-            )
-        final_loss.backward()
+        final_loss = backward_microbatch_group(step * microbatch_group)
         torch.nn.utils.clip_grad_norm_(model.parameters(), float(gradient_clip))
         optimizer.step()
         if step in trace_steps:
@@ -989,6 +1000,7 @@ def run_matched_training_arm(
             "optimizer_step_count": total_steps,
             "source_microbatch_count": total_microbatches,
             "microbatches_per_optimizer_step": microbatch_group,
+            "microbatch_execution": microbatch_mode,
             "optimizer_step_seconds": training_elapsed,
             "tokens_per_second": processed / max(training_elapsed, 1.0e-9),
             "shared_architecture_compile_seconds_allocated": float(
