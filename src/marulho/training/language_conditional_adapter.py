@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import hashlib
+import os
+from pathlib import Path
 from typing import Any, Mapping
+from uuid import uuid4
 
 import torch
 from torch import nn
 
 from marulho.training.language_model import MarulhoLanguageModel
+from marulho.training.language_model import LanguageModelConfig
 from marulho.training.language_transformer import MarulhoTransformerBlock
+from marulho.data.language_tokenizer import (
+    LanguageTokenizer,
+    load_language_tokenizer_state,
+)
 
 
 ADAPTER_KEY = "conditional_adapter_key"
 ADAPTER_VALUE = "conditional_adapter_value"
+CHECKPOINT_SURFACE = "marulho_conditional_adapter_checkpoint.v1"
 
 
 class MarulhoConditionalAdapterLanguageModel(MarulhoLanguageModel):
@@ -180,3 +190,68 @@ class MarulhoConditionalAdapterLanguageModel(MarulhoLanguageModel):
             state,
             collect_telemetry=collect_telemetry,
         )
+
+
+def save_conditional_adapter_checkpoint(
+    path: str | Path,
+    model: MarulhoConditionalAdapterLanguageModel,
+    tokenizer: LanguageTokenizer,
+    metadata: Mapping[str, Any],
+) -> Path:
+    if int(model.config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("conditional adapter checkpoint vocabulary differs")
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "surface": CHECKPOINT_SURFACE,
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "config": asdict(model.config),
+        "model_state": {
+            name: value.detach().cpu().clone()
+            for name, value in model.state_dict().items()
+        },
+        "tokenizer": tokenizer.state_dict(),
+        "tokenizer_hash": tokenizer.vocabulary_hash(),
+        "adapter_enabled_at_rest": False,
+        "metadata": dict(metadata),
+    }
+    temporary = output.with_name(f".{output.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
+def load_conditional_adapter_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device = "cpu",
+) -> tuple[
+    MarulhoConditionalAdapterLanguageModel,
+    LanguageTokenizer,
+    dict[str, Any],
+]:
+    payload = torch.load(Path(path), map_location=map_location, weights_only=False)
+    if payload.get("surface") != CHECKPOINT_SURFACE:
+        raise ValueError("conditional adapter checkpoint surface differs")
+    if payload.get("adapter_enabled_at_rest") is not False:
+        raise ValueError("conditional adapter checkpoint must be disabled at rest")
+    tokenizer = load_language_tokenizer_state(payload["tokenizer"])
+    if tokenizer.vocabulary_hash() != str(payload["tokenizer_hash"]):
+        raise ValueError("conditional adapter checkpoint tokenizer hash differs")
+    model = MarulhoConditionalAdapterLanguageModel(
+        LanguageModelConfig(**dict(payload["config"]))
+    )
+    if int(model.config.vocab_size) != int(tokenizer.vocab_size):
+        raise ValueError("conditional adapter checkpoint vocabulary differs")
+    model.load_state_dict(dict(payload["model_state"]), strict=True)
+    model.freeze_parent()
+    model.set_conditional_adapter_enabled(False)
+    return model, tokenizer, dict(payload.get("metadata") or {})

@@ -4,13 +4,16 @@ from marulho.training.language_conditional_adapter import (
     ADAPTER_KEY,
     ADAPTER_VALUE,
     MarulhoConditionalAdapterLanguageModel,
+    load_conditional_adapter_checkpoint,
+    save_conditional_adapter_checkpoint,
 )
+from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
 
 def _config() -> LanguageModelConfig:
     return LanguageModelConfig(
-        vocab_size=64,
+        vocab_size=ByteLevelLanguageTokenizer().vocab_size,
         embedding_dim=16,
         state_dim=16,
         state_layers=2,
@@ -86,4 +89,31 @@ def test_conditional_adapter_active_path_streams_and_trains() -> None:
         parameter.grad is None
         for name, parameter in candidate.named_parameters()
         if not name.startswith("conditional_adapter.")
+    )
+
+
+def test_conditional_adapter_checkpoint_round_trip(tmp_path) -> None:
+    torch.manual_seed(19)
+    parent = MarulhoLanguageModel(_config())
+    candidate = MarulhoConditionalAdapterLanguageModel.from_parent(parent)
+    tokenizer = ByteLevelLanguageTokenizer()
+    output = tmp_path / "adapter.pt"
+    save_conditional_adapter_checkpoint(
+        output,
+        candidate,
+        tokenizer,
+        {"decision": "test"},
+    )
+
+    restored, restored_tokenizer, metadata = load_conditional_adapter_checkpoint(
+        output
+    )
+
+    assert not restored.conditional_adapter_enabled
+    assert metadata == {"decision": "test"}
+    assert restored_tokenizer.vocabulary_hash() == tokenizer.vocabulary_hash()
+    assert restored.state_dict().keys() == candidate.state_dict().keys()
+    assert all(
+        torch.equal(restored.state_dict()[name], value)
+        for name, value in candidate.state_dict().items()
     )

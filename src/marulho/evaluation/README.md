@@ -1007,6 +1007,13 @@ Atomic arm states are deleted after the terminal report; no candidate checkpoint
 survives. Report SHA-256 is
 `834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
 
+**`language_conditional_adapter_falsification.py`** — owns V49's frozen-base
+sidecar screen. It matches V48's new-domain SQuAD exposure, keeps the parent
+inactive path structurally frozen, trains only the explicitly active causal
+sidecar, and requires inactive logit/state/retention parity alongside a held-out
+grounding win. A passing artifact must strict-reload its full parent, adapter,
+and tokenizer state before learned routing is considered.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
