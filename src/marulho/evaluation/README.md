@@ -43,8 +43,13 @@ construction, one-time device staging, optimizer/gradient accounting, heldout an
 label-safe relation evaluation, and optional post-arm diagnostics. An explicit
 optimizer warmup may compile optimizer kernels, then restores the exact initial
 weights, discards the warmed optimizer, rebuilds fresh state, resets RNG, and
-counts none of those tokens as training. Architecture decisions remain owned by
-the specific runner; this support cannot promote a model.
+counts none of those tokens as training. The warmup now times each complete
+forward, backward, clipping, and optimizer step, projects full-arm wall time
+from the late-step median, and can reject an over-budget arm before counted
+training begins. Completed arm rows and optional model state use a strict
+contract hash and atomic replacement, so a runner can reuse only an exact
+completed arm after interruption. Architecture decisions remain owned by the
+specific runner; this support cannot promote a model.
 
 The deleted V33 editable-state falsifier compared an exact 20,976,128-parameter
 Transformer with alternating local-attention/editable-matrix state on the same
@@ -1128,8 +1133,10 @@ seconds and persisted no arm result. Quality is unknown; no checkpoint exists.
 Decision: `stop_v42_execution_infeasible_no_quality_conclusion`. Compact report
 SHA-256 is
 `9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
-The next evaluator work must add real-step wall-time projection, atomic per-arm
-reports, exact resume, and larger-microbatch parity before another mechanism.
+The shared matched runner now owns real-step wall-time projection and strict,
+atomic per-arm artifacts. Unit checks cover projection, rejection, round-trip,
+and contract-mismatch behavior. Integrated GPU/Muon parity and the best safe
+larger-microbatch path still must pass before another mechanism falsifier.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

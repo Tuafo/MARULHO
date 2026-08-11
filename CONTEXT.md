@@ -358,9 +358,10 @@ parity and a full-batch gradient preflight, but the exact 32x8 eager pilot ran
 for 16,507.6 seconds at sustained full GPU use without persisting one arm
 result. It was stopped on execution feasibility; no quality conclusion and no
 checkpoint exist. The objective, runner, and tests are deleted. Before another
-architecture falsifier, the experiment loop must gate projected wall time from
-a real optimizer step, persist each arm atomically, resume completed arms, and
-test larger microbatches with optimizer-memory and numerical parity. Decision:
+architecture falsifier, the shared experiment loop now gates projected wall
+time from complete warmup optimizer steps and atomically persists exact-contract
+arm results with optional model state. Integrated GPU/Muon parity and larger
+microbatches still require optimizer-memory and numerical validation. Decision:
 `stop_v42_execution_infeasible_no_quality_conclusion`. Report SHA-256 is
 `9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
 

@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import statistics
 import time
 from typing import Any, Callable, Mapping, Sequence
 
@@ -126,6 +128,127 @@ class PreparedMatchedLanguageData:
     schedule: tuple[tuple[str, int], ...]
     schedule_sha256: str
     source_selections: dict[str, Any]
+
+
+MATCHED_ARM_ARTIFACT_SURFACE = "marulho_matched_arm_artifact.v1"
+
+
+class MatchedArmRuntimeBudgetExceeded(RuntimeError):
+    """Raised before counted training when a real-step projection is too slow."""
+
+    def __init__(self, arm_name: str, projection: Mapping[str, Any]) -> None:
+        self.arm_name = str(arm_name)
+        self.projection = dict(projection)
+        super().__init__(
+            f"matched arm {self.arm_name!r} projects "
+            f"{float(self.projection['projected_total_seconds']):.2f}s, above "
+            f"{float(self.projection['maximum_total_seconds']):.2f}s"
+        )
+
+
+def project_matched_arm_runtime(
+    warmup_step_seconds: Sequence[float],
+    *,
+    total_optimizer_steps: int,
+    setup_seconds: float = 0.0,
+) -> dict[str, Any]:
+    """Project paid arm time from real optimizer steps, retaining startup cost."""
+
+    timings = tuple(float(value) for value in warmup_step_seconds)
+    if len(timings) < 2 or any(value <= 0.0 for value in timings):
+        raise ValueError("runtime projection requires at least two positive steps")
+    steps = int(total_optimizer_steps)
+    if steps < 1:
+        raise ValueError("runtime projection requires positive optimizer steps")
+    steady_sample = timings[-min(2, len(timings)) :]
+    steady_seconds = float(statistics.median(steady_sample))
+    paid_warmup_seconds = float(sum(timings))
+    setup = max(0.0, float(setup_seconds))
+    projected_training_seconds = steady_seconds * steps
+    return {
+        "performed": True,
+        "warmup_step_seconds": list(timings),
+        "steady_sample_step_seconds": list(steady_sample),
+        "projected_steady_optimizer_step_seconds": steady_seconds,
+        "total_optimizer_steps": steps,
+        "paid_warmup_seconds": paid_warmup_seconds,
+        "setup_seconds": setup,
+        "projected_counted_training_seconds": projected_training_seconds,
+        "projected_total_seconds": (
+            setup + paid_warmup_seconds + projected_training_seconds
+        ),
+    }
+
+
+def save_matched_arm_artifact(
+    path: str | Path,
+    *,
+    arm_name: str,
+    contract_sha256: str,
+    row: Mapping[str, Any],
+    model_state: Mapping[str, torch.Tensor] | None = None,
+) -> Path:
+    """Atomically persist one completed arm for exact skip/resume."""
+
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    state = (
+        None
+        if model_state is None
+        else {
+            name: value.detach().cpu().clone()
+            for name, value in model_state.items()
+        }
+    )
+    payload = {
+        "surface": MATCHED_ARM_ARTIFACT_SURFACE,
+        "arm_name": str(arm_name),
+        "contract_sha256": str(contract_sha256),
+        "row": dict(row),
+        "model_state": state,
+    }
+    temporary = output.with_name(f".{output.name}.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return output
+
+
+def load_matched_arm_artifact(
+    path: str | Path,
+    *,
+    expected_arm_name: str,
+    expected_contract_sha256: str,
+) -> tuple[dict[str, Any], dict[str, torch.Tensor] | None]:
+    """Strictly load one arm only when its frozen contract is identical."""
+
+    payload = torch.load(Path(path), map_location="cpu", weights_only=False)
+    if not isinstance(payload, Mapping):
+        raise ValueError("matched arm artifact payload must be a mapping")
+    if payload.get("surface") != MATCHED_ARM_ARTIFACT_SURFACE:
+        raise ValueError("matched arm artifact surface differs")
+    if str(payload.get("arm_name")) != str(expected_arm_name):
+        raise ValueError("matched arm artifact name differs")
+    if str(payload.get("contract_sha256")) != str(expected_contract_sha256):
+        raise ValueError("matched arm artifact contract differs")
+    row = payload.get("row")
+    if not isinstance(row, Mapping):
+        raise ValueError("matched arm artifact row must be a mapping")
+    state = payload.get("model_state")
+    if state is not None:
+        if not isinstance(state, Mapping) or not all(
+            isinstance(name, str) and isinstance(value, torch.Tensor)
+            for name, value in state.items()
+        ):
+            raise ValueError("matched arm artifact model state is invalid")
+        state = dict(state)
+    return dict(row), state
 
 
 def sha256_file(path: str | Path) -> str:
@@ -605,6 +728,7 @@ def run_matched_training_arm(
     ) = None,
     optimizer_warmup_steps: int = 0,
     microbatches_per_optimizer_step: int = 1,
+    maximum_projected_total_seconds: float | None = None,
 ) -> dict[str, Any]:
     model.load_state_dict(dict(initial_state), strict=True)
     if configure_model is not None:
@@ -638,8 +762,13 @@ def run_matched_training_arm(
         raise ValueError(
             "training schedule must divide evenly into optimizer-step microbatches"
         )
+    total_microbatches = int(prepared.staged.step_count)
+    total_steps = total_microbatches // microbatch_group
     warmup_count = max(0, int(optimizer_warmup_steps))
+    if maximum_projected_total_seconds is not None and warmup_count < 2:
+        raise ValueError("runtime budget requires at least two optimizer warmup steps")
     optimizer_warmup_seconds = 0.0
+    optimizer_warmup_step_seconds: list[float] = []
     if warmup_count:
         if device.type == "cuda":
             torch.cuda.synchronize(device)
@@ -652,6 +781,9 @@ def run_matched_training_arm(
             device=device,
         )
         for _ in range(warmup_count):
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            warm_step_started = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
             with _precision_context(device, precision):
                 warm_loss = training_loss(
@@ -661,6 +793,11 @@ def run_matched_training_arm(
             warm_loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), float(gradient_clip))
             optimizer.step()
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            optimizer_warmup_step_seconds.append(
+                time.perf_counter() - warm_step_started
+            )
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         optimizer_warmup_seconds = time.perf_counter() - optimizer_warmup_started
@@ -671,8 +808,25 @@ def run_matched_training_arm(
         torch.manual_seed(int(model_seed))
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(int(model_seed))
-    total_microbatches = int(prepared.staged.step_count)
-    total_steps = total_microbatches // microbatch_group
+    runtime_preflight: dict[str, Any] = {"performed": False}
+    if optimizer_warmup_step_seconds:
+        runtime_preflight = project_matched_arm_runtime(
+            optimizer_warmup_step_seconds,
+            total_optimizer_steps=total_steps,
+            setup_seconds=float(allocated_compile_seconds),
+        )
+        maximum = (
+            None
+            if maximum_projected_total_seconds is None
+            else float(maximum_projected_total_seconds)
+        )
+        runtime_preflight["maximum_total_seconds"] = maximum
+        runtime_preflight["passed"] = (
+            maximum is None
+            or float(runtime_preflight["projected_total_seconds"]) <= maximum
+        )
+        if not bool(runtime_preflight["passed"]):
+            raise MatchedArmRuntimeBudgetExceeded(name, runtime_preflight)
     warmup_steps = int(
         round(total_steps * max(0.0, float(training_config.warmup_fraction)))
     )
@@ -791,10 +945,12 @@ def run_matched_training_arm(
             "performed": warmup_count > 0,
             "step_count": warmup_count,
             "elapsed_seconds": optimizer_warmup_seconds,
+            "step_seconds": optimizer_warmup_step_seconds,
             "weights_restored_after_warmup": warmup_count > 0,
             "optimizer_rebuilt_after_warmup": warmup_count > 0,
             "tokens_counted_as_training": False,
         },
+        "runtime_preflight": runtime_preflight,
         "initial_weights_restored_for_arm": True,
         "processed_tokens": processed,
         "training": {

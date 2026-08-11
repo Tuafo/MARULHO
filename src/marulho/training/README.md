@@ -347,9 +347,11 @@ base-language default.
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion
-or checkpoint exists. Do not restore the loss before the experiment runner owns
-wall-time preflight, atomic per-arm evidence, exact resume, and a validated
-larger-microbatch path.
+or checkpoint exists. The shared experiment runner now times complete warmup
+optimizer steps, rejects projected over-budget arms before counted training,
+and can atomically persist exact-contract arm results. Do not restore the loss
+before integrated GPU/Muon parity and a safe larger-microbatch path are
+validated.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

@@ -2,6 +2,9 @@ import pytest
 import torch
 
 from marulho.evaluation.language_matched_support import (
+    load_matched_arm_artifact,
+    project_matched_arm_runtime,
+    save_matched_arm_artifact,
     build_matched_schedule,
     full_sized_batches,
     grouped_staged_batch,
@@ -155,3 +158,48 @@ def test_grouped_staged_batch_concatenates_consecutive_schedule_entries() -> Non
     assert grouped.target_ids[:, 0].tolist() == [21, 21, 31, 31]
     with pytest.raises(IndexError, match="out of bounds"):
         grouped_staged_batch(staged, start=2, count=2, device="cpu")
+
+
+def test_runtime_projection_keeps_startup_and_uses_late_step_median() -> None:
+    report = project_matched_arm_runtime(
+        (30.0, 2.0, 4.0), total_optimizer_steps=100, setup_seconds=10.0
+    )
+    assert report["projected_steady_optimizer_step_seconds"] == 3.0
+    assert report["paid_warmup_seconds"] == 36.0
+    assert report["projected_counted_training_seconds"] == 300.0
+    assert report["projected_total_seconds"] == 346.0
+
+
+def test_runtime_projection_rejects_weak_preflight() -> None:
+    with pytest.raises(ValueError, match="at least two"):
+        project_matched_arm_runtime((1.0,), total_optimizer_steps=10)
+    with pytest.raises(ValueError, match="positive optimizer"):
+        project_matched_arm_runtime((1.0, 1.0), total_optimizer_steps=0)
+
+
+def test_matched_arm_artifact_is_atomic_and_contract_strict(tmp_path) -> None:
+    output = tmp_path / "arm.pt"
+    state = {"weight": torch.arange(4, dtype=torch.float32)}
+    save_matched_arm_artifact(
+        output,
+        arm_name="candidate",
+        contract_sha256="abc123",
+        row={"heldout": {"loss": 1.25}},
+        model_state=state,
+    )
+    assert output.exists()
+    assert not (tmp_path / ".arm.pt.tmp").exists()
+    row, restored = load_matched_arm_artifact(
+        output,
+        expected_arm_name="candidate",
+        expected_contract_sha256="abc123",
+    )
+    assert row == {"heldout": {"loss": 1.25}}
+    assert restored is not None
+    assert torch.equal(restored["weight"], state["weight"])
+    with pytest.raises(ValueError, match="contract differs"):
+        load_matched_arm_artifact(
+            output,
+            expected_arm_name="candidate",
+            expected_contract_sha256="different",
+        )
