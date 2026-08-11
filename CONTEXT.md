@@ -323,17 +323,18 @@ checkpoint with tokenizer identity. Decision:
 are `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`
 and `3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127`.
 
-**Sustained Runtime v40 (active qualification)** — V40 must load the exact V39
-checkpoint above and generate exactly 524,288 new tokens on CUDA without model
-mutation, non-finite logits, out-of-vocabulary output, unbounded KV state, or an
-external model. Aggregate tokens and single-stream continuity are separate
-facts: the primary 3060 run uses 256 independently prompted streams with 2,048
-consecutive tokens per stream, and reports both dimensions explicitly. Decode
-controls may inspect at most the model's 72-token active context. The runner
-must hash model state before and after, retain bounded output hashes/previews,
-and observe which parameter-owning modules execute. Dense execution is an
-allowed negative sparsity result; nominal or analytic sparsity cannot pass as
-measured active compute.
+**Sustained Runtime v40 (qualified dense runtime)** — The exact V39 checkpoint
+generates 256 independently prompted streams of 2,048 consecutive tokens: all
+524,288 aggregate tokens complete on CUDA in 74.84 seconds at 7,005 tokens/s
+and 3,165,870,592 bytes peak allocation. Pre/post tensor hashes are identical,
+KV and decode-control history remain bounded to 72 tokens, all raw logits are
+finite, all output IDs are in vocabulary, and 248/256 full continuations have
+distinct hashes. Observed hooks cover all 100,679,424 parameters, ten attention
+blocks, and ten MLP blocks. V39 is therefore measured as 100% dense with zero
+structural sparsity. Some 2,048-token previews cycle or drift, so V40 qualifies
+runtime stability, not long-generation quality or long-context memory. Decision:
+`qualify_v40_same_checkpoint_sustained_runtime`. Report SHA-256 is
+`4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

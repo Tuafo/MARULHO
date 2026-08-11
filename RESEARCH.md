@@ -707,6 +707,19 @@ sparse claim. A diagnostic on the exact checkpoint measured about 8.17k
 aggregate tokens/s for 256 BF16 streams and 2.94 GiB peak allocation, so this
 shape should finish in roughly one minute before decode-control overhead.
 
+V40 passes its frozen gate. The exact V39 checkpoint emits all 524,288 tokens
+as 256 independently prompted 2,048-token streams in 74.8408 seconds, or
+7,005.38 aggregate tokens/s, with 3,165,870,592 bytes peak CUDA allocation.
+Every pre/post model tensor hash matches; final KV length is 72; raw non-finite
+logits, out-of-vocabulary IDs, and decode fallbacks are all zero. Full-stream
+hashes are distinct for 248/256 streams. Hooks observe all 100,679,424 unique
+parameters and every attention/MLP block, providing a measured negative result
+for sparsity: V39 executes 100% densely. Preview inspection also preserves the
+boundary—some long streams become repetitive, symbolic, or semantically
+unstable, so this is runtime qualification rather than long-context quality.
+Decision: `qualify_v40_same_checkpoint_sustained_runtime`. Report SHA-256 is
+`4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

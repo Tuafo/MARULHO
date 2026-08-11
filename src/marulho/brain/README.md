@@ -37,6 +37,8 @@ SHA-256 hash, a matching file hash, and the Transformer v2 checkpoint contract.
 training/evaluation-owned Transformer runner, then records brain-owned trace and
 checkpoint context. Aggregate work and consecutive tokens per stream remain
 separate report fields. It does not convert throughput into a quality claim.
+V40 qualifies the exact V39 research checkpoint for 524,288 aggregate CUDA
+tokens while measuring the installed architecture as fully dense.
 
 ## Ownership Rules
 

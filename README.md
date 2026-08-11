@@ -15,12 +15,12 @@ interface or generally capable continual model.
 
 ## Current architecture
 
-There are six different levels of truth:
+There are eight different levels of truth:
 
 1. **Installed runtime:** `MarulhoBrain` owns a 21M-parameter decoder-only causal
    Transformer and its checkpoint-owned BPE tokenizer. This remains the stable
    runtime baseline.
-2. **Strongest research cortex:** V11 is an uninstalled 36.18M-parameter causal
+2. **Retained sparse research evidence:** V11 is an uninstalled 36.18M-parameter causal
    Transformer whose replaced feed-forward block contains deterministic hashed
    singleton micro-experts. Its strict checkpoint has trained for 1.0B update
    tokens.
@@ -73,6 +73,11 @@ There are six different levels of truth:
    This is a narrow learning-without-forgetting result, not general reasoning:
    property and event-order relations are strong, while container and ownership
    remain weak.
+8. **Qualified sustained research runtime:** V40 loads that exact V39 artifact
+   and generates 256 independent 2,048-token streams on the RTX 3060. All
+   524,288 tokens complete in 74.84 seconds at 7,005 tokens/s with 3.17 GB peak
+   allocation and unchanged model tensors. Execution hooks observe every one of
+   the 100.68M parameters, so the current path is measured dense, not sparse.
 
 ```mermaid
 flowchart LR
@@ -148,12 +153,12 @@ The selected direction still has to show all of the following:
 - lower heldout continuation loss and better source-anchored free generation at
   the same time;
 - a semantic or learned key that transfers beyond relation templates;
-- strict checkpoint fidelity for cortex, archive, index, provenance, optimizer,
+- strict checkpoint fidelity for a future archive, index, provenance, optimizer,
   and rollback state;
-- coherent multi-sentence generation on genuinely unseen prompts;
-- sequential-domain learning with bounded forgetting;
-- measured sparse/active compute rather than nominal sparsity;
-- a 524,288-token sustained GPU run from the same quality-qualified checkpoint.
+- sequential-domain learning that generalizes beyond the narrow synthetic V39
+  relation family;
+- a conditional memory or compute path that beats the measured 100%-dense V39
+  runtime on quality per local compute.
 
 Until those are demonstrated, this is an architecture hypothesis with one
 positive controlled result—not a replacement for frontier Transformers.
@@ -181,7 +186,7 @@ positive controlled result—not a replacement for frontier Transformers.
    Per-head Muon is useful at batch 32 but does not justify replacing whole-QKV
    Muon at the advancing batch size.
 6. Reopen exact episodic memory, online learning, consolidation, forgetting,
-   active compute, and the sustained 524,288-token runtime ladder from V35R.
+   active compute, and the sustained runtime ladder from V35R.
    V37's full-width depth assembly is retired after exceeding a fixed one-hour
    run and reaching 11.74/12.29 GiB observed device allocation without terminal
    quality evidence. A successor may test fused low-rank depth channels, but may
@@ -197,11 +202,10 @@ positive controlled result—not a replacement for frontier Transformers.
    improves general loss to 3.1134, and reloads exactly after 218.11M cumulative
    tokens. Preserve the uneven boundary: ownership is 4/64 and container 15/64,
    so this is not yet general binding competence.
-9. Qualify the exact V39 checkpoint under V40: 256 independently prompted CUDA
-   streams must each produce 2,048 consecutive tokens, totaling 524,288. Report
-   aggregate work separately from per-stream continuity, prove state immutability
-   and bounded history, and measure executed parameter coverage. Dense execution
-   must be reported as dense, not renamed sparse.
+9. Retain V40 as the same-checkpoint runtime qualification. Its 256 independently
+   prompted CUDA streams each produce 2,048 consecutive tokens, totaling 524,288
+   in 74.84 seconds at 7,005 tokens/s. Model state is immutable and bounded;
+   observed parameter coverage is 100%, so there is no sparse-compute win yet.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

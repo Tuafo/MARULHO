@@ -1105,6 +1105,14 @@ observed parameter-owning module execution. V40's primary shape is 256 streams
 by 2,048 tokens. It reports the dense V39 path as zero structural sparsity;
 sustained speed does not promote language quality.
 
+The exact V40 run passes at 524,288/524,288 aggregate tokens: 256 streams each
+continue for 2,048 tokens in 74.84 seconds at 7,005 tokens/s and 3.17 GB peak
+allocation. Model hashes remain exact, KV stays at 72, invalid/non-finite counts
+are zero, and hooks observe all 100,679,424 parameters. This qualifies dense
+runtime stability while explicitly rejecting a sparsity or long-generation-
+quality claim. Report SHA-256 is
+`4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
+
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A
 materialized corpus is data evidence, not learned capability. For large public
