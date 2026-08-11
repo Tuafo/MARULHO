@@ -464,6 +464,23 @@ conditionally activated residual plasticity module, with bit-exact base behavior
 when inactive. Report SHA-256 is
 `834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
 
+**Conditional Residual Sidecar v49 (retired)** — V49 freezes every V39 tensor
+and adds one explicit-condition causal Transformer block after the final base
+normalization. The 4,130,304-parameter sidecar is 4.10% of the parent and sees
+exactly 2,096,640 SQuAD tokens, matching V48's new-domain exposure without
+replay. All sidecar tensors receive gradients; loss falls through the run; the
+130 optimizer steps finish in 37.81 seconds at 55.45k tokens/s and 2.20 GiB
+measured peak allocation. Structural isolation works: inactive parent hashes and
+sample logits are bit-exact, general loss remains exactly 3.149025917, relation
+ranking/free recall remains 98.44%/89.06%, and adapter KV state is bounded.
+Capability fails decisively: active intact/question-only/mismatched grounding is
+1/64, 0/64, and 0/64, worse than V39 and V48. Decision:
+`retire_v49_final_sidecar_insufficient_grounding`. A final-layer sidecar cannot
+recover source information that the frozen cortex did not expose in a useful
+form. No candidate checkpoint, model, loader, runner, test, or compatibility
+surface survives. Report SHA-256 is
+`204bbd170158834017fe5b52c0874491a02112c257ca912586fecc77d3aef7a1`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

@@ -1027,6 +1027,30 @@ checkpoint reload. A pass advances the sidecar to a learned-router falsifier.
 A miss retires this final-layer sidecar and deletes its live implementation; it
 does not license another replay-ratio sweep.
 
+V49 is terminal and negative. The sidecar contains 4,130,304 trainable
+parameters (4.10% of V39), every tensor receives a final gradient, and its
+answer-weighted training loss falls from about 3.53 to 3.20 across 2,096,640
+tokens. The frozen-base design is unusually efficient on the RTX 3060: 130
+physical-batch-224 updates complete in 37.81 seconds at 55,447 tokens/s, peak
+allocation is 2,358,689,280 bytes, and Muon state is only 16,527,360 bytes.
+
+Isolation passes all meaningful checks. Inactive parent state and sample logits
+are bit-exact before/after training; general loss is exactly 3.149025917 both
+times; relation ranking/free generation remains 63/64 and 57/64; adapter cache
+length stays within 72. Yet the active sidecar answers only 1/64 intact SQuAD
+cases and 0/64 for both controls. It is worse than unchanged V39's 3/64 and far
+below V48's 14/64 weighted arm, so more steps would be scaling a mechanism that
+has already lost the matched representational comparison.
+
+Decision: `retire_v49_final_sidecar_insufficient_grounding`. The result separates
+two problems cleanly: modular parameters solve forgetting by construction, but
+plasticity only after the final frozen representation is too late to learn
+source-grounded behavior. A future modular candidate must interact within the
+representation hierarchy or own its own source encoder; it cannot be another
+final-state adapter or replay-ratio sweep. The V49 model, runner, checkpoint
+surface, and tests are deleted. Report SHA-256 is
+`204bbd170158834017fe5b52c0874491a02112c257ca912586fecc77d3aef7a1`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

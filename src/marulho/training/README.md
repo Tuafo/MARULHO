@@ -23,12 +23,10 @@ matched evaluations. The active Transformer and every replacement candidate
 meet this seam; service/runtime installation remains a separate promotion
 decision.
 
-**`language_conditional_adapter.py`** — V49's uninstalled frozen-base
-plasticity candidate. One small causal residual sidecar can be explicitly
-enabled after the base output normalization and owns its own bounded KV cache.
-When disabled, the branch is skipped and V39 logits/state remain bit-exact. Only
-sidecar parameters train. This is an architecture falsifier with an explicit
-benchmark condition, not an admitted runtime adapter or learned router.
+V49's frozen-base final residual sidecar is retired. It preserved inactive V39
+behavior bit-exactly and trained efficiently, but active grounding fell to 1/64.
+The model and checkpoint surface are deleted; no conditional-adapter option or
+compatibility import remains.
 
 Distributed predictive organism v1 is retired. It beat the matched Transformer
 at 4.20M and 16.79M tokens, but failed source-absent semantic generation and lost

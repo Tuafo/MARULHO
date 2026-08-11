@@ -90,8 +90,10 @@ There are nine different levels of truth:
    proving that answer emphasis helps source use. Neither survives retention:
    the frozen 64-case relation panel falls from 89.06% to 40.62%/43.75%, and
    general loss regresses by 0.1045/0.1023. V48 therefore retires monolithic
-   objective-only repair. No checkpoint survives; the next falsifier isolates
-   new plasticity behind a conditional residual adapter.
+   objective-only repair. V49 freezes V39 and trains a 4.13M-parameter final
+   causal sidecar: inactive retention is exact and training is fast, but active
+   grounding falls to 1/64. Both the shared-plasticity and final-sidecar repairs
+   are retired; no checkpoint or live compatibility path survives.
 
 ```mermaid
 flowchart LR
@@ -270,6 +272,14 @@ positive controlled result—not a replacement for frontier Transformers.
     path, sustaining 5.43k/5.36k tokens/s at 3.19/2.20 GiB measured allocation.
     No candidate or temporary arm checkpoint remains. V49 must test isolated,
     conditionally activated plasticity rather than another replay ratio.
+18. Retire V49's final-layer conditional sidecar. Its 4,130,304 trainable
+    parameters are only 4.10% of V39, all receive gradients, and 2,096,640
+    SQuAD tokens train in 37.81 seconds at 55.45k tokens/s with 2.20 GiB peak
+    allocation. Isolation works exactly: parent hashes/logits, general loss
+    3.149026, relation ranking 98.44%, and free recall 89.06% are unchanged when
+    inactive. Active grounding nevertheless falls to 1/64 versus V39's 3/64
+    and V48's 14/64. The final representation is not a sufficient plasticity
+    interface; the model, runner, checkpoint surface, and tests are deleted.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
