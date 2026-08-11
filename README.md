@@ -17,7 +17,7 @@ generally capable continual model.
 
 ## Current architecture
 
-There are eight different levels of truth:
+There are nine different levels of truth:
 
 1. **Installed runtime:** `MarulhoBrain` owns a 21M-parameter decoder-only causal
    Transformer and its checkpoint-owned BPE tokenizer. This remains the stable
@@ -84,6 +84,14 @@ There are eight different levels of truth:
    Execution hooks observe every one of the 100.68M parameters, so the current
    path is measured dense, not sparse. Long samples still drift and hallucinate;
    this qualifies runtime stability, not long-generation quality.
+9. **General grounding boundary:** V47 gives V39 visible held-out SQuAD evidence
+   and measures only 3/64 exact answers. V48 then trains two exact-reset 4.19M-
+   token arms. Ordinary loss reaches 9/64 and answer-weighted loss reaches 14/64,
+   proving that answer emphasis helps source use. Neither survives retention:
+   the frozen 64-case relation panel falls from 89.06% to 40.62%/43.75%, and
+   general loss regresses by 0.1045/0.1023. V48 therefore retires monolithic
+   objective-only repair. No checkpoint survives; the next falsifier isolates
+   new plasticity behind a conditional residual adapter.
 
 ```mermaid
 flowchart LR
@@ -253,6 +261,15 @@ positive controlled result—not a replacement for frontier Transformers.
     source controls. The 4.69-point source gain misses the frozen 5-point weak-
     use threshold and the 25% capability gate, admitting continual grounding
     training on the disjoint official training split with relation/general replay.
+17. Retire V48's objective-only grounding repair. At 4,193,280 matched tokens,
+    ordinary/answer-weighted training reaches 14.06%/21.88% held-out SQuAD
+    accuracy with +12.50/+20.31 source-control gains. The 4x arm beats ordinary
+    by 7.81 points, so answer weighting is useful, but both arms destroy more
+    than 45 relation points and regress the matched general holdout by about
+    0.10. True batch-8 gradient accumulation avoids the failed paged batch-224
+    path, sustaining 5.43k/5.36k tokens/s at 3.19/2.20 GiB measured allocation.
+    No candidate or temporary arm checkpoint remains. V49 must test isolated,
+    conditionally activated plasticity rather than another replay ratio.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

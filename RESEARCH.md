@@ -962,6 +962,44 @@ Manifest/report SHA-256 are
 `9b3392f137a2ca467bc329815810581a98169da170f74f50e8ccb41cb06e12d6`
 and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
 
+### V48: learning source use is possible, shared plasticity is the blocker
+
+V48 freezes the V47 validation contract and materializes 512 disjoint official
+SQuAD training cases through one hash-pinned Parquet shard. Both exact-reset
+arms process 4,193,280 tokens on the same schedule: 50% SQuAD, one-sixth prior
+relation replay, and one-third FineWeb-Edu/Cosmopedia replay. The only scientific
+difference is ordinary causal loss versus V39's normalized 4x answer emphasis.
+The small SQuAD corpus owns 44 full source microbatches and is deliberately
+repeated during this short learnability screen; each of the three replay sources
+contributes 1,214 prepared batches.
+
+Both arms learn a causal source signal. Ordinary loss moves intact/question-only/
+mismatched accuracy from V47's 3/0/0 to 9/1/0; answer weighting reaches 14/1/0.
+That is a +7.81-point matched gain for answer weighting and a +20.31-point gain
+over its stronger control. The objective is useful, but not sufficient: answer
+weighting misses the 16/64 grounding floor by two cases, and both arms overwrite
+old behavior. On a deterministic kind-stratified panel, strict relation recall
+falls from 57/64 to 26/64 and 28/64. General heldout loss rises from 3.13964 to
+3.24415 and 3.24195, more than twice the allowed +0.05 regression.
+
+The execution result matters too. The first physical-batch path assembled 28
+host microbatches as separate CUDA temporaries and fell into memory paging; its
+three-step preflight projected 232,231 seconds and correctly executed zero
+counted updates. True gradient accumulation preserves effective batch 224 while
+using physical batch 8. It completes both 260-step arms at 5,429/5,365 tokens/s,
+with 3.19/2.20 GiB measured peak allocation, and deletes both 428 MB temporary
+states after the terminal decision.
+
+Decision: `retire_v48_objective_only_grounding_repair`. This does not refute
+source grounding or answer emphasis. It refutes the claim that one shared weight
+state plus random replay is enough to add a second broad capability locally.
+V49 will test isolated plasticity: freeze V39, add a small MARULHO-owned residual
+adapter behind a source-visible condition, require bit-exact old-path logits when
+inactive, and retain the same V47 grounding/control gate when active. A success
+would justify learned routing later; a failure retires adapter-style modularity
+before a larger architectural investment. Report SHA-256 is
+`834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

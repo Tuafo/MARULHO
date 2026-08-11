@@ -446,6 +446,24 @@ and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
 The official SQuAD training split is now admitted only under matched replay and
 heldout validation; no external model participates.
 
+**Continual Source Grounding v48 (objective-only repair retired)** — V48 uses a
+hash-pinned 512-case SQuAD training corpus and the immutable V47 validation
+manifest. Two exact-reset arms process 4,193,280 tokens each with identical 50%
+SQuAD, 16.67% relation replay, and 33.33% general replay schedules. Ordinary
+causal loss reaches 9/64 (14.06%) intact answers; normalized 4x answer loss
+reaches 14/64 (21.88%). Their stronger-control gains are 12.50 and 20.31 points,
+and answer weighting beats ordinary by 7.81 points. The useful learning signal
+does not survive the joint gate: V39's stratified relation panel falls from
+89.06% to 40.62%/43.75%, while matched general loss rises from 3.13964 to
+3.24415/3.24195. The 4x arm also misses the 25% grounding floor by two cases.
+Decision: `retire_v48_objective_only_grounding_repair`. No candidate checkpoint
+or temporary arm state survives. A failed physical batch-224 preflight executed
+zero counted steps; true batch-8 gradient accumulation completes at 5.43k/5.36k
+tokens/s without memory paging. The next falsifier freezes V39 and tests a small
+conditionally activated residual plasticity module, with bit-exact base behavior
+when inactive. Report SHA-256 is
+`834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
