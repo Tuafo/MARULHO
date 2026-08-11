@@ -519,7 +519,7 @@ checkpoint and state remain exact. Decision:
 fork runner, test, or compatibility surface survives. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
 
-**Document-Aligned Grounding v52 (preregistered)** — V52 isolates the newly
+**Document-Aligned Grounding v52 (capability pass, retention fail)** — V52 isolates the newly
 measured packing confound before changing architecture. It creates one causal
 window per SQuAD record, retains BOS, the full context/question/answer, and EOS,
 right-pads only after EOS, and excludes pad targets from the existing 4x
@@ -532,6 +532,18 @@ at most five relation points and +0.05 general loss regression. Passing both
 saves a candidate for confirmation; source success with retention failure keeps
 only the aligned learning contract and advances to isolated copy/span machinery;
 source failure deletes the V52 runner and alignment path.
+
+The completed run proves alignment matters. Intact/question-only/mismatched
+grounding is 19/64, 0/64, and 0/64: a 29.69-point causal source gain and a
+7.81-point improvement over V48. All 512 records are aligned versus 80 under
+global stride packing. The 4,193,280-token arm trains every parameter in 802.53
+seconds at 5.23k tokens/s with 3.19 GiB peak allocation. Retention still fails:
+free relation recall falls from 89.06% to 56.25%, and general loss regresses from
+3.139640808 to 3.229799509 (+0.09016). Decision:
+`advance_v52_aligned_signal_to_isolated_copy`. No candidate or temporary arm
+checkpoint survives. The generic document-aligned batch/loss contract remains
+active for V53; the one-off V52 runner and gate tests are deleted. Report SHA-256
+is `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

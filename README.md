@@ -310,7 +310,7 @@ positive controlled result—not a replacement for frontier Transformers.
     The immutable parent remains exact. The fork runner, tests, and checkpoints
     are deleted; the next falsifier must change source representation or learning
     signal, not add another larger isolated parameter path.
-21. Preregister V52's document-aligned correction. Each SQuAD record already fits
+21. Validate V52's document-aligned correction. Each SQuAD record already fits
     in at most 73 tokens, but global stride-72 packing cuts 432/512 records across
     windows. V52 right-pads each record only after EOS, excludes pad targets, and
     keeps its full prompt and answer in one causal example. Everything else stays
@@ -318,8 +318,13 @@ positive controlled result—not a replacement for frontier Transformers.
     tokens, 50% SQuAD, 50% identical replay sources, 4x answer loss, optimizer,
     validation controls, and retention gates. It must reach at least 18/64 intact
     answers, gain ten points over controls, and beat V48 by five points. A source
-    pass with retention failure advances the aligned signal to isolated copy/span
-    machinery; a source miss retires alignment as an insufficient repair.
+    arm reaches 19/64 intact answers versus 0/64 for both controls, beating V48
+    by five cases and passing every capability check. Alignment also improves
+    retention relative to V48, but relation recall still falls from 89.06% to
+    56.25% and general loss regresses +0.0902. No checkpoint survives. The
+    document-aligned contract is retained; its one-off runner and tests are
+    deleted. V53 must place the validated signal behind a frozen-base copy/span
+    path so learning cannot rewrite old language behavior.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

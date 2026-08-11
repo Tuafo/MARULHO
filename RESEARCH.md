@@ -1172,6 +1172,26 @@ isolated pointer/copy or span-supervised source path. If source fails, alignment
 alone is insufficient: delete the V52 runner, tests, and task-specific alignment
 path before moving to an explicit source-answer interaction architecture.
 
+V52 passes capability and fails retention. Document alignment raises intact
+grounding from V48's 14/64 to 19/64 while question-only and mismatched-source
+controls both fall to 0/64. The resulting 29.69-point source gain, 7.81-point
+gain over V48, exact token budget, and full parameter gradients pass every source
+gate. This validates the packing audit as causal rather than cosmetic. It also
+partially improves forgetting versus V48, but not enough: strict free relation
+recall is 56.25% versus the 89.06% baseline, and general loss is 3.229799509
+versus 3.139640808 (+0.09016). Training processes 4,193,280 positions in 802.53
+seconds at 5.23k tokens/s with 3.19 GiB peak allocation.
+
+Decision: `advance_v52_aligned_signal_to_isolated_copy`. The shared-weight
+checkpoint is rejected and deleted. The aligned-record builder and post-EOS pad
+mask survive because they caused a preregistered capability pass; the one-off
+V52 runner and gate tests are deleted. V53 must freeze V39 and add an explicit
+source-token copy/span path trained from the validated aligned rows. Inactive
+parent logits, state, general loss, and relations must remain exact. Report
+SHA-256 is `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`;
+source audit SHA-256 is
+`ff2b6aec6c8a000cddea1004c1f8124b1edb01b75f6fe89550fbd15001d290bd`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

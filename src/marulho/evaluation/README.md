@@ -1034,12 +1034,13 @@ No specialist checkpoint, runner, test, routing option, or compatibility path
 survives. Report SHA-256 is
 `9b74355e9c287270e28a6fa5b9c54ad79bd25428983d3c5e61a6bd10ea033fad`.
 
-**`language_aligned_grounding_falsification.py`** — the active V52 falsifier
-corrects a measured training-data boundary error before
-adding architecture. Global stride-72 packing retained the complete prompt and
-answer for only 80/512 individually fitting SQuAD records. V52 uses one padded
-causal row per record, masks only post-EOS pad targets, and otherwise freezes
-V48's answer-weighted objective, replay schedule, budget, controls, and gates.
+V52's document-alignment falsifier is terminal and its one-off runner is deleted.
+Global stride-72 packing retained the complete prompt and answer for only 80/512
+individually fitting SQuAD records; alignment raises heldout grounding from
+14/64 to 19/64 with both controls at zero. Retention still fails, so no checkpoint
+survives. The generic aligned-batch and post-EOS pad-mask machinery remains live
+for the preregistered isolated copy/span successor. Report SHA-256 is
+`23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
