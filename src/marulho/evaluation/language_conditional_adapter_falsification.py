@@ -125,12 +125,13 @@ def v49_gate(
     adapter_parameter_fraction: float,
     baseline_relation: Mapping[str, Any],
     baseline_heldout_loss: float,
+    final_inactive_heldout_loss: float,
     config: ConditionalAdapterFalsificationConfig,
 ) -> dict[str, Any]:
     accuracy = float(source_grounding["intact_source"]["exact_answer_accuracy"])
     source_gain = float(source_grounding["intact_gain_over_stronger_control"])
     relation = dict(row["relation"])
-    heldout_loss = float(row["heldout"]["heldout_loss"])
+    heldout_loss = float(final_inactive_heldout_loss)
     checks = {
         "source_grounding_valid": bool(source_grounding["valid"]),
         "minimum_grounding_accuracy": accuracy
@@ -379,6 +380,10 @@ def run_conditional_adapter_falsification(
         torch.backends.cuda.matmul.allow_tf32 = previous_tf32
         torch.set_float32_matmul_precision(previous_precision)
     candidate.set_conditional_adapter_enabled(False)
+    final_inactive_heldout = evaluate_language_model(
+        candidate,
+        prepared.eval_batches,
+    )
     with torch.no_grad():
         final_inactive_logits = candidate(
             parity_batch.input_ids,
@@ -393,6 +398,8 @@ def run_conditional_adapter_falsification(
             final_inactive_logits,
             initial_logits,
         ),
+        "initial_heldout_loss": float(baseline_heldout["heldout_loss"]),
+        "final_heldout_loss": float(final_inactive_heldout["heldout_loss"]),
     }
     adapter_parameters = tuple(candidate.conditional_adapter.named_parameters())
     adapter_gradients = {
@@ -448,6 +455,9 @@ def run_conditional_adapter_falsification(
         adapter_parameter_fraction=adapter_fraction,
         baseline_relation=baseline_relation,
         baseline_heldout_loss=float(baseline_heldout["heldout_loss"]),
+        final_inactive_heldout_loss=float(
+            final_inactive_heldout["heldout_loss"]
+        ),
         config=config,
     )
     decision = (

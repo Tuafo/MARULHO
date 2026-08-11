@@ -36,6 +36,7 @@ def test_v49_gate_requires_grounding_and_exact_inactive_path() -> None:
             "accuracy": 0.98,
         },
         baseline_heldout_loss=3.1,
+        final_inactive_heldout_loss=3.1,
         config=config,
     )
 
@@ -63,6 +64,7 @@ def test_v49_gate_rejects_v48_tie_or_parent_drift() -> None:
             "accuracy": 0.98,
         },
         baseline_heldout_loss=3.1,
+        final_inactive_heldout_loss=3.1,
         config=config,
     )
 
