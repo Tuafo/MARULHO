@@ -11,8 +11,11 @@ from marulho.evaluation.language_role_contrastive_falsification import (
 )
 from marulho.training.language_answer_objective import answer_target_mask
 from marulho.training.language_role_contrastive import (
+    RoleContrastiveBranch,
     build_role_contrastive_branches,
     prepare_role_contrastive_branches,
+    prepare_role_contrastive_lookup,
+    role_contrastive_lookup_unlikelihood,
     role_contrastive_unlikelihood,
 )
 
@@ -100,6 +103,39 @@ def test_cross_entropy_denominator_reuse_is_exact() -> None:
     )
     assert int(direct_count) == int(reused_count)
     torch.testing.assert_close(direct, reused, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_vectorized_lookup_matches_reference_branch_loss() -> None:
+    branches = (
+        RoleContrastiveBranch("entity", "Ava", (10, 11), 0, (20, 30)),
+        RoleContrastiveBranch("entity", "Ben", (20,), 0, (10, 30)),
+        RoleContrastiveBranch("entity", "Cora", (30, 31), 0, (10, 20)),
+    )
+    prepared = prepare_role_contrastive_branches(branches, device="cpu")
+    lookup = prepare_role_contrastive_lookup(
+        branches, vocab_size=40, device="cpu"
+    )
+    targets = torch.tensor([[10, 11, 5, 20, 5, 30, 31]])
+    answer_mask = torch.ones_like(targets, dtype=torch.bool)
+    generator = torch.Generator().manual_seed(7)
+    logits = torch.randn((1, targets.shape[1], 40), generator=generator)
+    denominators = torch.logsumexp(logits, dim=-1)
+    reference, reference_count = role_contrastive_unlikelihood(
+        logits,
+        targets,
+        answer_mask,
+        prepared,
+        log_denominators=denominators,
+    )
+    fused, fused_count = role_contrastive_lookup_unlikelihood(
+        logits,
+        targets,
+        answer_mask,
+        lookup,
+        log_denominators=denominators,
+    )
+    assert int(reference_count) == int(fused_count) == 3
+    torch.testing.assert_close(reference, fused, atol=1.0e-6, rtol=1.0e-6)
 
 
 def test_role_unlikelihood_is_zero_without_role_answer() -> None:

@@ -356,7 +356,10 @@ pilot deliberately avoids a non-amortizing Inductor compile; compilation may
 return only for a promoted full confirmation. This remains experimental until
 its frozen pilot and full confirmation gates pass. The objective recovers the
 vocabulary log-normalizer from the existing cross-entropy and target logit,
-avoiding a second full-vocabulary reduction.
+avoiding a second full-vocabulary reduction. Its live V39-BPE path fuses all 22
+role branches into one vocabulary-indexed negative gather and therefore one
+logit-gradient scatter; complete-pattern matching still determines which
+positions are active.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and

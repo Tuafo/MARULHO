@@ -39,9 +39,9 @@ from marulho.training.language_model import (
 from marulho.training.language_muon import build_language_muon
 from marulho.training.language_role_contrastive import (
     build_role_contrastive_branches,
-    prepare_role_contrastive_branches,
-    role_contrastive_active_count,
     role_contrastive_answer_loss,
+    prepare_role_contrastive_lookup,
+    role_contrastive_lookup_active_mask,
 )
 
 
@@ -84,6 +84,7 @@ class RoleContrastivePilotConfig:
     microbatch_size: int = 32
     microbatches_per_optimizer_step: int = 8
     eval_batches: int = 16
+    relation_eval_batch_size: int = 64
     relation_fraction: float = 0.50
     learning_rate: float = 3.0e-4
     minimum_learning_rate_fraction: float = 0.10
@@ -115,7 +116,7 @@ def _data_config(config: RoleContrastivePilotConfig) -> GeneralContextFalsificat
         common_sequence_length=int(config.sequence_length),
         common_batch_size=int(config.microbatch_size),
         eval_batches=int(config.eval_batches),
-        relation_eval_batch_size=8,
+        relation_eval_batch_size=int(config.relation_eval_batch_size),
         relation_case_limit=0,
         relation_fraction=float(config.relation_fraction),
         learning_rate=float(config.learning_rate),
@@ -198,7 +199,7 @@ def _prepare_shared_eager_loss(
     *,
     marker_ids: torch.Tensor,
     eos_id: int,
-    prepared_branches,
+    role_lookup,
     config: RoleContrastivePilotConfig,
 ):
     """Audit one eager function whose scalar weight keeps arms compute-matched."""
@@ -216,7 +217,7 @@ def _prepare_shared_eager_loss(
             marker_ids=marker_ids,
             eos_id=int(eos_id),
             answer_weight=float(config.answer_weight),
-            branches=prepared_branches,
+            lookup=role_lookup,
         )
 
     device_batch = example_batch.to(model.device)
@@ -328,7 +329,9 @@ def run_role_contrastive_pilot(
     marker_values = tokenizer.encode(" Answer:", add_bos=False, add_eos=False)
     marker_ids = torch.tensor(marker_values, dtype=torch.long, device=resolved)
     branches = build_role_contrastive_branches(tokenizer, ROLE_GROUPS)
-    prepared_branches = prepare_role_contrastive_branches(branches, device=resolved)
+    role_lookup = prepare_role_contrastive_lookup(
+        branches, vocab_size=tokenizer.vocab_size, device=resolved
+    )
     example = grouped_staged_batch(
         prepared.staged,
         start=0,
@@ -340,9 +343,9 @@ def run_role_contrastive_pilot(
     )
     mask_fraction = float(answer_mask.float().mean().cpu())
     active_count = int(
-        role_contrastive_active_count(
-            example.target_ids, answer_mask, prepared_branches
-        ).cpu()
+        role_contrastive_lookup_active_mask(
+            example.target_ids, answer_mask, role_lookup
+        ).sum().cpu()
     )
     if not 0.0 < mask_fraction < 1.0 or active_count < 1:
         raise ValueError("V42 example batch has invalid objective coverage")
@@ -357,7 +360,7 @@ def run_role_contrastive_pilot(
         example,
         marker_ids=marker_ids,
         eos_id=tokenizer.eos_id,
-        prepared_branches=prepared_branches,
+        role_lookup=role_lookup,
         config=config,
     )
 
@@ -389,7 +392,7 @@ def run_role_contrastive_pilot(
             training_config=training_config,
             gradient_clip=float(config.gradient_clip),
             precision=str(config.precision),
-            relation_eval_batch_size=8,
+            relation_eval_batch_size=int(config.relation_eval_batch_size),
             model_seed=int(config.model_seed),
             device=resolved,
             progress_prefix="V42",
