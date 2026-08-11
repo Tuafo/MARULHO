@@ -181,7 +181,34 @@ def test_transformer_generation_batches_streams_with_bounded_controls() -> None:
     assert generated["generated_ids"].shape == (3, 11)
     assert generated["nonfinite_logit_count"] == 0
     assert generated["generation_decode"]["decode_control_window"] == 16
+    assert (
+        generated["generation_decode"]["decode_control_scope"]
+        == "generated_continuation_only"
+    )
+    assert generated["generation_decode"]["prompt_tokens_eligible_for_penalty"] is False
     assert int(generated["state"]["layer_0_key"].shape[2]) <= 16
+
+
+def test_generation_decode_controls_never_read_prompt_history(monkeypatch) -> None:
+    import marulho.training.language_model as language_model_module
+
+    observed_widths: list[int] = []
+    original = language_model_module._apply_decode_controls
+
+    def observe(logits, generated_ids, **kwargs):
+        observed_widths.append(int(generated_ids.shape[1]))
+        return original(logits, generated_ids, **kwargs)
+
+    monkeypatch.setattr(language_model_module, "_apply_decode_controls", observe)
+    model = MarulhoLanguageModel(_config()).eval()
+    model.generate(
+        torch.tensor([[1, 3, 5, 7]], dtype=torch.long),
+        max_new_tokens=3,
+        repetition_penalty=1.1,
+        no_repeat_ngram_size=3,
+    )
+
+    assert observed_widths == [0, 1, 2]
 
 
 def test_batched_decode_controls_preserve_per_stream_semantics() -> None:

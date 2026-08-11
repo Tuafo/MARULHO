@@ -39,6 +39,14 @@ language rather than merely point to source tokens. No V43 implementation exists
 and this does not reopen the retired prompt-memory, hidden-state kNN, or V42
 contrastive interfaces.
 
+V44 then corrects the premise that made the prompt-copy idea look urgent. The
+old no-repeat-3 decoder inspected the prompt, so it forbade answers from reusing
+legitimate source phrases. Generated-only control history raises the exact V39
+checkpoint from 50.00% to 88.67% strict free accuracy without changing a tensor.
+This is not an architecture breakthrough; it is evidence that evaluation and
+decoding are part of the causal system and must be audited before adding organs.
+Container remains the real local weakness, while general grounding remains open.
+
 ## Cross-front synthesis: dynamics need a job
 
 The user's newer list—autonomous pattern generation, modern reservoir

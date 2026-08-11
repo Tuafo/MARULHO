@@ -9,9 +9,11 @@ compute, and remain rollbackable while it changes.
 MARULHO is not currently an AGI or a frontier model. Its strongest research
 checkpoint produces coherent multi-sentence English and has passed one narrow
 continual-learning test: it learned held-out synthetic relations while retaining
-its general-language loss. It remains repetitive, semantically unreliable, and
-uneven across relation types. There is still no admitted long-term memory read
-interface or generally capable continual model.
+its general-language loss. A corrected generated-only decode policy reveals
+88.67% strict free accuracy on that narrow benchmark, but container remains
+60.94%, open text is still semantically unreliable, and no general grounding
+claim follows. There is still no admitted long-term memory read interface or
+generally capable continual model.
 
 ## Current architecture
 
@@ -67,17 +69,21 @@ There are eight different levels of truth:
    many-small-units design is a requirement; every mechanism must earn its place.
 7. **Strongest continual research checkpoint:** V39 starts from V35R and mixes
    new relation examples with fresh general-language replay. A normalized 4x
-   answer-span objective reaches 50.00% strict free recall and 98.44% candidate
-   accuracy while improving heldout general loss from 3.1649 to 3.1134. The
+   answer-span objective reaches 98.44% candidate accuracy while improving
+   heldout general loss from 3.1649 to 3.1134. Its original prompt-inclusive
+   no-repeat evaluation reported 50.00% strict free recall; V44 corrects the
+   decode scope and measures 88.67% from the unchanged checkpoint. The
    100.68M-parameter checkpoint reloads exactly after 218.11M cumulative tokens.
    This is a narrow learning-without-forgetting result, not general reasoning:
-   property and event-order relations are strong, while container and ownership
-   remain weak.
-8. **Qualified sustained research runtime:** V40 loads that exact V39 artifact
+   ownership/property reach 100%, event order 93.75%, and container remains the
+   weak type at 60.94%.
+8. **Historical sustained research runtime:** V40 loads that exact V39 artifact
    and generates 256 independent 2,048-token streams on the RTX 3060. All
    524,288 tokens complete in 74.84 seconds at 7,005 tokens/s with 3.17 GB peak
    allocation and unchanged model tensors. Execution hooks observe every one of
    the 100.68M parameters, so the current path is measured dense, not sparse.
+   V44 changes decode-control scope, so these throughput/state facts remain
+   historical evidence but behavioral runtime qualification is pending rerun.
 
 ```mermaid
 flowchart LR
@@ -198,10 +204,11 @@ positive controlled result—not a replacement for frontier Transformers.
    gate. V39 must improve exact answer formation under the same replay/compute
    budget; do not add capacity, weaken evaluation, or repeat replay ratios.
 8. Retain V39 as the first continual-qualified 100M checkpoint. Its 4x
-   answer-emphasis arm reaches exactly 50% strict free relations, 98.44% ranked,
-   improves general loss to 3.1134, and reloads exactly after 218.11M cumulative
-   tokens. Preserve the uneven boundary: ownership is 4/64 and container 15/64,
-   so this is not yet general binding competence.
+   answer-emphasis arm reaches 98.44% ranked, improves general loss to 3.1134,
+   and reloads exactly after 218.11M cumulative tokens. The immutable V39 report
+   records 50% strict free relations under the then-current prompt-inclusive
+   no-repeat policy; V44 later corrects that policy and measures 88.67% from the
+   same tensors. Container remains only 39/64, so this is not general binding.
 9. Retain V40 as the same-checkpoint runtime qualification. Its 256 independently
    prompted CUDA streams each produce 2,048 consecutive tokens, totaling 524,288
    in 74.84 seconds at 7,005 tokens/s. Model state is immutable and bounded;
@@ -223,6 +230,12 @@ positive controlled result—not a replacement for frontier Transformers.
     occur anywhere in the prompt against its frozen 85% copyability gate, and no
     complete answer span occurs. A prompt-copy readout cannot explain the free-
     generation gap as proposed, so no code or checkpoint is created.
+13. Promote V44's generated-only decode controls. The old no-repeat-3 history
+    included the prompt and therefore forbade factual answers from reusing source
+    triples. Restricting controls to generated continuation history raises the
+    unchanged V39 checkpoint from 50.00% to 88.67% strict free accuracy while
+    ranked accuracy stays 98.44% and model hashes remain exact. V40 must be rerun
+    because its long-generation policy changed.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

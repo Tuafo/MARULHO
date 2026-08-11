@@ -14,8 +14,9 @@ bounded per-layer KV state for incremental decoding.
 **`language_model.py`** — owns full-vocabulary logits, bounded decode controls,
 preallocated batched generation, exact model-state hashing, and the atomic v2
 checkpoint. Decode controls inspect no more history than the active Transformer
-context; sustained output growth no longer causes repeated full-history tensor
-concatenation or scanning.
+context and only generated continuation tokens are eligible for penalties;
+source prompt tokens may be reused in grounded answers. Sustained output growth
+does not cause repeated full-history tensor concatenation or scanning.
 
 **`language_protocol.py`** — the shared causal-language model interface used by
 matched evaluations. The active Transformer and every replacement candidate

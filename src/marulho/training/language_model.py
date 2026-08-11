@@ -205,7 +205,7 @@ class MarulhoLanguageModel(nn.Module):
     ) -> dict[str, Any]:
         sampling = float(temperature) > 0.0
         return {
-            "surface": "marulho_transformer_decode_policy.v3",
+            "surface": "marulho_transformer_decode_policy.v4",
             "decode_strategy": (
                 "nucleus_sampling" if sampling else "greedy_argmax"
             ),
@@ -224,6 +224,8 @@ class MarulhoLanguageModel(nn.Module):
                 if decode_control_window is None
                 else max(1, int(decode_control_window))
             ),
+            "decode_control_scope": "generated_continuation_only",
+            "prompt_tokens_eligible_for_penalty": False,
             "external_llm_used": False,
         }
 
@@ -405,7 +407,7 @@ class MarulhoLanguageModel(nn.Module):
             )
             for _ in range(requested_tokens):
                 write_index = prompt_width + new_token_count
-                history_start = max(0, write_index - control_window)
+                history_start = max(prompt_width, write_index - control_window)
                 controlled, control = _apply_decode_controls(
                     next_logits,
                     generated[:, history_start:write_index],

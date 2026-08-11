@@ -868,6 +868,33 @@ cannot explain the measured gap as proposed. Decision:
 tests, or checkpoint exist. Compact report SHA-256 is
 `6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
 
+### V44: the 50% binding wall was partly a decoder-policy bug
+
+A read-only audit of V39's retained rows shows correct candidate sequences with
+near-zero teacher-forced loss beside free generations containing small plural,
+template, or entity deviations. The maintained decoder applied repetition 1.1
+and no-repeat-3 to prompt plus generated tokens, while candidate scoring applied
+neither. This made any three-token phrase already present in the source illegal
+to repeat in a factual answer.
+
+The same frozen checkpoint and 256 cases isolate the effect. Old default,
+no-controls, old repetition-only, and old no-repeat-only strict free accuracy is
+50.00%, 88.67%, 87.11%, and 51.56%. No-repeat prompt history is therefore the
+dominant cause. V44 changes no weights: decode policy v4 bounds repetition and
+no-repeat history to generated continuation tokens only. The maintained batched
+evaluator reaches 88.67% strict free accuracy at the same 98.44% ranking, with
+container/ownership/property/event-order at 60.94%/100%/100%/93.75%. Model hashes
+remain exact.
+
+Decision: `promote_v44_generated_only_decode_controls_requalify_v39`. This is a
+real capability correction but not a learning gain or general-grounding result.
+It also retrospectively removes the main motivation for V42 and V43; their
+execution and copyability conclusions remain valid, but the presumed 48-point
+ranking/free deficit does not. The changed runtime policy invalidates V40 as
+current behavioral evidence, so the exact 524,288-token sustained test must run
+again before runtime is requalified. Report SHA-256 is
+`e413abd919fb25ea546046b76652c7e011666fa0b7c8ecda8e7a454bdb0b2315`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

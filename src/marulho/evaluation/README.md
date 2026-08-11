@@ -903,6 +903,8 @@ and exactly reloads the 428.1 MB standard Transformer checkpoint. Per-kind free
 accuracy remains uneven: property/event-order/container/ownership is
 90.62%/79.69%/23.44%/6.25%. The one-shot evaluator is deleted after retaining
 the report; checkpoint fidelity and the maintained training objective survive.
+That 50% is the immutable original result under prompt-inclusive no-repeat-3.
+V44's same-checkpoint correction below is authoritative for current decoding.
 
 The deleted V28 particle-field falsifier tested a wider base-architecture jump.
 It compared the 20,976,128-parameter Transformer with a 20,971,520-parameter
@@ -1151,6 +1153,17 @@ checkpoint exists. Decision:
 `stop_v43_prompt_copy_insufficient_answer_token_coverage`. Compact report
 SHA-256 is
 `6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
+
+V44 finds and removes a decode-policy confound. Prompt-inclusive no-repeat-3
+forbade factual answers from reusing source triples; the causal default/no-
+controls/repetition-only/no-repeat-only sweep produces 50.00%/88.67%/87.11%/
+51.56% strict free accuracy. Decode policy v4 sees generated continuation history
+only. The unchanged V39 checkpoint now reaches 88.67% free and 98.44% ranked;
+container/ownership/property/event-order is 60.94%/100%/100%/93.75%, and model
+hashes remain exact. This requalifies relation decoding, not general grounding.
+Decision: `promote_v44_generated_only_decode_controls_requalify_v39`. Compact
+report SHA-256 is
+`e413abd919fb25ea546046b76652c7e011666fa0b7c8ecda8e7a454bdb0b2315`.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

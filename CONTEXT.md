@@ -325,6 +325,8 @@ checkpoint with tokenizer identity. Decision:
 `advance_v39_answer_objective_continual_checkpoint`. Checkpoint/report SHA-256
 are `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`
 and `3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127`.
+The 50.00% value is immutable historical evidence under the old prompt-inclusive
+no-repeat policy; V44 below is the authoritative current decode result.
 
 **Sustained Runtime v40 (qualified dense runtime)** — The exact V39 checkpoint
 generates 256 independently prompted streams of 2,048 consecutive tokens: all
@@ -384,6 +386,22 @@ not only copying. Decision:
 `stop_v43_prompt_copy_insufficient_answer_token_coverage`. No implementation,
 training, or checkpoint exists. Report SHA-256 is
 `6b9580d3097d34fbd28b3edc49965ec0851026743ab98fba77fabc95fe9afc70`.
+
+**Generated-Only Decode Controls v44 (promoted)** — the old decoder applied
+repetition and no-repeat-3 controls to prompt plus continuation. Relation answers
+legitimately reuse source triples, so the evaluator was forbidding correct
+tokens. A same-checkpoint causal sweep isolates no-repeat prompt history as the
+failure: old default/no-controls/repetition-only/no-repeat-only strict free
+accuracy is 50.00%/88.67%/87.11%/51.56%. Decode policy v4 applies controls only
+to generated continuation history. The maintained evaluator then reaches 227/256
+strict free answers (88.67%) at unchanged 98.44% ranking; container/ownership/
+property/event-order is 60.94%/100%/100%/93.75%, and pre/post model hashes are
+exact. This corrects evaluation and runtime behavior, not learned weights, and
+does not prove general grounding. Decision:
+`promote_v44_generated_only_decode_controls_requalify_v39`. Report SHA-256 is
+`e413abd919fb25ea546046b76652c7e011666fa0b7c8ecda8e7a454bdb0b2315`.
+The old V40 long-generation qualification is no longer current for decode-policy
+behavior and must be repeated from the same checkpoint.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
