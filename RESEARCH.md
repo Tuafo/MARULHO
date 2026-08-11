@@ -720,6 +720,28 @@ unstable, so this is runtime qualification rather than long-context quality.
 Decision: `qualify_v40_same_checkpoint_sustained_runtime`. Report SHA-256 is
 `4757c0a0f0972fabe1de3e0b742f91a049f166994a9421d141c117a7ddcf2331`.
 
+V41 tests direct hidden-state episodic memory rather than another cortex or
+cross-attention rewrite. [kNN-LM](https://arxiv.org/abs/1911.00172) establishes
+that final-context representations can index next-token values and adapt a
+language model without weight training. Later analysis finds that retrieval
+quality should control interpolation
+([Drozdov et al.](https://arxiv.org/abs/2210.15859)), while open-ended generation
+often degrades under unconditional kNN interpolation
+([Wang et al.](https://arxiv.org/abs/2305.14625)). Those are design constraints,
+not borrowed weights or a capability claim.
+
+The V41 parent is the exact V39 checkpoint. Frozen training-only relation
+documents supply normalized final hidden keys and their next answer-token IDs.
+A disjoint calibration set selects k, cosine threshold, and bounded logit bias;
+the frozen 256 V39 cases remain untouched until the terminal audit. The memory
+is active only after the complete `Answer:` marker, and gate-off logits must be
+bit exact to V39. Controls are base V39 and identical keys with deterministically
+shuffled values. True memory must reach 65% free / 98% ranked, raise ownership
+and container to 40% each, beat shuffled values by ten free points, leave model
+tensors unchanged, and exact-reload keys, values, normalization, tokenizer hash,
+and provenance. The report separates active top-k values from the dense full-key
+search and measures latency/VRAM; no nominal sparsity claim can pass.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

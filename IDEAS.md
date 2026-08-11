@@ -1192,3 +1192,22 @@ should alternate local attention with an editable recurrent or fast-weight
 state from initialization, train on genuinely contiguous documents, and face
 paired source swaps throughout training and evaluation. This is a new cortex
 experiment, not another memory attachment to V11.
+## V41: direct hidden-state episodic memory
+
+The post-V40 branch keeps the dense Transformer as a stable cortex and tests an
+editable nonparametric memory at the only point V38/V39 localized as limiting:
+answer-token realization. Each training-only answer position stores the frozen
+V39 final hidden state as a normalized key and the next token as its value. A
+query after the complete `Answer:` marker retrieves top-k keys and applies a
+bounded logit residual. Appending records changes memory without mutating the
+cortex, while deletion or rollback restores an earlier memory artifact.
+
+This is not a claim that nearest neighbors solve language. Raw prepending
+improved V25 likelihood but failed generation; V26/V27 cross-attention failed
+even with oracle evidence; published kNN-LM analysis reports exposure-bias harm
+in open-ended decoding. V41 therefore gates memory to the answer span, uses a
+shuffled-value causal control, freezes all model tensors, and requires a large
+free-answer gain concentrated in V39's ownership/container weaknesses. Full
+cosine search touches every stored key and remains dense even though only top-k
+values affect logits. A pass only admits a later learned/semantic gate and an
+indexed search; a fail deletes this read interface.
