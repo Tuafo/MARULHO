@@ -1229,6 +1229,13 @@ produced no report, checkpoint, or capability evidence. The frozen contract is
 unchanged; the required inactive-route evaluation method is added and tested
 before a clean rerun.
 
+The corrected rerun completed training and all capability/retention evaluation,
+then stopped while serializing two tensor-valued telemetry scalars to JSON. The
+exact-contract arm artifact and independent source audit were already durable;
+no metric was inspected or tuning changed. Telemetry now converts those values
+to host numbers only when collection is requested, and the runner resumes the
+completed arm to repeat evaluation/reporting without retraining.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

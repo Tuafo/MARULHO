@@ -160,6 +160,12 @@ class FrozenSourcePointerLanguageModel(nn.Module):
         mixed = (1.0 - gate) * base_probability + gate * copy_probability
         log_probability = mixed.clamp_min(1.0e-12).log()
         output_logits = torch.where(has_source, log_probability, base_logits.float())
+        source_token_count = (
+            int(source.sum().detach().cpu()) if collect_telemetry else None
+        )
+        mean_copy_gate = (
+            float(gate.mean().detach().cpu()) if collect_telemetry else None
+        )
         return {
             "logits": output_logits,
             "state": {},
@@ -169,8 +175,8 @@ class FrozenSourcePointerLanguageModel(nn.Module):
                 "external_llm_used": False,
                 "pointer_rank": self.pointer_rank,
                 "pointer_parameter_count": self.pointer_parameter_count(),
-                "source_token_count": source.sum(),
-                "mean_copy_gate": gate.mean(),
+                "source_token_count": source_token_count,
+                "mean_copy_gate": mean_copy_gate,
                 "base_frozen": True,
                 "collect_telemetry": bool(collect_telemetry),
             },
