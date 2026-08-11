@@ -99,6 +99,18 @@ def test_source_pointer_backpropagates_only_into_pointer() -> None:
     assert language_model_state_sha256(model.base) == parent_before
 
 
+def test_source_pointer_implements_inactive_next_token_loss() -> None:
+    model, tokenizer = _pointer_model()
+    ids = torch.tensor([tokenizer.encode("ordinary text")])
+    result = model.next_token_loss(
+        ids[:, :-1],
+        ids[:, 1:],
+        collect_telemetry=False,
+    )
+    assert torch.isfinite(result["loss"])
+    assert result["evidence"]["full_vocab_logits_materialized"]
+
+
 def test_source_pointer_checkpoint_is_parent_strict(tmp_path) -> None:
     model, _tokenizer = _pointer_model()
     output = tmp_path / "pointer.pt"

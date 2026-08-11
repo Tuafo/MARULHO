@@ -225,6 +225,36 @@ class FrozenSourcePointerLanguageModel(nn.Module):
             "external_llm_used": False,
         }
 
+    def next_token_loss(
+        self,
+        input_ids: torch.Tensor,
+        target_ids: torch.Tensor,
+        *,
+        collect_telemetry: bool = True,
+        return_evidence: bool = True,
+    ) -> dict[str, Any]:
+        output = self.forward(
+            input_ids,
+            collect_telemetry=collect_telemetry,
+        )
+        logits = output["logits"]
+        loss = F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            target_ids.reshape(-1),
+        )
+        return {
+            "loss": loss,
+            "telemetry": output["telemetry"],
+            "evidence": (
+                {
+                    "surface": "marulho_source_pointer_cross_entropy.v1",
+                    "full_vocab_logits_materialized": True,
+                }
+                if return_evidence
+                else None
+            ),
+        }
+
 
 def source_pointer_answer_loss(
     model: FrozenSourcePointerLanguageModel,

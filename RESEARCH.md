@@ -1222,6 +1222,13 @@ runner, tests, and checkpoint surface; it means frozen final states do not expos
 enough answer-localization geometry, so V54 must add a trainable source encoder
 or explicit span supervision rather than another residual adapter.
 
+The first V53 execution completed all 130 counted optimizer updates in about
+3.5 minutes, then stopped before heldout evaluation or arm serialization because
+the experimental wrapper omitted the protocol's `next_token_loss` method. It
+produced no report, checkpoint, or capability evidence. The frozen contract is
+unchanged; the required inactive-route evaluation method is added and tested
+before a clean rerun.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
