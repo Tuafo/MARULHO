@@ -68,8 +68,8 @@ class SourceGroundingContinualConfig:
     answer_weight: float = 4.0
     data_seed: int = 48121
     model_seed: int = 48131
-    sample_bytes_per_train_source: int = 32 * 1024 * 1024
-    sample_bytes_per_eval_source: int = 32 * 1024 * 1024
+    sample_bytes_per_train_source: int = 8 * 1024 * 1024
+    sample_bytes_per_eval_source: int = 1 * 1024 * 1024
     sample_range_count: int = 16
     schedule_mode: str = "indexed_host"
     optimizer_warmup_steps: int = 3
@@ -458,6 +458,7 @@ def run_source_grounding_continual(
                 validation_manifest,
                 checkpoint_path=artifact_path,
                 output_path=source_report_path,
+                max_new_tokens=8,
             )
             row["final_state_sha256"] = language_model_state_sha256(model)
             row["arm_contract_sha256"] = arm_contract
