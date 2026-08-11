@@ -618,9 +618,13 @@ class MarulhoBrain:
         output_path: str | Path,
         target_tokens: int,
         prompt: str = "MARULHO",
+        expected_checkpoint_sha256: str | None = None,
+        stream_count: int = 1,
         timeout_seconds: float = 600.0,
         generation_repetition_penalty: float = 1.1,
         generation_no_repeat_ngram_size: int = 3,
+        inference_dtype: str = "float32",
+        require_cuda: bool = False,
     ) -> dict[str, Any]:
         if self._language_runtime is None:
             raise RuntimeError("MARULHO language model runtime is not installed")
@@ -628,10 +632,14 @@ class MarulhoBrain:
             output_path=output_path,
             target_tokens=int(target_tokens),
             checkpoint_path=self.checkpoint_path,
+            expected_checkpoint_sha256=expected_checkpoint_sha256,
             prompt=prompt,
+            stream_count=max(1, int(stream_count)),
             timeout_seconds=float(timeout_seconds),
             generation_repetition_penalty=float(generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
+            inference_dtype=str(inference_dtype),
+            require_cuda=bool(require_cuda),
         )
         generation.update(
             {

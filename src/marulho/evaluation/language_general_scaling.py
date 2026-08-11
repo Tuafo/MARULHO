@@ -17,7 +17,6 @@ from marulho.evaluation.language_general_context_falsification import (
     GeneralContextFalsificationConfig,
     _prepare_data,
     _training_config,
-    model_state_sha256,
 )
 from marulho.evaluation.language_matched_support import (
     run_matched_training_arm,
@@ -33,6 +32,7 @@ from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
     evaluate_language_model,
+    language_model_state_sha256,
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
@@ -652,7 +652,7 @@ def run_general_scaling(
         raise ValueError(
             f"{stage.name} common holdout does not reproduce its baseline loss"
         )
-    baseline_checkpoint_state_hash = model_state_sha256(baseline_model)
+    baseline_checkpoint_state_hash = language_model_state_sha256(baseline_model)
     torch.manual_seed(int(config.model_seed))
     torch.cuda.manual_seed_all(int(config.model_seed))
     model = build_model(
@@ -670,7 +670,7 @@ def run_general_scaling(
     del baseline_model
     torch.cuda.empty_cache()
     gc.collect()
-    initial_state_hash = model_state_sha256(model)
+    initial_state_hash = language_model_state_sha256(model)
     if bool(stage.require_initial_state_match) and (
         expected_candidate_initial_hash is None
         or initial_state_hash != expected_candidate_initial_hash

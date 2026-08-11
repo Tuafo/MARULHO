@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import hashlib
-import json
 import math
 import os
 from pathlib import Path
@@ -93,78 +92,62 @@ def _validate_config(config: LanguageModelConfig) -> None:
         raise ValueError("tie_embeddings requires embedding_dim == state_dim")
 
 
-def _valid_generated_tokens(token_ids: torch.Tensor, *, vocab_size: int) -> torch.Tensor:
-    flat = token_ids.reshape(-1).to(dtype=torch.long)
-    return flat[(flat >= 0) & (flat < int(vocab_size))]
-
-
-def _banned_ngram_tokens(
-    token_ids: torch.Tensor,
-    *,
-    ngram_size: int,
-    vocab_size: int,
-) -> torch.Tensor:
-    size = max(0, int(ngram_size))
-    tokens = _valid_generated_tokens(token_ids, vocab_size=vocab_size)
-    if size <= 0 or int(tokens.numel()) < size:
-        return tokens.new_empty(0)
-    if size == 1:
-        return torch.unique(tokens)
-    prefix = tokens[-(size - 1) :]
-    windows = tokens.unfold(0, size, 1)
-    if int(windows.shape[0]) <= 0:
-        return tokens.new_empty(0)
-    matches = (windows[:, :-1] == prefix.unsqueeze(0)).all(dim=1)
-    return torch.unique(windows[matches, -1])
-
-
 def _apply_decode_controls(
     logits: torch.Tensor,
     generated_ids: torch.Tensor,
     *,
     repetition_penalty: float,
     no_repeat_ngram_size: int,
-) -> tuple[torch.Tensor, dict[str, int]]:
-    if logits.ndim == 2 and generated_ids.ndim == 2 and int(logits.shape[0]) > 1:
-        rows = [
-            _apply_decode_controls(
-                logits[index],
-                generated_ids[index],
-                repetition_penalty=repetition_penalty,
-                no_repeat_ngram_size=no_repeat_ngram_size,
-            )
-            for index in range(int(logits.shape[0]))
-        ]
-        return torch.stack([row[0] for row in rows], dim=0), {
-            key: sum(row[1][key] for row in rows)
-            for key in rows[0][1]
-        }
-    adjusted = logits.clone()
-    vocab_size = int(adjusted.shape[-1])
-    generated = _valid_generated_tokens(generated_ids, vocab_size=vocab_size)
-    penalty = max(1.0, float(repetition_penalty))
-    repetition_count = 0
-    if penalty > 1.0 and int(generated.numel()) > 0:
-        seen = torch.unique(generated)
-        values = adjusted.index_select(-1, seen)
-        values = torch.where(values < 0, values * penalty, values / penalty)
-        adjusted.index_copy_(-1, seen, values)
-        repetition_count = int(seen.numel())
-    banned = _banned_ngram_tokens(
-        generated,
-        ngram_size=no_repeat_ngram_size,
-        vocab_size=vocab_size,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    squeeze = logits.ndim == 1
+    batched_logits = logits.unsqueeze(0) if squeeze else logits
+    batched_ids = generated_ids.unsqueeze(0) if generated_ids.ndim == 1 else generated_ids
+    if batched_logits.ndim != 2 or batched_ids.ndim != 2:
+        raise ValueError("decode controls expect [batch,vocab] logits and [batch,time] ids")
+    if int(batched_logits.shape[0]) != int(batched_ids.shape[0]):
+        raise ValueError("decode-control batch dimensions must match")
+    vocab_size = int(batched_logits.shape[-1])
+    adjusted = batched_logits.clone()
+    batch_size = int(adjusted.shape[0])
+    seen = torch.zeros(
+        batch_size,
+        vocab_size,
+        device=adjusted.device,
+        dtype=torch.bool,
     )
-    fallback = 0
-    if int(banned.numel()) > 0:
-        if int(banned.numel()) >= vocab_size:
-            fallback = 1
-        else:
-            adjusted.index_fill_(-1, banned, float("-inf"))
-    return adjusted, {
+    if int(batched_ids.shape[1]) > 0:
+        seen.scatter_(1, batched_ids.to(dtype=torch.long), True)
+    penalty = max(1.0, float(repetition_penalty))
+    repetition_count = torch.zeros((), device=adjusted.device, dtype=torch.long)
+    if penalty > 1.0 and int(batched_ids.shape[1]) > 0:
+        penalized = torch.where(adjusted < 0, adjusted * penalty, adjusted / penalty)
+        adjusted = torch.where(seen, penalized, adjusted)
+        repetition_count = seen.sum()
+
+    size = max(0, int(no_repeat_ngram_size))
+    banned = torch.zeros_like(seen)
+    if size == 1:
+        banned = seen
+    elif size > 1 and int(batched_ids.shape[1]) >= size:
+        windows = batched_ids.unfold(1, size, 1)
+        prefix = batched_ids[:, -(size - 1) :].unsqueeze(1)
+        matches = windows[:, :, :-1].eq(prefix).all(dim=-1)
+        counts = torch.zeros(
+            batch_size,
+            vocab_size,
+            device=adjusted.device,
+            dtype=torch.int16,
+        )
+        counts.scatter_add_(1, windows[:, :, -1], matches.to(dtype=torch.int16))
+        banned = counts > 0
+    banned_per_row = banned.sum(dim=1)
+    fallback_rows = banned_per_row >= vocab_size
+    adjusted = adjusted.masked_fill(banned & ~fallback_rows.unsqueeze(1), float("-inf"))
+    result = adjusted[0] if squeeze else adjusted
+    return result, {
         "repetition_penalty_adjusted_token_count": repetition_count,
-        "no_repeat_ngram_banned_token_count": int(banned.numel()),
-        "decode_control_fallback_count": fallback,
+        "no_repeat_ngram_banned_token_count": banned_per_row.sum(),
+        "decode_control_fallback_count": fallback_rows.sum(),
     }
 
 
@@ -218,6 +201,7 @@ class MarulhoLanguageModel(nn.Module):
         temperature: float = 0.0,
         top_p: float = 1.0,
         seed: int | None = None,
+        decode_control_window: int | None = None,
     ) -> dict[str, Any]:
         sampling = float(temperature) > 0.0
         return {
@@ -235,6 +219,11 @@ class MarulhoLanguageModel(nn.Module):
             "sampling_seed": None if seed is None else int(seed),
             "top_p_applied": bool(sampling and float(top_p) < 1.0),
             "kv_cache": "bounded_per_layer",
+            "decode_control_window": int(
+                self.context_length
+                if decode_control_window is None
+                else max(1, int(decode_control_window))
+            ),
             "external_llm_used": False,
         }
 
@@ -356,6 +345,7 @@ class MarulhoLanguageModel(nn.Module):
         temperature: float = 0.0,
         top_p: float = 1.0,
         seed: int | None = None,
+        decode_control_window: int | None = None,
     ) -> dict[str, Any]:
         temperature = float(temperature)
         top_p = float(top_p)
@@ -372,28 +362,53 @@ class MarulhoLanguageModel(nn.Module):
         self.eval()
         try:
             if prompt_ids.ndim == 1:
-                generated = prompt_ids.unsqueeze(0)
+                prompt_batch = prompt_ids.unsqueeze(0)
             elif prompt_ids.ndim == 2:
-                generated = prompt_ids
+                prompt_batch = prompt_ids
             else:
                 raise ValueError("prompt_ids must be [time] or [batch, time]")
-            generated = generated.to(device=self.device, dtype=torch.long)
-            if int(generated.shape[1]) > int(self.config.transformer_context_length):
-                generated = generated[:, -int(self.config.transformer_context_length) :]
-            result = self.forward(generated, collect_telemetry=False)
+            prompt_batch = prompt_batch.to(device=self.device, dtype=torch.long)
+            if int(prompt_batch.shape[1]) < 1:
+                raise ValueError("prompt_ids must contain at least one token")
+            if int(prompt_batch.shape[1]) > self.context_length:
+                prompt_batch = prompt_batch[:, -self.context_length :]
+            if bool(((prompt_batch < 0) | (prompt_batch >= self.generation_vocab_size)).any().item()):
+                raise ValueError("prompt_ids contain an out-of-vocabulary token")
+            requested_tokens = max(0, int(max_new_tokens))
+            prompt_width = int(prompt_batch.shape[1])
+            generated = torch.empty(
+                int(prompt_batch.shape[0]),
+                prompt_width + requested_tokens,
+                device=self.device,
+                dtype=torch.long,
+            )
+            generated[:, :prompt_width].copy_(prompt_batch)
+            result = self.forward(prompt_batch, collect_telemetry=False)
             state = result["state"]
             next_logits = result["logits"][:, -1]
             new_token_count = 0
-            repetition_count = 0
-            banned_count = 0
-            fallback_count = 0
+            nonfinite_logit_count = torch.count_nonzero(~torch.isfinite(next_logits))
+            repetition_count = torch.zeros((), device=self.device, dtype=torch.long)
+            banned_count = torch.zeros((), device=self.device, dtype=torch.long)
+            fallback_count = torch.zeros((), device=self.device, dtype=torch.long)
             finished = torch.zeros(
-                generated.shape[0], device=self.device, dtype=torch.bool
+                prompt_batch.shape[0], device=self.device, dtype=torch.bool
             )
-            for _ in range(max(0, int(max_new_tokens))):
+            control_window = min(
+                self.context_length,
+                max(
+                    1,
+                    self.context_length
+                    if decode_control_window is None
+                    else int(decode_control_window),
+                ),
+            )
+            for _ in range(requested_tokens):
+                write_index = prompt_width + new_token_count
+                history_start = max(0, write_index - control_window)
                 controlled, control = _apply_decode_controls(
                     next_logits,
-                    generated,
+                    generated[:, history_start:write_index],
                     repetition_penalty=max(1.0, float(repetition_penalty)),
                     no_repeat_ngram_size=max(0, int(no_repeat_ngram_size)),
                 )
@@ -443,17 +458,26 @@ class MarulhoLanguageModel(nn.Module):
                         next_id,
                     )
                     finished = finished | (next_id[:, 0] == int(eos_id))
-                generated = torch.cat((generated, next_id), dim=1)
+                generated[:, write_index : write_index + 1].copy_(next_id)
                 new_token_count += 1
                 if eos_id is not None and bool(finished.all().item()):
                     break
                 result = self.forward_step(next_id, state, collect_telemetry=False)
                 state = result["state"]
                 next_logits = result["logits"][:, -1]
+                nonfinite_logit_count = nonfinite_logit_count + torch.count_nonzero(
+                    ~torch.isfinite(next_logits)
+                )
+            generated = generated[:, : prompt_width + new_token_count]
+            stream_count = int(generated.shape[0])
             return {
                 "surface": self.generation_surface,
                 "generated_ids": generated,
                 "new_token_count": int(new_token_count),
+                "new_token_count_per_stream": int(new_token_count),
+                "total_new_token_count": int(new_token_count) * stream_count,
+                "stream_count": stream_count,
+                "nonfinite_logit_count": int(nonfinite_logit_count.item()),
                 "state": state,
                 "active_language_path": self.config.active_language_path,
                 "external_llm_used": False,
@@ -464,11 +488,14 @@ class MarulhoLanguageModel(nn.Module):
                     temperature=temperature,
                     top_p=top_p,
                     seed=seed,
+                    decode_control_window=control_window,
                 ),
                 "decode_control_totals": {
-                    "repetition_penalty_adjusted_token_count": repetition_count,
-                    "no_repeat_ngram_banned_token_count": banned_count,
-                    "decode_control_fallback_count": fallback_count,
+                    "repetition_penalty_adjusted_token_count": int(
+                        repetition_count.item()
+                    ),
+                    "no_repeat_ngram_banned_token_count": int(banned_count.item()),
+                    "decode_control_fallback_count": int(fallback_count.item()),
                 },
             }
         finally:
@@ -847,6 +874,19 @@ def load_language_model_state(
     state: Mapping[str, torch.Tensor],
 ) -> None:
     model.load_state_dict(dict(state), strict=True)
+
+
+def language_model_state_sha256(model: MarulhoLanguageModel) -> str:
+    """Hash the exact named tensor state independently of checkpoint packaging."""
+
+    digest = hashlib.sha256()
+    for name, value in model.state_dict().items():
+        tensor = value.detach().cpu().contiguous()
+        digest.update(name.encode("utf-8"))
+        digest.update(str(tensor.dtype).encode("ascii"))
+        digest.update(str(tuple(tensor.shape)).encode("ascii"))
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
 
 
 def save_language_model_checkpoint(

@@ -1097,10 +1097,13 @@ schedule caches, and rejected checkpoints are deleted. Branch:
 generation evidence exist for later grounded comparison. It does not prove
 semantic grounding.
 
-**`language_sustained_runtime_evidence.py`** — measures exact-token
-Transformer generation from a checkpoint, including elapsed time, throughput,
-bounded KV configuration, and checkpoint hash. Sustained speed does not promote
-language quality.
+**`language_sustained_runtime_evidence.py`** — qualifies exact-checkpoint
+Transformer generation with explicit aggregate tokens, consecutive tokens per
+stream, elapsed time, throughput, bounded KV/decode history, pre/post model-state
+hashes, finite full-vocabulary logits, bounded output hashes/previews, and
+observed parameter-owning module execution. V40's primary shape is 256 streams
+by 2,048 tokens. It reports the dense V39 path as zero structural sparsity;
+sustained speed does not promote language quality.
 
 **`language_hf_curriculum_materializer.py`** — materializes bounded,
 provenance-recorded Hugging Face dataset rows into local training corpora. A

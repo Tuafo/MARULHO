@@ -571,7 +571,6 @@ def run_language_training_experiment(
                 timeout_seconds=float(cfg.sustained_timeout_seconds),
                 generation_repetition_penalty=float(cfg.generation_repetition_penalty),
                 generation_no_repeat_ngram_size=int(cfg.generation_no_repeat_ngram_size),
-                collect_environment=False,
             )
         loss_delta = float(eval_after["heldout_loss"]) - float(eval_before["heldout_loss"])
         corpus_token_count = int(split.report["train_text_token_count"])

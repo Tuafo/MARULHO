@@ -35,7 +35,8 @@ SHA-256 hash, a matching file hash, and the Transformer v2 checkpoint contract.
 
 `generate_sustained_language()` delegates token generation to the
 training/evaluation-owned Transformer runner, then records brain-owned trace and
-checkpoint context. It does not convert throughput into a quality claim.
+checkpoint context. Aggregate work and consecutive tokens per stream remain
+separate report fields. It does not convert throughput into a quality claim.
 
 ## Ownership Rules
 

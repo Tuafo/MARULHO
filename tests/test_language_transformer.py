@@ -7,6 +7,7 @@ from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
 from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
+    _apply_decode_controls,
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
@@ -154,6 +155,62 @@ def test_transformer_checkpoint_restores_tied_weights_and_generation(tmp_path) -
     assert sampled_first["generation_decode"]["decode_strategy"] == "nucleus_sampling"
     assert sampled_first["generation_decode"]["top_p_applied"] is True
     assert sampled_first["generation_decode"]["sampling_seed"] == 23
+
+
+def test_transformer_generation_batches_streams_with_bounded_controls() -> None:
+    torch.manual_seed(29)
+    model = MarulhoLanguageModel(_config()).eval()
+    prompts = torch.tensor(
+        [
+            [1, 3, 5, 7],
+            [1, 4, 6, 8],
+            [1, 9, 10, 11],
+        ],
+        dtype=torch.long,
+    )
+    generated = model.generate(
+        prompts,
+        max_new_tokens=7,
+        repetition_penalty=1.1,
+        no_repeat_ngram_size=3,
+    )
+
+    assert generated["stream_count"] == 3
+    assert generated["new_token_count_per_stream"] == 7
+    assert generated["total_new_token_count"] == 21
+    assert generated["generated_ids"].shape == (3, 11)
+    assert generated["nonfinite_logit_count"] == 0
+    assert generated["generation_decode"]["decode_control_window"] == 16
+    assert int(generated["state"]["layer_0_key"].shape[2]) <= 16
+
+
+def test_batched_decode_controls_preserve_per_stream_semantics() -> None:
+    logits = torch.tensor(
+        [
+            [-4.0, -3.0, 2.0, 3.0, 4.0, 5.0],
+            [-2.0, -1.0, 1.0, 2.0, 3.0, 4.0],
+        ]
+    )
+    history = torch.tensor([[1, 2, 3, 1, 2], [4, 5, 4, 5, 4]])
+    controlled, totals = _apply_decode_controls(
+        logits,
+        history,
+        repetition_penalty=2.0,
+        no_repeat_ngram_size=3,
+    )
+
+    expected = logits.clone()
+    expected[0, 1] *= 2.0
+    expected[0, 2] /= 2.0
+    expected[0, 3] /= 2.0
+    expected[0, 3] = float("-inf")
+    expected[1, 4] /= 2.0
+    expected[1, 5] /= 2.0
+    expected[1, 5] = float("-inf")
+    assert torch.equal(controlled, expected)
+    assert int(totals["repetition_penalty_adjusted_token_count"].item()) == 5
+    assert int(totals["no_repeat_ngram_banned_token_count"].item()) == 2
+    assert int(totals["decode_control_fallback_count"].item()) == 0
 
 
 def test_rejected_recurrent_language_config_is_not_accepted() -> None:

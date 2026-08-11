@@ -111,10 +111,14 @@ class BrainLanguageModelRuntime:
         output_path: str | Path,
         target_tokens: int,
         checkpoint_path: str | Path | None = None,
+        expected_checkpoint_sha256: str | None = None,
         prompt: str = "MARULHO",
+        stream_count: int = 1,
         timeout_seconds: float = 600.0,
         generation_repetition_penalty: float = 1.1,
         generation_no_repeat_ngram_size: int = 3,
+        inference_dtype: str = "float32",
+        require_cuda: bool = False,
     ) -> dict[str, Any]:
         return run_language_sustained_runtime_evidence(
             self.model,
@@ -122,10 +126,14 @@ class BrainLanguageModelRuntime:
             output_path=output_path,
             target_tokens=max(0, int(target_tokens)),
             checkpoint_path=checkpoint_path,
+            expected_checkpoint_sha256=expected_checkpoint_sha256,
             prompt=prompt,
+            stream_count=max(1, int(stream_count)),
             timeout_seconds=float(timeout_seconds),
             generation_repetition_penalty=float(generation_repetition_penalty),
             generation_no_repeat_ngram_size=int(generation_no_repeat_ngram_size),
+            inference_dtype=str(inference_dtype),
+            require_cuda=bool(require_cuda),
         )
 
     def record_checkpoint_installation(self, report: Mapping[str, Any]) -> None:

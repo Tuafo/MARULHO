@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass, replace
 import gc
-import hashlib
 import json
 from pathlib import Path
 import time
@@ -31,6 +30,7 @@ from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
     evaluate_language_model,
+    language_model_state_sha256,
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
@@ -168,17 +168,6 @@ def _prepare_data(
         ),
         device=device,
     )
-
-
-def model_state_sha256(model: MarulhoLanguageModel) -> str:
-    digest = hashlib.sha256()
-    for name, value in model.state_dict().items():
-        tensor = value.detach().cpu().contiguous()
-        digest.update(name.encode("utf-8"))
-        digest.update(str(tensor.dtype).encode("ascii"))
-        digest.update(str(tuple(tensor.shape)).encode("ascii"))
-        digest.update(tensor.numpy().tobytes())
-    return digest.hexdigest()
 
 
 def select_v30_candidate(
@@ -345,7 +334,7 @@ def run_general_context_falsification(
                 context_length=sequence_length,
                 config=config,
             ).to(resolved)
-            initial_hashes[arm] = model_state_sha256(model)
+            initial_hashes[arm] = language_model_state_sha256(model)
             initial_state = {
                 name: value.detach().cpu().clone()
                 for name, value in model.state_dict().items()
