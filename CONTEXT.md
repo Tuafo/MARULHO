@@ -545,7 +545,7 @@ checkpoint survives. The generic document-aligned batch/loss contract remains
 active for V53; the one-off V52 runner and gate tests are deleted. Report SHA-256
 is `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`.
 
-**Frozen Source Pointer v53 (preregistered)** — V53 keeps the exact V39 language
+**Frozen Source Pointer v53 (retired)** — V53 keeps the exact V39 language
 model immutable and trains only a rank-64 source pointer on V52's aligned records.
 The pointer attends from frozen final query states to token states located inside
 the explicit `Context:` field, scatters that attention into tokenizer-vocabulary
@@ -557,6 +557,17 @@ at least 18/64 intact answers, at least +20 source-control points, no more than 
 case below V52, full pointer gradients, bounded runtime, and strict reload. A miss
 deletes the complete path and advances to a trainable source encoder or explicit
 span supervision.
+
+The terminal run reaches 17/64 intact answers while question-only and
+mismatched-source controls remain 0/64, a genuine 26.56-point source gain. It
+misses the 18/64 capability floor by one case and regresses two cases from V52,
+so the preregistered gate fails. All 99,073 pointer parameters receive gradients;
+they are 0.0984% of V39. Training finishes in 185.39 seconds at 11.31k tokens/s
+with 605,372,416 bytes peak allocation. Parent checkpoint file, state, logits,
+general loss, and relation evidence are exact. Decision:
+`retire_v53_frozen_source_pointer_insufficient_grounding`. No candidate, model,
+runner, test, loader, or compatibility path survives. Report SHA-256 is
+`3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

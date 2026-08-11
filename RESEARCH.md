@@ -1242,6 +1242,25 @@ the temporary arm is discarded. A clean rerun under the already committed
 telemetry fix is required; seeds, schedule, thresholds, and scientific contract
 remain unchanged.
 
+The clean V53 run is terminal and negative by the frozen gate. The 99,073-
+parameter pointer (0.0984% of V39) trains every parameter across exactly
+2,096,640 aligned positions in 185.39 seconds at 11.31k tokens/s with 0.56 GiB
+peak allocation. Intact/question-only/mismatched grounding is 17/64, 0/64, and
+0/64. The 26.56-point source gain is real and beats V48, but misses the 18/64
+floor by one case and is two cases below V52, violating both capability checks.
+Parent checkpoint, state, logits, general loss, and relation evidence remain
+exact, demonstrating that structural isolation works.
+
+Decision: `retire_v53_frozen_source_pointer_insufficient_grounding`. The result
+does not justify post-hoc rank, learning-rate, or threshold tuning. Frozen final
+states plus a pointer are slightly too weak; V54 must train how source tokens are
+represented or supervise answer spans directly while preserving an immutable
+language base. The pointer model, runner, tests, compact checkpoint surface, and
+compatibility path are deleted. Report SHA-256 is
+`3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`;
+source audit SHA-256 is
+`72c89a9b714c4297913ca4f8b0e99a6c3fefb1930e74c8b7df28825fad30ca2e`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

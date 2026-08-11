@@ -325,14 +325,14 @@ positive controlled result—not a replacement for frontier Transformers.
     document-aligned contract is retained; its one-off runner and tests are
     deleted. V53 must place the validated signal behind a frozen-base copy/span
     path so learning cannot rewrite old language behavior.
-22. Preregister V53's frozen source pointer. V39 remains immutable. A sub-0.25%
-    rank-64 head attends only over tokens inside the visible `Context:` field and
-    mixes a copy distribution with the unchanged vocabulary distribution. It
-    trains on exactly 2,096,640 aligned SQuAD positions with answer-only loss and
-    no replay. Inactive checkpoint/state/logit/general/relation evidence must be
-    exact; active grounding must reach at least 18/64, gain 20 points over
-    controls, and stay within one case of V52. Failure deletes the entire path
-    and moves to a trainable source encoder or explicit span supervision.
+22. Retire V53's frozen source pointer. V39 remains immutable. The 99,073-
+    parameter rank-64 head is only 0.098% of the parent, trains every parameter
+    in 185.39 seconds at 11.31k tokens/s with 0.56 GiB peak allocation, and keeps
+    parent checkpoint/state/logits/general/relation evidence exact. It reaches
+    17/64 intact answers with both controls at zero—better than V48, but one case
+    below the 18/64 floor and two below V52. The result is promising but fails
+    the frozen gate, so no checkpoint or compatibility path survives. V54 must
+    add a trainable source encoder or direct span supervision.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

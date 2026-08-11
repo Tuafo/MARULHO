@@ -1042,11 +1042,12 @@ survives. The generic aligned-batch and post-EOS pad-mask machinery remains live
 for the preregistered isolated copy/span successor. Report SHA-256 is
 `23ef805fae825cd3bd46dd5a85c1deebc3eaabe38db59a9f3750657b6557e33d`.
 
-**`language_source_pointer_falsification.py`** — owns V53's compact frozen-base
-test. It trains only the rank-64 pointer on 2,096,640 aligned SQuAD positions,
-audits active source/question-only/mismatched generation, verifies the parent
-checkpoint/state/logits/general/relation evidence exactly, and accepts a compact
-pointer checkpoint only after strict parent-bound reload.
+V53's compact frozen-base source-pointer falsifier is retired and deleted. The
+99,073-parameter path preserves the parent exactly and reaches 17/64 versus zero
+for both controls, but misses the 18/64 gate and V52-retention threshold. No
+model, runner, test, checkpoint surface, or compatibility path survives. Report
+SHA-256 is
+`3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
