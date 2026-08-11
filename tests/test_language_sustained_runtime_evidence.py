@@ -47,6 +47,7 @@ def test_transformer_sustained_report_uses_same_checkpoint(tmp_path) -> None:
     assert report["token_delta"] == 4
     assert report["checkpoint_sha256"]
     assert report["model_state_immutable"] is True
+    assert report["qualifies_sustained_runtime_contract"] is False
     assert report["active_compute"]["executed_parameter_fraction"] == 1.0
     assert report["runtime"]["state_core"] == "transformer"
     assert report["runtime"]["routing_present"] is False
@@ -80,6 +81,7 @@ def test_sustained_report_separates_aggregate_and_per_stream_tokens(tmp_path) ->
     assert report["stream_count"] == 3
     assert report["tokens_per_stream"] == 4
     assert report["token_delta"] == 12
+    assert report["qualifies_sustained_runtime_contract"] is False
     assert report["single_stream_524288"] is False
     assert len(report["stream_continuation_sha256"]) == 3
     assert report["runtime"]["output_storage"] == (

@@ -19,7 +19,7 @@ from marulho.training.language_model import (
 )
 
 
-SURFACE = "marulho_transformer_sustained_generation.v3"
+SURFACE = "marulho_transformer_sustained_generation.v4"
 
 
 def _file_sha256(path: str | Path | None) -> str | None:
@@ -295,7 +295,7 @@ def run_language_sustained_runtime_evidence(
             state_immutable,
         )
     )
-    qualifies_v40 = bool(
+    qualifies_sustained_runtime_contract = bool(
         success
         and require_cuda
         and target == 524_288
@@ -309,12 +309,12 @@ def run_language_sustained_runtime_evidence(
         "surface": SURFACE,
         "report_status": "accepted" if success else "rejected",
         "decision": (
-            "qualify_v40_same_checkpoint_sustained_runtime"
-            if qualifies_v40
+            "qualify_same_checkpoint_sustained_runtime"
+            if qualifies_sustained_runtime_contract
             else ("accept_sustained_diagnostic" if success else "reject_sustained_runtime")
         ),
         "success": success,
-        "qualifies_v40": qualifies_v40,
+        "qualifies_sustained_runtime_contract": qualifies_sustained_runtime_contract,
         "output_path": str(output),
         "owned_by_marulho": True,
         "external_llm_used": False,
@@ -369,7 +369,7 @@ def run_language_sustained_runtime_evidence(
             "spiking_present": False,
             "sampled_padded_vocab_present": False,
         },
-        "promotes_runtime_claim": qualifies_v40,
+        "promotes_runtime_claim": qualifies_sustained_runtime_contract,
         "promotes_generation_quality_claim": False,
     }
     write_json_report_with_readme(output, report)
