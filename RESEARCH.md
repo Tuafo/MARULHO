@@ -1236,6 +1236,12 @@ no metric was inspected or tuning changed. Telemetry now converts those values
 to host numbers only when collection is requested, and the runner resumes the
 completed arm to repeat evaluation/reporting without retraining.
 
+The attempted resume showed that the cached arm row itself retained the old
+tensor-valued telemetry. Rather than mutate an exact-contract artifact in place,
+the temporary arm is discarded. A clean rerun under the already committed
+telemetry fix is required; seeds, schedule, thresholds, and scientific contract
+remain unchanged.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
