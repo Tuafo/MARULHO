@@ -197,6 +197,11 @@ positive controlled result—not a replacement for frontier Transformers.
    improves general loss to 3.1134, and reloads exactly after 218.11M cumulative
    tokens. Preserve the uneven boundary: ownership is 4/64 and container 15/64,
    so this is not yet general binding competence.
+9. Qualify the exact V39 checkpoint under V40: 256 independently prompted CUDA
+   streams must each produce 2,048 consecutive tokens, totaling 524,288. Report
+   aggregate work separately from per-stream continuity, prove state immutability
+   and bounded history, and measure executed parameter coverage. Dense execution
+   must be reported as dense, not renamed sparse.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

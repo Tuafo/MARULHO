@@ -323,6 +323,18 @@ checkpoint with tokenizer identity. Decision:
 are `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`
 and `3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127`.
 
+**Sustained Runtime v40 (active qualification)** — V40 must load the exact V39
+checkpoint above and generate exactly 524,288 new tokens on CUDA without model
+mutation, non-finite logits, out-of-vocabulary output, unbounded KV state, or an
+external model. Aggregate tokens and single-stream continuity are separate
+facts: the primary 3060 run uses 256 independently prompted streams with 2,048
+consecutive tokens per stream, and reports both dimensions explicitly. Decode
+controls may inspect at most the model's 72-token active context. The runner
+must hash model state before and after, retain bounded output hashes/previews,
+and observe which parameter-owning modules execute. Dense execution is an
+allowed negative sparsity result; nominal or analytic sparsity cannot pass as
+measured active compute.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

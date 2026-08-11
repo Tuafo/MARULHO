@@ -691,6 +691,22 @@ runner is deleted. Report/checkpoint SHA-256 are
 `3b64d702ed2db458587c78316d34fe826138bef8d4d72b8093dc861d11289127` and
 `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`.
 
+V40 is preregistered as the same-checkpoint sustained-runtime and active-compute
+qualification. Its immutable parent is the V39 checkpoint with SHA-256
+`6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`.
+The primary run generates 256 independent streams of 2,048 consecutive tokens,
+for exactly 524,288 aggregate new tokens. This is not described as one
+524,288-token context or one continuous stream. Success requires CUDA execution,
+exact pre/post tensor-state identity, bounded 72-token KV and decode-control
+history, finite full-vocabulary logits, in-vocabulary outputs, no external LLM,
+and completion inside 600 seconds. Output storage is bounded to hashes and
+selected previews. A one-step module-hook audit records unique parameter
+coverage, executed layers, and dense attention/MLP ownership; if all maintained
+components execute, V40 records zero structural sparsity instead of inventing a
+sparse claim. A diagnostic on the exact checkpoint measured about 8.17k
+aggregate tokens/s for 256 BF16 streams and 2.94 GiB peak allocation, so this
+shape should finish in roughly one minute before decode-control overhead.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
