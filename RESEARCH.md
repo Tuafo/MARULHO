@@ -1000,6 +1000,33 @@ would justify learned routing later; a failure retires adapter-style modularity
 before a larger architectural investment. Report SHA-256 is
 `834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
 
+### V49 preregistration: frozen cortex, conditional residual plasticity
+
+V49 asks one question: can MARULHO add source-visible QA without writing into
+the weights that already own language and relation behavior? The candidate keeps
+every V39 tensor frozen and adds one small causal Transformer sidecar after the
+base output normalization. When inactive, the sidecar is skipped as a Python
+branch rather than multiplied by zero; base logits, streaming state, relation
+answers, and general loss must therefore be bit-exact. When active, the sidecar
+gets the frozen contextual states, owns one bounded KV cache, and may learn a
+residual representation before the unchanged tied vocabulary head.
+
+This screen gives the sidecar exactly 2,096,640 SQuAD tokens, equal to V48's new-
+domain exposure, and retains V48's 4x answer objective, training manifest, V47
+validation manifest, decode policy, and answer-absent controls. Replay is removed
+because inactive behavior is protected structurally, not statistically. The
+activation flag is an explicit benchmark condition derived from the source-QA
+interface; V49 makes no learned-routing claim. The module must remain below 5%
+of base parameters and every trainable tensor must receive a final gradient.
+
+Promotion requires at least 18/64 intact answers (28.125%), at least +10 points
+over the stronger control, and at least +5 points over V48's 14/64 weighted arm.
+It also requires exact frozen-base hashes, bit-exact inactive logits, unchanged
+inactive relation/general metrics, bounded adapter state, and exact adapter
+checkpoint reload. A pass advances the sidecar to a learned-router falsifier.
+A miss retires this final-layer sidecar and deletes its live implementation; it
+does not license another replay-ratio sweep.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
