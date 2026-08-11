@@ -211,10 +211,11 @@ positive controlled result—not a replacement for frontier Transformers.
     ownership stays 6.25% and container falls to 20.31%. Shuffled values prove
     the intervention is causal, while 740.95M dense key comparisons and no
     binding gain reject this interface. No checkpoint or code survives.
-11. Test V42 role-contrastive continual learning from V39. Keep replay and 4x
-    answer loss fixed, but explicitly suppress wrong entity/container/color/
-    event fillers at answer positions. A short three-arm pilot must show a
-    material weak-binding gain before any full control/candidate confirmation.
+11. Retire V42 without a quality claim. Tokenizer-trie role contrast passed
+    mechanical checks, but its exact eager pilot saturated the RTX 3060 for
+    16,507.6 seconds without persisting an arm result. No checkpoint or live
+    V42 code remains. The next milestone is a resumable, per-arm,
+    throughput-preflighted experiment loop before another architecture test.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

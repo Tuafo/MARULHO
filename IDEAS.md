@@ -1232,3 +1232,11 @@ tokens. A short pilot kills the idea unless weak kinds and strict free decoding
 move together. Even a full pass would validate a continual objective, not a
 general reasoning architecture; transfer to disjoint natural domains would
 remain mandatory.
+
+Outcome: V42 is closed on execution feasibility, not mechanism quality. The
+vectorized objective was mathematically checked and reached every parameter,
+but the exact 32x8 eager pilot ran for 16,507.6 seconds without persisting one
+arm result. There is no evidence that role contrast helps or hurts. Do not
+rebuild it until the runner can reject projected over-budget runs, persist each
+arm atomically, resume an exact frozen schedule, and use a larger microbatch
+only after optimizer-memory and numerical-parity checks.

@@ -351,21 +351,18 @@ read, so it also earns no sparse-compute claim. Decision:
 implementation survives. Report SHA-256 is
 `96a34833e573638b4bcbe06c2fba47b99b709c671a16c47b93089eb9302c0e2a`.
 
-**Role-Contrastive Continual Objective v42 (active falsifier)** — V42 starts
-from the exact V39 checkpoint and keeps its 50/50 relation/general replay plus
-normalized 4x answer loss. The only candidate change is token-level
-unlikelihood on role-confusable fillers: when the correct answer target is an
-entity, container, color, or event polarity token, the objective explicitly
-reduces probability assigned to the other valid members of that group. A
-same-compute 4x-answer control receives no contrastive term. The pilot compares
-unlikelihood weights 0, 0.25, and 1.0 on 2,359,296 ordered tokens; only a
-candidate with at least +5 strict-free points, +5 points on ownership or
-container, and at most +0.03 general-loss regression may enter a full
-16,773,120-token control/candidate confirmation. The terminal gate is 65% free,
-98% ranked, 40% ownership, 40% container, at most +0.10 old-language loss,
-complete gradients, and exact checkpoint reload. This tests whether V39's
-recognition/free-generation gap is probability calibration inside the cortex,
-not another memory interface.
+**Retired Role-Contrastive Continual Objective v42** — V42 attempted to keep
+V39's 50/50 replay and 4x answer loss while suppressing tokenizer-trie branches
+toward wrong entity/container/color/event fillers. The mechanism passed unit
+parity and a full-batch gradient preflight, but the exact 32x8 eager pilot ran
+for 16,507.6 seconds at sustained full GPU use without persisting one arm
+result. It was stopped on execution feasibility; no quality conclusion and no
+checkpoint exist. The objective, runner, and tests are deleted. Before another
+architecture falsifier, the experiment loop must gate projected wall time from
+a real optimizer step, persist each arm atomically, resume completed arms, and
+test larger microbatches with optimizer-memory and numerical parity. Decision:
+`stop_v42_execution_infeasible_no_quality_conclusion`. Report SHA-256 is
+`9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

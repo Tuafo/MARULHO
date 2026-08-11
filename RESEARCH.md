@@ -781,6 +781,22 @@ promotion requires 65% free, 98% ranked, 40% ownership, 40% container, bounded
 general loss, full gradients, and exact reload. A pilot miss deletes the entire
 objective rather than tuning more weights.
 
+V42 closes without a quality result. Its checkpoint-owned BPE trie, fused
+cross-entropy normalizer, vectorized negative lookup, and 64-case evaluation
+chunks all passed focused checks; one batch-256 forward/backward took 2.75
+seconds, peaked at 11.72 GB, and reached all 62 parameter tensors. The exact
+32x8 eager run nevertheless remained saturated for 16,507.6 seconds and wrote
+no arm artifact. Continuing would reward sunk cost and block fast research, so
+the process was stopped and all live V42 machinery deleted. This does not show
+that role contrast is bad; it shows this falsifier cannot answer the question
+credibly at acceptable cadence. Decision:
+`stop_v42_execution_infeasible_no_quality_conclusion`. Report SHA-256 is
+`9ecd6e1e4ba8e603624eb15797f9fe4f5a534388e2221401f9537c98286f7808`.
+The next step is experiment infrastructure, not V43 architecture: preflight a
+real optimizer step, reject projected over-budget runs, atomically persist each
+arm, resume exact schedules, and validate larger microbatches before another
+mechanism test.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

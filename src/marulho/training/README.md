@@ -344,22 +344,12 @@ crosses the joint free-generation/retention gate and saves a standard exact-
 reload Transformer checkpoint. It is a domain-training tool, not the universal
 base-language default.
 
-**`language_role_contrastive.py`** — V42's active pilot objective retains V39's
-normalized 4x answer loss and adds explicit unlikelihood only at wrong
-tokenizer-trie branches for known entity, container, color, and event-polarity
-role fillers. Patterns are built from the checkpoint-owned BPE encoding of the
-leading boundary plus value, so the mechanism assumes neither bytes nor atomic
-words: alternatives sharing a token prefix are contrasted at their real
-divergence. One eager loss function accepts the arm weight as a tensor input,
-keeping the zero-weight control and candidates execution-matched. The bounded
-pilot deliberately avoids a non-amortizing Inductor compile; compilation may
-return only for a promoted full confirmation. This remains experimental until
-its frozen pilot and full confirmation gates pass. The objective recovers the
-vocabulary log-normalizer from the existing cross-entropy and target logit,
-avoiding a second full-vocabulary reduction. Its live V39-BPE path fuses all 22
-role branches into one vocabulary-indexed negative gather and therefore one
-logit-gradient scatter; complete-pattern matching still determines which
-positions are active.
+V42's tokenizer-trie role-contrastive objective is deleted. It passed
+mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
+ran for 16,507.6 seconds without persisting an arm result. No quality conclusion
+or checkpoint exists. Do not restore the loss before the experiment runner owns
+wall-time preflight, atomic per-arm evidence, exact resume, and a validated
+larger-microbatch path.
 
 The V33 editable-state hybrid training path is deleted. Its exact parallel
 matrix recurrence, local-attention blocks, strict experimental checkpoint, and
