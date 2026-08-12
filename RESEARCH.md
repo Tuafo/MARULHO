@@ -1353,14 +1353,18 @@ deterministic 70/15/15 schedule trains both views, bidirectional-only, and
 causal-only examples so neither path can be dead while the fused result appears
 strong.
 
-The new immutable manifest uses the official SQuAD training split but excludes
-all 512 prior V48 training IDs and all 64 fixed V47 validation IDs. It contains
-8,192 cases from 134 titles, each complete prompt fits 64 tokens, and answers fit
-one to eight tokenizer tokens. The validation panel and its question-only and
-mismatched-source controls remain unchanged. Manifest contract SHA-256 is
-`1e2616822256474b21a8981005f86c988c697d70a1f4210da199605ed5af97d1`;
+The corrected V55b immutable manifest uses the official SQuAD training split but
+excludes all 512 prior V48 training IDs and all 64 fixed V47 validation IDs. It
+contains 8,192 cases from 134 titles; each complete prompt fits 64 tokens and
+each answer occupies one to eight tokens at its actual position inside the
+source. Preflight rejected the first manifest before training because two
+answers that encoded to eight tokens alone occupied nine contextual BPE tokens.
+That invalid live artifact is deleted and V55b records both rejected IDs and the
+superseded contract. The validation panel and its question-only and mismatched-
+source controls remain unchanged. V55b manifest contract SHA-256 is
+`d58ac8d0b5b8337ab9cf5577991cb3f9ca015d86f44aecb6e9379e6db2fcf395`;
 file SHA-256 is
-`e8dc81609403a4c4fc66e92341eb6b9d6f0131f92e689eab382bd66bbc18efd6`.
+`d51c56125e5e3a31e857b90b00de8def45fdf56b8afc1077a7a9c793dfc508fc`.
 This is a 16-times larger unique curriculum than V54. Fifteen exact epochs at
 batch 64 and context 72 process 8,847,360 padded source positions in 1,920
 optimizer updates. Frozen V39 causal states may be cached in host BF16 memory;

@@ -596,12 +596,15 @@ emits the complete source-token answer sequence followed by EOS. Direct
 start/end loss remains only an auxiliary training signal. Deterministic view
 dropout trains both single-view paths instead of allowing silent branch collapse.
 
-The immutable training manifest contains 8,192 official SQuAD train cases from
-134 titles, excludes every V48 train and V47 validation case ID, and preserves
-the fixed 64-case validation/control panel. Its contract SHA-256 is
-`1e2616822256474b21a8981005f86c988c697d70a1f4210da199605ed5af97d1` and
+The corrected V55b immutable training manifest contains 8,192 official SQuAD
+train cases from 134 titles, excludes every V48 train and V47 validation case
+ID, validates answer length inside its source-token context, and preserves the
+fixed 64-case validation/control panel. The first manifest is deleted after its
+preflight exposed two nominally eight-token answers occupying nine contextual
+BPE tokens; no training used it. V55b contract SHA-256 is
+`d58ac8d0b5b8337ab9cf5577991cb3f9ca015d86f44aecb6e9379e6db2fcf395` and
 file SHA-256 is
-`e8dc81609403a4c4fc66e92341eb6b9d6f0131f92e689eab382bd66bbc18efd6`.
+`d51c56125e5e3a31e857b90b00de8def45fdf56b8afc1077a7a9c793dfc508fc`.
 Fifteen full batch-64 epochs process exactly 8,847,360 padded source positions.
 Added parameters must remain below 2.5% of V39 and total cache-plus-training time
 below 1,200 seconds. Promotion requires 32/64 intact answers, at least +45
