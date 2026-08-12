@@ -132,7 +132,6 @@ def _train_retrofit(
     cache_elapsed_seconds: float,
     config: LandmarkRetrofitFalsificationConfig,
 ) -> dict[str, Any]:
-    total_started = time.perf_counter()
     schedule, schedule_sha256 = _training_schedule(
         batch_count=len(batches),
         epoch_count=int(config.epoch_count),
@@ -590,6 +589,7 @@ def run_landmark_retrofit_falsification(
         LandmarkRetrofitFalsificationConfig()
     ),
 ) -> dict[str, Any]:
+    total_started = time.perf_counter()
     if len(general_train_paths) < 2 or len(general_eval_paths) != 2:
         raise ValueError("V56 requires at least two train and exactly two eval sources")
     if not torch.cuda.is_available():
