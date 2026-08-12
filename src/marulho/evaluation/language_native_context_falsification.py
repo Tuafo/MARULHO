@@ -856,11 +856,14 @@ def run_native_context_falsification(
     config: NativeContextFalsificationConfig = NativeContextFalsificationConfig(),
 ) -> dict[str, Any]:
     total_started = time.perf_counter()
+    setup_timings: dict[str, float] = {}
     if not torch.cuda.is_available():
         raise ValueError("V57 requires CUDA")
     if len(general_train_paths) != 2 or len(general_eval_paths) != 2:
         raise ValueError("V57 requires exactly two general train/eval sources")
     device = torch.device("cuda")
+    print("[native-v57] loading parent and preparing frozen data", flush=True)
+    preparation_started = time.perf_counter()
     checkpoint = Path(checkpoint_path)
     checkpoint_sha_before = sha256_file(checkpoint)
     parent_model, tokenizer, parent_metadata = load_language_model_checkpoint(
@@ -935,19 +938,47 @@ def run_native_context_falsification(
     relation_cases = _relation_cases(
         relation_cases_path, case_count=int(config.relation_case_count)
     )
+    setup_timings["parent_and_data_preparation_seconds"] = (
+        time.perf_counter() - preparation_started
+    )
+    print(
+        "[native-v57] preparation complete "
+        f"seconds={setup_timings['parent_and_data_preparation_seconds']:.2f}",
+        flush=True,
+    )
     extended = extended.to(device)
     baseline_previous_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
     baseline_previous_precision = torch.get_float32_matmul_precision()
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
     try:
+        baseline_general_started = time.perf_counter()
         baseline_general = evaluate_language_model(extended, general_eval_batches)
+        setup_timings["baseline_general_seconds"] = (
+            time.perf_counter() - baseline_general_started
+        )
+        print(
+            "[native-v57] baseline general complete "
+            f"seconds={setup_timings['baseline_general_seconds']:.2f} "
+            f"loss={baseline_general['heldout_loss']:.4f}",
+            flush=True,
+        )
+        baseline_relation_started = time.perf_counter()
         baseline_relation = evaluate_relation_binding_cases_batched(
             extended,
             tokenizer,
             relation_cases,
             batch_size=int(config.relation_eval_batch_size),
             max_new_tokens=int(config.relation_generation_tokens),
+        )
+        setup_timings["baseline_relation_seconds"] = (
+            time.perf_counter() - baseline_relation_started
+        )
+        print(
+            "[native-v57] baseline relation complete "
+            f"seconds={setup_timings['baseline_relation_seconds']:.2f} "
+            f"exact={baseline_relation['generation_exact_accuracy']:.4f}",
+            flush=True,
         )
     finally:
         torch.backends.cuda.matmul.allow_tf32 = baseline_previous_tf32
@@ -1164,6 +1195,7 @@ def run_native_context_falsification(
                 ),
             },
         },
+        "setup_timings": setup_timings,
         "arms": arm_rows,
         "parent": parent,
         "gate": gate,
