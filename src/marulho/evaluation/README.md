@@ -1105,6 +1105,13 @@ native must gain 45 source-control points, remain within 16 cases of oracle, and
 retain general/relation behavior. Eager batch 32 is frozen after the real
 preflight; compiled execution is invalid and slower. Preflight report SHA-256 is
 `bf4f5a74b3710835085bc152a4c1d0eababdc339066c2372944cde8eef831a5e`.
+`language_native_context_falsification.py` owns the implemented two-arm runner,
+including prefix/answer boundary construction, exact replay schedule, source
+controls, retention checks, and standard checkpoint fidelity. A complete
+preparation audit yields 256 grounding batches per arm, 2,773 relation batches,
+346/296 general batches, and schedule hash
+`bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
+This is execution-contract evidence only; neither arm has a quality result yet.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

@@ -397,6 +397,10 @@ relation schedule. Eager batch 32 is selected by a real Muon/AdamW full-step
 preflight. Inductor is rejected after parity failure and a collapse to 328.5
 positions/s versus eager's 16.1k. No V57 checkpoint surface exists until the
 joint capability, retention, gradient, runtime, and reload gate passes.
+The evaluation-owned runner now builds the exact 2,048-step schedule and updates
+all base tensors under the existing Muon/AdamW ownership split. Tests prove that
+extending rotary context changes no parameter and preserves short-prefix logits;
+the counted runs, rather than these mechanical checks, own the scientific result.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

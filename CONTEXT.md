@@ -761,7 +761,12 @@ pressure and is terminated. Inductor takes 165.24 seconds to compile, misses the
 0.001 loss-parity tolerance at 0.001868, and collapses to 328.5 steady
 positions/s, so it is rejected. Preflight report SHA-256 is
 `bf4f5a74b3710835085bc152a4c1d0eababdc339066c2372944cde8eef831a5e`.
-No V57 quality or checkpoint claim exists yet.
+The implemented runner prepares 256 grounding batches per arm, 2,773 relation
+batches, 346/296 general batches, and the exact frozen 1,024/512/256/256 update
+schedule with hash
+`bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
+Focused data, schedule, context-parity, and decision tests pass. No V57 quality
+or checkpoint claim exists until the two counted arms finish.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
