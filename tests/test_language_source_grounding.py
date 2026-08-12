@@ -165,6 +165,13 @@ def test_long_context_cases_keep_multiple_blocks_and_contextual_span_bounds() ->
     assert all(case["answer_in_context_token_count"] <= 32 for case in cases)
     assert all(case["prompt_token_count"] <= 256 for case in cases)
     assert all(
+        case["question_only_prompt_token_count"]
+        + case["answer_in_context_token_count"]
+        + 1
+        <= 72
+        for case in cases
+    )
+    assert all(
         case["answers"][0] not in case["mismatched_source_text"]
         for case in cases
     )

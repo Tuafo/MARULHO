@@ -57,9 +57,10 @@ audio, event-camera style input, and multimodal streams.
 - The V56 long-context builder retains the largest answer-bearing multi-sentence
   source that fits a 248-token prompt, requires at least 96 source tokens and two
   48-token retrieval blocks, validates answer length at its contextual BPE
-  position, and constructs answer-absent mismatched controls. The frozen 8,192-
-  train/128-validation manifests exclude all earlier SQuAD case IDs in their
-  respective splits; model runners consume them without refetching.
+  position, requires the question plus full answer and EOS to fit V39's 72-token
+  causal decoder window, and constructs answer-absent mismatched controls. The
+  frozen 8,192-train/128-validation manifests exclude all earlier SQuAD case IDs
+  in their respective splits; model runners consume them without refetching.
 - Language splits treat blank-line-delimited documents as independent only for
   legacy corpora. Maintained materializers write an explicit MARULHO record
   separator, so paragraphs remain inside one dataset document and each record

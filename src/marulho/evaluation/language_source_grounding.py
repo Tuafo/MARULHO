@@ -305,6 +305,7 @@ def build_squad_long_context_cases(
     maximum_cases_per_title: int = 64,
     excluded_case_ids: Sequence[str] = (),
     retrieval_block_tokens: int = 48,
+    maximum_query_answer_tokens: int = 72,
 ) -> tuple[dict[str, Any], ...]:
     """Build long, multi-block SQuAD sources with token-safe answer spans."""
 
@@ -357,6 +358,15 @@ def build_squad_long_context_cases(
         )
         if not 1 <= in_context_answer_tokens <= int(maximum_answer_tokens):
             continue
+        question_only_prompt = f"Question: {question}\nAnswer:"
+        question_only_prompt_tokens = len(
+            tokenizer.encode(question_only_prompt, add_eos=False)
+        )
+        if (
+            question_only_prompt_tokens + in_context_answer_tokens + 1
+            > int(maximum_query_answer_tokens)
+        ):
+            continue
         block_count = math.ceil(source_token_count / int(retrieval_block_tokens))
         if block_count < 2:
             continue
@@ -376,12 +386,8 @@ def build_squad_long_context_cases(
                 "answer_in_context_token_count": int(in_context_answer_tokens),
                 "prompt": prompt,
                 "prompt_token_count": int(prompt_token_count),
-                "question_only_prompt": f"Question: {question}\nAnswer:",
-                "question_only_prompt_token_count": len(
-                    tokenizer.encode(
-                        f"Question: {question}\nAnswer:", add_eos=False
-                    )
-                ),
+                "question_only_prompt": question_only_prompt,
+                "question_only_prompt_token_count": question_only_prompt_tokens,
             }
         )
         title_counts[title] = title_counts.get(title, 0) + 1
@@ -596,6 +602,7 @@ def materialize_squad_long_context_manifest(
     maximum_cases_per_title: int = 64,
     excluded_case_ids: Sequence[str] = (),
     retrieval_block_tokens: int = 48,
+    maximum_query_answer_tokens: int = 72,
 ) -> dict[str, Any]:
     """Freeze a parquet-backed multi-block source-grounding manifest."""
 
@@ -613,6 +620,7 @@ def materialize_squad_long_context_manifest(
         maximum_cases_per_title=int(maximum_cases_per_title),
         excluded_case_ids=excluded,
         retrieval_block_tokens=int(retrieval_block_tokens),
+        maximum_query_answer_tokens=int(maximum_query_answer_tokens),
     )
     source_lengths = [int(case["source_token_count"]) for case in cases]
     block_counts = [int(case["retrieval_block_count"]) for case in cases]
@@ -633,6 +641,7 @@ def materialize_squad_long_context_manifest(
         "maximum_answer_tokens": int(maximum_answer_tokens),
         "maximum_cases_per_title": int(maximum_cases_per_title),
         "retrieval_block_tokens": int(retrieval_block_tokens),
+        "maximum_query_answer_tokens": int(maximum_query_answer_tokens),
         "minimum_retrieval_blocks": min(block_counts),
         "maximum_retrieval_blocks": max(block_counts),
         "minimum_observed_source_tokens": min(source_lengths),
