@@ -356,6 +356,17 @@ positive controlled result—not a replacement for frontier Transformers.
     tests, loader, cache, or compatibility path survives. The source branch now
     pivots away from token-pointer heads toward longer-context retrieval with
     token-safe segment realization.
+25. Preregister V56's landmark evidence retrofit. V39 remains frozen and exact.
+    It encodes a question and 2–5 long-source blocks; a learned question-to-block
+    retriever selects two blocks, and a compact two-layer cross-attention
+    residual injects their frozen token states into V39's causal query stream.
+    V39's own full-vocabulary head—not a pointer or external model—generates the
+    answer. The train/validation panels contain 8,192/128 entirely new long-
+    context cases, and fifteen batch-32 epochs process 20,643,840 adapter
+    positions after a measured nondurable cache build. Promotion requires at
+    least 64/128 long-context answers, 80% top-two gold-block recall, small
+    predicted-versus-oracle evidence loss, exact source-absent parent behavior,
+    full gradients, bounded runtime, and strict compact-checkpoint reload.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

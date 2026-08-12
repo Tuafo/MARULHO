@@ -1430,6 +1430,85 @@ both/bidirectional/causal source-audit SHA-256 values are
 `0922f5e9b82c0bf0e4baae370d255c822c1fc0e2733785493b16dd5a0b3f38c4`, and
 `0d37b0493c16fdcb471fd407e4ecb21eb366622e6c8cadfcec9dc95ea16cfdfd`.
 
+### V56 preregistration: landmark retrieval inside the causal language path
+
+V54 and V55 show that source isolation is cheap and preserves the parent, but a
+separate copy decoder does not inherit enough language realization. V56 changes
+the interface rather than enlarging the head: retrieved evidence enters the
+causal representation whose own vocabulary head already produces coherent text.
+This follows two relevant primary results. [RETRO](https://arxiv.org/abs/2112.04426)
+conditions an autoregressive LM on retrieved chunks through a differentiable
+encoder and chunked cross-attention, and reports that pretrained Transformers can
+be retrofitted rather than always trained from scratch. [Landmark Attention](https://arxiv.org/abs/2305.16300)
+learns block representatives and retrieves selected blocks inside attention.
+[RAG](https://arxiv.org/abs/2005.11401) and [Memorizing Transformers](https://arxiv.org/abs/2203.08913)
+support the broader separation of parametric language from editable external
+evidence. V56 tests only the smallest locally falsifiable core of that family;
+it does not import their weights, corpora, retrievers, or capability claims.
+
+The exact V39 model is frozen. Each 96–228-token source is tokenized into up to
+five non-overlapping 48-token blocks and encoded blockwise by frozen V39. The
+question-only causal prompt is encoded separately. A trainable 128-wide query/
+landmark projection scores blocks from the question's final hidden state and
+mean-pooled source states. Multi-label binary retrieval loss marks every block
+overlapping the answer. The answer never enters the retrieval query. Gold top-
+two evidence preserves boundary-spanning answers; a one-block answer receives a
+deterministic adjacent block as context. Retrieval scores gate each block's
+cross-attention contribution so the second block need not become an equal-weight
+distractor. Predicted top-one is reported as a matched diagnostic because older
+V24 evidence showed that indiscriminate top-two context can be harmful.
+
+For generation, frozen V39 encodes the question plus teacher-forced answer prefix
+inside its existing 72-token window. A trainable 256-wide projection and two
+causal Transformer-decoder layers cross-attend to the two selected frozen
+evidence blocks. A projected gated residual returns to V39's 768-wide hidden
+stream, and V39's tied full-vocabulary head predicts answer tokens plus EOS. This
+removes V55's noncontiguous BPE assembly surface: generated IDs are ordinary
+checkpoint-vocabulary outputs. Source-absent prompts call V39 directly and must
+remain bit-exact. The adapter may add at most 3% of V39 parameters and its compact
+checkpoint is strictly bound to the parent file SHA-256.
+
+The corrected V56c train manifest contains 8,192 new official-train cases from
+170 titles, excludes every V48/V55 case, and keeps question+answer+EOS within 72
+tokens. Source lengths are 96–228 tokens and every case has 2–5 fixed blocks.
+Contract/file SHA-256 values are
+`efd56051f98ea32fad2474e3f9504d33bec6aac4d7e69978378f3c9547d5552d` and
+`ebc512f0a1d680ce3c9b0f11b52ed9a86395f035be125c5470d4b326e902a5e3`.
+The new 128-case official-validation panel excludes V47 and all train IDs, spans
+127–246 prompt tokens, and has contract/file SHA-256 values
+`feca4f4088d3452265f2fc35240f7aa45de68dfc856e0be80af7f45a9e470a84` and
+`fa609b4c6c381d1d0c347fc3286dc2ed5e35daea4c57da8400b20056f0facbc6`.
+
+Frozen source and query states may be cached once in nondurable host BF16 memory.
+Cache time, token count, bytes, content hash, CUDA peak, and amortized throughput
+remain part of the result. Fifteen exact epochs at batch 32 produce 3,840 updates
+and 20,643,840 padded adapter positions: 72 query positions plus 96 selected-
+evidence positions per case. AdamW uses peak 3e-4, 5% warmup, cosine decay to 0.1
+of peak, weight decay 0.1, BF16 CUDA, clip 1.0, data seed 56121, and model seed
+56131. Generator answer/EOS loss and retriever loss have equal weight. Gold
+evidence trains generation; predicted, oracle, and shuffled evidence remain
+separate heldout interventions so retrieval failure cannot be hidden by label
+access.
+
+Promotion requires all of the following:
+
+- the concatenated predicted top-two block union contains a full gold answer in
+  at least 80% of validation cases;
+- predicted-evidence exact answer accuracy is at least 64/128 and at least 45
+  points above the stronger question-only or mismatched-source control;
+- oracle-evidence generation reaches at least 72/128, predicted evidence remains
+  within ten cases of oracle, and shuffled evidence stays at or below 8/128;
+- every trainable tensor receives a nonzero final gradient, added parameters stay
+  below 3%, and cache plus training remains below 1,200 seconds;
+- parent checkpoint/state/tokenizer/sample logits/general loss/relation behavior
+  remain exact, and the compact parent-bound checkpoint strict-reloads exactly.
+
+V47 short-source accuracy is reported for continuity but cannot pass V56. A pass
+advances the evidence interface into a durable block store, continual writes,
+retrieval provenance, and learned event-controlled activation. A miss deletes
+the retrofit and moves to context-length expansion or recurrent segment memory;
+it does not reopen endpoint/pointer tuning.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

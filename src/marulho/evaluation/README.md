@@ -1080,6 +1080,13 @@ and has contract/file SHA-256 values
 Train, validation, and all prior case-ID intersections are zero. This proves the
 long-context benchmark contract only; no V56 architecture or result exists yet.
 
+V56 is preregistered as a frozen-parent landmark-evidence retrofit, not another
+copy head. The heldout gate separates predicted, oracle, and shuffled block
+interventions, requires 80% top-two answer-block recall and 64/128 predicted-
+evidence answers, and keeps exact source-absent parent behavior. Fifteen batch-32
+epochs process 20,643,840 adapter positions after a measured nondurable frozen-
+state cache. The old 64-case panel and throughput are diagnostics only.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

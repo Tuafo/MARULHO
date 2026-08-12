@@ -640,6 +640,50 @@ both/bidirectional/causal source-audit SHA-256 values are
 `0922f5e9b82c0bf0e4baae370d255c822c1fc0e2733785493b16dd5a0b3f38c4`, and
 `0d37b0493c16fdcb471fd407e4ecb21eb366622e6c8cadfcec9dc95ea16cfdfd`.
 
+**Landmark Evidence Retrofit v56 (preregistered)** — V56 leaves the repeated
+short-context answer-head family. The exact V39 checkpoint and tokenizer remain
+frozen. Long sources are encoded as 48-token blocks by V39 itself. A learned
+128-wide question/block projection scores frozen block landmarks using only the
+question—never the answer—and selects two blocks. A 256-wide, two-layer causal
+cross-attention residual then injects the selected frozen block-token states into
+the frozen V39 question/answer hidden stream. V39's own tied full-vocabulary head
+produces every output token. Source-absent prompts bypass retrieval and the
+residual, preserving exact V39 generation.
+
+This is a small MARULHO-owned retrofit informed by RETRO's retrieved-chunk cross-
+attention and Landmark Attention's learned block selection. It is not external
+RAG: no downloaded retriever, encoder, generator, vector database, or model
+weight participates. Training uses the corrected V56c official-train manifest:
+8,192 new cases, 170 titles, 96–228 source tokens, 2–5 blocks, and zero overlap
+with V48/V55. Contract/file SHA-256 values are
+`efd56051f98ea32fad2474e3f9504d33bec6aac4d7e69978378f3c9547d5552d` and
+`ebc512f0a1d680ce3c9b0f11b52ed9a86395f035be125c5470d4b326e902a5e3`.
+The new 128-case validation panel excludes V47 and all train IDs; its contract/
+file SHA-256 values are
+`feca4f4088d3452265f2fc35240f7aa45de68dfc856e0be80af7f45a9e470a84` and
+`fa609b4c6c381d1d0c347fc3286dc2ed5e35daea4c57da8400b20056f0facbc6`.
+
+Frozen V39 source/query states may be cached in host BF16 memory, but cache time,
+bytes, and content hash are reported and no cache is durable. Fifteen exact
+batch-32 epochs give 3,840 updates and 20,643,840 padded adapter positions
+(72 causal-query plus 96 selected-evidence positions per case). AdamW uses 3e-4,
+5% warmup, cosine decay to 0.1, BF16 CUDA, clip 1.0, data seed 56121, and model
+seed 56131. Multi-label retrieval loss marks every block overlapping the answer;
+gold top-two evidence therefore preserves boundary-spanning answers. Generator
+loss covers answer tokens plus EOS, with no answer token entering retriever
+inputs. Added parameters must remain below 3% of
+V39 and cache plus training below 1,200 seconds.
+
+Promotion requires predicted-retrieval intact accuracy at least 64/128, at least
++45 points over question-only and mismatched-source controls, predicted top-two
+block-union answer coverage at least 80%, oracle-evidence accuracy at least
+72/128, predicted evidence
+within ten cases of oracle, and shuffled-evidence accuracy no more than 8/128.
+The old short V47 panel is diagnostic, not a substitute. Parent checkpoint,
+state, tokenizer, source-absent logits/general/relation behavior, every trainable
+gradient, and strict parent-bound compact reload must remain exact. A miss
+deletes the retrofit, runner, tests, cache, and checkpoint surface.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
