@@ -1164,6 +1164,16 @@ report SHA-256 is
 Naive full-model test-time adaptation is closed; later work requires an
 end-to-end meta-learned write/read contract.
 
+V60 preregisters a sub-1% meta-gradient episodic matrix around immutable V39.
+One self-supervised gradient write from zero stores source next-token embeddings
+in eight 16x96 per-document matrices; learned queries and a bounded read
+projection influence V39's unchanged vocabulary logits. Eight epochs over all
+8,192 V57 training cases give 2,048 batch-32 updates. The 256-case title-
+disjoint gate requires true at least 64, a 20-percentage-point margin over zero
+and shuffled, shuffled at most 16, oracle at least 128, and true within 64 cases
+of oracle.
+Cache, gradient, parameter, time, parent, and compact-reload truth are mandatory.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

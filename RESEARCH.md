@@ -1823,6 +1823,60 @@ The surviving hypothesis is end-to-end meta-learning: train the initialization
 or write rule so that a source-native inner update becomes useful to later
 language loss, with no validation answer available during the write itself.
 
+### V60 preregistration: meta-gradient episodic matrix
+
+V59 shows why ordinary test-time fine-tuning is insufficient: the source loss
+collapses, and source-specific answer words occasionally leak into generation,
+but the gradient update is not organized for later question readout. V60 tests
+the smallest end-to-end remedy. It is a protected fast learner, not another span
+head, source pointer, cross-attention reader, or durable fine-tune.
+
+The exact V39 checkpoint remains immutable. Its context-72 causal hidden states
+encode source chunks and question/answer prefixes under `torch.no_grad`. A
+MARULHO-owned slow controller contains learned key and query projections from
+width 768 into eight 16-wide heads, a learned positive write rate per head, one
+width-768 read projection, and bounded read gates. It adds fewer than 1% of
+V39's parameters. Frozen next-token embeddings from each source are split into
+eight 96-wide value heads.
+
+Each document starts with eight zero fast matrices of shape 16x96. One exact
+gradient step from zero on masked source next-token embedding reconstruction is
+equivalent to the batched outer-product write used by the implementation. Thus
+the fast state is produced only from source causal states and their actual next
+tokens; the question, answer, span, labels, and validation data never enter the
+write. A question-prefix query reads all eight matrices, concatenates the 96-
+wide results, and adds a bounded learned residual to V39's final hidden state
+before V39's unchanged tied vocabulary head. Teacher-forced answer loss trains
+only the slow controller through this write/read computation. At inference the
+fast matrices are rebuilt from a new source and discarded after the request.
+
+The frozen V57 title-disjoint boundary is reused: 8,192 training cases from 171
+titles and 256 validation cases from 22 unseen titles. Source and query hidden
+states may be cached in host BF16 memory; cache construction time and bytes are
+reported, and all caches are deleted after the terminal result. Eight exact
+epochs at batch 32 give 2,048 controller updates and 20,971,520 padded source-
+memory positions. AdamW uses 3e-4, betas 0.9/0.95, weight decay 0.1, 5% warmup,
+cosine decay to 10% of peak, BF16, clip 1.0, data seed 60121, and model seed
+60131. Counted training must stay below 1,800 seconds and cache plus training
+below 2,400 seconds on the RTX 3060.
+
+Before training, the random controller's true-source accuracy is recorded but
+cannot promote. After training, zero-memory, shuffled-source, true-source, and
+oracle-short-memory views share the same 256 questions and generated-only V44
+decode policy. Promotion requires true memory at least 64/256, at least 20
+percentage points above the stronger zero or shuffled control, shuffled at most
+16/256, oracle at least 128/256, and true no more than 64 cases behind oracle.
+Every controller tensor must receive a final nonzero gradient; parameter count,
+updates, positions, cache identity, parent file/tokenizer/state/logits, and a
+compact controller strict tensor/logit reload must pass exactly.
+
+A joint pass advances this per-document matrix to multi-source routing,
+conflict/version writes, and continual checkpoint ownership. Oracle-only success
+means the write/read rule works but source localization still needs hierarchy.
+If oracle fails, one linear meta-gradient step is too weak and the branch moves
+to an iterative MLP fast learner; it does not return to extractive spans or raw
+full-model AdamW.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

@@ -847,6 +847,23 @@ No transient state or checkpoint survives; report SHA-256 is
 Raw next-token adaptation is closed; a future write-time learner must be
 meta-trained for later readout rather than tuned post hoc.
 
+V60 is preregistered as a protected meta-gradient episodic matrix. Frozen V39
+causal source states and exact next-token embeddings produce eight per-document
+16x96 fast matrices through one differentiable reconstruction-gradient write
+from zero. Learned key/query projections, write rates, read gates, and one
+width-768 output projection total less than 1% of V39. Only this slow controller
+trains through answer loss; the question and answer never enter the fast write,
+V39 never enters the optimizer, and each document state is discarded.
+
+The V57 8,192/256 title-disjoint manifests remain frozen. Eight batch-32 epochs
+give 2,048 controller updates and 20,971,520 padded source-memory positions.
+True memory needs 64/256 exact, a 20-point margin over zero and shuffled memory,
+shuffled at most 16/256, oracle at least 128/256, and a true/oracle gap at most
+64 cases. Complete gradients, under-1% parameters, exact schedule/cache/parent
+fidelity, training below 1,800 seconds, cache plus training below 2,400 seconds,
+and strict compact reload are mandatory. This is the first end-to-end
+meta-learned write/read test; it is not an admitted continual-memory runtime.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

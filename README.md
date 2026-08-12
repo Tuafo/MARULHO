@@ -392,6 +392,13 @@ positive controlled result—not a replacement for frontier Transformers.
     readable memory. Exact resets and parent fidelity pass; the failed code and
     transient states are deleted. A future TTT-like write rule must be
     meta-trained for later readout.
+29. Test V60's meta-gradient episodic matrix. Frozen V39 source states write
+    exact next-token embedding associations into a small temporary eight-head
+    matrix; a sub-1% slow controller is trained end-to-end so later question
+    states can read it through V39's own vocabulary head. The source-only write
+    never sees questions or answers, and each document state is discarded.
+    Zero, shuffled, true, and oracle memory views decide whether this learned
+    write/read contract transfers to all 22 unseen validation titles.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
