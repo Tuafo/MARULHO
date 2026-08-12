@@ -24,6 +24,13 @@ CORPUS = (
 ) * 64
 
 
+def test_byte_tokenizer_offsets_cover_multibyte_characters() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    ids, offsets = tokenizer.encode_with_offsets("aç", add_bos=False, add_eos=False)
+    assert tokenizer.decode(ids) == "aç"
+    assert offsets == [(0, 1), (1, 2), (1, 2)]
+
+
 def test_language_corpus_chunks_reconstruct_text_at_document_boundaries() -> None:
     text = "first document\n\nsecond document is longer\n\nthird"
     chunks = list(iter_language_corpus_chunks((text,), max_characters=24))
@@ -69,6 +76,15 @@ def test_marulho_bpe_tokenizer_is_lossless_compressed_and_checkpoint_owned() -> 
         tokenizer.encode("MARULHO learns"),
         tokenizer.encode("Café data"),
     ]
+    ids, offsets = tokenizer.encode_with_offsets(
+        "MARULHO learns",
+        add_bos=False,
+        add_eos=False,
+    )
+    assert tokenizer.decode(ids) == "MARULHO learns"
+    assert offsets[0][0] == 0
+    assert offsets[0][1] > offsets[0][0]
+    assert offsets[-1][1] == len("MARULHO learns")
 
 
 def test_language_checkpoint_round_trips_bpe_tokenizer(tmp_path) -> None:

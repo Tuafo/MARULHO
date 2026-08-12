@@ -153,6 +153,27 @@ class ByteLevelLanguageTokenizer:
             for text in texts
         ]
 
+    def encode_with_offsets(
+        self,
+        text: str,
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> tuple[list[int], list[tuple[int, int]]]:
+        token_ids: list[int] = []
+        offsets: list[tuple[int, int]] = []
+        if add_bos:
+            token_ids.append(self.bos_id)
+            offsets.append((0, 0))
+        for character_index, character in enumerate(str(text)):
+            encoded = character.encode("utf-8")
+            token_ids.extend(self._byte_offset + value for value in encoded)
+            offsets.extend([(character_index, character_index + 1)] * len(encoded))
+        if add_eos:
+            token_ids.append(self.eos_id)
+            offsets.append((len(str(text)), len(str(text))))
+        return token_ids, offsets
+
     def decode(
         self,
         token_ids: Iterable[int],
@@ -281,6 +302,14 @@ class LanguageTokenizer(Protocol):
         add_bos: bool = True,
         add_eos: bool = True,
     ) -> list[list[int]]: ...
+
+    def encode_with_offsets(
+        self,
+        text: str,
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> tuple[list[int], list[tuple[int, int]]]: ...
 
     def decode(
         self,
@@ -450,6 +479,25 @@ class BytePairLanguageTokenizer:
                 token_ids.append(self.eos_id)
             rows.append(token_ids)
         return rows
+
+    def encode_with_offsets(
+        self,
+        text: str,
+        *,
+        add_bos: bool = True,
+        add_eos: bool = True,
+    ) -> tuple[list[int], list[tuple[int, int]]]:
+        value = str(text)
+        encoded = self._tokenizer.encode(value, add_special_tokens=False)
+        token_ids = [int(token_id) for token_id in encoded.ids]
+        offsets = [(int(start), int(end)) for start, end in encoded.offsets]
+        if add_bos:
+            token_ids.insert(0, self.bos_id)
+            offsets.insert(0, (0, 0))
+        if add_eos:
+            token_ids.append(self.eos_id)
+            offsets.append((len(value), len(value)))
+        return token_ids, offsets
 
     def decode(
         self,
