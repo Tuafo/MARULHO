@@ -356,22 +356,16 @@ positive controlled result—not a replacement for frontier Transformers.
     tests, loader, cache, or compatibility path survives. The source branch now
     pivots away from token-pointer heads toward longer-context retrieval with
     token-safe segment realization.
-25. Preregister V56's landmark evidence retrofit. V39 remains frozen and exact.
-    It encodes a question and 2–5 long-source blocks; a learned question-to-block
-    retriever selects two blocks, and a compact two-layer cross-attention
-    residual injects their frozen token states into V39's causal query stream.
-    V39's own full-vocabulary head—not a pointer or external model—generates the
-    answer. The train/validation panels contain 8,192/128 entirely new long-
-    context cases, and fifteen batch-32 epochs process 20,643,840 adapter
-    positions after a measured nondurable cache build. Promotion requires at
-    least 64/128 long-context answers, 80% top-two gold-block recall, small
-    predicted-versus-oracle evidence loss, exact source-absent parent behavior,
-    full gradients, bounded runtime, and strict compact-checkpoint reload.
-    The implementation fixes BPE boundaries explicitly: retrieval sees the bare
-    question, while the causal prefix and answer are encoded separately so
-    teacher forcing and generation begin from identical token IDs. A 12-token
-    generation bound covers every standalone validation answer encoding; no
-    V56 quality result exists until the frozen run completes.
+25. Retire V56's landmark evidence retrofit. Its 2.38M trainable parameters
+    receive complete gradients while frozen V39 remains exact. Loss falls from
+    6.4843 to 2.8132 across 20,643,840 adapter positions at 77.0k positions/s.
+    The retriever puts the complete answer in its predicted top-two blocks for
+    91/128 heldout cases, below the 80% gate. More decisively, predicted, oracle,
+    and shuffled evidence all produce 0/128 exact answers; question-only happens
+    to produce 1/128. Even correct evidence cannot make the small residual path
+    control V39's answer realization. The model, runner, tests, cache, and
+    checkpoint surface are deleted. The next branch expands native context or
+    tests recurrent segment memory, not another frozen answer head.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

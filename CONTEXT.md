@@ -640,7 +640,7 @@ both/bidirectional/causal source-audit SHA-256 values are
 `0922f5e9b82c0bf0e4baae370d255c822c1fc0e2733785493b16dd5a0b3f38c4`, and
 `0d37b0493c16fdcb471fd407e4ecb21eb366622e6c8cadfcec9dc95ea16cfdfd`.
 
-**Landmark Evidence Retrofit v56 (preregistered)** — V56 leaves the repeated
+**Landmark Evidence Retrofit v56 (retired)** — V56 leaves the repeated
 short-context answer-head family. The exact V39 checkpoint and tokenizer remain
 frozen. Long sources are encoded as 48-token blocks by V39 itself. A learned
 128-wide question/block projection scores frozen block landmarks using only the
@@ -694,6 +694,28 @@ The old short V47 panel is diagnostic, not a substitute. Parent checkpoint,
 state, tokenizer, source-absent logits/general/relation behavior, every trainable
 gradient, and strict parent-bound compact reload must remain exact. A miss
 deletes the retrofit, runner, tests, cache, and checkpoint surface.
+
+The terminal run is a valid negative. All 2,383,361 retrofit parameters receive
+nonzero final gradients (2.367% of V39), and total loss falls from 6.4843 to
+2.8132, with final generator/retrieval losses 2.4581/0.3551. Training processes
+20,643,840 adapter positions in 268.02 seconds at 77.02k positions/s. Train plus
+validation caching takes 64.91 seconds and 4,907,335,680 host bytes; cache plus
+training is 332.93 seconds at an amortized 62.01k positions/s, with 1,236,118,528
+bytes peak CUDA allocation. Predicted top-two contains a full answer for 91/128
+cases (71.09%); top-one contains 55/128 (42.97%).
+
+Capability fails before any durable-memory claim. Predicted top-two, predicted
+top-one, oracle, and shuffled evidence produce 0/128 exact answers; question-only
+produces 1/128 and mismatched source 0/128. Oracle failures emit fluent-looking
+substitutions such as `January 1`, `Airflex`, and `Speedy Bowl 50`, showing that
+the frozen residual interface cannot make V39 realize even known-correct
+evidence. Parent checkpoint/state/tokenizer/logits/general loss/relation
+behavior, every gradient, budget, and strict compact reload are exact. Decision:
+`retire_v56_landmark_retrofit_capability_or_retrieval_failure`. No candidate,
+model, runner, tests, cache, loader, or checkpoint surface survives. Report
+SHA-256 is `7b53df754d275a211412df2c006956901cb7f7a910da26556c4a8a8abfef6e3d`.
+The next source branch must test context expansion or recurrent segment memory,
+not another frozen answer extractor.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -1519,6 +1519,24 @@ retrieval provenance, and learned event-controlled activation. A miss deletes
 the retrofit and moves to context-length expansion or recurrent segment memory;
 it does not reopen endpoint/pointer tuning.
 
+#### V56 terminal result
+
+V56 is a valid negative and is retired. All 2,383,361 trainable parameters
+receive nonzero final gradients and loss falls 6.4843 to 2.8132. The full
+20,643,840-position schedule trains in 268.02 seconds at 77.02k positions/s;
+nondurable train/validation caching adds 64.91 seconds and 4.91 GB host storage.
+Parent and compact-checkpoint fidelity pass exactly.
+
+The retriever reaches 91/128 top-two answer coverage and 55/128 top-one coverage,
+missing the 80% gate. That is not the primary failure: oracle answer-containing
+evidence still yields 0/128 exact generations, tied with predicted top-two,
+top-one, and shuffled evidence. Question-only yields 1/128. Thus the frozen
+cross-attention residual learns its supervised losses but cannot reliably steer
+V39's autoregressive realization. This rejects the V56 interface, not retrieval
+or long-context memory in general. Do not tune it on this validation panel. Move
+to a base-native context mechanism or recurrent segment state where evidence can
+participate throughout the language computation.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
