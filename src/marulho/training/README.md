@@ -417,6 +417,14 @@ checkpoint, optimizer, model, test, runner, loader, or compatibility path
 survives. The next training experiment must test protected write-time learning,
 not another supervised span-head capacity sweep.
 
+V59 preregisters transient full-model AdamW as a capacity ceiling for
+source-native write-time learning. Each case resets an independent BF16 V39
+copy, performs four ordered context-72 epochs on ordinary source next-token
+loss at 1e-4 with no weight decay, generates one question-only answer, and
+discards the weights. The durable parent never enters the optimizer. This is a
+mechanism screen for a later compact/meta-learned TTT module, not an admitted
+training or checkpoint surface.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

@@ -1744,6 +1744,58 @@ slow causal cortex remains immutable. This connects MARULHO's continual-memory
 goal to test-time training and nested learning without claiming those mechanisms
 work locally before a matched falsifier exists.
 
+### V59 preregistration: source-native write-time learning ceiling
+
+V59 tests whether gradient descent itself can act as an episodic write before
+MARULHO invents a compact learned update rule. This follows the central TTT idea
+that a model can compress test context into weights through a self-supervised
+objective, while keeping the local claim much narrower than
+[TTT](https://arxiv.org/abs/2407.04620),
+[end-to-end TTT](https://arxiv.org/abs/2512.23675),
+[Titans](https://arxiv.org/abs/2501.00663), or
+[Nested Learning](https://arxiv.org/abs/2512.24695). V59 has no meta-learned
+update rule and makes no long-context speed claim.
+
+For each heldout document, a temporary BF16 copy of all V39 parameters resets
+exactly to the qualified parent. It sees only `Context: {source}` under ordinary
+next-token prediction: no question, answer, span, answer weight, validation
+label, retrieval oracle, or external model enters the write loss. Four causal
+epochs traverse contiguous context-72 windows in source order. AdamW uses peak
+learning rate 1e-4, betas 0.9/0.95, no weight decay, and gradient clipping at
+1.0. The adapted copy then greedily answers the source-absent
+`Question: ...\nAnswer: ` prompt with V44 generated-only repetition 1.1 and
+no-repeat-3 controls. Its weights are discarded before the next case.
+
+The panel is a frozen 64-case round-robin sample from all 22 V57 validation
+titles: cases sort by title and case ID, then selection cycles across title
+depths until 64. Ordered case-ID SHA-256 is
+`185a9963bd28d53f04d075cc54937e0d6ca75ffc7719ac5979359ca1ee84e94f`.
+Four evaluation arms share questions and decoding:
+
+1. `no_write` uses exact V39;
+2. `mismatched_write` learns from the manifest's wrong document;
+3. `true_write` learns from the intact document;
+4. `oracle_short_write` is a diagnostic that learns only from V57's stored
+   answer-bearing source region.
+
+`true_write` is the only candidate. It must reach at least 16/64 exact answers
+and beat the stronger no-write or mismatched control by at least 12 cases.
+Mismatched write must stay at or below 8/64, while oracle-short must reach at
+least 24/64 to show that source-native learning can expose an answer when
+localization is removed. At least 90% of true-write cases must lower their own
+source next-token loss from first to final epoch. Every adaptive parameter
+tensor must receive a nonzero gradient, total terminal wall time must stay below
+2,400 seconds, every per-case reset must start from the exact common BF16 state,
+and the parent checkpoint file, tokenizer, CPU state, and sampled logits must
+remain exact.
+
+A joint pass advances to a compact per-example fast learner and meta-learned
+initialization. Oracle-only success localizes the next design to learned source
+selection. Oracle failure rejects naive source-only full-model adaptation as a
+usable QA memory and requires a meta-learned write objective rather than more
+inner epochs or learning-rate tuning. No transient adapted checkpoint is ever
+durable.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

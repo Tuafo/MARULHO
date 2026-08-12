@@ -818,6 +818,21 @@ Do not reopen the V53--V58 SQuAD pointer/span family with another size or endpoi
 sweep. The next memory hypothesis must learn from source-native write-time
 signals while protecting the slow causal cortex.
 
+V59 is preregistered as a source-native write-time learning ceiling. A temporary
+full V39 copy resets per heldout document, receives four context-72 epochs of
+ordinary next-token AdamW learning on the source text alone, answers the
+question-only prompt, and is discarded. The parent is never in the optimizer.
+The frozen 64-case panel round-robins across all 22 V57 validation titles; its
+ordered case-ID SHA-256 is
+`185a9963bd28d53f04d075cc54937e0d6ca75ffc7719ac5979359ca1ee84e94f`.
+No-write, mismatched-write, true-write, and diagnostic oracle-short-write arms
+use identical questions and V44 decoding. True write needs 16/64 exact and a
+12-case margin over both controls; mismatch is capped at 8/64 and oracle-short
+needs 24/64. Source loss must improve in at least 90% of true cases, all tensors
+must receive gradients, resets and parent fidelity must be exact, and total wall
+time is capped at 2,400 seconds. This tests raw gradient-written memory, not a
+production TTT layer or a speed claim.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

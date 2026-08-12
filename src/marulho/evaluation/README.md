@@ -1143,6 +1143,15 @@ report SHA-256 is
 `761f3f385d0524a880f568f956aaafbf0f520b4124c4a2a525302707229331e2`.
 Further evidence work must leave the SQuAD span/pointer family.
 
+V59 preregisters a different interface: per-document source-only test-time
+learning in a reset full-capacity V39 copy. The frozen 64-case/all-22-title panel
+compares no write, mismatched write, true write, and oracle-short write under the
+same question-only generation policy. The candidate needs 16/64 exact and a
+12-case control margin; oracle-short needs 24/64, mismatch is capped at 8/64,
+and source loss must improve in 90% of true writes. No question, answer, span,
+or label enters the write objective. Exact reset, complete gradients, parent
+fidelity, and a 2,400-second total wall limit are required.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

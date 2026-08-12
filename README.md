@@ -384,6 +384,12 @@ positive controlled result—not a replacement for frontier Transformers.
     No random-init control or checkpoint is admitted. This closes the V53--V58
     SQuAD pointer/span family; the next hypothesis must use protected write-time
     learning rather than another answer-span head.
+28. Test V59's source-native write-time ceiling. For each of 64 heldout cases, a
+    temporary full V39 copy learns only the source through ordinary next-token
+    prediction, answers the question, then disappears. Exact no-write, wrong-
+    source, and oracle-short controls determine whether gradients can serve as
+    episodic memory before MARULHO builds a compact TTT-like learner. The slow
+    causal checkpoint remains immutable and no adapted case state is durable.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
