@@ -801,6 +801,23 @@ organ. Only a capability pass triggers the same-budget random-initialization
 control. Failure closes the extractive evidence-organ family rather than
 authorizing another compact pointer or span-head sweep.
 
+V58 is terminally negative and deleted. Its 100,686,146 trainable parameters
+all receive nonzero final gradients over exactly 2,048 updates and 20,971,520
+padded positions. Training takes 871.75 seconds at 24.06k positions/s with
+5.39 GB peak allocation and lowers sampled span loss to 1.9638. The 256/256
+mechanical oracle and exact V39 checkpoint/tokenizer/state/logit fidelity pass.
+Title-disjoint extraction reaches only 20/256 versus 0/256 mismatched, a 7.81-
+point source gain against the required 70 points. Sixty-one predictions at
+least overlap an answer, but recurrent date/number/`Stadium` shortcuts show that
+full capacity did not yield transferable question-conditioned localization.
+Decision: `retire_v58_extractive_evidence_organ_capacity_failure`. The random-
+initialization control does not run, no checkpoint survives, and the report
+SHA-256 is
+`761f3f385d0524a880f568f956aaafbf0f520b4124c4a2a525302707229331e2`.
+Do not reopen the V53--V58 SQuAD pointer/span family with another size or endpoint
+sweep. The next memory hypothesis must learn from source-native write-time
+signals while protecting the slow causal cortex.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

@@ -1709,6 +1709,41 @@ advances to learned routing, mixed extractive/generative evidence, and then
 compression against this ceiling; it does not by itself qualify general
 grounded generation or a frontier model.
 
+#### V58 terminal result
+
+V58 is a valid, decisive negative. The 100,686,146-parameter initialized organ
+trains all 68 tensors for the exact 2,048 updates and 20,971,520 padded
+positions. Counted training takes 871.75 seconds at 24,056.8 positions/s with
+5,386,713,600 peak CUDA bytes; final sampled span loss is 1.9638. The mechanical
+copy oracle remains 256/256 and V39's checkpoint file, tokenizer, tensor state,
+and sampled logits remain exact.
+
+Heldout title-disjoint accuracy is only 20/256, versus 0/256 with mismatched
+sources. The 7.81-point source gain is real but far below the required 70
+points, and capability misses the 192-case floor by 172. Sixty-one predictions
+have a substring relation to an accepted answer and 76 contain a digit, while
+failure examples repeatedly choose answer-type-looking dates, numbers, or
+`Stadium` fragments. Full capacity and falling training loss therefore do not
+produce transferable query-conditioned localization under this data boundary.
+The random-initialization control is correctly skipped because the primary gate
+fails.
+
+Decision: `retire_v58_extractive_evidence_organ_capacity_failure`. This closes
+the V53--V58 SQuAD extractive-organ family: frozen pointers, small span encoders,
+autoregressive position decoders, residual readers, unrestricted native-context
+fine-tuning, and now one full-depth protected span organ all fail their frozen
+capability gates. No V58 checkpoint survives. The runner, model, tests, and
+loading surface are deleted; only the report remains. Report SHA-256 is
+`761f3f385d0524a880f568f956aaafbf0f520b4124c4a2a525302707229331e2`.
+
+The next branch must leave answer-span supervision rather than widening this
+organ again. The leading research direction is protected write-time learning:
+evidence should change a bounded temporary learner through a source-native
+self-supervised objective, then answer through that learned state, while the
+slow causal cortex remains immutable. This connects MARULHO's continual-memory
+goal to test-time training and nested learning without claiming those mechanisms
+work locally before a matched falsifier exists.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

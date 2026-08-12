@@ -410,6 +410,13 @@ Unicode-character boundary scorers. Eight epochs equal 2,048 batch-32 steps and
 No optimizer, loader, or checkpoint surface becomes production machinery unless
 the organ first passes the frozen 192/256 capability and control gates.
 
+V58 fails that gate and is deleted. Training is mechanically healthy at 24.06k
+positions/s for 871.75 seconds, with all 68 tensors receiving gradients and V39
+remaining exact, but title-disjoint extraction reaches only 20/256. No organ
+checkpoint, optimizer, model, test, runner, loader, or compatibility path
+survives. The next training experiment must test protected write-time learning,
+not another supervised span-head capacity sweep.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

@@ -1132,6 +1132,17 @@ identity, and strict organ reload are required. A passing primary arm triggers
 the same-budget random-initialization control; a primary miss closes the
 extractive evidence-organ line.
 
+The terminal V58 result retires that line. All 100,686,146 organ parameters
+receive nonzero final gradients across exactly 2,048 updates and 20,971,520
+padded positions. Training takes 871.75 seconds at 24.06k positions/s with
+5.39 GB peak allocation. The mechanical oracle is 256/256 and every parent
+fidelity check passes, but intact/mismatched exact extraction is only 20/256 and
+0/256. Capability and the required source margin fail, so the random-init
+control is not run and no checkpoint exists. The runner and tests are deleted;
+report SHA-256 is
+`761f3f385d0524a880f568f956aaafbf0f520b4124c4a2a525302707229331e2`.
+Further evidence work must leave the SQuAD span/pointer family.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
