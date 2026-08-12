@@ -1057,13 +1057,13 @@ with V52/V53. The compact checkpoint, encoder, runner, tests, loader, and
 compatibility surface are absent. Report SHA-256 is
 `32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`.
 
-**`language_multiview_transducer_falsification.py`** — V55's materially larger
-multi-view falsifier: 8,192 new official-train SQuAD cases, 15 exact epochs,
-8,847,360 padded positions, and the unchanged 64-case source-control panel. Its
-gate requires 32 intact answers, a 45-point causal source gain, and a four-case
-fused advantage over both trained single-view inference ablations, in addition
-to exact parent/checkpoint and bounded-runtime evidence. No throughput or
-oracle-union result can substitute for those heldout checks.
+V55's materially larger multi-view falsifier is retired and deleted. The fused
+model reaches 20/64 versus 16/64 causal-only and 2/64 bidirectional-only, but
+misses the 32/64 capability and 45-point source-gain gates. Parent fidelity,
+runtime, gradients, and compact reload all pass. Noncontiguous BPE pointer
+assemblies identify a structural output failure; no runner, model, tests, cache,
+or checkpoint survives. Report SHA-256 is
+`d1d30b6aec1237277d57be534c7029c66364546b16439ce4ad9830d59bfc6911`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

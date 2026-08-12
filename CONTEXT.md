@@ -587,7 +587,7 @@ is `32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`;
 source-audit SHA-256 is
 `3eefb53d6a448fb024a79b0f84469f4ee1f9d198d2cd9876decd19f4e2923f9c`.
 
-**Multi-View Answer Transducer v55 (preregistered)** — V55 is a replacement,
+**Multi-View Answer Transducer v55 (retired)** — V55 is a replacement,
 not a larger V54 span head. The exact V39 checkpoint remains frozen. One view
 projects its read-only causal hidden states; a second width-192, two-layer,
 six-head bidirectional encoder reads frozen token embeddings plus source/question
@@ -612,6 +612,33 @@ source-control points, both-view accuracy at least four cases above each trained
 single-view inference ablation, complete nonzero gradients, exact parent file/
 state/logits/general/relation evidence, and strict parent-bound compact reload.
 A miss deletes the model, runner, tests, and checkpoint surface.
+
+The terminal run processes all 8,847,360 positions. All 2,130,819 trainable
+parameters receive nonzero gradients; they are 2.116% of V39. Total loss falls
+from 4.1729 to 1.1699, ending at pointer loss 0.8435 and auxiliary span loss
+1.3055. Frozen causal caching takes 12.15 seconds and 905,969,664 host bytes;
+training takes 145.45 seconds at 60,827.8 positions/s, or 56,137.4 positions/s
+after cache amortization, with 891,945,472 bytes peak CUDA allocation. Parent
+checkpoint/state/logits/general/relation and strict compact reload are exact.
+
+Heldout intact/question-only/mismatched accuracy is 20/64, 0/64, and 0/64.
+Causal-only reaches 16/64 and bidirectional-only only 2/64, so the fused organ
+passes the preregistered synergy bar by exactly four cases. It nevertheless
+misses the 32/64 capability bar by twelve and the +45-point source-gain bar by
+nine cases. Fourteen misses overlap answer words, but unconstrained position
+decoding often joins noncontiguous BPE pieces into corrupt strings such as
+`Carololina`, `William the Conquor`, and `historical divisionsisions`. V55 adds
+five successes absent from V48/V52/V53/V54, but the 43/64 oracle union across
+separate terminal systems is not a runnable model or learned selection result.
+Decision: `retire_v55_multiview_transducer_capability_or_ablation_failure`.
+No checkpoint, model, runner, tests, loader, cache, or compatibility path
+survives. The next source branch must test longer-context retrieval with token-
+safe segment realization rather than another pointer head. Report SHA-256 is
+`d1d30b6aec1237277d57be534c7029c66364546b16439ce4ad9830d59bfc6911`;
+both/bidirectional/causal source-audit SHA-256 values are
+`2e10e523f77a8f446c2599c816d554c554259929938d616778761c9973dfd96d`,
+`0922f5e9b82c0bf0e4baae370d255c822c1fc0e2733785493b16dd5a0b3f38c4`, and
+`0d37b0493c16fdcb471fd407e4ecb21eb366622e6c8cadfcec9dc95ea16cfdfd`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

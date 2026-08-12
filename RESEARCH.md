@@ -1390,6 +1390,46 @@ language model. A miss deletes the transducer, runner, tests, checkpoint surface
 and caches, then moves to a longer-context retrieval architecture rather than
 another SQuAD-only source head.
 
+The terminal V55 result is a clean negative with one retained architectural
+signal. All 2,130,819 trainable tensors receive nonzero gradients. Total loss
+falls from 4.1729 to 1.1699; final pointer/span losses are 0.8435/1.3055. The
+8,847,360-position run trains in 145.45 seconds at 60,827.8 positions/s. Frozen
+V39 causal-state caching adds 12.15 seconds and 905,969,664 host bytes, giving
+157.60 seconds total and 56,137.4 cache-amortized positions/s. Peak CUDA
+allocation is 891,945,472 bytes. Parent checkpoint, state, logits, general loss,
+relation behavior, tokenizer, and compact reload are exact.
+
+Both-view intact/question-only/mismatched-source accuracy is 20/64, 0/64, and
+0/64. The causal-only ablation reaches 16/64 while bidirectional-only reaches
+2/64. Fusion therefore adds exactly four cases over the stronger single view and
+passes the preregistered synergy check. Capability still misses 32/64 by twelve,
+and a 31.25-point causal source gain misses the 45-point bar by nine cases. The
+result is a real but insufficient new best for an isolated frozen source organ,
+not a promotion.
+
+Failure inspection explains why lower training loss did not translate. Fourteen
+of 44 misses contain some gold answer words, but the autoregressive position
+decoder can select noncontiguous BPE pieces. It produces malformed assemblies
+such as `Carololina`, `William the Conquor`, `historical divisionsisions`, and
+invalid UTF-8 replacement characters. Sequential position prediction solved
+neither token-boundary safety nor general answer realization. V55 has five
+successes absent from every V48/V52/V53/V54 report; the oracle union across all
+five separate systems is 43/64. That union uses labels, has no surviving older
+checkpoints, and is not ensemble accuracy. It reinforces heterogeneous errors
+but does not justify retaining dead implementations.
+
+Decision: `retire_v55_multiview_transducer_capability_or_ablation_failure`.
+The model, runner, tests, compact checkpoint surface, temporary state, and
+nondurable 906 MB cache are deleted. The corrected V55b data manifest remains
+as immutable evidence. The next falsifier must leave the repeated context-72
+SQuAD head family: retrieve or compress longer source segments and realize only
+token-safe contiguous segments before testing synthesis. Report SHA-256 is
+`d1d30b6aec1237277d57be534c7029c66364546b16439ce4ad9830d59bfc6911`;
+both/bidirectional/causal source-audit SHA-256 values are
+`2e10e523f77a8f446c2599c816d554c554259929938d616778761c9973dfd96d`,
+`0922f5e9b82c0bf0e4baae370d255c822c1fc0e2733785493b16dd5a0b3f38c4`, and
+`0d37b0493c16fdcb471fd407e4ecb21eb366622e6c8cadfcec9dc95ea16cfdfd`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

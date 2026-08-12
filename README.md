@@ -344,17 +344,18 @@ positive controlled result—not a replacement for frontier Transformers.
     survives. The next branch must combine complementary causal and
     bidirectional views with learned answer generation rather than enlarge the
     failed span head.
-24. Preregister V55's multi-view answer transducer. The exact V39 parent stays
-    frozen while a compact source organ combines read-only V39 causal states
-    with a bidirectional source/question encoder. An autoregressive pointer
-    decoder learns the entire answer-token sequence plus EOS; start/end span
-    loss is auxiliary rather than the output mechanism. The frozen curriculum
-    expands to 8,192 new official SQuAD training cases with zero overlap against
-    the prior 512 train cases or fixed 64 validation cases, and runs 15 epochs
-    for 8,847,360 padded source positions. Promotion requires at least 32/64
-    answers, +45 points over source controls, a four-case advantage over both
-    single-view inference ablations, exact parent evidence, full gradients,
-    bounded runtime, and strict compact-checkpoint reload.
+24. Retire V55's multi-view answer transducer. The corrected 8,192-case
+    curriculum is 16 times larger than V54 and all 2,130,819 parameters train.
+    Loss falls from 4.1729 to 1.1699 over 8,847,360 positions at 60.83k training
+    positions/s; causal caching plus training takes 157.60 seconds. Exact parent
+    isolation and compact reload pass. The fused organ reaches 20/64 versus
+    16/64 causal-only and 2/64 bidirectional-only, exactly passing the four-case
+    synergy bar, but controls remain zero and capability misses the required
+    32/64. Fourteen misses contain answer fragments, often corrupted by
+    noncontiguous BPE-position assembly. No V55 checkpoint, model, runner,
+    tests, loader, cache, or compatibility path survives. The source branch now
+    pivots away from token-pointer heads toward longer-context retrieval with
+    token-safe segment realization.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

@@ -376,13 +376,11 @@ reload, but direct span copying reaches only 16/64 versus zero for both controls
 The generic tokenizer offset contract remains for future auxiliary labels; no
 span encoder, loader, runner, test, checkpoint, or compatibility surface remains.
 
-**`language_multiview_transducer.py`** — V55's active multi-view autoregressive
-source organ. Frozen V39 causal states and a separate bidirectional embedding
-encoder feed a learned fusion and pointer decoder that emits the full answer-
-token sequence plus EOS. Span start/end loss is auxiliary. Repeated training
-uses a nondurable host-BF16 causal-state cache whose construction time and bytes
-remain evidence. The parent stays immutable; any surviving compact checkpoint
-contains only the new organ and binds strictly to V39's file hash.
+V55's multi-view autoregressive transducer is retired and deleted. Fusion raises
+heldout grounding from the causal-only ablation's 16/64 to 20/64, but misses the
+32/64 capability bar and often assembles noncontiguous BPE pieces into malformed
+answers. No model, loader, checkpoint, cache, test, runner, or compatibility
+surface remains.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
