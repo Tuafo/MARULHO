@@ -1188,6 +1188,17 @@ Report SHA-256 is
 This closes the final-residual fast-learner family. The next evaluator must test
 bounded protected memory reads across multiple frozen V39 depths.
 
+V62 preregisters three such reads before blocks 2, 5, and 8. V60's source-only
+eight-head linear matrix write is restored unchanged; site-specific queries and
+input-dependent gates share one read projection and leave every V39 tensor
+frozen. The exact V57 title split, 2,048-update schedule, 20,971,520 source
+positions, and inactive/shuffled/true/oracle controls remain fixed. True requires
+64/256 and a 20-point source gain, shuffled is capped at 16, oracle requires 128,
+and the true/oracle gap is capped at 64. Sub-1.25% slow parameters, complete
+gradients, inactive logit/KV parity, parent fidelity, timing, CUDA allocation,
+and strict reload are mandatory. Oracle failure closes the compressed shared-
+matrix interface rather than authorizing more sites.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

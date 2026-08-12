@@ -410,6 +410,14 @@ positive controlled result—not a replacement for frontier Transformers.
     1/256 and not source-selective. No checkpoint survives and failed code is
     deleted. The next branch moves protected memory reads throughout V39's depth
     rather than widening or retuning another final-residual learner.
+31. Test V62's protected three-depth shared memory. It restores V60's stable
+    one-step source-only matrix write, but reads the same per-document state
+    before frozen V39 blocks 2, 5, and 8. Each site owns its query and
+    input-dependent gate while sharing one read projection, so memory can shape
+    several later attention/MLP computations without altering a V39 tensor.
+    The corrected V57 title split and exact inactive, shuffled, true, and oracle
+    controls remain unchanged. Oracle failure retires this compressed fast-
+    memory interface rather than authorizing more read sites or width.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

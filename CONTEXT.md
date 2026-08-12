@@ -890,6 +890,34 @@ V60 and V61 jointly close linear and nonlinear final-hidden residual fast memory
 The next controlled branch must keep V39 protected while letting memory influence
 multiple cortex depths, rather than changing capacity, steps, or source search.
 
+V62 is preregistered as protected three-depth shared memory. It restores V60's
+stable source-only write exactly: frozen V39 causal source states and exact next-
+token embeddings form eight 16x96 per-document matrices through one normalized
+outer-product reconstruction step. The write never sees a question, answer,
+span, label, or validation signal. The same fast state is read before frozen V39
+blocks 2, 5, and 8. Each site owns a width-128 query projection, an eight-head
+input-dependent sigmoid gate, and a bounded residual scalar; all sites share one
+width-768 read projection. This is dynamic fast memory, not the retired static
+parameter memory, raw-token cross-attention, or all-layer LoRA families.
+
+The exact V57 8,192/256 title-disjoint manifests, five context-64 source chunks,
+parameter-free context-96 question path, eight batch-32 epochs, 2,048 updates,
+20,971,520 padded source positions, AdamW schedule, and V44 generated-only decode
+policy remain fixed. Added slow parameters must stay below 1.25% of V39. The
+inactive custom forward must reproduce V39 logits and streaming KV state exactly.
+True memory must reach 64/256 exact with at least a 20-point gain over the
+stronger inactive or shuffled control; shuffled is capped at 16, oracle must
+reach 128, and true may trail oracle by at most 64. Every controller tensor must
+receive a final nonzero gradient, parent/tokenizer/prefix identity must remain
+exact, training must finish below 1,800 seconds, and setup plus training below
+2,400 seconds on the RTX 3060.
+
+A joint pass advances the shared state to routed multi-document and conflict
+writes. Oracle-only success means full-source compression/localization remains
+the blocker. Oracle failure retires this compressed source-write/read interface:
+V62 may not add sites, width, or epochs. The next branch must preserve exact
+source tokens or change the base computational substrate instead.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

@@ -1994,6 +1994,66 @@ changes the read locus: a bounded protected memory signal must participate at
 multiple frozen V39 depths. It may not widen V61 or reinterpret lower outer loss
 as retrieval.
 
+### V62 preregistration: protected three-depth shared memory
+
+V60 and V61 held the read interface at the final hidden state and both failed
+even with oracle-short evidence. V57's near-pass, in contrast, let evidence
+participate throughout all ten causal blocks but damaged the shared cortex.
+V62 isolates that difference while retaining structural protection. It does not
+reopen V27's raw cross-attention or V50's rank-16 weight deltas.
+
+The design is informed by [Memory Layers at Scale](https://arxiv.org/abs/2412.09764),
+which reports that a shared memory pool used at several spaced Transformer
+layers is materially better than a single layer, while adding too many memory
+layers eventually degrades performance. The paper studies static trainable
+parameter memory at far larger scale, so it is motivation rather than evidence
+for MARULHO. [Titans](https://arxiv.org/abs/2501.00663) and
+[Learning to Learn at Test Time](https://arxiv.org/abs/2407.04620) separately
+support learned fast state as a long-context mechanism, but V60/V61 show their
+claims do not transfer automatically to this checkpoint or task.
+
+V62 restores V60's source write without modification. Frozen V39 final source
+states are projected into eight normalized width-16 keys; exact frozen next-token
+embeddings split into eight width-96 values. Their masked normalized outer
+product produces eight temporary 16x96 matrices with learned positive per-head
+rates. No question, answer, accepted string, span, metric label, or validation
+record enters the write, and each document state is discarded after generation.
+
+The read interface changes. The same matrix is queried immediately before V39
+blocks 2, 5, and 8, leaving respectively eight, five, and two frozen blocks to
+transform its contribution. Each site has a width-128 query projection, an
+eight-value token-dependent sigmoid gate, and a bounded scalar residual gate.
+The three sites share one width-768 output projection and one set of source-write
+parameters. Added slow state must remain below 1.25% of V39. V39 remains outside
+the optimizer, yet answer-loss gradients propagate through its frozen operations
+to every earlier memory read. The inactive forward must be tensor- and KV-state-
+exact to the ordinary context-96 V39 forward.
+
+The immutable V57 boundary remains 8,192 training cases over 171 titles and 256
+validation cases over 22 unseen titles. Five context-64 source chunks and the
+parameter-free context-96 question/answer path are unchanged. Eight epochs at
+batch 32 give exactly 2,048 AdamW updates and 20,971,520 padded source positions.
+Outer optimization uses 3e-4, betas 0.9/0.95, weight decay 0.1, 5% warmup, cosine
+decay to 10%, BF16, clip 1.0, data seed 62121, and model seed 62131. Counted
+training must stay below 1,800 seconds and setup plus training below 2,400 seconds.
+
+Untrained true memory is diagnostic. Terminal inactive, shuffled-source, true-
+source, and oracle-short views share the same 256 questions and V44 decode
+policy. Promotion requires true at least 64/256, at least 20 percentage points
+above the stronger inactive or shuffled control, shuffled no more than 16,
+oracle at least 128, and true no more than 64 cases behind oracle. Exact data and
+schedule hashes, all-controller gradient coverage, finite fast state, parameter
+budget, CUDA allocation, timing, parent checkpoint/tokenizer/state/common-prefix
+logits, inactive forward/KV parity, and strict compact reload on a behavioral
+pass are mandatory.
+
+A joint pass advances to routed multi-document fast state and conflict/version
+writes. Oracle-only success localizes the remaining problem to full-source
+compression or selection. Oracle failure closes this compressed matrix plus
+multi-depth read family; adding a fourth site, wider keys, or more epochs is not
+an admissible response. The next branch must retain exact source tokens or
+change the base language computation.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a
