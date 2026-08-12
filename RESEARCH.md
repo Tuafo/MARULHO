@@ -1929,11 +1929,12 @@ projected to width 768, and added through bounded per-head and output gates befo
 V39's unchanged vocabulary head. The slow controller must remain below 2% of
 V39. Temporary weights never persist between documents.
 
-The source write sees source causal states and next-source states only. It never
-sees the question, answer, accepted strings, answer span, validation title, or
-metric labels. Outer teacher-forced answer loss is the sole downstream signal
-and updates only the shared initialization, learned views, positive inner step
-sizes, and readout. Manual per-example gradient formulas keep the two inner
+The source write sees source causal states and exact next-token embeddings only;
+a learned target view maps those frozen embeddings into the eight value heads.
+It never sees the question, answer, accepted strings, answer span, validation
+title, or metric labels. Outer teacher-forced answer loss is the sole downstream
+signal and updates only the shared initialization, learned views, positive inner
+step sizes, and readout. Manual per-example gradient formulas keep the two inner
 steps exact and differentiable without cloning a full model or aggregating state
 across batch members.
 
