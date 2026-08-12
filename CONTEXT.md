@@ -717,6 +717,21 @@ SHA-256 is `7b53df754d275a211412df2c006956901cb7f7a910da26556c4a8a8abfef6e3d`.
 The next source branch must test context expansion or recurrent segment memory,
 not another frozen answer extractor.
 
+**Native Long-Context v57 (data frozen; architecture preregistration pending)** —
+V57 has a fresh official SQuAD boundary before model work. The train manifest has
+8,192 cases from 171 titles and excludes every V48, V55, and V56 train ID. The
+256-case validation manifest spans 22 titles and excludes every V47 and V56
+validation ID. Full causal sequences use 151–315 tokens and fit a 320-token
+window; answer-localized oracle prompts use 31–96 tokens. Both store an exact
+trailing-space causal prefix so teacher forcing and generation share BPE IDs.
+Train contract/file SHA-256 values are
+`fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7` and
+`aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133`;
+validation values are
+`9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c` and
+`b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80`.
+No architecture, quality, retention, or runtime claim exists yet.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

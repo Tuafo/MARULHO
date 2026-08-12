@@ -157,6 +157,8 @@ def test_long_context_cases_keep_multiple_blocks_and_contextual_span_bounds() ->
         maximum_cases_per_title=2,
         excluded_case_ids=("case-0",),
         retrieval_block_tokens=32,
+        maximum_causal_sequence_tokens=256,
+        maximum_oracle_prompt_tokens=128,
     )
 
     assert [case["case_id"] for case in cases] == ["case-1", "case-2"]
@@ -164,6 +166,16 @@ def test_long_context_cases_keep_multiple_blocks_and_contextual_span_bounds() ->
     assert all(case["source_token_count"] >= 64 for case in cases)
     assert all(case["answer_in_context_token_count"] <= 32 for case in cases)
     assert all(case["prompt_token_count"] <= 256 for case in cases)
+    assert all(case["causal_prompt"].endswith("Answer: ") for case in cases)
+    assert all(case["causal_sequence_token_count"] - 1 <= 256 for case in cases)
+    assert all(case["oracle_prompt_token_count"] <= 128 for case in cases)
+    assert all(case["answers"][0] in case["oracle_source_text"] for case in cases)
+    assert all(case["oracle_causal_prompt"].endswith("Answer: ") for case in cases)
+    assert all(
+        tokenizer.encode(case["causal_prompt"], add_bos=True, add_eos=False)
+        == tokenizer.encode(f"{case['prompt']} ", add_bos=True, add_eos=False)
+        for case in cases
+    )
     assert all(
         case["question_only_prompt_token_count"]
         + case["answer_in_context_token_count"]
@@ -172,8 +184,7 @@ def test_long_context_cases_keep_multiple_blocks_and_contextual_span_bounds() ->
         for case in cases
     )
     assert all(
-        case["answers"][0] not in case["mismatched_source_text"]
-        for case in cases
+        case["answers"][0] not in case["mismatched_source_text"] for case in cases
     )
 
 

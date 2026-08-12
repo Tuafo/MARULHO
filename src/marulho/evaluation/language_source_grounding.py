@@ -77,7 +77,9 @@ def _normalized(text: str) -> str:
 
 def _contains_answer(text: str, answers: Sequence[str]) -> bool:
     normalized = _normalized(text)
-    return any(_normalized(answer) in normalized for answer in answers if _normalized(answer))
+    return any(
+        _normalized(answer) in normalized for answer in answers if _normalized(answer)
+    )
 
 
 def _prompt(source: str, question: str) -> str:
@@ -169,9 +171,7 @@ def _bounded_long_source_text(
         source = context[left:right].strip()
         if answer.casefold() not in source.casefold():
             continue
-        source_tokens = len(
-            tokenizer.encode(source, add_bos=False, add_eos=False)
-        )
+        source_tokens = len(tokenizer.encode(source, add_bos=False, add_eos=False))
         if source_tokens < int(minimum_source_tokens):
             continue
         prompt_tokens = len(tokenizer.encode(_prompt(source, question), add_eos=False))
@@ -192,12 +192,8 @@ def _in_context_answer_span_length(
         return 0
     answer_start = len("Context: ") + local_start
     answer_end = answer_start + len(answer)
-    _ids, offsets = tokenizer.encode_with_offsets(
-        prompt, add_bos=True, add_eos=False
-    )
-    return sum(
-        end > answer_start and start < answer_end for start, end in offsets
-    )
+    _ids, offsets = tokenizer.encode_with_offsets(prompt, add_bos=True, add_eos=False)
+    return sum(end > answer_start and start < answer_end for start, end in offsets)
 
 
 def build_squad_grounding_cases(
@@ -279,10 +275,9 @@ def build_squad_grounding_cases(
             candidate_token_count = len(
                 tokenizer.encode(candidate_prompt, add_eos=False)
             )
-            if (
-                not _contains_answer(str(candidate), tuple(case["answers"]))
-                and candidate_token_count <= int(maximum_prompt_tokens)
-            ):
+            if not _contains_answer(
+                str(candidate), tuple(case["answers"])
+            ) and candidate_token_count <= int(maximum_prompt_tokens):
                 mismatch = (str(candidate), candidate_prompt, candidate_token_count)
                 break
         if mismatch is None:
@@ -306,6 +301,8 @@ def build_squad_long_context_cases(
     excluded_case_ids: Sequence[str] = (),
     retrieval_block_tokens: int = 48,
     maximum_query_answer_tokens: int = 72,
+    maximum_causal_sequence_tokens: int = 320,
+    maximum_oracle_prompt_tokens: int = 96,
 ) -> tuple[dict[str, Any], ...]:
     """Build long, multi-block SQuAD sources with token-safe answer spans."""
 
@@ -321,9 +318,7 @@ def build_squad_long_context_cases(
         if title_counts.get(title, 0) >= int(maximum_cases_per_title):
             continue
         answers_payload = dict(row["answers"])
-        answers = tuple(
-            dict.fromkeys(str(value) for value in answers_payload["text"])
-        )
+        answers = tuple(dict.fromkeys(str(value) for value in answers_payload["text"]))
         starts = tuple(int(value) for value in answers_payload["answer_start"])
         if not answers or not starts or not answers[0].strip():
             continue
@@ -362,15 +357,38 @@ def build_squad_long_context_cases(
         question_only_prompt_tokens = len(
             tokenizer.encode(question_only_prompt, add_eos=False)
         )
-        if (
-            question_only_prompt_tokens + in_context_answer_tokens + 1
-            > int(maximum_query_answer_tokens)
+        if question_only_prompt_tokens + in_context_answer_tokens + 1 > int(
+            maximum_query_answer_tokens
         ):
+            continue
+        causal_prompt = f"{prompt} "
+        causal_prompt_ids = tokenizer.encode(causal_prompt, add_bos=True, add_eos=False)
+        causal_answer_ids = tokenizer.encode(
+            visible_answers[0], add_bos=False, add_eos=True
+        )
+        causal_sequence_token_count = len(causal_prompt_ids) + len(causal_answer_ids)
+        if causal_sequence_token_count - 1 > int(maximum_causal_sequence_tokens):
             continue
         block_count = math.ceil(source_token_count / int(retrieval_block_tokens))
         if block_count < 2:
             continue
         local_answer_start = source.casefold().find(visible_answers[0].casefold())
+        oracle = _bounded_source_text(
+            tokenizer,
+            context=source,
+            question=question,
+            answer_start=local_answer_start,
+            answer=visible_answers[0],
+            maximum_prompt_tokens=int(maximum_oracle_prompt_tokens),
+        )
+        if oracle is None:
+            continue
+        oracle_source, oracle_prompt_token_count = oracle
+        oracle_prompt = _prompt(oracle_source, question)
+        oracle_causal_prompt = f"{oracle_prompt} "
+        oracle_causal_prompt_token_count = len(
+            tokenizer.encode(oracle_causal_prompt, add_bos=True, add_eos=False)
+        )
         selected.append(
             {
                 "case_id": case_id,
@@ -386,6 +404,15 @@ def build_squad_long_context_cases(
                 "answer_in_context_token_count": int(in_context_answer_tokens),
                 "prompt": prompt,
                 "prompt_token_count": int(prompt_token_count),
+                "causal_prompt": causal_prompt,
+                "causal_prompt_token_count": len(causal_prompt_ids),
+                "causal_answer_token_count": len(causal_answer_ids) - 1,
+                "causal_sequence_token_count": causal_sequence_token_count,
+                "oracle_source_text": oracle_source,
+                "oracle_prompt": oracle_prompt,
+                "oracle_prompt_token_count": int(oracle_prompt_token_count),
+                "oracle_causal_prompt": oracle_causal_prompt,
+                "oracle_causal_prompt_token_count": (oracle_causal_prompt_token_count),
                 "question_only_prompt": question_only_prompt,
                 "question_only_prompt_token_count": question_only_prompt_tokens,
             }
@@ -406,10 +433,9 @@ def build_squad_long_context_cases(
             candidate_token_count = len(
                 tokenizer.encode(candidate_prompt, add_eos=False)
             )
-            if (
-                not _contains_answer(str(candidate), tuple(case["answers"]))
-                and candidate_token_count <= int(maximum_prompt_tokens)
-            ):
+            if not _contains_answer(
+                str(candidate), tuple(case["answers"])
+            ) and candidate_token_count <= int(maximum_prompt_tokens):
                 mismatch = (str(candidate), candidate_prompt, candidate_token_count)
                 break
         if mismatch is None:
@@ -512,10 +538,7 @@ def fetch_squad_parquet_rows(
     table = pq.read_table(BytesIO(parquet_raw))
     count = min(max(1, int(row_count)), int(table.num_rows))
     records = table.slice(0, count).to_pylist()
-    rows = [
-        {"row_idx": index, "row": dict(row)}
-        for index, row in enumerate(records)
-    ]
+    rows = [{"row_idx": index, "row": dict(row)} for index, row in enumerate(records)]
     provenance = [
         {
             "kind": "parquet_index",
@@ -603,6 +626,8 @@ def materialize_squad_long_context_manifest(
     excluded_case_ids: Sequence[str] = (),
     retrieval_block_tokens: int = 48,
     maximum_query_answer_tokens: int = 72,
+    maximum_causal_sequence_tokens: int = 320,
+    maximum_oracle_prompt_tokens: int = 96,
 ) -> dict[str, Any]:
     """Freeze a parquet-backed multi-block source-grounding manifest."""
 
@@ -621,6 +646,8 @@ def materialize_squad_long_context_manifest(
         excluded_case_ids=excluded,
         retrieval_block_tokens=int(retrieval_block_tokens),
         maximum_query_answer_tokens=int(maximum_query_answer_tokens),
+        maximum_causal_sequence_tokens=int(maximum_causal_sequence_tokens),
+        maximum_oracle_prompt_tokens=int(maximum_oracle_prompt_tokens),
     )
     source_lengths = [int(case["source_token_count"]) for case in cases]
     block_counts = [int(case["retrieval_block_count"]) for case in cases]
@@ -642,6 +669,8 @@ def materialize_squad_long_context_manifest(
         "maximum_cases_per_title": int(maximum_cases_per_title),
         "retrieval_block_tokens": int(retrieval_block_tokens),
         "maximum_query_answer_tokens": int(maximum_query_answer_tokens),
+        "maximum_causal_sequence_tokens": int(maximum_causal_sequence_tokens),
+        "maximum_oracle_prompt_tokens": int(maximum_oracle_prompt_tokens),
         "minimum_retrieval_blocks": min(block_counts),
         "maximum_retrieval_blocks": max(block_counts),
         "minimum_observed_source_tokens": min(source_lengths),
@@ -674,7 +703,7 @@ def materialize_squad_training_corpus(
         answers = tuple(str(value).strip() for value in case["answers"])
         if not answers or not answers[0]:
             raise ValueError("grounding training case lacks a first answer")
-        documents.append(f'{str(case["prompt"]).rstrip()} {answers[0]}')
+        documents.append(f"{str(case['prompt']).rstrip()} {answers[0]}")
     text = LANGUAGE_DOCUMENT_SEPARATOR.join(documents)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -732,13 +761,17 @@ def _generate_prompts(
             dtype=torch.long,
             device=model.device,
         )
-        generated = model.generate(
-            prompt_batch,
-            max_new_tokens=int(max_new_tokens),
-            eos_id=tokenizer.eos_id,
-            repetition_penalty=1.1,
-            no_repeat_ngram_size=3,
-        )["generated_ids"].detach().cpu()
+        generated = (
+            model.generate(
+                prompt_batch,
+                max_new_tokens=int(max_new_tokens),
+                eos_id=tokenizer.eos_id,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=3,
+            )["generated_ids"]
+            .detach()
+            .cpu()
+        )
         for row_index, case_index in enumerate(indices):
             continuations[case_index] = tokenizer.decode(
                 [int(value) for value in generated[row_index, prompt_length:].tolist()]

@@ -1089,6 +1089,14 @@ selection does not rescue the frozen residual interface. The failed runner,
 model, tests, cache, and checkpoint are deleted. Report SHA-256 is
 `7b53df754d275a211412df2c006956901cb7f7a910da26556c4a8a8abfef6e3d`.
 
+V57 freezes a new native-context data boundary. Its 8,192-case official-train
+manifest excludes all V48/V55/V56 train IDs; its 256-case official-validation
+manifest excludes V47/V56 validation IDs. Every full causal prompt, standalone
+answer, and EOS fits 320 tokens, with exact trailing-space BPE prefixes shared by
+training and generation. Each case also stores an answer-containing oracle-short
+prompt of at most 96 tokens for a matched localization control. This freezes data
+only; the architecture and gate are not yet admitted.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
