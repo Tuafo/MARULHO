@@ -1537,7 +1537,7 @@ or long-context memory in general. Do not tune it on this validation panel. Move
 to a base-native context mechanism or recurrent segment state where evidence can
 participate throughout the language computation.
 
-### V57 preregistration: evidence inside the native causal computation
+### V57 terminal result: native context is insufficient and destructive
 
 V56 separates two hypotheses cleanly. Learned top-two retrieval reaches 71.09%,
 but oracle evidence still produces no correct answers. The next experiment must
@@ -1612,6 +1612,22 @@ synchronizations. V57 now retains the preregistered final-step gradient truth,
 parent general/relation baselines, and every trained-arm source control without
 those costs. Interrupted profiling invocations emitted no report or checkpoint
 and are not experiment results.
+
+The terminal matched result is valid and negative. Oracle-short generates
+122/256 exact answers; native-full generates 43/256. The native model reaches
+90/256 when the same heldout evidence is oracle-localized at evaluation, so
+long-range localization/integration is independently real. But oracle itself
+misses the 128-case capability floor, while general loss regresses from 3.1490
+to 3.3712/3.3553 and relation exact generation from 89.06% to 34.38%/75.00%.
+Both arms pass parameter, schedule, final-gradient, time, parent, tokenizer, and
+strict reload truth at 16.77k/17.03k positions/s. Decision:
+`retire_v57_context_exonerated_base_or_objective_failure`. Do not repeat full
+base-tensor fine-tuning with a longer window. The next architecture must provide
+a protected plastic pathway that participates throughout depth while leaving
+the qualified semantic cortex exactly recoverable, and must address evidence
+localization explicitly rather than relying on dense attention to discover it.
+Report SHA-256 is
+`fe93519ca693837796c76ba8e1161e68e7f4d210ad31a47341f854f90660cb99`.
 
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:

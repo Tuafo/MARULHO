@@ -1,54 +1,56 @@
-# MARULHO V56 Landmark Evidence Retrofit
+# MARULHO V57 Native Long Context
 
 ## Summary
 
 | Field | Value |
 |-------|-------|
-| Surface | marulho_landmark_retrofit_falsification.v1 |
-| Decision | retire_v56_landmark_retrofit_capability_or_retrieval_failure |
+| Surface | marulho_native_context_falsification.v1 |
+| Decision | retire_v57_context_exonerated_base_or_objective_failure |
 | Owned By Marulho | true |
 | External Llm Used | false |
 | External Text Data | true |
-| Experiment Contract Sha256 | b74eee5f98d08de98a32e82da9f090c9138ded1b0ddbadc4453a2a59e4935449 |
-| Total Wall Seconds | 621.777 |
-| Boundary | V56 tests frozen-parent block retrieval and causal evidence injection on heldout extractive long-context questions. It does not prove open-domain retrieval, abstractive synthesis, continual writes, or a replacement base architecture. |
+| Experiment Contract Sha256 | 06c2fe44bdb75e29b12c2eafb2b13af62a720d8d97758b1831e68634160ef129 |
+| Total Wall Seconds | 2818.59 |
+| Boundary | V57 tests whether V39 can learn source-visible long-context QA when evidence participates in every causal layer. It does not prove open-domain retrieval, arbitrary-length memory, or a post-Transformer architecture. |
 
 ## Configuration
 
 | Field | Value |
 |-------|-------|
-| Epoch Count | 15 |
-| Adapter Position Budget | 20643840 |
-| Query Length | 72 |
+| Context Length | 320 |
 | Batch Size | 32 |
-| Block Tokens | 48 |
-| Maximum Blocks | 5 |
-| Selected Blocks | 2 |
-| Retrieval Width | 128 |
-| Adapter Width | 256 |
-| Adapter Layers | 2 |
-| Adapter Heads | 8 |
-| Maximum Answer Tokens | 12 |
+| Grounding Epochs | 4 |
+| Optimizer Steps | 2048 |
+| Padded Position Budget Per Arm | 20971520 |
+| Grounding Fraction | 0.5 |
+| General Fraction | 0.25 |
+| Relation Fraction | 0.25 |
+| Answer Weight | 4 |
 | Learning Rate | 0.0003 |
 | Minimum Learning Rate Fraction | 0.1 |
 | Warmup Fraction | 0.05 |
 | Weight Decay | 0.1 |
 | Gradient Clip | 1 |
 | Precision | bfloat16 |
-| Data Seed | 56121 |
-| Model Seed | 56131 |
+| Execution Backend | pytorch_eager |
+| Data Seed | 57121 |
+| Model Seed | 57131 |
+| Sample Bytes Per Replay Source | 16777216 |
+| Sample Bytes Per Eval Source | 1048576 |
+| Sample Range Count | 16 |
+| General Eval Batches | 16 |
 | Relation Case Count | 64 |
 | Relation Eval Batch Size | 8 |
 | Relation Generation Tokens | 16 |
-| General Eval Batches | 16 |
-| Maximum Cache Plus Training Seconds | 1200 |
-| Maximum Parameter Fraction | 0.03 |
-| Minimum Predicted Coverage | 0.8 |
-| Minimum Predicted Answer Count | 64 |
-| Minimum Source Gain | 0.45 |
-| Minimum Oracle Answer Count | 72 |
-| Maximum Predicted Oracle Gap | 10 |
-| Maximum Shuffled Answer Count | 8 |
+| Grounding Generation Tokens | 16 |
+| Maximum Training Seconds Per Arm | 1800 |
+| Minimum Oracle Answer Count | 128 |
+| Minimum Native Answer Count | 128 |
+| Minimum Native Source Gain | 0.45 |
+| Maximum Native Oracle Gap | 16 |
+| Maximum Mismatched Answer Count | 16 |
+| Maximum General Loss Regression | 0.1 |
+| Maximum Relation Generation Regression | 0.05 |
 
 ## Checkpoint
 
@@ -61,46 +63,21 @@
 
 | Field | Value |
 |-------|-------|
-| Training Manifest Path | reports\language_curriculum\squad-v56c-long-train-8192-20260812.json |
-| Training Manifest Sha256 | ebc512f0a1d680ce3c9b0f11b52ed9a86395f035be125c5470d4b326e902a5e3 |
-| Training Manifest Contract Sha256 | efd56051f98ea32fad2474e3f9504d33bec6aac4d7e69978378f3c9547d5552d |
-| Validation Manifest Path | reports\language_curriculum\squad-v56-long-validation-128-20260812.json |
-| Validation Manifest Sha256 | fa609b4c6c381d1d0c347fc3286dc2ed5e35daea4c57da8400b20056f0facbc6 |
-| Validation Manifest Contract Sha256 | feca4f4088d3452265f2fc35240f7aa45de68dfc856e0be80af7f45a9e470a84 |
+| Training Manifest Path | reports\language_curriculum\squad-v57-native-train-8192-20260812.json |
+| Training Manifest Sha256 | aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133 |
+| Training Manifest Contract Sha256 | fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7 |
+| Validation Manifest Path | reports\language_curriculum\squad-v57-native-validation-256-20260812.json |
+| Validation Manifest Sha256 | b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80 |
+| Validation Manifest Contract Sha256 | 9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c |
 | Training Validation Case Overlap | 0 |
-| Combined Cache Elapsed Seconds | 64.9132 |
-| Combined Cache Host Storage Bytes | 4907335680 |
 
-## Arm
+## Setup Timings
 
 | Field | Value |
 |-------|-------|
-| Architecture | frozen_v39_landmark_retrieval_causal_cross_attention |
-| Processed Adapter Positions | 20643840 |
-| Epoch Count | 15 |
-| Optimizer Steps | 3840 |
-| Positions Per Step | 5376 |
-| Training Seconds | 268.021 |
-| Cache Plus Training Seconds | 332.934 |
-| Training Positions Per Second | 77023.2 |
-| Cache Amortized Positions Per Second | 62005.7 |
-| Initial Loss | 6.48435 |
-| Final Loss | 2.81317 |
-| Final Generator Loss | 2.45805 |
-| Final Retrieval Loss | 0.355119 |
-| Peak Cuda Allocated Bytes | 1236118528 |
-| Optimizer State Bytes | 19067108 |
-| Schedule Sha256 | ff7f18cfd914c9fee9485eb771c321c2f68e687e9d0ccccbc421bc5d4ee0d6ff |
-| Warmup Steps | 192 |
-| All Parameters Received Gradient | true |
-| All Parameters Received Nonzero Gradient | true |
-| All Parameters Received Final Gradient | true |
-| All Parameters Received Final Nonzero Gradient | true |
-| Parent Frozen | true |
-| Replay Used | false |
-| Retrofit Parameters | 2383361 |
-| Parent Parameters | 100679424 |
-| Experiment Contract Sha256 | b74eee5f98d08de98a32e82da9f090c9138ded1b0ddbadc4453a2a59e4935449 |
+| Parent And Data Preparation Seconds | 42.8091 |
+| Baseline General Seconds | 1.57366 |
+| Baseline Relation Seconds | 9.11414 |
 
 ## Parent
 
@@ -109,31 +86,12 @@
 | Checkpoint Sha256 Before | 6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d |
 | Checkpoint Sha256 After | 6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d |
 | Checkpoint File Exact | true |
-| State Sha256 Before | 76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082 |
-| State Sha256 After | 76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082 |
-| State Exact | true |
 | Tokenizer Hash Before | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
 | Tokenizer Hash After | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
 | Tokenizer Exact | true |
-| Logits Exact | true |
-| General Loss Before | 3.14903 |
-| General Loss After | 3.14903 |
-| General Loss Exact | true |
-| Relation Exact | true |
-
-## Checkpoint Fidelity
-
-| Field | Value |
-|-------|-------|
-| Performed | true |
-| Arm Checkpoint Path | reports\language_scaling\landmark-retrofit-v56-20m-20260812-arm.pt |
-| Arm Checkpoint Sha256 | f53293ae896d51b3d93ea898a564ced5c013d1e0343b6dbd3eb39a415aeab6b2 |
-| Arm Checkpoint Size Bytes | 9559858 |
-| Expected State Sha256 | 306bdbf056e2ffd9a2c6e7cad0870509245d961328259edadda1d81ecb67cea3 |
-| Restored State Sha256 | 306bdbf056e2ffd9a2c6e7cad0870509245d961328259edadda1d81ecb67cea3 |
-| Tokenizer Hash Before | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
-| Tokenizer Hash After | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
-| Passed | true |
+| Initial Short Prefix Exact | true |
+| Initial Short Prefix Max Absolute Delta | 0 |
+| Parameter Count | 100679424 |
 
 ## Gate
 
@@ -145,122 +103,113 @@
 
 ```json
 {
-  "arm": {
-    "all_parameters_received_final_gradient": true,
-    "all_parameters_received_final_nonzero_gradient": true,
-    "all_parameters_received_gradient": true,
-    "all_parameters_received_nonzero_gradient": true,
-    "architecture": "frozen_v39_landmark_retrieval_causal_cross_attention",
-    "cache_amortized_positions_per_second": 62005.74562715139,
-    "cache_plus_training_seconds": 332.9343078000238,
-    "epoch_count": 15,
-    "experiment_contract_sha256": "b74eee5f98d08de98a32e82da9f090c9138ded1b0ddbadc4453a2a59e4935449",
-    "final_generator_loss": 2.458051919937134,
-    "final_loss": 2.813171148300171,
-    "final_missing_gradient_parameters": [],
-    "final_retrieval_loss": 0.3551193177700043,
-    "final_zero_gradient_parameters": [],
-    "initial_loss": 6.484348773956299,
-    "missing_gradient_parameters": [],
-    "optimizer_state_bytes": 19067108,
-    "optimizer_steps": 3840,
-    "parent_frozen": true,
-    "parent_parameters": 100679424,
-    "peak_cuda_allocated_bytes": 1236118528,
-    "positions_per_step": 5376,
-    "processed_adapter_positions": 20643840,
-    "replay_used": false,
-    "retrofit_parameters": 2383361,
-    "schedule_sha256": "ff7f18cfd914c9fee9485eb771c321c2f68e687e9d0ccccbc421bc5d4ee0d6ff",
-    "source_grounding": {
-      "conditions": {
-        "mismatched_source": {
-          "case_count": 128,
-          "exact_answer_accuracy": 0.0,
-          "exact_answer_count": 0,
-          "rows": [
-            {
-              "answers": [
-                "February 7, 2016",
-                "February 7"
-              ],
-              "case_id": "56be8e613aeaaa14008c90d2",
-              "continuation": "247",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "\"golden anniversary\"",
-                "gold-themed",
-                "gold"
-              ],
-              "case_id": "56bea9923aeaaa14008c91b9",
-              "continuation": "substantial",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "American Football Conference"
-              ],
-              "case_id": "56bea9923aeaaa14008c91ba",
-              "continuation": "the AFC C stands for the Air Flex",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "February 7, 2016",
-                "February 7"
-              ],
-              "case_id": "56bea9923aeaaa14008c91bb",
-              "continuation": "2554",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "Denver Broncos"
-              ],
-              "case_id": "56beace93aeaaa14008c91df",
-              "continuation": "May 21",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "Levi's Stadium",
-                "Levi's Stadium in the San Francisco Bay Area at Santa Clara"
-              ],
-              "case_id": "56beace93aeaaa14008c91e0",
-              "continuation": "second party",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "Santa Clara"
-              ],
-              "case_id": "56beace93aeaaa14008c91e1",
-              "continuation": "the city of",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "2015",
-                "the 2015 season"
-              ],
-              "case_id": "56beace93aeaaa14008c91e3",
-              "continuation": "~140",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "2015",
-                "2016"
-              ],
-              "case_id": "56bf10f43aeaaa14008c94fd",
-              "continuation": "1978",
-              "exact_answer_match": false
-            },
-            {
-              "answers": [
-                "Santa Clara"
-              ],
-    
+  "arms": {
+    "native_full": {
+      "checkpoint_fidelity": {
+        "context_exact": true,
+        "expected_state_sha256": "f0679d7f1311ab71e0e54161738b29a9b1e7e76280ada9a6b73052444ec766e1",
+        "logits_exact": true,
+        "metadata": {
+          "arm": "native_full",
+          "cumulative_tokens": 231986680,
+          "parent_checkpoint_sha256": "6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d",
+          "processed_nonpad_tokens": 13878520,
+          "processed_padded_positions": 20971520,
+          "source_experiment": "marulho_native_context_falsification.v1"
+        },
+        "passed": true,
+        "path": "reports\\language_scaling\\.v57-native-context-arms\\v57-native_full.pt",
+        "restored_state_sha256": "f0679d7f1311ab71e0e54161738b29a9b1e7e76280ada9a6b73052444ec766e1",
+        "sha256": "dd4255998b5c3519584ddbf663827b593f52dd52560f04c96133c408304a1c85",
+        "size_bytes": 428144230,
+        "state_exact": true,
+        "tokenizer_exact": true
+      },
+      "general": {
+        "batch_count": 16,
+        "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
+        "external_llm_used": false,
+        "heldout_loss": 3.3552746772766113,
+        "heldout_perplexity": 28.653473567972686,
+        "owned_by_marulho": true,
+        "surface": "marulho_transformer_heldout_evaluation.v3",
+        "token_count": 9216,
+        "tokens_per_second": 15977.589766097884
+      },
+      "parameter_count": 100679424,
+      "relation": {
+        "accuracy": 1.0,
+        "case_count": 64,
+        "correct_index_metrics_only": true,
+        "evaluation_batch_size": 8,
+        "evaluation_mode": "length_grouped_batched",
+        "generation_exact_accuracy": 0.75,
+        "generation_kind_accuracy": {
+          "container": 0.0,
+          "event_order": 1.0,
+          "ownership": 1.0,
+          "property": 1.0
+        },
+        "generation_max_new_tokens": 16,
+        "kind_accuracy": {
+          "container": 1.0,
+          "event_order": 1.0,
+          "ownership": 1.0,
+          "property": 1.0
+        },
+        "prediction_uses_correct_index": false,
+        "rows": [
+          {
+            "candidate_losses": [
+              2.9063968658447266,
+              2.929298162460327,
+              2.7794487476348877,
+              0.3555024564266205
+            ],
+            "case_id": "container-0000",
+            "correct": true,
+            "generation_continuation": " Cora carried the cup to the shelf.",
+            "generation_exact_answer_match": false,
+            "kind": "container",
+            "label_used_for_generation": false,
+            "label_used_for_prediction": false,
+            "predicted_index": 3
+          },
+          {
+            "candidate_losses": [
+              3.4058094024658203,
+              0.018950097262859344,
+              0.25312748551368713,
+              4.400670528411865
+            ],
+            "case_id": "event_order-0000",
+            "correct": true,
+            "generation_continuation": " Some water reaches the studio.",
+            "generation_exact_answer_match": true,
+            "kind": "event_order",
+            "label_used_for_generation": false,
+            "label_used_for_prediction": false,
+            "predicted_index": 1
+          },
+          {
+            "candidate_losses": [
+              0.7191920280456543,
+              1.0910178422927856,
+              0.0009006732143461704,
+              1.0131338834762573
+            ],
+            "case_id": "ownership-0000",
+            "correct": true,
+            "generation_continuation": " Ben has the red key.",
+            "generation_exact_answer_match": true,
+            "kind": "ownership",
+            "label_used_for_generation": false,
+            "label_used_for_prediction": false,
+            "predicted_index": 2
+          },
+          {
+            "candidate_losses": [
+              1.241619348526001,
+              1.4364808797836304,
+              0.008584472350776196,
 ```

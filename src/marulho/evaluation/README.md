@@ -1097,7 +1097,7 @@ training and generation. Each case also stores an answer-containing oracle-short
 prompt of at most 96 tokens for a matched localization control. This data was
 frozen before the architecture and gate immediately below.
 
-The architecture is now preregistered. V57 compares full-source native context
+The frozen V57 comparison used full-source native context
 against an oracle-localized control under exact 320-token padded compute. Both
 update all V39 parameters for 20,971,520 positions with 50% grounding, 25%
 general replay, and 25% relation replay. Native and oracle each need 128/256;
@@ -1105,16 +1105,16 @@ native must gain 45 source-control points, remain within 16 cases of oracle, and
 retain general/relation behavior. Eager batch 32 is frozen after the real
 preflight; compiled execution is invalid and slower. Preflight report SHA-256 is
 `bf4f5a74b3710835085bc152a4c1d0eababdc339066c2372944cde8eef831a5e`.
-`language_native_context_falsification.py` owns the implemented two-arm runner,
-including prefix/answer boundary construction, exact replay schedule, source
-controls, retention checks, and standard checkpoint fidelity. A complete
-preparation audit yields 256 grounding batches per arm, 2,773 relation batches,
-346/296 general batches, and schedule hash
+The terminal runner prepared 256 grounding batches per arm, 2,773 relation
+batches, 346/296 general batches, and schedule hash
 `bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
-This is execution-contract evidence only; neither arm has a quality result yet.
-The runner does not generate an unused parent grounding panel. Only parent
-general/relation behavior defines retention; each trained arm still runs every
-full, oracle, question-only, and mismatched-source capability condition.
+The terminal result retires the path. Oracle-short reaches 122/256 and
+native-full 43/256; native reaches 90/256 only when its evaluation evidence is
+oracle-localized. General loss regresses 3.1490→3.3712/3.3553 and relation exact
+generation 89.06%→34.38%/75.00%. All mechanical and fidelity checks pass at
+16.77k/17.03k positions/s, so this is not a broken run. The runner and tests are
+deleted; the retained report SHA-256 is
+`fe93519ca693837796c76ba8e1161e68e7f4d210ad31a47341f854f90660cb99`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

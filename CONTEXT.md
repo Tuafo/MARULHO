@@ -717,7 +717,7 @@ SHA-256 is `7b53df754d275a211412df2c006956901cb7f7a910da26556c4a8a8abfef6e3d`.
 The next source branch must test context expansion or recurrent segment memory,
 not another frozen answer extractor.
 
-**Native Long-Context v57 (preregistered)** —
+**Retired Native Long-Context v57** —
 V57 has a fresh official SQuAD boundary before model work. The train manifest has
 8,192 cases from 171 titles and excludes every V48, V55, and V56 train ID. The
 256-case validation manifest spans 22 titles and excludes every V47 and V56
@@ -765,15 +765,20 @@ The implemented runner prepares 256 grounding batches per arm, 2,773 relation
 batches, 346/296 general batches, and the exact frozen 1,024/512/256/256 update
 schedule with hash
 `bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
-Focused data, schedule, context-parity, and decision tests pass. No V57 quality
-or checkpoint claim exists until the two counted arms finish. Parent grounding
-generation is intentionally omitted because no gate consumes it; parent general
-loss and relation generation remain the exact retention baselines.
-The counted trainer audits nonzero gradients on the final optimizer step. That
-is logically sufficient for the frozen complete-final-gradient gate and avoids
-the invalid prototype's roughly 160,000 per-parameter CUDA synchronizations.
-Those interrupted execution-only attempts emitted no report or checkpoint and
-carry no quality evidence.
+The terminal run is mechanically valid and negative. Oracle-short reaches
+122/256 exact answers and native-full reaches 43/256, versus required 128/256
+for both. Native gains only 16.80 source-control points and trails oracle by 79
+cases. Its oracle cross-view reaches 90/256, proving that localization remains a
+real difficulty even after native training. Capability is not the only failure:
+general loss regresses from 3.1490 to 3.3712/3.3553 and relation generation from
+89.06% to 34.38%/75.00% for oracle/native. Both arms retain exact positions,
+steps, parameters, final nonzero gradients, parent/tokenizer fidelity, and
+strict tensor/logit reload. Training sustains 16,765.7/17,030.1 positions/s in
+1,250.9/1,231.4 seconds. Decision:
+`retire_v57_context_exonerated_base_or_objective_failure`. This rejects merely
+expanding context and unrestrictedly fine-tuning every base tensor. No candidate,
+runner, tests, or checkpoint surface survives; the report SHA-256 is
+`fe93519ca693837796c76ba8e1161e68e7f4d210ad31a47341f854f90660cb99`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

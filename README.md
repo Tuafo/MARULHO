@@ -366,18 +366,16 @@ positive controlled result—not a replacement for frontier Transformers.
     control V39's answer realization. The model, runner, tests, cache, and
     checkpoint surface are deleted. The next branch expands native context or
     tests recurrent segment memory, not another frozen answer head.
-26. Preregister V57's native-context falsifier. The exact V39 tensors are loaded
-    into the same parameter-count Transformer with rotary context expanded from
-    72 to 320 tokens. Unlike V56, every layer learns from evidence. A matched
-    oracle-short arm sees the same questions and answers with the answer-bearing
-    source region already localized, but both arms use the same 320-token padded
-    shape, initialization, schedule, optimizer, and 20,971,520 positions. Half
-    of updates train grounding, one quarter replay general text, and one quarter
-    replay V39's relation domain. The 256-case panel is entirely new. Native
-    context must reach 128/256 answers, gain 45 points over controls, remain
-    within 16 cases of a qualifying oracle arm, retain general/relation quality,
-    and reload exactly. Eager batch 32 is frozen after a real full-optimizer
-    preflight; Inductor is rejected for parity failure and a 49x slowdown.
+26. Retire V57's full-model native-context continuation. Both exact-reset 100.7M
+    arms process 20,971,520 positions with complete final gradients and exact
+    reload. Oracle-localized evidence reaches 122/256 exact answers, six below
+    the gate; full-source context reaches only 43/256, though the same native
+    model reaches 90/256 when evaluated with localized evidence. General loss
+    regresses from 3.1490 to 3.3712/3.3553 and relation generation from 89.06%
+    to 34.38%/75.00%. Training sustains 16.77k/17.03k positions/s. The result
+    rejects context expansion plus unrestricted full-model fine-tuning: evidence
+    localization is real, but the privileged arm still misses capability and
+    overwrites retained behavior. No candidate or V57 machinery survives.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

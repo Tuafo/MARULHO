@@ -389,22 +389,17 @@ parent fidelity, and strict compact reload. The result rejects a small residual
 cross-attention adapter as the language-realization interface. No model, loader,
 checkpoint surface, cache, runner, test, or compatibility import remains.
 
-V57 is preregistered as a full-model native-context continuation, not an adapter.
+V57's full-model native-context continuation is retired.
 The exact V39 tensors are loaded into a 320-token rotary context with unchanged
 parameter count, then all layers train. Full-source and oracle-localized arms use
 the same 320-token padded shape and 20,971,520-position mixed grounding/general/
 relation schedule. Eager batch 32 is selected by a real Muon/AdamW full-step
 preflight. Inductor is rejected after parity failure and a collapse to 328.5
-positions/s versus eager's 16.1k. No V57 checkpoint surface exists until the
-joint capability, retention, gradient, runtime, and reload gate passes.
-The evaluation-owned runner now builds the exact 2,048-step schedule and updates
-all base tensors under the existing Muon/AdamW ownership split. Tests prove that
-extending rotary context changes no parameter and preserves short-prefix logits;
-the counted runs, rather than these mechanical checks, own the scientific result.
-Gradient completeness is reduced only after the final optimizer step; checking
-every parameter with a host readback at every step is rejected instrumentation
-because it adds roughly 160,000 CUDA synchronizations without strengthening the
-final-gradient gate.
+positions/s versus eager's 16.1k. The valid terminal arms sustain 16.77k/17.03k
+positions/s, but oracle/native exact generation reaches only 122/256 and 43/256
+while both regress general retention. Context expansion plus unrestricted base
+fine-tuning is therefore rejected. No V57 optimizer, checkpoint, runner, test,
+or loading surface remains.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
