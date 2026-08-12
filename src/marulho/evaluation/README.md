@@ -1119,7 +1119,10 @@ deleted; the retained report SHA-256 is
 V58 is preregistered as a protected full-capacity evidence-localization test,
 not another compact source head. It clones V39's embedding, ten Transformer
 blocks, and norm into an independently optimized bidirectional organ, predicts
-one contiguous start/end interval, and copies only consecutive tokenizer IDs.
+one contiguous Unicode-character interval from token states plus within-token
+boundary features, and copies only consecutive source characters. Preflight
+corrects 34 training and 2 validation stored offsets against the immutable exact
+answer strings and proves a 256/256 mechanical copy oracle.
 The causal parent remains immutable and source-absent requests bypass the organ.
 The primary arm processes the V57 8,192-case title-disjoint training manifest
 for eight epochs: 2,048 batch-32 updates and 20,971,520 padded context-320

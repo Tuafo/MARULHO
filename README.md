@@ -379,7 +379,7 @@ positive controlled result—not a replacement for frontier Transformers.
 27. Test V58 as the capacity ceiling for a protected evidence organ. V39 stays
     immutable and owns ordinary language. A separate full-width, ten-layer clone
     reads bounded source/question records bidirectionally and copies one learned
-    contiguous tokenizer span. The frozen gate is 192/256 exact title-disjoint
+    contiguous Unicode-character span. The frozen gate is 192/256 exact title-disjoint
     answers with strong mismatched-source separation and exact parent fidelity.
     A miss closes this extractive-organ family; a pass earns a matched random-
     initialization control before routing, synthesis, or compression work.

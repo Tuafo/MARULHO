@@ -1659,11 +1659,13 @@ source-absent language request. A separate MARULHO-owned evidence organ clones
 V39's checkpoint-trained token embedding, ten full-width Transformer blocks,
 and final norm, but runs the cloned blocks bidirectionally over one bounded
 `Context` plus `Question` record. It has no vocabulary head. Two new linear
-scorers predict the start and end of one contiguous source span. Inference
-copies that consecutive checkpoint-tokenizer interval exactly; it cannot join
-noncontiguous positions, so V55's malformed BPE assembly is structurally
-impossible. The organ is protected rather than residual: it never alters the
-causal cortex, and source-absent generation bypasses it exactly.
+scorers predict the start and end of one contiguous Unicode-character source
+span from token hidden states plus bounded within-token boundary features.
+Inference copies that consecutive source interval exactly; it cannot join
+noncontiguous positions or split a Unicode character, so V55's malformed BPE
+assembly is structurally impossible. The organ is protected rather than
+residual: it never alters the causal cortex, and source-absent generation
+bypasses it exactly.
 
 This is not presented as a novel span-QA primitive. V54 already tested a
 373,506-parameter, two-layer span encoder and reached only 16/64; V55 tested a
@@ -1682,9 +1684,13 @@ decay to 10% of peak, weight decay 0.1, gradient clipping at 1.0, data seed
 on the RTX 3060. No general or relation replay enters the organ because the
 causal parent is structurally unreachable from its optimizer.
 
-Before training, every gold character answer must map to a contiguous tokenizer
-span whose copied decode matches an accepted normalized answer; this makes the
-mechanical oracle 256/256. Promotion requires at least 192/256 learned exact
+Before training, every gold answer must map to an exact contiguous source-
+character span whose copied text matches an accepted normalized answer; this
+makes the mechanical oracle 256/256. V57's stored source offsets are only hints:
+the immutable answer text resolves the nearest exact occurrence because 34
+training and 2 validation offsets are off by one or more characters after source
+bounding. No label is consulted at evaluation after these training targets are
+materialized. Promotion requires at least 192/256 learned exact
 spans, at least 70 percentage points over mismatched-source extraction, at most
 8/256 mismatched exact answers, all 2,048 steps and positions, nonzero final
 gradients for every organ tensor, parent file/tokenizer/state/logit identity,

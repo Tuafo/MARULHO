@@ -785,8 +785,13 @@ localization. The immutable V39 causal cortex remains the only source-absent
 language path. A separate evidence organ clones its embedding, ten full-width
 blocks, and final norm, changes only the clone's attention visibility to
 bidirectional over a bounded source/question record, and learns start/end
-scorers for one contiguous source span. Exact consecutive-token copying removes
-V55's malformed noncontiguous output surface. The primary arm trains all organ
+scorers for one contiguous Unicode-character source span. Token hidden states
+plus bounded within-token features select exact character boundaries, removing
+V55's malformed noncontiguous output surface without making partial Unicode
+bytes legal. Preflight resolves 34 training and 2 validation annotations whose
+stored bounded-source offsets do not exactly point to their immutable answer
+text; all 256 validation answers then pass the mechanical copy oracle. The
+primary arm trains all organ
 parameters for eight epochs over the title-disjoint V57 8,192-case manifest:
 2,048 batch-32 updates and 20,971,520 padded positions at context 320. It must
 reach at least 192/256 exact heldout spans, gain 70 source-control points, keep
