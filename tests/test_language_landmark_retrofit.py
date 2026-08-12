@@ -31,15 +31,7 @@ def _model():
     )
     model = FrozenBaseLandmarkRetrofit(
         base,
-        context_marker_ids=torch.tensor(
-            tokenizer.encode("Context: ", add_bos=False, add_eos=False)
-        ),
-        question_marker_ids=torch.tensor(
-            tokenizer.encode("\nQuestion:", add_bos=False, add_eos=False)
-        ),
-        question_only_marker_ids=torch.tensor(
-            tokenizer.encode("Question:", add_bos=False, add_eos=False)
-        ),
+        tokenizer=tokenizer,
         pad_id=tokenizer.pad_id,
         eos_id=tokenizer.eos_id,
         block_tokens=16,
@@ -121,17 +113,21 @@ def test_runtime_split_matches_training_blocks_exactly() -> None:
     prompt = torch.tensor(
         tokenizer.encode(_manifest()["cases"][0]["prompt"], add_eos=False)
     )
-    source_ids, source_mask, valid, query = model._split_long_prompt(
-        prompt.unsqueeze(0)
+    source_ids, source_mask, valid, generator_query, retrieval_query = (
+        model._split_long_prompt(prompt.unsqueeze(0))
     )
 
     assert torch.equal(source_ids[0], batches[0].source_ids[0])
     assert torch.equal(source_mask[0], batches[0].source_attention_mask[0])
     assert torch.equal(valid[0], batches[0].block_valid_mask[0])
-    expected_query = batches[0].retrieval_query_ids[0][
+    expected_retrieval_query = batches[0].retrieval_query_ids[0][
         batches[0].retrieval_query_attention_mask[0]
     ]
-    assert torch.equal(query[0], expected_query)
+    expected_generator_query = torch.tensor(
+        tokenizer.encode(_manifest()["cases"][0]["question_only_prompt"], add_eos=False)
+    )
+    assert torch.equal(retrieval_query[0], expected_retrieval_query)
+    assert torch.equal(generator_query[0], expected_generator_query)
 
 
 def test_landmark_loss_reaches_every_retrofit_path_without_parent_gradients() -> None:
@@ -203,6 +199,7 @@ def test_landmark_checkpoint_is_compact_and_parent_strict(tmp_path) -> None:
     restored, metadata = load_landmark_retrofit_checkpoint(
         output,
         restored_base,
+        _model()[1],
         expected_parent_checkpoint_sha256="parent123",
     )
 
@@ -213,5 +210,6 @@ def test_landmark_checkpoint_is_compact_and_parent_strict(tmp_path) -> None:
         load_landmark_retrofit_checkpoint(
             output,
             _model()[0].base,
+            _model()[1],
             expected_parent_checkpoint_sha256="wrong-parent",
         )

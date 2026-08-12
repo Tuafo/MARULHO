@@ -181,14 +181,15 @@ def build_landmark_retrofit_batches(
         gold_indices = _gold_evidence_indices(gold_mask, block_count)
         if sum(gold_mask) == 2:
             boundary_spanning_count += 1
+        question = str(case["question"])
         question_prompt = str(case["question_only_prompt"])
-        normalized_question = _normalized_words(question_prompt)
+        normalized_question = _normalized_words(question)
         normalized_answer = _normalized_words(answer)
         if not normalized_answer or normalized_answer in normalized_question:
             raise ValueError("retrieval query leaks the normalized answer")
         if not set(index // block for index in answer_span).issubset(gold_indices):
             raise ValueError("gold evidence union does not contain the answer span")
-        retrieval_ids = tokenizer.encode(question_prompt, add_bos=True, add_eos=False)
+        retrieval_ids = tokenizer.encode(question, add_bos=True, add_eos=False)
         if len(retrieval_ids) > query:
             raise ValueError("retrieval query exceeds the V39 context")
         full_text = f"{question_prompt} {answer}"
@@ -370,9 +371,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
         self,
         base: MarulhoLanguageModel,
         *,
-        context_marker_ids: torch.Tensor,
-        question_marker_ids: torch.Tensor,
-        question_only_marker_ids: torch.Tensor,
+        tokenizer: LanguageTokenizer,
         pad_id: int,
         eos_id: int,
         block_tokens: int = 48,
@@ -384,6 +383,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
     ) -> None:
         super().__init__()
         self.base = base
+        self.tokenizer = tokenizer
         self.base.requires_grad_(False)
         self.block_tokens = int(block_tokens)
         self.maximum_blocks = int(maximum_blocks)
@@ -420,11 +420,6 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
         )
         self.residual_projection = nn.Linear(self.adapter_width, hidden)
         self.residual_gate = nn.Parameter(torch.tensor(-2.0))
-        self.register_buffer("context_marker_ids", context_marker_ids.detach().long())
-        self.register_buffer("question_marker_ids", question_marker_ids.detach().long())
-        self.register_buffer(
-            "question_only_marker_ids", question_only_marker_ids.detach().long()
-        )
 
     @property
     def device(self) -> torch.device:
@@ -586,38 +581,58 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
             "retrieval_loss": retrieval_loss.detach(),
         }
 
-    def _marker_position(
-        self, input_ids: torch.Tensor, marker_ids: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        matches = input_ids.unfold(1, int(marker_ids.numel()), 1).eq(marker_ids).all(-1)
-        found = matches.any(dim=1)
-        return matches.to(torch.int64).argmax(dim=1), found
-
     def _split_long_prompt(
         self, prompt: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None:
-        context_start, has_context = self._marker_position(
-            prompt, self.context_marker_ids
-        )
-        question_start, has_question = self._marker_position(
-            prompt, self.question_marker_ids
-        )
-        if not bool((has_context & has_question).all().item()):
-            return None
+    ) -> (
+        tuple[
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+        ]
+        | None
+    ):
         if int(prompt.shape[0]) != 1:
             raise ValueError("long-prompt splitting currently requires one row")
-        source_start = int(context_start[0]) + int(self.context_marker_ids.numel())
-        source_end = int(question_start[0])
-        source = prompt[0, source_start:source_end]
-        question_suffix = prompt[
-            0, source_end + int(self.question_marker_ids.numel()) :
-        ]
-        query = torch.cat(
-            (
-                torch.tensor([int(prompt[0, 0])], device=self.device, dtype=torch.long),
-                self.question_only_marker_ids,
-                question_suffix,
-            )
+        prompt_ids = [int(value) for value in prompt[0].detach().cpu().tolist()]
+        text = self.tokenizer.decode(prompt_ids)
+        context_prefix = "Context: "
+        question_marker = "\nQuestion: "
+        answer_marker = "\nAnswer:"
+        if not text.startswith(context_prefix) or answer_marker not in text:
+            return None
+        question_start = text.rfind(question_marker)
+        answer_start = text.rfind(answer_marker)
+        if question_start < len(context_prefix) or answer_start < question_start:
+            return None
+        source_text = text[len(context_prefix) : question_start]
+        question_text = text[question_start + len(question_marker) : answer_start]
+        canonical = (
+            f"{context_prefix}{source_text}{question_marker}"
+            f"{question_text}{answer_marker}"
+        )
+        canonical_ids = self.tokenizer.encode(canonical, add_bos=True, add_eos=False)
+        if canonical_ids != prompt_ids:
+            raise ValueError("V56 prompt does not round-trip through its tokenizer")
+        source = torch.tensor(
+            self.tokenizer.encode(source_text, add_bos=False, add_eos=False),
+            device=self.device,
+            dtype=torch.long,
+        )
+        generator_query = torch.tensor(
+            self.tokenizer.encode(
+                f"Question: {question_text}{answer_marker}",
+                add_bos=True,
+                add_eos=False,
+            ),
+            device=self.device,
+            dtype=torch.long,
+        ).unsqueeze(0)
+        retrieval_query = torch.tensor(
+            self.tokenizer.encode(question_text, add_bos=True, add_eos=False),
+            device=self.device,
+            dtype=torch.long,
         ).unsqueeze(0)
         block_count = math.ceil(int(source.numel()) / self.block_tokens)
         if not 1 <= block_count <= self.maximum_blocks:
@@ -638,7 +653,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
             device=self.device,
             dtype=torch.bool,
         )
-        return source_ids, source_mask, valid, query
+        return source_ids, source_mask, valid, generator_query, retrieval_query
 
     @torch.no_grad()
     def _runtime_evidence(
@@ -650,7 +665,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
         split = self._split_long_prompt(prompt)
         if split is None:
             return None
-        source_ids, source_mask, valid, query = split
+        source_ids, source_mask, valid, generator_query, retrieval_query = split
         flat = source_ids.flatten(0, 1)
         with torch.autocast(
             device_type=self.device.type,
@@ -665,15 +680,15 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
                 self.block_tokens,
                 int(self.base.config.state_dim),
             )
-            query_hidden = self.base._forward_hidden(query, collect_telemetry=False)[
-                "hidden"
-            ]
+            retrieval_query_hidden = self.base._forward_hidden(
+                retrieval_query, collect_telemetry=False
+            )["hidden"]
         scores = self.retrieval_scores(
             source_hidden,
             source_mask,
             valid,
-            query_hidden,
-            torch.ones_like(query, dtype=torch.bool),
+            retrieval_query_hidden,
+            torch.ones_like(retrieval_query, dtype=torch.bool),
         )
         indices = (
             scores.topk(k=min(2, int(valid.sum().item())), dim=1).indices
@@ -685,7 +700,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
         evidence, evidence_mask, score_gate = self.select_evidence(
             source_hidden, source_mask, scores, indices
         )
-        return query, evidence, evidence_mask, score_gate
+        return generator_query, evidence, evidence_mask, score_gate
 
     @torch.no_grad()
     def generate(
@@ -798,11 +813,6 @@ def save_landmark_retrofit_checkpoint(
             "pad_id": model.pad_id,
             "eos_id": model.eos_id,
         },
-        "markers": {
-            "context": model.context_marker_ids.detach().cpu(),
-            "question": model.question_marker_ids.detach().cpu(),
-            "question_only": model.question_only_marker_ids.detach().cpu(),
-        },
         "retrofit_state": model.retrofit_state_dict(),
         "metadata": dict(metadata),
     }
@@ -817,6 +827,7 @@ def save_landmark_retrofit_checkpoint(
 def load_landmark_retrofit_checkpoint(
     path: str | Path,
     base: MarulhoLanguageModel,
+    tokenizer: LanguageTokenizer,
     *,
     expected_parent_checkpoint_sha256: str,
 ) -> tuple[FrozenBaseLandmarkRetrofit, dict[str, Any]]:
@@ -828,12 +839,9 @@ def load_landmark_retrofit_checkpoint(
     ):
         raise ValueError("landmark retrofit parent checkpoint differs")
     configuration = dict(payload["configuration"])
-    markers = dict(payload["markers"])
     model = FrozenBaseLandmarkRetrofit(
         base,
-        context_marker_ids=markers["context"],
-        question_marker_ids=markers["question"],
-        question_only_marker_ids=markers["question_only"],
+        tokenizer=tokenizer,
         block_tokens=int(configuration["block_tokens"]),
         maximum_blocks=int(configuration["maximum_blocks"]),
         retrieval_width=int(configuration["retrieval_width"]),
