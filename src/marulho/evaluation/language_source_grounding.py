@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from io import BytesIO
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -134,6 +135,71 @@ def _bounded_source_text(
     return None
 
 
+def _bounded_long_source_text(
+    tokenizer: LanguageTokenizer,
+    *,
+    context: str,
+    question: str,
+    answer_start: int,
+    answer: str,
+    maximum_prompt_tokens: int,
+    minimum_source_tokens: int,
+) -> tuple[str, int, int] | None:
+    """Keep the largest answer-bearing multi-sentence source that fits."""
+
+    start = max(0, int(answer_start))
+    stop = min(len(context), start + len(answer))
+    candidates = [(0, len(context))]
+    for radius in (4096, 3072, 2048, 1536, 1024, 768, 512, 384, 256, 192):
+        left = max(0, start - radius)
+        right = min(len(context), stop + radius)
+        if left > 0:
+            boundary = context.find(" ", left)
+            left = boundary + 1 if 0 <= boundary < start else left
+        if right < len(context):
+            boundary = context.rfind(" ", stop, right)
+            right = boundary if boundary > stop else right
+        candidates.append((left, right))
+    seen: set[tuple[int, int]] = set()
+    for left, right in candidates:
+        bounds = (int(left), int(right))
+        if bounds in seen:
+            continue
+        seen.add(bounds)
+        source = context[left:right].strip()
+        if answer.casefold() not in source.casefold():
+            continue
+        source_tokens = len(
+            tokenizer.encode(source, add_bos=False, add_eos=False)
+        )
+        if source_tokens < int(minimum_source_tokens):
+            continue
+        prompt_tokens = len(tokenizer.encode(_prompt(source, question), add_eos=False))
+        if prompt_tokens <= int(maximum_prompt_tokens):
+            return source, prompt_tokens, source_tokens
+    return None
+
+
+def _in_context_answer_span_length(
+    tokenizer: LanguageTokenizer,
+    *,
+    prompt: str,
+    source: str,
+    answer: str,
+) -> int:
+    local_start = source.casefold().find(answer.casefold())
+    if local_start < 0:
+        return 0
+    answer_start = len("Context: ") + local_start
+    answer_end = answer_start + len(answer)
+    _ids, offsets = tokenizer.encode_with_offsets(
+        prompt, add_bos=True, add_eos=False
+    )
+    return sum(
+        end > answer_start and start < answer_end for start, end in offsets
+    )
+
+
 def build_squad_grounding_cases(
     rows: Sequence[Mapping[str, Any]],
     tokenizer: LanguageTokenizer,
@@ -173,7 +239,9 @@ def build_squad_grounding_cases(
             continue
         source, prompt_token_count = bounded
         visible_answers = tuple(
-            answer for answer in answers if _normalized(answer) in _normalized(source)
+            answer
+            for answer in answers
+            if _normalized(answer) and _normalized(answer) in _normalized(source)
         )
         if not visible_answers:
             continue
@@ -219,6 +287,127 @@ def build_squad_grounding_cases(
                 break
         if mismatch is None:
             raise ValueError("could not construct answer-absent mismatched source")
+        mismatch_source, mismatch_prompt, mismatch_token_count = mismatch
+        case["mismatched_source_text"] = mismatch_source
+        case["mismatched_prompt"] = mismatch_prompt
+        case["mismatched_prompt_token_count"] = int(mismatch_token_count)
+    return tuple(selected)
+
+
+def build_squad_long_context_cases(
+    rows: Sequence[Mapping[str, Any]],
+    tokenizer: LanguageTokenizer,
+    *,
+    case_count: int,
+    maximum_prompt_tokens: int = 248,
+    minimum_source_tokens: int = 96,
+    maximum_answer_tokens: int = 8,
+    maximum_cases_per_title: int = 64,
+    excluded_case_ids: Sequence[str] = (),
+    retrieval_block_tokens: int = 48,
+) -> tuple[dict[str, Any], ...]:
+    """Build long, multi-block SQuAD sources with token-safe answer spans."""
+
+    excluded = {str(value) for value in excluded_case_ids}
+    selected: list[dict[str, Any]] = []
+    title_counts: dict[str, int] = {}
+    for envelope in sorted(rows, key=lambda value: int(value["row_idx"])):
+        row = dict(envelope["row"])
+        case_id = str(row["id"])
+        if case_id in excluded:
+            continue
+        title = str(row["title"])
+        if title_counts.get(title, 0) >= int(maximum_cases_per_title):
+            continue
+        answers_payload = dict(row["answers"])
+        answers = tuple(
+            dict.fromkeys(str(value) for value in answers_payload["text"])
+        )
+        starts = tuple(int(value) for value in answers_payload["answer_start"])
+        if not answers or not starts or not answers[0].strip():
+            continue
+        question = str(row["question"]).strip()
+        if _contains_answer(question, answers):
+            continue
+        bounded = _bounded_long_source_text(
+            tokenizer,
+            context=str(row["context"]),
+            question=question,
+            answer_start=starts[0],
+            answer=answers[0],
+            maximum_prompt_tokens=int(maximum_prompt_tokens),
+            minimum_source_tokens=int(minimum_source_tokens),
+        )
+        if bounded is None:
+            continue
+        source, prompt_token_count, source_token_count = bounded
+        visible_answers = tuple(
+            answer
+            for answer in answers
+            if _normalized(answer) and _normalized(answer) in _normalized(source)
+        )
+        if not visible_answers:
+            continue
+        prompt = _prompt(source, question)
+        in_context_answer_tokens = _in_context_answer_span_length(
+            tokenizer,
+            prompt=prompt,
+            source=source,
+            answer=visible_answers[0],
+        )
+        if not 1 <= in_context_answer_tokens <= int(maximum_answer_tokens):
+            continue
+        block_count = math.ceil(source_token_count / int(retrieval_block_tokens))
+        if block_count < 2:
+            continue
+        local_answer_start = source.casefold().find(visible_answers[0].casefold())
+        selected.append(
+            {
+                "case_id": case_id,
+                "row_idx": int(envelope["row_idx"]),
+                "title": title,
+                "source_text": source,
+                "source_token_count": int(source_token_count),
+                "retrieval_block_tokens": int(retrieval_block_tokens),
+                "retrieval_block_count": int(block_count),
+                "question": question,
+                "answers": list(visible_answers),
+                "answer_source_character_start": int(local_answer_start),
+                "answer_in_context_token_count": int(in_context_answer_tokens),
+                "prompt": prompt,
+                "prompt_token_count": int(prompt_token_count),
+                "question_only_prompt": f"Question: {question}\nAnswer:",
+                "question_only_prompt_token_count": len(
+                    tokenizer.encode(
+                        f"Question: {question}\nAnswer:", add_eos=False
+                    )
+                ),
+            }
+        )
+        title_counts[title] = title_counts.get(title, 0) + 1
+        if len(selected) >= int(case_count):
+            break
+    if len(selected) < int(case_count):
+        raise ValueError(
+            f"only {len(selected)} valid long-context cases found; "
+            f"requested {case_count}"
+        )
+    for index, case in enumerate(selected):
+        mismatch = None
+        for offset in range(1, len(selected)):
+            candidate = selected[(index + offset) % len(selected)]["source_text"]
+            candidate_prompt = _prompt(str(candidate), str(case["question"]))
+            candidate_token_count = len(
+                tokenizer.encode(candidate_prompt, add_eos=False)
+            )
+            if (
+                not _contains_answer(str(candidate), tuple(case["answers"]))
+                and candidate_token_count <= int(maximum_prompt_tokens)
+            ):
+                mismatch = (str(candidate), candidate_prompt, candidate_token_count)
+                break
+        if mismatch is None:
+            raise ValueError("could not construct long answer-absent mismatched source")
         mismatch_source, mismatch_prompt, mismatch_token_count = mismatch
         case["mismatched_source_text"] = mismatch_source
         case["mismatched_prompt"] = mismatch_prompt
@@ -385,6 +574,73 @@ def materialize_squad_grounding_manifest(
         "case_count": int(len(cases)),
         "maximum_prompt_tokens": int(maximum_prompt_tokens),
         "maximum_cases_per_title": int(maximum_cases_per_title),
+        "tokenizer_hash": tokenizer.vocabulary_hash(),
+        "pages": pages,
+        "cases": list(cases),
+    }
+    manifest["contract_sha256"] = _canonical_sha256(manifest)
+    _write_json_atomic(output_path, manifest)
+    return manifest
+
+
+def materialize_squad_long_context_manifest(
+    tokenizer: LanguageTokenizer,
+    *,
+    output_path: str | Path,
+    case_count: int,
+    fetch_row_count: int,
+    split: str,
+    maximum_prompt_tokens: int = 248,
+    minimum_source_tokens: int = 96,
+    maximum_answer_tokens: int = 8,
+    maximum_cases_per_title: int = 64,
+    excluded_case_ids: Sequence[str] = (),
+    retrieval_block_tokens: int = 48,
+) -> dict[str, Any]:
+    """Freeze a parquet-backed multi-block source-grounding manifest."""
+
+    rows, pages = fetch_squad_parquet_rows(
+        row_count=int(fetch_row_count), split=str(split)
+    )
+    excluded = tuple(sorted(dict.fromkeys(str(value) for value in excluded_case_ids)))
+    cases = build_squad_long_context_cases(
+        rows,
+        tokenizer,
+        case_count=int(case_count),
+        maximum_prompt_tokens=int(maximum_prompt_tokens),
+        minimum_source_tokens=int(minimum_source_tokens),
+        maximum_answer_tokens=int(maximum_answer_tokens),
+        maximum_cases_per_title=int(maximum_cases_per_title),
+        excluded_case_ids=excluded,
+        retrieval_block_tokens=int(retrieval_block_tokens),
+    )
+    source_lengths = [int(case["source_token_count"]) for case in cases]
+    block_counts = [int(case["retrieval_block_count"]) for case in cases]
+    manifest = {
+        "surface": MANIFEST_SURFACE,
+        "dataset": DATASET,
+        "config": CONFIG,
+        "split": str(split),
+        "dataset_server": DATASET_SERVER,
+        "fetch_mode": "parquet",
+        "case_builder": "multi_block_long_context",
+        "external_text_data": True,
+        "external_model_used": False,
+        "fetched_row_count": int(len(rows)),
+        "case_count": int(len(cases)),
+        "maximum_prompt_tokens": int(maximum_prompt_tokens),
+        "minimum_source_tokens": int(minimum_source_tokens),
+        "maximum_answer_tokens": int(maximum_answer_tokens),
+        "maximum_cases_per_title": int(maximum_cases_per_title),
+        "retrieval_block_tokens": int(retrieval_block_tokens),
+        "minimum_retrieval_blocks": min(block_counts),
+        "maximum_retrieval_blocks": max(block_counts),
+        "minimum_observed_source_tokens": min(source_lengths),
+        "maximum_observed_source_tokens": max(source_lengths),
+        "excluded_case_count": len(excluded),
+        "excluded_case_ids_sha256": hashlib.sha256(
+            "\n".join(excluded).encode("utf-8")
+        ).hexdigest(),
         "tokenizer_hash": tokenizer.vocabulary_hash(),
         "pages": pages,
         "cases": list(cases),

@@ -1065,6 +1065,20 @@ assemblies identify a structural output failure; no runner, model, tests, cache,
 or checkpoint survives. Report SHA-256 is
 `d1d30b6aec1237277d57be534c7029c66364546b16439ce4ad9830d59bfc6911`.
 
+V56's frozen data boundary is active before its model exists. Preflight rejected
+the first train manifest because one Unicode answer normalized to an empty audit
+string; it was never committed or trained. The corrected V56b manifest contains
+8,192 new official-train cases from 170 titles, 96–228 source tokens, no empty
+normalized answers, and 2–5 fixed 48-token blocks; contract/file SHA-256 values
+are `e58d7fd941ba41c914ff3d8fd7b6dc0ff5770d24595abe4e5bf074bc01da4ad4`
+and `0ad5b67b4296e19f4efc6edfbdfafd7389f33dd3defbd9c629b8afd8c8b92908`.
+The 128-case official-validation panel excludes V47, spans 127–246 prompt tokens,
+and has contract/file SHA-256 values
+`feca4f4088d3452265f2fc35240f7aa45de68dfc856e0be80af7f45a9e470a84` and
+`fa609b4c6c381d1d0c347fc3286dc2ed5e35daea4c57da8400b20056f0facbc6`.
+Train, validation, and all prior case-ID intersections are zero. This proves the
+long-context benchmark contract only; no V56 architecture or result exists yet.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
