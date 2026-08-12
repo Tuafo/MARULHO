@@ -401,14 +401,15 @@ positive controlled result—not a replacement for frontier Transformers.
     gradient, or parameter-budget problem. No checkpoint survives; the failed
     runner and tests are deleted. One linear fast write is closed, and the next
     hypothesis must test the preregistered iterative nonlinear fast learner.
-30. Test V61's iterative nonlinear fast learner. Each document temporarily
-    adapts eight tiny two-layer MLPs for two exact source-only gradient steps;
-    an outer answer loss meta-trains their initialization, learned source and
-    query views, step sizes, and bounded readout while every V39 tensor remains
-    frozen. No-write, shuffled, true, and oracle-short states distinguish a
-    useful learned write from an ordinary question-conditioned sidecar. If even
-    oracle memory fails, the next branch moves the protected read throughout
-    V39's depth instead of widening another final-residual memory.
+30. Retire V61's iterative nonlinear final-residual learner. Its 1,605,657 slow
+    parameters are 1.595% of V39, all receive gradients, and training sustains
+    50.39k source positions/s with 1.41 GB peak CUDA allocation. The first inner
+    step lowers final-batch reconstruction loss from 35.71 to 18.28, but the
+    second explodes it to 5,640.99. Untrained, no-write, shuffled, true, and
+    oracle-short views all score 0/256; accepted-answer containment is at most
+    1/256 and not source-selective. No checkpoint survives and failed code is
+    deleted. The next branch moves protected memory reads throughout V39's depth
+    rather than widening or retuning another final-residual learner.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

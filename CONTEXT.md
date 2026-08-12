@@ -868,31 +868,27 @@ This closes one-step linear fast memory, not meta-learning as a class. The froze
 branch advances to an iterative nonlinear MLP fast learner rather than another
 span pointer, raw full-model update, or larger linear matrix.
 
-V61 is preregistered as the nonlinear fast-learner falsifier. Frozen V39 source
-states feed learned key and target views into eight temporary two-layer MLPs.
-Each document starts from the same meta-learned initialization and takes two
-exact positive-rate reconstruction-gradient steps using source tokens only.
-Question states use a separate learned query view to read the adapted MLPs; a
-bounded residual reaches V39's unchanged tied vocabulary head. V39 never enters
-the optimizer, and every per-document state is discarded.
+**Iterative Nonlinear Fast Learner v61 (retired)** — Eight per-document
+two-layer MLP heads took two exact source-reconstruction gradient steps while a
+1,605,657-parameter slow controller meta-trained through answer loss. The slow
+state is 1.5948% of frozen V39; all 12 tensors receive final nonzero gradients,
+parent/tokenizer/context-prefix fidelity is exact, and no validation information
+enters the write.
 
-V61 reuses the immutable V57 8,192/256 title-disjoint manifests, five context-64
-source chunks, context-96 question/answer path, eight batch-32 epochs, 2,048
-outer updates, and 20,971,520 padded source positions. The slow controller must
-remain below 2% of V39. True memory must reach 64/256 exact with at least a
-20-point gain over the stronger no-write or shuffled control; shuffled must stay
-at or below 16, oracle must reach 128, and true must remain within 64 of oracle.
-Both inner steps must reduce masked source reconstruction loss, every slow
-parameter must receive a final nonzero gradient, and exact data, schedule,
-parent, context-prefix, time, memory, and optional strict-reload evidence is
-mandatory. Training must finish below 1,800 seconds and setup plus training
-below 2,400 seconds on the RTX 3060.
-
-A joint pass advances nonlinear fast memory to multi-document routing and
-conflict/version writes. Oracle-only success isolates source localization. If
-oracle also fails, V61 closes nonlinear final-residual fast memory and the next
-falsifier moves a protected memory read throughout the frozen cortex depth,
-following the V57/V58 evidence instead of merely increasing fast-state width.
+All 2,048 batch-32 updates and 20,971,520 padded source positions complete in
+416.16 seconds at 50,392 positions/s. Setup plus training takes 428.90 seconds,
+peak CUDA allocation is 1,410,242,048 bytes, and final answer loss is 3.3408.
+The first final-batch inner step lowers reconstruction loss from 35.71 to 18.28,
+but the second diverges to 5,640.99, failing the frozen mechanistic gate.
+Untrained true, learned no-write, shuffled, true, and oracle-short memory all
+score 0/256 exact. Accepted-answer containment is respectively 1, 1, 0, 0, and
+1 of 256, so it is neither usable nor source-selective. Decision:
+`retire_v61_final_residual_nonlinear_fast_learner`. No checkpoint exists; the
+runner, tests, and logs are deleted. Report SHA-256 is
+`12d3cc8b3a1aa14937e68f8323607c9fb1322645b24aec4a3710c8a680b9c358`.
+V60 and V61 jointly close linear and nonlinear final-hidden residual fast memory.
+The next controlled branch must keep V39 protected while letting memory influence
+multiple cortex depths, rather than changing capacity, steps, or source search.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

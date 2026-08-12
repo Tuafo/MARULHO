@@ -1,15 +1,15 @@
-# Marulho Meta Gradient Episodic Matrix Falsification
+# Marulho Nonlinear Fast Learner Falsification
 
 ## Summary
 
 | Field | Value |
 |-------|-------|
-| Artifact Kind | marulho_meta_gradient_episodic_matrix_falsification |
-| Surface | marulho_meta_gradient_episodic_matrix_falsification.v1 |
+| Artifact Kind | marulho_nonlinear_fast_learner_falsification |
+| Surface | marulho_nonlinear_fast_learner_falsification.v1 |
 | Owned By Marulho | true |
 | External Llm Used | false |
-| Decision | retire_v60_one_step_linear_meta_gradient_memory |
-| Experiment Contract Sha256 | 0cd402c55122dd0739de905e6befbeaca5f45525b5045dfb4628a7b6661df0a8 |
+| Decision | retire_v61_final_residual_nonlinear_fast_learner |
+| Experiment Contract Sha256 | 6e9de97f20ea947b63e986019916c13c36f6eb11f2183e7c2ce9df000c78ebd4 |
 
 ## Configuration
 
@@ -24,8 +24,10 @@
 | Optimizer Steps | 2048 |
 | Padded Source Position Budget | 20971520 |
 | Memory Heads | 8 |
-| Key Width Per Head | 16 |
+| Key Width Per Head | 32 |
+| Hidden Width Per Head | 32 |
 | Value Width Per Head | 96 |
+| Inner Steps | 2 |
 | Learning Rate | 0.0003 |
 | Warmup Fraction | 0.05 |
 | Minimum Learning Rate Fraction | 0.1 |
@@ -39,12 +41,13 @@
 | Maximum Shuffled Exact Answers | 16 |
 | Minimum Oracle Exact Answers | 128 |
 | Maximum True Oracle Gap | 64 |
-| Maximum Parameter Fraction | 0.01 |
+| Maximum Parameter Fraction | 0.02 |
 | Maximum Training Seconds | 1800 |
 | Maximum Total Setup Training Seconds | 2400 |
-| Data Seed | 60121 |
-| Model Seed | 60131 |
+| Data Seed | 61121 |
+| Model Seed | 61131 |
 | Precision | bfloat16 |
+| Inner Accumulation | float32 |
 | Execution Backend | pytorch_eager |
 
 ## Data
@@ -63,7 +66,7 @@
 | Validation Title Count | 22 |
 | Title Intersection Count | 0 |
 | Prepared Tensor Sha256 | c011802453da81f4db953fceef3856f567d513b3a9055c69bf1e24163e0d7c02 |
-| Schedule Sha256 | dae37df427c0d0de57137980a88aa8811ef23f6b808720565c7eab646b52343c |
+| Schedule Sha256 | 2c96f6e00e0e246b6baefd3c4b6f32f723d327493729317485c50ae96fd56527 |
 | Cache Policy | online_frozen_v39_no_persistent_hidden_cache |
 | Persistent Cache Bytes | 0 |
 | Write Inputs Exclude Question | true |
@@ -75,19 +78,20 @@
 
 | Field | Value |
 |-------|-------|
-| Controller Parameter Count | 786449 |
+| Controller Parameter Count | 1605657 |
 | Parent Parameter Count | 100679424 |
-| Controller Parameter Fraction | 0.00781142 |
-| Fast State Values Per Document | 12288 |
-| Initial Controller State Sha256 | b61ed0525380332eaca97a68cd99e973b2b4654801859c6351d394f5b34dec14 |
-| Fast Write | one_exact_linear_reconstruction_gradient_step_from_zero |
-| Source Value Owner | frozen_v39_next_token_embeddings |
+| Controller Parameter Fraction | 0.0159482 |
+| Fast State Values Per Document | 32768 |
+| Initial Controller State Sha256 | 0abeecae6fc4f4503d4a9895e876b5d48a5d1cbfadc11f66a9f97194ba94d753 |
+| Fast Write | two_exact_nonlinear_per_document_gradient_steps |
+| Source Target Owner | learned_view_of_frozen_v39_next_token_embeddings |
+| Read Interface | bounded_final_hidden_residual |
 
 ## Setup
 
 | Field | Value |
 |-------|-------|
-| Seconds | 11.2678 |
+| Seconds | 12.7401 |
 | Persistent Cache Bytes | 0 |
 
 ## Training
@@ -97,10 +101,10 @@
 | Optimizer Steps | 2048 |
 | Padded Source Positions | 20971520 |
 | Answer Target Positions | 470952 |
-| Final Training Loss | 5.03118 |
-| Training Seconds | 372.549 |
-| Source Positions Per Second | 56292 |
-| Peak Cuda Bytes | 1272701952 |
+| Final Training Loss | 3.34082 |
+| Training Seconds | 416.164 |
+| Source Positions Per Second | 50392.5 |
+| Peak Cuda Bytes | 1410242048 |
 
 ## Parent
 
@@ -128,24 +132,25 @@
 
 | Field | Value |
 |-------|-------|
-| Total Setup Training Seconds | 383.817 |
-| Total Wall Seconds | 1272.85 |
-| Peak Cuda Bytes | 1272701952 |
+| Total Setup Training Seconds | 428.904 |
+| Total Wall Seconds | 1092.6 |
+| Peak Cuda Bytes | 1410242048 |
 
 ## JSON Preview
 
 ```json
 {
   "architecture": {
-    "controller_parameter_count": 786449,
-    "controller_parameter_fraction": 0.007811417355744903,
-    "fast_state_values_per_document": 12288,
-    "fast_write": "one_exact_linear_reconstruction_gradient_step_from_zero",
-    "initial_controller_state_sha256": "b61ed0525380332eaca97a68cd99e973b2b4654801859c6351d394f5b34dec14",
+    "controller_parameter_count": 1605657,
+    "controller_parameter_fraction": 0.01594821400646869,
+    "fast_state_values_per_document": 32768,
+    "fast_write": "two_exact_nonlinear_per_document_gradient_steps",
+    "initial_controller_state_sha256": "0abeecae6fc4f4503d4a9895e876b5d48a5d1cbfadc11f66a9f97194ba94d753",
     "parent_parameter_count": 100679424,
-    "source_value_owner": "frozen_v39_next_token_embeddings"
+    "read_interface": "bounded_final_hidden_residual",
+    "source_target_owner": "learned_view_of_frozen_v39_next_token_embeddings"
   },
-  "artifact_kind": "marulho_meta_gradient_episodic_matrix_falsification",
+  "artifact_kind": "marulho_nonlinear_fast_learner_falsification",
   "checkpoint": {
     "path": null,
     "saved": false,
@@ -156,14 +161,17 @@
   "configuration": {
     "batch_size": 32,
     "context_length": 96,
-    "data_seed": 60121,
+    "data_seed": 61121,
     "epochs": 8,
     "execution_backend": "pytorch_eager",
     "generation_tokens": 16,
     "gradient_clip": 1.0,
-    "key_width_per_head": 16,
+    "hidden_width_per_head": 32,
+    "inner_accumulation": "float32",
+    "inner_steps": 2,
+    "key_width_per_head": 32,
     "learning_rate": 0.0003,
-    "maximum_parameter_fraction": 0.01,
+    "maximum_parameter_fraction": 0.02,
     "maximum_shuffled_exact_answers": 16,
     "maximum_total_setup_training_seconds": 2400.0,
     "maximum_training_seconds": 1800.0,
@@ -173,7 +181,7 @@
     "minimum_oracle_exact_answers": 128,
     "minimum_true_exact_answers": 64,
     "minimum_true_source_gain": 0.2,
-    "model_seed": 60131,
+    "model_seed": 61131,
     "no_repeat_ngram_size": 3,
     "optimizer_steps": 2048,
     "padded_source_position_budget": 20971520,
@@ -190,7 +198,7 @@
     "cache_policy": "online_frozen_v39_no_persistent_hidden_cache",
     "persistent_cache_bytes": 0,
     "prepared_tensor_sha256": "c011802453da81f4db953fceef3856f567d513b3a9055c69bf1e24163e0d7c02",
-    "schedule_sha256": "dae37df427c0d0de57137980a88aa8811ef23f6b808720565c7eab646b52343c",
+    "schedule_sha256": "2c96f6e00e0e246b6baefd3c4b6f32f723d327493729317485c50ae96fd56527",
     "title_intersection_count": 0,
     "train_case_count": 8192,
     "train_manifest_contract_sha256": "fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7",
@@ -207,11 +215,12 @@
     "write_inputs_exclude_question": true,
     "write_inputs_exclude_span": true
   },
-  "decision": "retire_v60_one_step_linear_meta_gradient_memory",
-  "experiment_contract_sha256": "0cd402c55122dd0739de905e6befbeaca5f45525b5045dfb4628a7b6661df0a8",
+  "decision": "retire_v61_final_residual_nonlinear_fast_learner",
+  "experiment_contract_sha256": "6e9de97f20ea947b63e986019916c13c36f6eb11f2183e7c2ce9df000c78ebd4",
   "external_llm_used": false,
   "gate": {
     "behavioral_checks": {
+      "both_inner_steps_reduce_loss": false,
       "complete_final_gradients": true,
       "exact_optimizer_steps": true,
       "exact_position_budget": true,
@@ -227,13 +236,6 @@
     },
     "checkpoint_passed": false,
     "observed": {
-      "oracle_exact_answers": 0,
-      "shuffled_exact_answers": 0,
-      "true_exact_answers": 0,
-      "true_oracle_gap": 0,
-      "true_source_gain": 0.0,
-      "untrained_true_exact_answers": 0,
-      "zero_exact_answers": 0
-    },
-    "passe
+      "final_inner_losses": [
+        35.7097320556
 ```

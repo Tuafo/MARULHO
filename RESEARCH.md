@@ -1967,6 +1967,33 @@ fast state at the final residual is retired; the next controlled variable is a
 protected read injected throughout V39's depth. Widening the MLP, adding more
 epochs, or returning to spans is not an admissible interpretation of failure.
 
+### V61 terminal result: retire nonlinear final-residual fast memory
+
+V61 completes the exact frozen run and fails both behavior and mechanism. The
+slow controller has 1,605,657 parameters, 1.5948% of V39, and every one of its
+12 trainable tensors receives a final nonzero gradient. The 2,048 outer updates
+process 20,971,520 padded source positions in 416.16 seconds at 50,392
+positions/s; setup plus training is 428.90 seconds, total wall time is 1,092.60
+seconds, and peak CUDA allocation is 1,410,242,048 bytes. Parent checkpoint,
+state, tokenizer, and shared context-prefix logits remain exact.
+
+At the final batch, inner reconstruction loss changes 35.7097 to 18.2811 after
+step one, then explodes to 5,640.9917 after step two. The positive learned rates
+therefore do not form a stable iterative learner. More importantly, untrained
+true, learned no-write, shuffled, true, and oracle-short views each score 0/256
+strict answers. Their accepted-answer containment counts are 1, 1, 0, 0, and 1;
+the isolated hits are not source-conditioned capability. Capability, source-gain,
+oracle, and both-inner-step gates fail. No checkpoint is saved.
+
+Decision: `retire_v61_final_residual_nonlinear_fast_learner`. Report SHA-256 is
+`12d3cc8b3a1aa14937e68f8323607c9fb1322645b24aec4a3710c8a680b9c358`.
+The failed runner and tests are deleted. V60 versus V61 changed the fast learner
+from one linear write to two nonlinear MLP updates while holding the late read
+interface fixed; both oracle views remained zero. The next falsifier therefore
+changes the read locus: a bounded protected memory signal must participate at
+multiple frozen V39 depths. It may not widen V61 or reinterpret lower outer loss
+as retrieval.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

@@ -1176,17 +1176,17 @@ saved. Report SHA-256 is
 The next admissible evaluator must test iterative nonlinear fast learning, not
 another one-step linear matrix or extractive reader.
 
-V61 preregisters eight temporary two-layer MLP heads adapted by two explicit
-source-only reconstruction-gradient steps. A sub-2% slow controller meta-learns
-the initialization, source key/target views, question query view, positive step
-sizes, and bounded final residual while frozen V39 owns vocabulary generation.
-The exact V57 8,192/256 title split and V60 compute schedule remain unchanged.
-Terminal no-write, shuffled, true, and oracle-short views require 64 true, a
-20-point source gain, at most 16 shuffled, at least 128 oracle, and a true/oracle
-gap no larger than 64. Inner-loss decrease, complete gradients, finite fast
-state, exact parent/context fidelity, timing, CUDA allocation, and strict reload
-are required evidence. Oracle failure sends the next experiment to protected
-all-depth reading; it does not authorize a wider final-residual MLP.
+V61's two-step nonlinear fast learner is terminally negative and deleted. All
+12 slow tensors receive gradients and training sustains 50,392 source positions/s
+with 1.41 GB peak allocation. The first final inner update improves 35.71 to
+18.28 reconstruction loss, but the second diverges to 5,640.99. Untrained true,
+learned no-write, shuffled, true, and oracle-short views all score 0/256, with
+accepted-answer containment only 1/1/0/0/1. Decision:
+`retire_v61_final_residual_nonlinear_fast_learner`; no checkpoint survives.
+Report SHA-256 is
+`12d3cc8b3a1aa14937e68f8323607c9fb1322645b24aec4a3710c8a680b9c358`.
+This closes the final-residual fast-learner family. The next evaluator must test
+bounded protected memory reads across multiple frozen V39 depths.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

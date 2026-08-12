@@ -444,14 +444,14 @@ is `76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
 Do not restore the one-step linear matrix at a different width; the surviving
 branch is iterative nonlinear fast learning with the source-only write boundary.
 
-V61 preregisters that branch as eight per-document two-layer MLPs with two exact
-differentiable source-reconstruction updates. Meta-learned key, target, and query
-views plus the MLP initialization, positive step sizes, gates, and read projection
-must remain below 2% of V39. Outer answer loss trains only these shared tensors;
-V39 stays immutable and temporary document weights are discarded. The frozen
-schedule is 2,048 batch-32 updates over 20,971,520 source positions. Both inner
-steps must measurably lower reconstruction loss, and no-write/shuffled controls
-must prove that any answer gain comes from the document update.
+V61's nonlinear fast learner is terminally negative and deleted. Its 1.606M slow
+parameters all receive gradients and train at 50,392 source positions/s, but the
+second inner step diverges from 18.28 to 5,640.99 reconstruction loss. Untrained,
+no-write, shuffled, true, and oracle states all score 0/256 exact, so no durable
+state or checkpoint survives. Report SHA-256 is
+`12d3cc8b3a1aa14937e68f8323607c9fb1322645b24aec4a3710c8a680b9c358`.
+Do not restore the MLP with a smaller inner rate or extra width; the next isolated
+variable is protected memory participation across multiple frozen V39 depths.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
