@@ -833,6 +833,20 @@ must receive gradients, resets and parent fidelity must be exact, and total wall
 time is capped at 2,400 seconds. This tests raw gradient-written memory, not a
 production TTT layer or a speed claim.
 
+V59 is terminally negative and deleted. True-source writing lowers per-document
+next-token loss in 64/64 cases; its 844 full-model updates process 52,012
+positions in 91.23 seconds at 570.1 positions/s, all 62 tensors receive final
+gradients, all 192 case resets are exact, and total wall time is 388.30 seconds
+with 1.13 GB peak CUDA allocation. Parent fidelity is exact. Yet no-write,
+mismatched, true, and oracle-short writes all score 0/64 strict answers. True
+and oracle each contain an accepted answer inside 5/64 verbose or corrupted
+continuations, versus zero for controls, which is source-dependent bias but not
+a usable answer. Decision: `retire_v59_naive_source_only_gradient_memory`.
+No transient state or checkpoint survives; report SHA-256 is
+`388c43f79c10cc306fc12b1f1d7ad245ba42c317e40d18007e11d357d18247f0`.
+Raw next-token adaptation is closed; a future write-time learner must be
+meta-trained for later readout rather than tuned post hoc.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

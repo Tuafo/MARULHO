@@ -1152,6 +1152,18 @@ and source loss must improve in 90% of true writes. No question, answer, span,
 or label enters the write objective. Exact reset, complete gradients, parent
 fidelity, and a 2,400-second total wall limit are required.
 
+V59 is terminally negative and deleted. All 64 true writes lower source loss,
+all 62 tensors receive gradients, all 192 resets are exact, and the parent stays
+exact. The true arm processes 52,012 positions in 844 full-model updates at
+570.1 positions/s; total wall time is 388.30 seconds and peak allocation is
+1.13 GB. Nevertheless, all four arms score 0/64 strict answers. True and oracle
+writes contain accepted answer text in 5/64 continuations versus zero for both
+controls, but extra text invalidates every answer. No checkpoint survives;
+report SHA-256 is
+`388c43f79c10cc306fc12b1f1d7ad245ba42c317e40d18007e11d357d18247f0`.
+Naive full-model test-time adaptation is closed; later work requires an
+end-to-end meta-learned write/read contract.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

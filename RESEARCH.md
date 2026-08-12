@@ -1796,6 +1796,33 @@ usable QA memory and requires a meta-learned write objective rather than more
 inner epochs or learning-rate tuning. No transient adapted checkpoint is ever
 durable.
 
+#### V59 terminal result
+
+V59 is mechanically valid and terminally negative. All 64 true-source cases
+lower their own next-token loss between the first and fourth write epoch. The
+true arm performs 844 full-model optimizer steps over 52,012 positions in 91.23
+counted write seconds at 570.1 positions/s. Every one of 62 parameter tensors
+receives a final nonzero gradient. All 192 adapted-case resets are exact, peak
+CUDA allocation is 1,125,761,536 bytes, total wall time is 388.30 seconds, and
+the parent checkpoint, tokenizer, CPU tensors, and sampled logits remain exact.
+
+No-write, mismatched-write, true-write, and oracle-short-write strict accuracy
+is 0/64 for every arm. True and oracle writes each place an accepted answer
+somewhere inside 5/64 continuations, versus zero for both controls, but extra or
+corrupted text makes every output fail the frozen exact-answer metric. Examples
+include an answer token such as `Apollo` followed by an unrelated continuation.
+This is a weak source-dependent bias, not a usable memory read interface.
+
+Decision: `retire_v59_naive_source_only_gradient_memory`. Four source-only
+epochs can memorize document tokens but cannot organize that change for clean
+question readout, even when the written source is answer-localized. Do not tune
+the inner learning rate or epoch count. The transient model, runner, and tests
+are deleted and no checkpoint exists. Report SHA-256 is
+`388c43f79c10cc306fc12b1f1d7ad245ba42c317e40d18007e11d357d18247f0`.
+The surviving hypothesis is end-to-end meta-learning: train the initialization
+or write rule so that a source-native inner update becomes useful to later
+language loss, with no validation answer available during the write itself.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

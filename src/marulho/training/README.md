@@ -425,6 +425,15 @@ discards the weights. The durable parent never enters the optimizer. This is a
 mechanism screen for a later compact/meta-learned TTT module, not an admitted
 training or checkpoint surface.
 
+V59 completes mechanically but fails behavior. All source losses improve, all
+full-model tensors receive gradients, resets are exact, and V39 remains
+immutable, yet true and oracle source writes both produce 0/64 strict answers.
+The runner, tests, transient model, optimizer, and any loading path are deleted;
+no checkpoint is saved. Report SHA-256 is
+`388c43f79c10cc306fc12b1f1d7ad245ba42c317e40d18007e11d357d18247f0`.
+Do not restore raw source-only AdamW with a different epoch or learning rate;
+the next inner learner must be meta-trained for downstream readout.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion
