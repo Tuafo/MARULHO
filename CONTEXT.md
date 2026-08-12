@@ -569,16 +569,23 @@ general loss, and relation evidence are exact. Decision:
 runner, test, loader, or compatibility path survives. Report SHA-256 is
 `3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`.
 
-**Trainable Source Encoder v54 (preregistered)** — V54 freezes the exact V39
-checkpoint and reads its token embeddings into a separate width-128, two-layer,
-four-head bidirectional encoder. Direct start/end supervision teaches a source-
-contained span of at most eight tokens; the selected span is copied to output.
-No-context language remains owned by unchanged V39. The matched run uses the
-same 512 training and 64 heldout SQuAD cases, exactly 2,096,640 padded positions,
-455 batch-64 updates, no replay, and fewer than 0.75% added parameters. Promotion
-requires at least 19/64 intact answers, +25 source-control points, complete
-gradients, exact inactive parent evidence, sub-1,200-second training, and a
-strict parent-bound checkpoint reload.
+**Trainable Source Encoder v54 (retired)** — V54 freezes the exact V39
+checkpoint and trains a separate width-128, two-layer, four-head bidirectional
+encoder with direct start/end span supervision. All 373,506 added parameters
+receive nonzero gradients, loss falls from 3.4005 to 1.5942, and 2,096,640
+padded positions train in 12.05 seconds at 173,965 positions/s with 498,480,128
+bytes peak CUDA allocation. Parent checkpoint/state/logits/general/relation and
+the compact parent-bound reload are exact. The terminal result is only 16/64
+intact answers versus 0/64 for both controls, missing the 19/64 capability gate
+by three and falling below V53 and V52. Ten failed continuations contain only a
+fragment of a valid answer. Across the separate V52, V53, and V54 reports, the
+oracle union contains 35 distinct successes while only three cases are shared by
+all three; this is a diagnostic of complementary errors, not ensemble accuracy.
+Decision: `retire_v54_span_encoder_insufficient_grounding`. No checkpoint,
+encoder, runner, tests, loader, or compatibility path survives. Report SHA-256
+is `32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`;
+source-audit SHA-256 is
+`3eefb53d6a448fb024a79b0f84469f4ee1f9d198d2cd9876decd19f4e2923f9c`.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

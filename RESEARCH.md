@@ -1299,6 +1299,34 @@ route integration. A miss deletes the encoder, runner, tests, and checkpoint
 surface, and moves to joint generative-plus-span training or a longer-context
 source architecture rather than tuning width/depth after the result.
 
+The terminal V54 run is negative. All 373,506 trainable parameters receive
+nonzero gradients and span loss falls from 3.4005 to 1.5942. The exact 2,096,640
+positions finish in 12.05 seconds at 173,965 positions/s with 498,480,128 bytes
+peak allocation. Parent checkpoint, tensors, logits, general loss, relation
+behavior, tokenizer, and compact reload remain exact. Heldout intact/question-
+only/mismatched-source accuracy is 16/64, 0/64, and 0/64. The source gain passes
+at exactly 25 points, but capability misses the 19/64 gate by three and trails
+V53/V52 by one/three cases. Decision:
+`retire_v54_span_encoder_insufficient_grounding`.
+
+The errors change the next design. Ten of 48 misses contain a real but truncated
+answer fragment, including `Denver` for `Denver Broncos`, `174` for `1745`, and
+`18 February 154` for `18 February 1546`. More importantly, V54 shares only
+7 successes with V53 and 6 with V52. The separate V52/V53/V54 success sets have
+an oracle union of 35/64 while only three cases are common to all three. This is
+not a runnable ensemble or a quality result: the older failed checkpoints do not
+exist, and oracle selection uses labels. It is evidence that causal language
+states, bidirectional source states, and autoregressive realization make
+different errors. The next falsifier should learn across those views and produce
+answer tokens autoregressively with span supervision as an auxiliary signal,
+not tune V54's width, depth, or boundary threshold. The V54 model, runner, tests,
+checkpoint surface, and temporary checkpoint are deleted. The generic tokenizer
+offset contract remains because it is still required for the auxiliary span
+labels. Report SHA-256 is
+`32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`;
+source audit SHA-256 is
+`3eefb53d6a448fb024a79b0f84469f4ee1f9d198d2cd9876decd19f4e2923f9c`.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

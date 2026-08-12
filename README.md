@@ -333,13 +333,17 @@ positive controlled result—not a replacement for frontier Transformers.
     below the 18/64 floor and two below V52. The result is promising but fails
     the frozen gate, so no checkpoint or compatibility path survives. V54 must
     add a trainable source encoder or direct span supervision.
-23. Preregister V54's trainable source encoder. A separate width-128, two-layer
-    bidirectional encoder reads frozen V39 token embeddings, learns answer start
-    and end positions directly, and copies a source-contained span. It trains
-    fewer than 0.75% added parameters on the same 512 aligned cases for exactly
-    2,096,640 positions with no replay. The parent must remain exact. Promotion
-    requires at least 19/64 heldout answers, +25 points over controls, complete
-    gradients, bounded runtime, and strict compact-checkpoint reload.
+23. Retire V54's trainable source encoder. Its 373,506 parameters are only
+    0.371% of V39, all receive nonzero gradients, and direct span loss falls
+    from 3.4005 to 1.5942. Training is extremely cheap at 173.97k padded
+    positions/s and 0.46 GiB peak allocation, while the parent and compact
+    checkpoint reload remain exact. Unseen grounding nevertheless reaches only
+    16/64 with both controls at zero, below V53's 17 and V52's 19. Ten misses
+    contain incomplete answer fragments, exposing a boundary/assembly failure.
+    No V54 checkpoint, encoder, runner, tests, loader, or compatibility path
+    survives. The next branch must combine complementary causal and
+    bidirectional views with learned answer generation rather than enlarge the
+    failed span head.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

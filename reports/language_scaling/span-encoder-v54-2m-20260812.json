@@ -1,0 +1,5484 @@
+{
+  "arm": {
+    "all_parameters_received_final_gradient": true,
+    "all_parameters_received_final_nonzero_gradient": true,
+    "all_parameters_received_gradient": true,
+    "all_parameters_received_nonzero_gradient": true,
+    "architecture": "frozen_v39_plus_bidirectional_width128_span_encoder",
+    "elapsed_seconds": 12.052060499991057,
+    "encoder_parameters": 373506,
+    "experiment_contract_sha256": "b0a59e6683e128ffb0e7a061fcc2b41d394e91b3e44e064ae9489aadf5f75fc7",
+    "final_loss": 1.5942308902740479,
+    "final_missing_gradient_parameters": [],
+    "final_zero_gradient_parameters": [],
+    "initial_loss": 3.4005093574523926,
+    "missing_gradient_parameters": [],
+    "optimizer_state_bytes": 2988184,
+    "optimizer_steps": 455,
+    "parent_frozen": true,
+    "parent_parameters": 100679424,
+    "peak_cuda_allocated_bytes": 498480128,
+    "processed_tokens": 2096640,
+    "replay_used": false,
+    "schedule_sha256": "deafb0cd8f8aa192b5b7700cfafdbd25892c1c895c2bbc644319b14250e94c3e",
+    "source_grounding": {
+      "boundary": "This audit measures source-visible extractive QA on heldout SQuAD. It does not prove long-term memory, open-domain factuality, or general reasoning.",
+      "case_count": 64,
+      "checkpoint_path": "reports\\language_scaling\\span-encoder-v54-arm.pt",
+      "checkpoint_sha256": "d85ce801ab48960aba3b691c566dd032acbaff8af4c9733b67912e9ab5dd6809",
+      "decision": "v39_uses_visible_source_advance_to_continual_grounding",
+      "decode_control_scope": "generated_continuation_only",
+      "external_llm_used": false,
+      "external_text_data": true,
+      "intact_gain_over_stronger_control": 0.25,
+      "intact_source": {
+        "case_count": 64,
+        "exact_answer_accuracy": 0.25,
+        "exact_answer_count": 16,
+        "rows": [
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ec",
+            "continuation": " Denver",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Carolina Panthers"
+            ],
+            "case_id": "56be4db0acb8001400a502ed",
+            "continuation": " 24",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ef",
+            "continuation": " Denver",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gold"
+            ],
+            "case_id": "56be4db0acb8001400a502f0",
+            "continuation": " \"golden annivers",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "\"golden anniversary\"",
+              "gold-themed",
+              "\"golden anniversary"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d1",
+            "continuation": " 50th",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "American Football Conference"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d3",
+            "continuation": " Denver",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Nobel Prize"
+            ],
+            "case_id": "5733a5f54776f41900660f45",
+            "continuation": " Nobel Prize",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "1745"
+            ],
+            "case_id": "5733a5f54776f41900660f48",
+            "continuation": " 174",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Famous musicians",
+              "musicians"
+            ],
+            "case_id": "5733a5f54776f41900660f46",
+            "continuation": " Władys",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "seven months old"
+            ],
+            "case_id": "5733a5f54776f41900660f47",
+            "continuation": " Wars",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "100",
+              "over 100"
+            ],
+            "case_id": "57336755d058e614000b5a3d",
+            "continuation": " 100 different species of trees and the avenues",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "The Saxon Garden",
+              "Saxon Garden"
+            ],
+            "case_id": "57336755d058e614000b5a3c",
+            "continuation": " 15",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "France"
+            ],
+            "case_id": "56ddde6b9a695914005b9628",
+            "continuation": " 11",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10th and 11th centuries",
+              "in the 10th and 11th centuries"
+            ],
+            "case_id": "56ddde6b9a695914005b9629",
+            "continuation": " 11th",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Rollo"
+            ],
+            "case_id": "56ddde6b9a695914005b962b",
+            "continuation": " Rollo",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "10th century",
+              "the first half of the 10th century",
+              "10th"
+            ],
+            "case_id": "56ddde6b9a695914005b962c",
+            "continuation": " first half of the 10th century",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "William the Conqueror"
+            ],
+            "case_id": "56dddf4066d3e219004dad5f",
+            "continuation": " Conquer",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Richard I"
+            ],
+            "case_id": "56dddf4066d3e219004dad60",
+            "continuation": " Norm",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856"
+            ],
+            "case_id": "56df9e2838dc4217001520f6",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56df9e2838dc4217001520f8",
+            "continuation": " Tesla (Serb",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56df9e2838dc4217001520f9",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856",
+              "10 July 1856"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b7",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b8",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b9",
+            "continuation": " Tesla (Serb",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Computational complexity theory"
+            ],
+            "case_id": "56e16182e3433e1400422e28",
+            "continuation": " theory of computation in theoretical",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "inherent difficulty",
+              "their inherent difficulty"
+            ],
+            "case_id": "56e16182e3433e1400422e29",
+            "continuation": " according to their inherent",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "computational problems",
+              "computational problem"
+            ],
+            "case_id": "56e16182e3433e1400422e2a",
+            "continuation": " computational problems according to their inherent",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "if its solution requires significant resources",
+              "its solution requires significant resources"
+            ],
+            "case_id": "56e16839cd28a01900c67887",
+            "continuation": " difficult if its solution",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "mathematical models of computation"
+            ],
+            "case_id": "56e16839cd28a01900c67888",
+            "continuation": " mathematical models of computation",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "time and storage"
+            ],
+            "case_id": "56e16839cd28a01900c67889",
+            "continuation": " mathematical models of computation",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the curriculum.",
+              "curriculum"
+            ],
+            "case_id": "56e7477700c9c71400d76f23",
+            "continuation": " Teachers",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "pedagogy"
+            ],
+            "case_id": "56e7477700c9c71400d76f24",
+            "continuation": " These professional qualifications",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "university or college.",
+              "university",
+              "university or college"
+            ],
+            "case_id": "56e7477700c9c71400d76f25",
+            "continuation": " obtain specified professional qualifications",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "lesson plan"
+            ],
+            "case_id": "56e7477700c9c71400d76f26",
+            "continuation": " Teachers",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "school"
+            ],
+            "case_id": "56e7477700c9c71400d76f27",
+            "continuation": " formal education.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "cultures"
+            ],
+            "case_id": "56e748a200c9c71400d76f37",
+            "continuation": " A teacher's role may vary",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "German"
+            ],
+            "case_id": "56f7c651aef2371900625bf5",
+            "continuation": "ː",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "18 February 1546",
+              "1546"
+            ],
+            "case_id": "56f7c651aef2371900625bf6",
+            "continuation": " 18 February 154",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Catholic Church.",
+              "Late Medieval Catholic Church"
+            ],
+            "case_id": "56f7c651aef2371900625bf7",
+            "continuation": " Late Medieval Catholic Church",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "God's punishment",
+              "God's punishment for sin"
+            ],
+            "case_id": "56f7c651aef2371900625bf8",
+            "continuation": " sin could be purchased with money.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "excommunication"
+            ],
+            "case_id": "56f7c651aef2371900625bf9",
+            "continuation": " 1521 resulted in his excomm",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gift of God's grace",
+              "free gift",
+              "through faith"
+            ],
+            "case_id": "56f7c8aba6d7ea1400e1727a",
+            "continuation": " a free gift of God's grace",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "SoCal"
+            ],
+            "case_id": "5705e26d75f01819005e76d4",
+            "continuation": " SoC",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10 counties",
+              "10"
+            ],
+            "case_id": "5705e26d75f01819005e76d5",
+            "continuation": " 10 counties",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "economic center",
+              "major economic center"
+            ],
+            "case_id": "5705e26d75f01819005e76d6",
+            "continuation": "ifornia",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "demographics and economic ties",
+              "economic",
+              "demographics and economic"
+            ],
+            "case_id": "5705e26d75f01819005e76d7",
+            "continuation": " Los Angeles, Orange",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "historical political divisions"
+            ],
+            "case_id": "5705e26d75f01819005e76d8",
+            "continuation": " Obispo counties",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "11"
+            ],
+            "case_id": "5705e33f52bb89140068964d",
+            "continuation": " 11",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db0",
+            "continuation": " BSkyB",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db1",
+            "continuation": " BSkyB",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "2014"
+            ],
+            "case_id": "57092322efce8f15003a7db2",
+            "continuation": " 90",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky plc",
+              "British Sky Broadcasting Group plc"
+            ],
+            "case_id": "57092322efce8f15003a7db3",
+            "continuation": " November 2014",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky UK Limited"
+            ],
+            "case_id": "57092322efce8f15003a7db4",
+            "continuation": " Broadcasting Lim",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "2006"
+            ],
+            "case_id": "57094a79efce8f15003a7dc4",
+            "continuation": " Sports",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "diversified",
+              "highly diversified"
+            ],
+            "case_id": "570d2417fed7b91900d45c3d",
+            "continuation": " Victoria is highly divers",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "second"
+            ],
+            "case_id": "570d2417fed7b91900d45c3e",
+            "continuation": "GSP) is ran",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "fourth"
+            ],
+            "case_id": "570d2417fed7b91900d45c3f",
+            "continuation": " fourth",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "Melbourne"
+            ],
+            "case_id": "570d2417fed7b91900d45c40",
+            "continuation": " Ground is the larg",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Bendigo"
+            ],
+            "case_id": "570d2556fed7b91900d45c47",
+            "continuation": " Bendigo",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "New South Wales"
+            ],
+            "case_id": "570d2556fed7b91900d45c48",
+            "continuation": " Lambing Flat",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the southern and central parts of France",
+              "southern and central parts of France,",
+              "about one-eighth"
+            ],
+            "case_id": "57105da9a58dae1900cd699e",
+            "continuation": " 156",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "from 1562 to 1598",
+              "1562 to 1598",
+              "562 to 1598"
+            ],
+            "case_id": "57105da9a58dae1900cd69a0",
+            "continuation": " 1562 to 1598",
+            "exact_answer_match": true
+          },
+          {
+            "answers": [
+              "the Edict of Nantes",
+              "Edict of Nantes"
+            ],
+            "case_id": "57105da9a58dae1900cd69a1",
+            "continuation": " Nantes",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "derision"
+            ],
+            "case_id": "57106185b654c5140001f8db",
+            "continuation": " unclear origins",
+            "exact_answer_match": false
+          }
+        ]
+      },
+      "manifest_contract_sha256": "48a738e39f1d5327035e25b4781e33c473f58c911aafffd95576db1032bedc23",
+      "manifest_path": "reports\\language_curriculum\\squad-v47-validation-64-20260811.json",
+      "max_new_tokens": 8,
+      "mismatched_source": {
+        "case_count": 64,
+        "exact_answer_accuracy": 0.0,
+        "exact_answer_count": 0,
+        "rows": [
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ec",
+            "continuation": " 24",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Carolina Panthers"
+            ],
+            "case_id": "56be4db0acb8001400a502ed",
+            "continuation": " Denver",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ef",
+            "continuation": " emphas",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gold"
+            ],
+            "case_id": "56be4db0acb8001400a502f0",
+            "continuation": " Nobel Prize",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "\"golden anniversary\"",
+              "gold-themed",
+              "\"golden anniversary"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d1",
+            "continuation": " Nobel Prize",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "American Football Conference"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d3",
+            "continuation": " Nobel Prize",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Nobel Prize"
+            ],
+            "case_id": "5733a5f54776f41900660f45",
+            "continuation": " 1745",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1745"
+            ],
+            "case_id": "5733a5f54776f41900660f48",
+            "continuation": " Szpilman",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Famous musicians",
+              "musicians"
+            ],
+            "case_id": "5733a5f54776f41900660f46",
+            "continuation": " Warsaw",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "seven months old"
+            ],
+            "case_id": "5733a5f54776f41900660f47",
+            "continuation": " sit and relax",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "100",
+              "over 100"
+            ],
+            "case_id": "57336755d058e614000b5a3d",
+            "continuation": " 15",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "The Saxon Garden",
+              "Saxon Garden"
+            ],
+            "case_id": "57336755d058e614000b5a3c",
+            "continuation": " 11th",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "France"
+            ],
+            "case_id": "56ddde6b9a695914005b9628",
+            "continuation": " Rollo",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10th and 11th centuries",
+              "in the 10th and 11th centuries"
+            ],
+            "case_id": "56ddde6b9a695914005b9629",
+            "continuation": " Rol",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Rollo"
+            ],
+            "case_id": "56ddde6b9a695914005b962b",
+            "continuation": " the first half of the 10th century",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10th century",
+              "the first half of the 10th century",
+              "10th"
+            ],
+            "case_id": "56ddde6b9a695914005b962c",
+            "continuation": " Norman conquest of England",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "William the Conqueror"
+            ],
+            "case_id": "56dddf4066d3e219004dad5f",
+            "continuation": " Norm",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Richard I"
+            ],
+            "case_id": "56dddf4066d3e219004dad60",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856"
+            ],
+            "case_id": "56df9e2838dc4217001520f6",
+            "continuation": " Tesla (Serb",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56df9e2838dc4217001520f8",
+            "continuation": " 185",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56df9e2838dc4217001520f9",
+            "continuation": " Tesla (Serb",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856",
+              "10 July 1856"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b7",
+            "continuation": "ол",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b8",
+            "continuation": " Tesla (Serb",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b9",
+            "continuation": " Computational complexity theory is a branch",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Computational complexity theory"
+            ],
+            "case_id": "56e16182e3433e1400422e28",
+            "continuation": " according to their inherent",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "inherent difficulty",
+              "their inherent difficulty"
+            ],
+            "case_id": "56e16182e3433e1400422e29",
+            "continuation": " difficult if its solution",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "computational problems",
+              "computational problem"
+            ],
+            "case_id": "56e16182e3433e1400422e2a",
+            "continuation": " difficult if its solution",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "if its solution requires significant resources",
+              "its solution requires significant resources"
+            ],
+            "case_id": "56e16839cd28a01900c67887",
+            "continuation": " mathematical models of comput",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "mathematical models of computation"
+            ],
+            "case_id": "56e16839cd28a01900c67888",
+            "continuation": " learning, providing a course",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "time and storage"
+            ],
+            "case_id": "56e16839cd28a01900c67889",
+            "continuation": " facilitate student learning, providing",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the curriculum.",
+              "curriculum"
+            ],
+            "case_id": "56e7477700c9c71400d76f23",
+            "continuation": " These professional qualifications may include the study",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "pedagogy"
+            ],
+            "case_id": "56e7477700c9c71400d76f24",
+            "continuation": " facilitate",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "university or college.",
+              "university",
+              "university or college"
+            ],
+            "case_id": "56e7477700c9c71400d76f25",
+            "continuation": " facilitate student learning, providing",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "lesson plan"
+            ],
+            "case_id": "56e7477700c9c71400d76f26",
+            "continuation": " formal education.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "school"
+            ],
+            "case_id": "56e7477700c9c71400d76f27",
+            "continuation": " vary",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "cultures"
+            ],
+            "case_id": "56e748a200c9c71400d76f37",
+            "continuation": " /ˈlu�",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "German"
+            ],
+            "case_id": "56f7c651aef2371900625bf5",
+            "continuation": " Late Medieval Catholic Church",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "18 February 1546",
+              "1546"
+            ],
+            "case_id": "56f7c651aef2371900625bf6",
+            "continuation": " Late Medieval Catholic Church",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Catholic Church.",
+              "Late Medieval Catholic Church"
+            ],
+            "case_id": "56f7c651aef2371900625bf7",
+            "continuation": " God's punishment for sin",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "God's punishment",
+              "God's punishment for sin"
+            ],
+            "case_id": "56f7c651aef2371900625bf8",
+            "continuation": " 1521 resulted in his excomm",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "excommunication"
+            ],
+            "case_id": "56f7c651aef2371900625bf9",
+            "continuation": " free gift",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gift of God's grace",
+              "free gift",
+              "through faith"
+            ],
+            "case_id": "56f7c8aba6d7ea1400e1727a",
+            "continuation": "ographic and cultural region that generally",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "SoCal"
+            ],
+            "case_id": "5705e26d75f01819005e76d4",
+            "continuation": " 10 counties",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10 counties",
+              "10"
+            ],
+            "case_id": "5705e26d75f01819005e76d5",
+            "continuation": "ifornia",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "economic center",
+              "major economic center"
+            ],
+            "case_id": "5705e26d75f01819005e76d6",
+            "continuation": " Luis Obispo",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "demographics and economic ties",
+              "economic",
+              "demographics and economic"
+            ],
+            "case_id": "5705e26d75f01819005e76d7",
+            "continuation": " Luis Obispo",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "historical political divisions"
+            ],
+            "case_id": "5705e26d75f01819005e76d8",
+            "continuation": " 11",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "11"
+            ],
+            "case_id": "5705e33f52bb89140068964d",
+            "continuation": " BSkyB became the UK",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db0",
+            "continuation": "GSP) is ran",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db1",
+            "continuation": " November 2014",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "2014"
+            ],
+            "case_id": "57092322efce8f15003a7db2",
+            "continuation": " Broadcasting Lim",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky plc",
+              "British Sky Broadcasting Group plc"
+            ],
+            "case_id": "57092322efce8f15003a7db3",
+            "continuation": " Broadcasting Lim",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky UK Limited"
+            ],
+            "case_id": "57092322efce8f15003a7db4",
+            "continuation": " 2006",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "2006"
+            ],
+            "case_id": "57094a79efce8f15003a7dc4",
+            "continuation": "GSP) is ran",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "diversified",
+              "highly diversified"
+            ],
+            "case_id": "570d2417fed7b91900d45c3d",
+            "continuation": "ictoria",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "second"
+            ],
+            "case_id": "570d2417fed7b91900d45c3e",
+            "continuation": " Ground",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "fourth"
+            ],
+            "case_id": "570d2417fed7b91900d45c3f",
+            "continuation": " Ground is the larg",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Melbourne"
+            ],
+            "case_id": "570d2417fed7b91900d45c40",
+            "continuation": " particularly strong in Bendig",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Bendigo"
+            ],
+            "case_id": "570d2556fed7b91900d45c47",
+            "continuation": " Lambing Flat",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "New South Wales"
+            ],
+            "case_id": "570d2556fed7b91900d45c48",
+            "continuation": " 156",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the southern and central parts of France",
+              "southern and central parts of France,",
+              "about one-eighth"
+            ],
+            "case_id": "57105da9a58dae1900cd699e",
+            "continuation": " 1562 to 1598",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "from 1562 to 1598",
+              "1562 to 1598",
+              "562 to 1598"
+            ],
+            "case_id": "57105da9a58dae1900cd69a0",
+            "continuation": " Nantes",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the Edict of Nantes",
+              "Edict of Nantes"
+            ],
+            "case_id": "57105da9a58dae1900cd69a1",
+            "continuation": " Huguen",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "derision"
+            ],
+            "case_id": "57106185b654c5140001f8db",
+            "continuation": " Denver",
+            "exact_answer_match": false
+          }
+        ]
+      },
+      "model_state_sha256_after": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+      "model_state_sha256_before": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+      "owned_by_marulho": true,
+      "promotion_gate": {
+        "minimum_gain_over_stronger_control": 0.1,
+        "minimum_intact_accuracy": 0.25,
+        "passed": true
+      },
+      "question_only": {
+        "case_count": 64,
+        "exact_answer_accuracy": 0.0,
+        "exact_answer_count": 0,
+        "rows": [
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ec",
+            "continuation": " The AFC at Super Bow",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Carolina Panthers"
+            ],
+            "case_id": "56be4db0acb8001400a502ed",
+            "continuation": " The NFL team is the N",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Denver Broncos"
+            ],
+            "case_id": "56be4db0acb8001400a502ef",
+            "continuation": " The NFL team has the best",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gold"
+            ],
+            "case_id": "56be4db0acb8001400a502f0",
+            "continuation": " The Super Bowl is still red",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "\"golden anniversary\"",
+              "gold-themed",
+              "\"golden anniversary"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d1",
+            "continuation": " The theme of the theme is the theme",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "American Football Conference"
+            ],
+            "case_id": "56be8e613aeaaa14008c90d3",
+            "continuation": " The AFC long coin is",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Nobel Prize"
+            ],
+            "case_id": "5733a5f54776f41900660f45",
+            "continuation": " The blue token remains inside the box",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1745"
+            ],
+            "case_id": "5733a5f54776f41900660f48",
+            "continuation": " The year was the beginning of the C",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Famous musicians",
+              "musicians"
+            ],
+            "case_id": "5733a5f54776f41900660f46",
+            "continuation": " Frédéric Chopin",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "seven months old"
+            ],
+            "case_id": "5733a5f54776f41900660f47",
+            "continuation": " The chopin was a small,",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "100",
+              "over 100"
+            ],
+            "case_id": "57336755d058e614000b5a3d",
+            "continuation": " Some trees are found in the Sax",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "The Saxon Garden",
+              "Saxon Garden"
+            ],
+            "case_id": "57336755d058e614000b5a3c",
+            "continuation": " The garden is still green.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "France"
+            ],
+            "case_id": "56ddde6b9a695914005b9628",
+            "continuation": " The Normandy is located in",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10th and 11th centuries",
+              "in the 10th and 11th centuries"
+            ],
+            "case_id": "56ddde6b9a695914005b9629",
+            "continuation": " The Normans in Normand",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Rollo"
+            ],
+            "case_id": "56ddde6b9a695914005b962b",
+            "continuation": " Dax has the orange coin",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10th century",
+              "the first half of the 10th century",
+              "10th"
+            ],
+            "case_id": "56ddde6b9a695914005b962c",
+            "continuation": " The Normans were the first to",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "William the Conqueror"
+            ],
+            "case_id": "56dddf4066d3e219004dad5f",
+            "continuation": " The duke was the first to be",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Richard I"
+            ],
+            "case_id": "56dddf4066d3e219004dad60",
+            "continuation": " The duchy of Normand",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856"
+            ],
+            "case_id": "56df9e2838dc4217001520f6",
+            "continuation": " The orange coin remains inside the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56df9e2838dc4217001520f8",
+            "continuation": " The Nikola Tesl",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56df9e2838dc4217001520f9",
+            "continuation": " The coin is still silver.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1856",
+              "10 July 1856"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b7",
+            "continuation": " The orange coin remains inside the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "1943"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b8",
+            "continuation": " The coin is still silver.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Serbian"
+            ],
+            "case_id": "56e0b94b7aa994140058e6b9",
+            "continuation": " The home country is a city with a",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Computational complexity theory"
+            ],
+            "case_id": "56e16182e3433e1400422e28",
+            "continuation": " The main focus of the study is on",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "inherent difficulty",
+              "their inherent difficulty"
+            ],
+            "case_id": "56e16182e3433e1400422e29",
+            "continuation": " The problem is that the algorithm can be",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "computational problems",
+              "computational problem"
+            ],
+            "case_id": "56e16182e3433e1400422e2a",
+            "continuation": " The task is to find the solution to",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "if its solution requires significant resources",
+              "its solution requires significant resources"
+            ],
+            "case_id": "56e16839cd28a01900c67887",
+            "continuation": " The problem is that the solution is not",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "mathematical models of computation"
+            ],
+            "case_id": "56e16839cd28a01900c67888",
+            "continuation": " The method is used to determine the amount",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "time and storage"
+            ],
+            "case_id": "56e16839cd28a01900c67889",
+            "continuation": " The key is still orange.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the curriculum.",
+              "curriculum"
+            ],
+            "case_id": "56e7477700c9c71400d76f23",
+            "continuation": " The course is a series of assignments",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "pedagogy"
+            ],
+            "case_id": "56e7477700c9c71400d76f24",
+            "continuation": " The science of teaching is a way of",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "university or college.",
+              "university",
+              "university or college"
+            ],
+            "case_id": "56e7477700c9c71400d76f25",
+            "continuation": " Some teachers have a strong interest in teaching",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "lesson plan"
+            ],
+            "case_id": "56e7477700c9c71400d76f26",
+            "continuation": " The teacher is a teacher who has the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "school"
+            ],
+            "case_id": "56e7477700c9c71400d76f27",
+            "continuation": " Some teachers are teaching at the same time",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "cultures"
+            ],
+            "case_id": "56e748a200c9c71400d76f37",
+            "continuation": " The teacher is the student.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "German"
+            ],
+            "case_id": "56f7c651aef2371900625bf5",
+            "continuation": " The coin is still red.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "18 February 1546",
+              "1546"
+            ],
+            "case_id": "56f7c651aef2371900625bf6",
+            "continuation": " The coin is still silver.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Catholic Church.",
+              "Late Medieval Catholic Church"
+            ],
+            "case_id": "56f7c651aef2371900625bf7",
+            "continuation": " The school was the first to use the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "God's punishment",
+              "God's punishment for sin"
+            ],
+            "case_id": "56f7c651aef2371900625bf8",
+            "continuation": " The church has been given a tax on",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "excommunication"
+            ],
+            "case_id": "56f7c651aef2371900625bf9",
+            "continuation": " The Church has been a part of the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "gift of God's grace",
+              "free gift",
+              "through faith"
+            ],
+            "case_id": "56f7c8aba6d7ea1400e1727a",
+            "continuation": " The silver coin remains inside the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "SoCal"
+            ],
+            "case_id": "5705e26d75f01819005e76d4",
+            "continuation": " Northern California has a large",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "10 counties",
+              "10"
+            ],
+            "case_id": "5705e26d75f01819005e76d5",
+            "continuation": " The counties are located in the nor",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "economic center",
+              "major economic center"
+            ],
+            "case_id": "5705e26d75f01819005e76d6",
+            "continuation": " The key is still orange.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "demographics and economic ties",
+              "economic",
+              "demographics and economic"
+            ],
+            "case_id": "5705e26d75f01819005e76d7",
+            "continuation": " The ties that are the most important",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "historical political divisions"
+            ],
+            "case_id": "5705e26d75f01819005e76d8",
+            "continuation": " The las two counties to be",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "11"
+            ],
+            "case_id": "5705e33f52bb89140068964d",
+            "continuation": " Some of the megaregions",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db0",
+            "continuation": " The company was the first to be established",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "BSkyB"
+            ],
+            "case_id": "57092322efce8f15003a7db1",
+            "continuation": " The UK's largest digital sub",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "2014"
+            ],
+            "case_id": "57092322efce8f15003a7db2",
+            "continuation": " The Sky is still orange.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky plc",
+              "British Sky Broadcasting Group plc"
+            ],
+            "case_id": "57092322efce8f15003a7db3",
+            "continuation": " The name of the ship is the",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Sky UK Limited"
+            ],
+            "case_id": "57092322efce8f15003a7db4",
+            "continuation": " The name of the BSkyB",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "2006"
+            ],
+            "case_id": "57094a79efce8f15003a7dc4",
+            "continuation": " The first year of the Sports A",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "diversified",
+              "highly diversified"
+            ],
+            "case_id": "570d2417fed7b91900d45c3d",
+            "continuation": " The economy is the largest economy in",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "second"
+            ],
+            "case_id": "570d2417fed7b91900d45c3e",
+            "continuation": " No water reaches the desk.",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "fourth"
+            ],
+            "case_id": "570d2417fed7b91900d45c3f",
+            "continuation": " The rank is the number of people",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Melbourne"
+            ],
+            "case_id": "570d2417fed7b91900d45c40",
+            "continuation": " The city is located in the north",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "Bendigo"
+            ],
+            "case_id": "570d2556fed7b91900d45c47",
+            "continuation": " The Asian influence is still in the middle",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "New South Wales"
+            ],
+            "case_id": "570d2556fed7b91900d45c48",
+            "continuation": " The Lambing Flat ri",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the southern and central parts of France",
+              "southern and central parts of France,",
+              "about one-eighth"
+            ],
+            "case_id": "57105da9a58dae1900cd699e",
+            "continuation": " The Huguenot population is",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "from 1562 to 1598",
+              "1562 to 1598",
+              "562 to 1598"
+            ],
+            "case_id": "57105da9a58dae1900cd69a0",
+            "continuation": " The Wars of Religion f",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "the Edict of Nantes",
+              "Edict of Nantes"
+            ],
+            "case_id": "57105da9a58dae1900cd69a1",
+            "continuation": " The Wars of Religion was",
+            "exact_answer_match": false
+          },
+          {
+            "answers": [
+              "derision"
+            ],
+            "case_id": "57106185b654c5140001f8db",
+            "continuation": " The word Huguenot is",
+            "exact_answer_match": false
+          }
+        ]
+      },
+      "surface": "marulho_source_visible_grounding.v1",
+      "valid": true,
+      "validity": {
+        "all_answers_absent_from_mismatched_source": true,
+        "all_answers_absent_from_question": true,
+        "all_answers_visible_in_intact_source": true,
+        "all_control_prompts_fit_manifest_bound": true,
+        "all_intact_prompts_fit_manifest_bound": true,
+        "model_state_immutable": true
+      }
+    },
+    "tokens_per_second": 173965.27340711205,
+    "tokens_per_step": 4608,
+    "trace": [
+      {
+        "gradient_norm": 0.9596478343009949,
+        "learning_rate": 1.3043478260869564e-05,
+        "loss": 3.4005093574523926,
+        "step": 1
+      },
+      {
+        "gradient_norm": 0.7417331337928772,
+        "learning_rate": 0.0003,
+        "loss": 3.182809352874756,
+        "step": 23
+      },
+      {
+        "gradient_norm": 3.9868083000183105,
+        "learning_rate": 0.00017630304599935626,
+        "loss": 2.1015000343322754,
+        "step": 228
+      },
+      {
+        "gradient_norm": 5.122515678405762,
+        "learning_rate": 2.9999999999999997e-05,
+        "loss": 1.5942308902740479,
+        "step": 455
+      }
+    ],
+    "warmup_steps": 23,
+    "zero_gradient_parameters": []
+  },
+  "baseline": {
+    "general": {
+      "batch_count": 16,
+      "batch_transfer_policy": "cpu_split_per_batch_to_model_device",
+      "external_llm_used": false,
+      "heldout_loss": 3.1490259170532227,
+      "heldout_perplexity": 23.313344385863292,
+      "owned_by_marulho": true,
+      "surface": "marulho_transformer_heldout_evaluation.v3",
+      "token_count": 9216,
+      "tokens_per_second": 8367.501842984597
+    },
+    "relation": {
+      "accuracy": 0.984375,
+      "case_count": 64,
+      "correct_index_metrics_only": true,
+      "evaluation_batch_size": 8,
+      "evaluation_mode": "length_grouped_batched",
+      "generation_exact_accuracy": 0.890625,
+      "generation_kind_accuracy": {
+        "container": 0.625,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "generation_max_new_tokens": 16,
+      "kind_accuracy": {
+        "container": 1.0,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "prediction_uses_correct_index": false,
+      "rows": [
+        {
+          "candidate_losses": [
+            2.993293523788452,
+            3.1049139499664307,
+            2.9548606872558594,
+            0.06460325419902802
+          ],
+          "case_id": "container-0000",
+          "correct": true,
+          "generation_continuation": " The green coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.228720664978027,
+            0.008525997400283813,
+            0.2932273745536804,
+            5.301481246948242
+          ],
+          "case_id": "event_order-0000",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.3104246854782104,
+            1.6483372449874878,
+            0.0002746008976828307,
+            1.3154772520065308
+          ],
+          "case_id": "ownership-0000",
+          "correct": true,
+          "generation_continuation": " Ben has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.364635705947876,
+            1.419633150100708,
+            0.02622745744884014,
+            1.3010584115982056
+          ],
+          "case_id": "property-0000",
+          "correct": true,
+          "generation_continuation": " The token is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.439613103866577,
+            2.5076985359191895,
+            2.5085840225219727,
+            0.042534586042165756
+          ],
+          "case_id": "container-0001",
+          "correct": true,
+          "generation_continuation": " The yellow ring remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.0615815669298172,
+            0.09637678414583206,
+            4.040948390960693,
+            5.017469882965088
+          ],
+          "case_id": "event_order-0001",
+          "correct": true,
+          "generation_continuation": " No water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.00016821533790789545,
+            1.575759768486023,
+            1.970490574836731,
+            1.6679788827896118
+          ],
+          "case_id": "ownership-0001",
+          "correct": true,
+          "generation_continuation": " Ava has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0343962162733078,
+            1.9309208393096924,
+            1.79835844039917,
+            1.9033715724945068
+          ],
+          "case_id": "property-0001",
+          "correct": true,
+          "generation_continuation": " The key is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.677525043487549,
+            2.625307083129883,
+            0.06166836991906166,
+            2.6184470653533936
+          ],
+          "case_id": "container-0002",
+          "correct": true,
+          "generation_continuation": " The silver token remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.2846871316432953,
+            5.045488357543945,
+            0.009318400174379349,
+            4.0749664306640625
+          ],
+          "case_id": "event_order-0002",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.4829766750335693,
+            1.4277845621109009,
+            0.00015335038187913597,
+            2.0980606079101562
+          ],
+          "case_id": "ownership-0002",
+          "correct": true,
+          "generation_continuation": " Eli has the green key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.035517930984497,
+            1.9224435091018677,
+            0.015606457367539406,
+            1.7816240787506104
+          ],
+          "case_id": "property-0002",
+          "correct": true,
+          "generation_continuation": " The card is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.814892292022705,
+            2.883045196533203,
+            2.873533248901367,
+            0.030237196013331413
+          ],
+          "case_id": "container-0003",
+          "correct": true,
+          "generation_continuation": " The red coin remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            5.079283714294434,
+            4.068664073944092,
+            0.12005370110273361,
+            0.04681934788823128
+          ],
+          "case_id": "event_order-0003",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5268480777740479,
+            6.832563667558134e-05,
+            1.138309121131897,
+            1.1791826486587524
+          ],
+          "case_id": "ownership-0003",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.7676011323928833,
+            1.5757992267608643,
+            1.7991641759872437,
+            0.01884937845170498
+          ],
+          "case_id": "property-0003",
+          "correct": true,
+          "generation_continuation": " The key is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            2.5340423583984375,
+            2.4516026973724365,
+            0.02397124655544758,
+            2.454469919204712
+          ],
+          "case_id": "container-0004",
+          "correct": true,
+          "generation_continuation": " The orange coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.05732733756303787,
+            4.0590128898620605,
+            0.10234188288450241,
+            4.9971513748168945
+          ],
+          "case_id": "event_order-0004",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5318169593811035,
+            1.5579971075057983,
+            1.245824933052063,
+            0.0001502735394751653
+          ],
+          "case_id": "ownership-0004",
+          "correct": true,
+          "generation_continuation": " Cora has the yellow key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5838674306869507,
+            1.5939488410949707,
+            1.8395642042160034,
+            0.021014874801039696
+          ],
+          "case_id": "property-0004",
+          "correct": true,
+          "generation_continuation": " The notebook is still green.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.5848610401153564,
+            3.6109580993652344,
+            3.567026138305664,
+            0.2074775993824005
+          ],
+          "case_id": "container-0005",
+          "correct": true,
+          "generation_continuation": " Eli has the silver key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.05103901028633118,
+            5.129123210906982,
+            0.11229247599840164,
+            4.241632461547852
+          ],
+          "case_id": "event_order-0005",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3065738677978516,
+            1.5475257635116577,
+            0.0001366277429042384,
+            1.255428671836853
+          ],
+          "case_id": "ownership-0005",
+          "correct": true,
+          "generation_continuation": " Ava has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.01768561638891697,
+            1.3661682605743408,
+            1.5397802591323853,
+            1.4415966272354126
+          ],
+          "case_id": "property-0005",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.041634708642959595,
+            2.9239909648895264,
+            2.8556222915649414,
+            2.9434828758239746
+          ],
+          "case_id": "container-0006",
+          "correct": true,
+          "generation_continuation": " The silver ring remains inside the drawer.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0783749669790268,
+            5.021754741668701,
+            4.007645130157471,
+            0.09717509895563126
+          ],
+          "case_id": "event_order-0006",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            9.675627370597795e-05,
+            1.2741565704345703,
+            1.014966368675232,
+            1.3121485710144043
+          ],
+          "case_id": "ownership-0006",
+          "correct": true,
+          "generation_continuation": " Cora has the silver ring.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.571230411529541,
+            0.009798758663237095,
+            1.7757951021194458,
+            1.7659226655960083
+          ],
+          "case_id": "property-0006",
+          "correct": true,
+          "generation_continuation": " The card is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.06496585160493851,
+            2.6203150749206543,
+            2.5443649291992188,
+            2.5327601432800293
+          ],
+          "case_id": "container-0007",
+          "correct": true,
+          "generation_continuation": " The orange notebook remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            5.177938461303711,
+            0.05508311837911606,
+            4.228230953216553,
+            0.10576184093952179
+          ],
+          "case_id": "event_order-0007",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001502583036199212,
+            1.785541296005249,
+            1.7913079261779785,
+            1.407872200012207
+          ],
+          "case_id": "ownership-0007",
+          "correct": true,
+          "generation_continuation": " Cora has the blue key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.023562293499708176,
+            1.6473206281661987,
+            1.4398730993270874,
+            1.691794753074646
+          ],
+          "case_id": "property-0007",
+          "correct": true,
+          "generation_continuation": " The key is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.8450658321380615,
+            2.7997419834136963,
+            2.8654587268829346,
+            0.024705588817596436
+          ],
+          "case_id": "container-0008",
+          "correct": true,
+          "generation_continuation": " The orange key remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.2750026285648346,
+            4.073979377746582,
+            0.010237420909106731,
+            5.051902770996094
+          ],
+          "case_id": "event_order-0008",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.3798863887786865,
+            0.00015769668971188366,
+            1.7215595245361328,
+            1.3949525356292725
+          ],
+          "case_id": "ownership-0008",
+          "correct": true,
+          "generation_continuation": " Mara has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.009032053872942924,
+            1.6347042322158813,
+            1.7773487567901611,
+            1.7999504804611206
+          ],
+          "case_id": "property-0008",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.0675153732299805,
+            3.091409921646118,
+            3.0507590770721436,
+            0.22286643087863922
+          ],
+          "case_id": "container-0009",
+          "correct": true,
+          "generation_continuation": " Eli has the orange coin.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.227179527282715,
+            5.114307403564453,
+            0.005276819691061974,
+            0.3492155075073242
+          ],
+          "case_id": "event_order-0009",
+          "correct": true,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.2053714990615845,
+            1.2075480222702026,
+            1.4070454835891724,
+            0.00017650594236329198
+          ],
+          "case_id": "ownership-0009",
+          "correct": true,
+          "generation_continuation": " Mara has the silver coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.581936240196228,
+            1.4505362510681152,
+            1.4052088260650635,
+            0.019306689500808716
+          ],
+          "case_id": "property-0009",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.283731460571289,
+            4.27072286605835,
+            0.1680881828069687,
+            4.34775447845459
+          ],
+          "case_id": "container-0010",
+          "correct": true,
+          "generation_continuation": " Cora has the green key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            5.145186901092529,
+            0.008061235770583153,
+            0.300247460603714,
+            4.132379531860352
+          ],
+          "case_id": "event_order-0010",
+          "correct": true,
+          "generation_continuation": " Some water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.00020147470058873296,
+            1.5243152379989624,
+            1.5271700620651245,
+            1.598385214805603
+          ],
+          "case_id": "ownership-0010",
+          "correct": true,
+          "generation_continuation": " Dax has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.9307876825332642,
+            1.8061017990112305,
+            1.9059793949127197,
+            0.022006521001458168
+          ],
+          "case_id": "property-0010",
+          "correct": true,
+          "generation_continuation": " The token is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.851033926010132,
+            0.16893590986728668,
+            3.815889596939087,
+            3.8055756092071533
+          ],
+          "case_id": "container-0011",
+          "correct": true,
+          "generation_continuation": " Dax has the blue card.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            4.264412879943848,
+            0.04098111763596535,
+            0.1320621520280838,
+            5.304487228393555
+          ],
+          "case_id": "event_order-0011",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2761331796646118,
+            1.0589203834533691,
+            0.9947863817214966,
+            0.00021718445350416005
+          ],
+          "case_id": "ownership-0011",
+          "correct": true,
+          "generation_continuation": " Ben has the silver token.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.9176781177520752,
+            0.014981098473072052,
+            1.7126201391220093,
+            1.8686952590942383
+          ],
+          "case_id": "property-0011",
+          "correct": true,
+          "generation_continuation": " The key is still orange.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            3.594059705734253,
+            3.657923936843872,
+            0.08650603145360947,
+            3.538015842437744
+          ],
+          "case_id": "container-0012",
+          "correct": true,
+          "generation_continuation": " Cora has the blue token.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            4.131714820861816,
+            5.001792907714844,
+            0.07338041812181473,
+            0.08222780376672745
+          ],
+          "case_id": "event_order-0012",
+          "correct": false,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": false,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.7569622993469238,
+            1.3175771236419678,
+            0.00010268374171573669,
+            1.3430880308151245
+          ],
+          "case_id": "ownership-0012",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.6651942729949951,
+            1.5718767642974854,
+            0.006273726467043161,
+            1.4387134313583374
+          ],
+          "case_id": "property-0012",
+          "correct": true,
+          "generation_continuation": " The token is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            3.120551347732544,
+            3.0824027061462402,
+            3.11232590675354,
+            0.05293489992618561
+          ],
+          "case_id": "container-0013",
+          "correct": true,
+          "generation_continuation": " The yellow coin remains inside the jar.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.09998659789562225,
+            0.07627195119857788,
+            4.852078437805176,
+            3.9895975589752197
+          ],
+          "case_id": "event_order-0013",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001406938099535182,
+            1.7137471437454224,
+            1.2300243377685547,
+            1.912179946899414
+          ],
+          "case_id": "ownership-0013",
+          "correct": true,
+          "generation_continuation": " Owen has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5401387214660645,
+            1.7380971908569336,
+            0.023048974573612213,
+            1.7341668605804443
+          ],
+          "case_id": "property-0013",
+          "correct": true,
+          "generation_continuation": " The notebook is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.016278887167572975,
+            2.6108150482177734,
+            2.657780408859253,
+            2.5878303050994873
+          ],
+          "case_id": "container-0014",
+          "correct": true,
+          "generation_continuation": " The silver card remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.9852547645568848,
+            0.07491794228553772,
+            0.1016644835472107,
+            4.899319648742676
+          ],
+          "case_id": "event_order-0014",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.5585867166519165,
+            0.00017852545715868473,
+            1.5068695545196533,
+            1.5412473678588867
+          ],
+          "case_id": "ownership-0014",
+          "correct": true,
+          "generation_continuation": " Dax has the orange card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2717961072921753,
+            1.2786180973052979,
+            1.4103033542633057,
+            0.04334745928645134
+          ],
+          "case_id": "property-0014",
+          "correct": true,
+          "generation_continuation": " The coin is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.366753339767456,
+            0.15832944214344025,
+            3.5067834854125977,
+            3.509852647781372
+          ],
+          "case_id": "container-0015",
+          "correct": true,
+          "generation_continuation": " Dax has the blue key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.008868386037647724,
+            4.247367858886719,
+            0.29007434844970703,
+            5.2217864990234375
+          ],
+          "case_id": "event_order-0015",
+          "correct": true,
+          "generation_continuation": " Some water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3139132261276245,
+            1.8023918867111206,
+            8.055307989707217e-05,
+            1.359098196029663
+          ],
+          "case_id": "ownership-0015",
+          "correct": true,
+          "generation_continuation": " Nora has the silver card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.008266903460025787,
+            1.574992299079895,
+            1.7964260578155518,
+            1.7443976402282715
+          ],
+          "case_id": "property-0015",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        }
+      ],
+      "surface": "marulho_relation_binding_evaluation.v1"
+    }
+  },
+  "boundary": "V54 tests a frozen-parent bidirectional source/question encoder with direct extractive span supervision. It does not prove synthesis, multi-document retrieval, open-domain reasoning, or routing.",
+  "checkpoint": {
+    "metadata": {
+      "architecture": "v35r_transformer_answer_objective_v39",
+      "baseline_checkpoint_sha256": "69ce5856b8b34d8579d034375c4e1206501c6a4e44b81ff4bee951437636c79c",
+      "checkpoint_reproduction": true,
+      "cumulative_processed_tokens": 201335040,
+      "cumulative_tokens": 218108160,
+      "decision": "save_v35r_capacity_continuation_201m_for_unseen_generation",
+      "external_llm_used": false,
+      "free_relation_accuracy": 0.0,
+      "heldout_loss": 3.1649186611175537,
+      "optimizer": {
+        "adamw_fallback_betas": [
+          0.9,
+          0.95
+        ],
+        "adamw_fallback_parameter_count": 6307584,
+        "adamw_fallback_parameter_names": [
+          "token_embedding.weight",
+          "state_block.layers.0.attention_norm.weight",
+          "state_block.layers.0.mlp_norm.weight",
+          "state_block.layers.1.attention_norm.weight",
+          "state_block.layers.1.mlp_norm.weight",
+          "state_block.layers.2.attention_norm.weight",
+          "state_block.layers.2.mlp_norm.weight",
+          "state_block.layers.3.attention_norm.weight",
+          "state_block.layers.3.mlp_norm.weight",
+          "state_block.layers.4.attention_norm.weight",
+          "state_block.layers.4.mlp_norm.weight",
+          "state_block.layers.5.attention_norm.weight",
+          "state_block.layers.5.mlp_norm.weight",
+          "state_block.layers.6.attention_norm.weight",
+          "state_block.layers.6.mlp_norm.weight",
+          "state_block.layers.7.attention_norm.weight",
+          "state_block.layers.7.mlp_norm.weight",
+          "state_block.layers.8.attention_norm.weight",
+          "state_block.layers.8.mlp_norm.weight",
+          "state_block.layers.9.attention_norm.weight",
+          "state_block.layers.9.mlp_norm.weight",
+          "state_block.output_norm.weight"
+        ],
+        "external_weights_loaded": false,
+        "fused": false,
+        "kind": "marulho_muon_with_adamw_fallback",
+        "learning_rate": 0.0003,
+        "momentum": 0.95,
+        "muon_parameter_count": 94371840,
+        "muon_parameter_names": [
+          "state_block.layers.0.attention.qkv.weight",
+          "state_block.layers.0.attention.output.weight",
+          "state_block.layers.0.gate_up.weight",
+          "state_block.layers.0.down.weight",
+          "state_block.layers.1.attention.qkv.weight",
+          "state_block.layers.1.attention.output.weight",
+          "state_block.layers.1.gate_up.weight",
+          "state_block.layers.1.down.weight",
+          "state_block.layers.2.attention.qkv.weight",
+          "state_block.layers.2.attention.output.weight",
+          "state_block.layers.2.gate_up.weight",
+          "state_block.layers.2.down.weight",
+          "state_block.layers.3.attention.qkv.weight",
+          "state_block.layers.3.attention.output.weight",
+          "state_block.layers.3.gate_up.weight",
+          "state_block.layers.3.down.weight",
+          "state_block.layers.4.attention.qkv.weight",
+          "state_block.layers.4.attention.output.weight",
+          "state_block.layers.4.gate_up.weight",
+          "state_block.layers.4.down.weight",
+          "state_block.layers.5.attention.qkv.weight",
+          "state_block.layers.5.attention.output.weight",
+          "state_block.layers.5.gate_up.weight",
+          "state_block.layers.5.down.weight",
+          "state_block.layers.6.attention.qkv.weight",
+          "state_block.layers.6.attention.output.weight",
+          "state_block.layers.6.gate_up.weight",
+          "state_block.layers.6.down.weight",
+          "state_block.layers.7.attention.qkv.weight",
+          "state_block.layers.7.attention.output.weight",
+          "state_block.layers.7.gate_up.weight",
+          "state_block.layers.7.down.weight",
+          "state_block.layers.8.attention.qkv.weight",
+          "state_block.layers.8.attention.output.weight",
+          "state_block.layers.8.gate_up.weight",
+          "state_block.layers.8.down.weight",
+          "state_block.layers.9.attention.qkv.weight",
+          "state_block.layers.9.attention.output.weight",
+          "state_block.layers.9.gate_up.weight",
+          "state_block.layers.9.down.weight"
+        ],
+        "nesterov": true,
+        "newton_schulz_coefficients": [
+          3.4445,
+          -4.775,
+          2.0315
+        ],
+        "newton_schulz_steps": 5,
+        "orthogonalization_grouped_by_matrix_shape": true,
+        "orthogonalizer_compile_requested": true,
+        "orthogonalizer_dynamic_matrix_shapes": true,
+        "paper": "https://arxiv.org/abs/2502.16982",
+        "reference_implementation": "https://github.com/MoonshotAI/Moonlight/blob/master/examples/toy_train.py",
+        "update_rms_target": 0.2,
+        "weight_decay": 0.1
+      },
+      "optimizer_state_saved": false,
+      "parent_checkpoint_sha256": "48bfe82a70d9c537f10dc6d898c3cf18906716bd90acfefb7089ccd30477d9df",
+      "processed_tokens": 134224128,
+      "selected_arm": "answer_weight4"
+    },
+    "path": "reports\\language_scaling\\v39-answer-objective-qualified-100m-218m-20260810.pt",
+    "sha256": "6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d"
+  },
+  "checkpoint_fidelity": {
+    "arm_checkpoint_path": "reports\\language_scaling\\span-encoder-v54-arm.pt",
+    "arm_checkpoint_sha256": "d85ce801ab48960aba3b691c566dd032acbaff8af4c9733b67912e9ab5dd6809",
+    "arm_checkpoint_size_bytes": 1509991,
+    "expected_state_sha256": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+    "metadata": {
+      "experiment_contract_sha256": "b0a59e6683e128ffb0e7a061fcc2b41d394e91b3e44e064ae9489aadf5f75fc7",
+      "processed_tokens": 2096640,
+      "source_experiment": "marulho_span_encoder_falsification.v1"
+    },
+    "passed": true,
+    "performed": true,
+    "restored_state_sha256": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+    "tokenizer_hash_after": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+    "tokenizer_hash_before": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715"
+  },
+  "configuration": {
+    "batch_size": 64,
+    "data_seed": 54121,
+    "encoder_heads": 4,
+    "encoder_layers": 2,
+    "encoder_width": 128,
+    "eval_batches": 16,
+    "gradient_clip": 1.0,
+    "learning_rate": 0.0003,
+    "maximum_answer_tokens": 8,
+    "maximum_parameter_fraction": 0.0075,
+    "maximum_training_seconds": 1200.0,
+    "minimum_grounding_accuracy": 0.296875,
+    "minimum_learning_rate_fraction": 0.1,
+    "minimum_source_gain": 0.25,
+    "model_seed": 54131,
+    "precision": "bfloat16",
+    "relation_case_count": 64,
+    "relation_eval_batch_size": 8,
+    "relation_generation_tokens": 16,
+    "sequence_length": 72,
+    "token_budget": 2096640,
+    "warmup_fraction": 0.05,
+    "weight_decay": 0.1
+  },
+  "data": {
+    "general_source_selections": {
+      "general_eval": [
+        {
+          "path": "reports\\language_curriculum\\fineweb-edu-eval-10k-shard1-20260710.txt",
+          "ranges": [
+            {
+              "end": 131112,
+              "start": 0
+            },
+            {
+              "end": 7420675,
+              "start": 7289436
+            },
+            {
+              "end": 14709815,
+              "start": 14578714
+            },
+            {
+              "end": 21999196,
+              "start": 21868006
+            },
+            {
+              "end": 29288524,
+              "start": 29157390
+            },
+            {
+              "end": 36577967,
+              "start": 36446635
+            },
+            {
+              "end": 43867395,
+              "start": 43735882
+            },
+            {
+              "end": 51156091,
+              "start": 51025111
+            }
+          ],
+          "selected_sha256": "80a6260b695e209cc84153756b5dbfd5f9e470549eabe898df5a9b90ddb1d6f4",
+          "selected_size_bytes": 1049769,
+          "source_size_bytes": 51156091
+        },
+        {
+          "path": "reports\\language_curriculum\\cosmopedia-v2-eval-10k-shard2-20260710.txt",
+          "ranges": [
+            {
+              "end": 131111,
+              "start": 0
+            },
+            {
+              "end": 5477397,
+              "start": 5346205
+            },
+            {
+              "end": 10823477,
+              "start": 10692177
+            },
+            {
+              "end": 16169493,
+              "start": 16038300
+            },
+            {
+              "end": 21515832,
+              "start": 21384593
+            },
+            {
+              "end": 26862011,
+              "start": 26730567
+            },
+            {
+              "end": 32208007,
+              "start": 32076703
+            },
+            {
+              "end": 37553596,
+              "start": 37422754
+            }
+          ],
+          "selected_sha256": "33a30da112aa7f01794695fbcda743e4c6f875dc7d432312535ec3c0b6f6a263",
+          "selected_size_bytes": 1049793,
+          "source_size_bytes": 37553596
+        }
+      ],
+      "general_eval_split": {
+        "batch_size": 8,
+        "document_boundary_policy": "bos_eos_per_legacy_blank_line_document",
+        "document_encode_batch_size": 512,
+        "eval_batch_count": 16,
+        "eval_document_count": 534,
+        "eval_explicit_document_separator_count": 536,
+        "eval_source_text_count": 2,
+        "eval_split_hash": "75c6712a746b6292dc96aecb031ad5500e866e77c9789a61b345a2233f22d608",
+        "eval_text_token_count": 512672,
+        "eval_token_stream_count": 513740,
+        "eval_window_count": 128,
+        "eval_window_count_before_limit": 7135,
+        "eval_window_selection": {
+          "first_selected_index": 0,
+          "last_selected_index": 7134,
+          "selected_window_count": 128,
+          "source_window_count": 7135,
+          "spans_full_source_window": true
+        },
+        "explicit_eval_texts": true,
+        "external_llm_used": false,
+        "owned_by_marulho": true,
+        "sequence_length": 72,
+        "source_text_count": 0,
+        "split_hash_format": "selected_windows_int64_row_major.v1",
+        "split_strategy": "explicit_text_sets",
+        "storage_device": "cpu",
+        "stride": 72,
+        "surface": "marulho_transformer_train_eval_split.v8",
+        "tokenizer_hash": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+        "train_batch_count": 0,
+        "train_document_count": 0,
+        "train_explicit_document_separator_count": 0,
+        "train_split_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "train_text_token_count": 0,
+        "train_token_stream_count": 0,
+        "train_window_count": 0,
+        "train_window_count_before_limit": 0,
+        "train_window_selection": {
+          "first_selected_index": null,
+          "last_selected_index": null,
+          "selected_window_count": 0,
+          "source_window_count": 0,
+          "spans_full_source_window": false
+        },
+        "window_count": 7135,
+        "window_selection": "stratified"
+      },
+      "general_train": [
+        {
+          "path": "reports\\language_curriculum\\fineweb-edu-replay-75k-shard2-20260710.txt",
+          "ranges": [
+            {
+              "end": 131596,
+              "start": 0
+            },
+            {
+              "end": 52126961,
+              "start": 51995884
+            },
+            {
+              "end": 104123414,
+              "start": 103991784
+            },
+            {
+              "end": 156119231,
+              "start": 155987717
+            },
+            {
+              "end": 208114800,
+              "start": 207983533
+            },
+            {
+              "end": 260111048,
+              "start": 259979757
+            },
+            {
+              "end": 312106624,
+              "start": 311975510
+            },
+            {
+              "end": 364102210,
+              "start": 363971288
+            }
+          ],
+          "selected_sha256": "9f752f77e11db75f8b1706911554c62c3d91a210b2f3d239d7df60bbe40d810c",
+          "selected_size_bytes": 1050579,
+          "source_size_bytes": 364102210
+        },
+        {
+          "path": "reports\\language_curriculum\\cosmopedia-v2-replay-75k-shard4-20260710.txt",
+          "ranges": [
+            {
+              "end": 131182,
+              "start": 0
+            },
+            {
+              "end": 40517803,
+              "start": 40386429
+            },
+            {
+              "end": 80903893,
+              "start": 80772696
+            },
+            {
+              "end": 121289888,
+              "start": 121158713
+            },
+            {
+              "end": 161676049,
+              "start": 161544835
+            },
+            {
+              "end": 202062441,
+              "start": 201931342
+            },
+            {
+              "end": 242448572,
+              "start": 242317251
+            },
+            {
+              "end": 282834502,
+              "start": 282703911
+            }
+          ],
+          "selected_sha256": "81c65a95156ef11b2aad92d89fbaddfed124ec2a7bfaaa2d75d75134e84d0147",
+          "selected_size_bytes": 1049321,
+          "source_size_bytes": 282834502
+        }
+      ],
+      "general_train_splits": [
+        {
+          "batch_size": 8,
+          "document_boundary_policy": "bos_eos_per_explicit_marulho_record",
+          "document_encode_batch_size": 512,
+          "eval_batch_count": 1,
+          "eval_document_count": 247,
+          "eval_explicit_document_separator_count": 248,
+          "eval_source_text_count": 0,
+          "eval_split_hash": "fc20a779fa932af12491bb8858c462bdbdc3f99a118b074c9c63544eedae4904",
+          "eval_text_token_count": 281109,
+          "eval_token_stream_count": 281603,
+          "eval_window_count": 8,
+          "eval_window_count_before_limit": 783,
+          "eval_window_selection": {
+            "first_selected_index": 0,
+            "last_selected_index": 782,
+            "selected_window_count": 8,
+            "source_window_count": 783,
+            "spans_full_source_window": true
+          },
+          "explicit_eval_texts": false,
+          "external_llm_used": false,
+          "owned_by_marulho": true,
+          "sequence_length": 72,
+          "source_text_count": 1,
+          "split_hash_format": "selected_windows_int64_row_major.v1",
+          "split_strategy": "contiguous_tail_fraction",
+          "storage_device": "cpu",
+          "stride": 72,
+          "surface": "marulho_transformer_train_eval_split.v8",
+          "tokenizer_hash": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+          "train_batch_count": 4,
+          "train_document_count": 247,
+          "train_explicit_document_separator_count": 248,
+          "train_split_hash": "e9457598d755014520b873bc55c103673da94f48d3584a16ad4e1a969eb8609b",
+          "train_text_token_count": 281109,
+          "train_token_stream_count": 281603,
+          "train_window_count": 32,
+          "train_window_count_before_limit": 3128,
+          "train_window_selection": {
+            "first_selected_index": 0,
+            "last_selected_index": 3127,
+            "selected_window_count": 32,
+            "source_window_count": 3128,
+            "spans_full_source_window": true
+          },
+          "window_count": 3911,
+          "window_selection": "stratified"
+        },
+        {
+          "batch_size": 8,
+          "document_boundary_policy": "bos_eos_per_explicit_marulho_record",
+          "document_encode_batch_size": 512,
+          "eval_batch_count": 1,
+          "eval_document_count": 287,
+          "eval_explicit_document_separator_count": 286,
+          "eval_source_text_count": 0,
+          "eval_split_hash": "30fdb8d747065854f6c89a640c7cec9410453a13b0cba7ad83cc2b74c2065061",
+          "eval_text_token_count": 239977,
+          "eval_token_stream_count": 240551,
+          "eval_window_count": 8,
+          "eval_window_count_before_limit": 668,
+          "eval_window_selection": {
+            "first_selected_index": 0,
+            "last_selected_index": 667,
+            "selected_window_count": 8,
+            "source_window_count": 668,
+            "spans_full_source_window": true
+          },
+          "explicit_eval_texts": false,
+          "external_llm_used": false,
+          "owned_by_marulho": true,
+          "sequence_length": 72,
+          "source_text_count": 1,
+          "split_hash_format": "selected_windows_int64_row_major.v1",
+          "split_strategy": "contiguous_tail_fraction",
+          "storage_device": "cpu",
+          "stride": 72,
+          "surface": "marulho_transformer_train_eval_split.v8",
+          "tokenizer_hash": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+          "train_batch_count": 4,
+          "train_document_count": 287,
+          "train_explicit_document_separator_count": 286,
+          "train_split_hash": "c741e3ecb4d6e958240e6b7f840fdb1365960b38163c8b7f6023619b51ad4cea",
+          "train_text_token_count": 239977,
+          "train_token_stream_count": 240551,
+          "train_window_count": 32,
+          "train_window_count_before_limit": 2672,
+          "train_window_selection": {
+            "first_selected_index": 0,
+            "last_selected_index": 2671,
+            "selected_window_count": 32,
+            "source_window_count": 2672,
+            "spans_full_source_window": true
+          },
+          "window_count": 3340,
+          "window_selection": "stratified"
+        }
+      ],
+      "relation": {
+        "path": "reports\\language_curriculum\\squad-v48-train-512-20260811.json",
+        "ranges": [],
+        "scheduled": false,
+        "selected_size_bytes": 0
+      },
+      "relation_alignment": null,
+      "relation_window_mode": "stream",
+      "schedule_storage": {
+        "device_storage_bytes": 0,
+        "expanded_storage_bytes": 73728,
+        "host_storage_bytes": 73728,
+        "mode": "indexed_host",
+        "resident_storage_bytes": 73728
+      },
+      "training_batch_filter": {
+        "general_batches_after": [
+          4,
+          4
+        ],
+        "general_batches_before": [
+          4,
+          4
+        ],
+        "partial_batches_excluded": true,
+        "relation_batches_after": 0,
+        "relation_batches_before": 0,
+        "required_batch_size": 8
+      }
+    },
+    "supervision": {
+      "all_gold_spans_source_contained": true,
+      "all_prompts_fit": true,
+      "batch_count": 8,
+      "batch_size": 64,
+      "case_count": 512,
+      "maximum_answer_tokens": 8,
+      "minimum_answer_tokens": 1,
+      "sequence_length": 72,
+      "surface": "marulho_span_supervision_batches.v1"
+    },
+    "training_manifest_contract_sha256": "244a536bb39543954e6c3906592f9ee089f2f92d9a542d3166a0aa380c427022",
+    "training_manifest_path": "reports\\language_curriculum\\squad-v48-train-512-20260811.json",
+    "training_manifest_sha256": "2d35fce5665282310780ec2b36fa732b9aa973591ec358d4049ad309359abe78",
+    "validation_manifest_contract_sha256": "48a738e39f1d5327035e25b4781e33c473f58c911aafffd95576db1032bedc23",
+    "validation_manifest_path": "reports\\language_curriculum\\squad-v47-validation-64-20260811.json"
+  },
+  "decision": "retire_v54_span_encoder_insufficient_grounding",
+  "experiment_contract_sha256": "b0a59e6683e128ffb0e7a061fcc2b41d394e91b3e44e064ae9489aadf5f75fc7",
+  "external_llm_used": false,
+  "external_text_data": true,
+  "gate": {
+    "checks": {
+      "all_encoder_parameters_received_gradient": true,
+      "all_encoder_parameters_received_nonzero_gradient": true,
+      "bounded_training_time": true,
+      "checkpoint_fidelity": true,
+      "exact_token_budget": true,
+      "maximum_parameter_fraction": true,
+      "minimum_grounding_accuracy": false,
+      "minimum_source_gain": true,
+      "parent_checkpoint_file_exact": true,
+      "parent_general_loss_exact": true,
+      "parent_logits_exact": true,
+      "parent_relation_exact": true,
+      "parent_state_exact": true,
+      "source_valid": true
+    },
+    "observed": {
+      "elapsed_seconds": 12.052060499991057,
+      "encoder_parameters": 373506,
+      "grounding_accuracy": 0.25,
+      "parameter_fraction": 0.0037098543591190985,
+      "parent_parameters": 100679424,
+      "source_gain": 0.25
+    },
+    "passed": false,
+    "thresholds": {
+      "batch_size": 64,
+      "data_seed": 54121,
+      "encoder_heads": 4,
+      "encoder_layers": 2,
+      "encoder_width": 128,
+      "eval_batches": 16,
+      "gradient_clip": 1.0,
+      "learning_rate": 0.0003,
+      "maximum_answer_tokens": 8,
+      "maximum_parameter_fraction": 0.0075,
+      "maximum_training_seconds": 1200.0,
+      "minimum_grounding_accuracy": 0.296875,
+      "minimum_learning_rate_fraction": 0.1,
+      "minimum_source_gain": 0.25,
+      "model_seed": 54131,
+      "precision": "bfloat16",
+      "relation_case_count": 64,
+      "relation_eval_batch_size": 8,
+      "relation_generation_tokens": 16,
+      "sequence_length": 72,
+      "token_budget": 2096640,
+      "warmup_fraction": 0.05,
+      "weight_decay": 0.1
+    }
+  },
+  "owned_by_marulho": true,
+  "parent": {
+    "checkpoint_file_exact": true,
+    "checkpoint_sha256_after": "6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d",
+    "checkpoint_sha256_before": "6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d",
+    "general_loss_after": 3.1490259170532227,
+    "general_loss_before": 3.1490259170532227,
+    "general_loss_exact": true,
+    "logits_exact": true,
+    "relation_after": {
+      "accuracy": 0.984375,
+      "case_count": 64,
+      "correct_index_metrics_only": true,
+      "evaluation_batch_size": 8,
+      "evaluation_mode": "length_grouped_batched",
+      "generation_exact_accuracy": 0.890625,
+      "generation_kind_accuracy": {
+        "container": 0.625,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "generation_max_new_tokens": 16,
+      "kind_accuracy": {
+        "container": 1.0,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "prediction_uses_correct_index": false,
+      "rows": [
+        {
+          "candidate_losses": [
+            2.993293523788452,
+            3.1049139499664307,
+            2.9548606872558594,
+            0.06460325419902802
+          ],
+          "case_id": "container-0000",
+          "correct": true,
+          "generation_continuation": " The green coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.228720664978027,
+            0.008525997400283813,
+            0.2932273745536804,
+            5.301481246948242
+          ],
+          "case_id": "event_order-0000",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.3104246854782104,
+            1.6483372449874878,
+            0.0002746008976828307,
+            1.3154772520065308
+          ],
+          "case_id": "ownership-0000",
+          "correct": true,
+          "generation_continuation": " Ben has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.364635705947876,
+            1.419633150100708,
+            0.02622745744884014,
+            1.3010584115982056
+          ],
+          "case_id": "property-0000",
+          "correct": true,
+          "generation_continuation": " The token is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.439613103866577,
+            2.5076985359191895,
+            2.5085840225219727,
+            0.042534586042165756
+          ],
+          "case_id": "container-0001",
+          "correct": true,
+          "generation_continuation": " The yellow ring remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.0615815669298172,
+            0.09637678414583206,
+            4.040948390960693,
+            5.017469882965088
+          ],
+          "case_id": "event_order-0001",
+          "correct": true,
+          "generation_continuation": " No water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.00016821533790789545,
+            1.575759768486023,
+            1.970490574836731,
+            1.6679788827896118
+          ],
+          "case_id": "ownership-0001",
+          "correct": true,
+          "generation_continuation": " Ava has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0343962162733078,
+            1.9309208393096924,
+            1.79835844039917,
+            1.9033715724945068
+          ],
+          "case_id": "property-0001",
+          "correct": true,
+          "generation_continuation": " The key is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.677525043487549,
+            2.625307083129883,
+            0.06166836991906166,
+            2.6184470653533936
+          ],
+          "case_id": "container-0002",
+          "correct": true,
+          "generation_continuation": " The silver token remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.2846871316432953,
+            5.045488357543945,
+            0.009318400174379349,
+            4.0749664306640625
+          ],
+          "case_id": "event_order-0002",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.4829766750335693,
+            1.4277845621109009,
+            0.00015335038187913597,
+            2.0980606079101562
+          ],
+          "case_id": "ownership-0002",
+          "correct": true,
+          "generation_continuation": " Eli has the green key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.035517930984497,
+            1.9224435091018677,
+            0.015606457367539406,
+            1.7816240787506104
+          ],
+          "case_id": "property-0002",
+          "correct": true,
+          "generation_continuation": " The card is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.814892292022705,
+            2.883045196533203,
+            2.873533248901367,
+            0.030237196013331413
+          ],
+          "case_id": "container-0003",
+          "correct": true,
+          "generation_continuation": " The red coin remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            5.079283714294434,
+            4.068664073944092,
+            0.12005370110273361,
+            0.04681934788823128
+          ],
+          "case_id": "event_order-0003",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5268480777740479,
+            6.832563667558134e-05,
+            1.138309121131897,
+            1.1791826486587524
+          ],
+          "case_id": "ownership-0003",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.7676011323928833,
+            1.5757992267608643,
+            1.7991641759872437,
+            0.01884937845170498
+          ],
+          "case_id": "property-0003",
+          "correct": true,
+          "generation_continuation": " The key is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            2.5340423583984375,
+            2.4516026973724365,
+            0.02397124655544758,
+            2.454469919204712
+          ],
+          "case_id": "container-0004",
+          "correct": true,
+          "generation_continuation": " The orange coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.05732733756303787,
+            4.0590128898620605,
+            0.10234188288450241,
+            4.9971513748168945
+          ],
+          "case_id": "event_order-0004",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5318169593811035,
+            1.5579971075057983,
+            1.245824933052063,
+            0.0001502735394751653
+          ],
+          "case_id": "ownership-0004",
+          "correct": true,
+          "generation_continuation": " Cora has the yellow key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5838674306869507,
+            1.5939488410949707,
+            1.8395642042160034,
+            0.021014874801039696
+          ],
+          "case_id": "property-0004",
+          "correct": true,
+          "generation_continuation": " The notebook is still green.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.5848610401153564,
+            3.6109580993652344,
+            3.567026138305664,
+            0.2074775993824005
+          ],
+          "case_id": "container-0005",
+          "correct": true,
+          "generation_continuation": " Eli has the silver key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.05103901028633118,
+            5.129123210906982,
+            0.11229247599840164,
+            4.241632461547852
+          ],
+          "case_id": "event_order-0005",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3065738677978516,
+            1.5475257635116577,
+            0.0001366277429042384,
+            1.255428671836853
+          ],
+          "case_id": "ownership-0005",
+          "correct": true,
+          "generation_continuation": " Ava has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.01768561638891697,
+            1.3661682605743408,
+            1.5397802591323853,
+            1.4415966272354126
+          ],
+          "case_id": "property-0005",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.041634708642959595,
+            2.9239909648895264,
+            2.8556222915649414,
+            2.9434828758239746
+          ],
+          "case_id": "container-0006",
+          "correct": true,
+          "generation_continuation": " The silver ring remains inside the drawer.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0783749669790268,
+            5.021754741668701,
+            4.007645130157471,
+            0.09717509895563126
+          ],
+          "case_id": "event_order-0006",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            9.675627370597795e-05,
+            1.2741565704345703,
+            1.014966368675232,
+            1.3121485710144043
+          ],
+          "case_id": "ownership-0006",
+          "correct": true,
+          "generation_continuation": " Cora has the silver ring.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.571230411529541,
+            0.009798758663237095,
+            1.7757951021194458,
+            1.7659226655960083
+          ],
+          "case_id": "property-0006",
+          "correct": true,
+          "generation_continuation": " The card is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.06496585160493851,
+            2.6203150749206543,
+            2.5443649291992188,
+            2.5327601432800293
+          ],
+          "case_id": "container-0007",
+          "correct": true,
+          "generation_continuation": " The orange notebook remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            5.177938461303711,
+            0.05508311837911606,
+            4.228230953216553,
+            0.10576184093952179
+          ],
+          "case_id": "event_order-0007",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001502583036199212,
+            1.785541296005249,
+            1.7913079261779785,
+            1.407872200012207
+          ],
+          "case_id": "ownership-0007",
+          "correct": true,
+          "generation_continuation": " Cora has the blue key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.023562293499708176,
+            1.6473206281661987,
+            1.4398730993270874,
+            1.691794753074646
+          ],
+          "case_id": "property-0007",
+          "correct": true,
+          "generation_continuation": " The key is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.8450658321380615,
+            2.7997419834136963,
+            2.8654587268829346,
+            0.024705588817596436
+          ],
+          "case_id": "container-0008",
+          "correct": true,
+          "generation_continuation": " The orange key remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.2750026285648346,
+            4.073979377746582,
+            0.010237420909106731,
+            5.051902770996094
+          ],
+          "case_id": "event_order-0008",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.3798863887786865,
+            0.00015769668971188366,
+            1.7215595245361328,
+            1.3949525356292725
+          ],
+          "case_id": "ownership-0008",
+          "correct": true,
+          "generation_continuation": " Mara has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.009032053872942924,
+            1.6347042322158813,
+            1.7773487567901611,
+            1.7999504804611206
+          ],
+          "case_id": "property-0008",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.0675153732299805,
+            3.091409921646118,
+            3.0507590770721436,
+            0.22286643087863922
+          ],
+          "case_id": "container-0009",
+          "correct": true,
+          "generation_continuation": " Eli has the orange coin.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.227179527282715,
+            5.114307403564453,
+            0.005276819691061974,
+            0.3492155075073242
+          ],
+          "case_id": "event_order-0009",
+          "correct": true,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.2053714990615845,
+            1.2075480222702026,
+            1.4070454835891724,
+            0.00017650594236329198
+          ],
+          "case_id": "ownership-0009",
+          "correct": true,
+          "generation_continuation": " Mara has the silver coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.581936240196228,
+            1.4505362510681152,
+            1.4052088260650635,
+            0.019306689500808716
+          ],
+          "case_id": "property-0009",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.283731460571289,
+            4.27072286605835,
+            0.1680881828069687,
+            4.34775447845459
+          ],
+          "case_id": "container-0010",
+          "correct": true,
+          "generation_continuation": " Cora has the green key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            5.145186901092529,
+            0.008061235770583153,
+            0.300247460603714,
+            4.132379531860352
+          ],
+          "case_id": "event_order-0010",
+          "correct": true,
+          "generation_continuation": " Some water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.00020147470058873296,
+            1.5243152379989624,
+            1.5271700620651245,
+            1.598385214805603
+          ],
+          "case_id": "ownership-0010",
+          "correct": true,
+          "generation_continuation": " Dax has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.9307876825332642,
+            1.8061017990112305,
+            1.9059793949127197,
+            0.022006521001458168
+          ],
+          "case_id": "property-0010",
+          "correct": true,
+          "generation_continuation": " The token is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.851033926010132,
+            0.16893590986728668,
+            3.815889596939087,
+            3.8055756092071533
+          ],
+          "case_id": "container-0011",
+          "correct": true,
+          "generation_continuation": " Dax has the blue card.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            4.264412879943848,
+            0.04098111763596535,
+            0.1320621520280838,
+            5.304487228393555
+          ],
+          "case_id": "event_order-0011",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2761331796646118,
+            1.0589203834533691,
+            0.9947863817214966,
+            0.00021718445350416005
+          ],
+          "case_id": "ownership-0011",
+          "correct": true,
+          "generation_continuation": " Ben has the silver token.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.9176781177520752,
+            0.014981098473072052,
+            1.7126201391220093,
+            1.8686952590942383
+          ],
+          "case_id": "property-0011",
+          "correct": true,
+          "generation_continuation": " The key is still orange.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            3.594059705734253,
+            3.657923936843872,
+            0.08650603145360947,
+            3.538015842437744
+          ],
+          "case_id": "container-0012",
+          "correct": true,
+          "generation_continuation": " Cora has the blue token.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            4.131714820861816,
+            5.001792907714844,
+            0.07338041812181473,
+            0.08222780376672745
+          ],
+          "case_id": "event_order-0012",
+          "correct": false,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": false,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.7569622993469238,
+            1.3175771236419678,
+            0.00010268374171573669,
+            1.3430880308151245
+          ],
+          "case_id": "ownership-0012",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.6651942729949951,
+            1.5718767642974854,
+            0.006273726467043161,
+            1.4387134313583374
+          ],
+          "case_id": "property-0012",
+          "correct": true,
+          "generation_continuation": " The token is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            3.120551347732544,
+            3.0824027061462402,
+            3.11232590675354,
+            0.05293489992618561
+          ],
+          "case_id": "container-0013",
+          "correct": true,
+          "generation_continuation": " The yellow coin remains inside the jar.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.09998659789562225,
+            0.07627195119857788,
+            4.852078437805176,
+            3.9895975589752197
+          ],
+          "case_id": "event_order-0013",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001406938099535182,
+            1.7137471437454224,
+            1.2300243377685547,
+            1.912179946899414
+          ],
+          "case_id": "ownership-0013",
+          "correct": true,
+          "generation_continuation": " Owen has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5401387214660645,
+            1.7380971908569336,
+            0.023048974573612213,
+            1.7341668605804443
+          ],
+          "case_id": "property-0013",
+          "correct": true,
+          "generation_continuation": " The notebook is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.016278887167572975,
+            2.6108150482177734,
+            2.657780408859253,
+            2.5878303050994873
+          ],
+          "case_id": "container-0014",
+          "correct": true,
+          "generation_continuation": " The silver card remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.9852547645568848,
+            0.07491794228553772,
+            0.1016644835472107,
+            4.899319648742676
+          ],
+          "case_id": "event_order-0014",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.5585867166519165,
+            0.00017852545715868473,
+            1.5068695545196533,
+            1.5412473678588867
+          ],
+          "case_id": "ownership-0014",
+          "correct": true,
+          "generation_continuation": " Dax has the orange card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2717961072921753,
+            1.2786180973052979,
+            1.4103033542633057,
+            0.04334745928645134
+          ],
+          "case_id": "property-0014",
+          "correct": true,
+          "generation_continuation": " The coin is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.366753339767456,
+            0.15832944214344025,
+            3.5067834854125977,
+            3.509852647781372
+          ],
+          "case_id": "container-0015",
+          "correct": true,
+          "generation_continuation": " Dax has the blue key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.008868386037647724,
+            4.247367858886719,
+            0.29007434844970703,
+            5.2217864990234375
+          ],
+          "case_id": "event_order-0015",
+          "correct": true,
+          "generation_continuation": " Some water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3139132261276245,
+            1.8023918867111206,
+            8.055307989707217e-05,
+            1.359098196029663
+          ],
+          "case_id": "ownership-0015",
+          "correct": true,
+          "generation_continuation": " Nora has the silver card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.008266903460025787,
+            1.574992299079895,
+            1.7964260578155518,
+            1.7443976402282715
+          ],
+          "case_id": "property-0015",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        }
+      ],
+      "surface": "marulho_relation_binding_evaluation.v1"
+    },
+    "relation_before": {
+      "accuracy": 0.984375,
+      "case_count": 64,
+      "correct_index_metrics_only": true,
+      "evaluation_batch_size": 8,
+      "evaluation_mode": "length_grouped_batched",
+      "generation_exact_accuracy": 0.890625,
+      "generation_kind_accuracy": {
+        "container": 0.625,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "generation_max_new_tokens": 16,
+      "kind_accuracy": {
+        "container": 1.0,
+        "event_order": 0.9375,
+        "ownership": 1.0,
+        "property": 1.0
+      },
+      "prediction_uses_correct_index": false,
+      "rows": [
+        {
+          "candidate_losses": [
+            2.993293523788452,
+            3.1049139499664307,
+            2.9548606872558594,
+            0.06460325419902802
+          ],
+          "case_id": "container-0000",
+          "correct": true,
+          "generation_continuation": " The green coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.228720664978027,
+            0.008525997400283813,
+            0.2932273745536804,
+            5.301481246948242
+          ],
+          "case_id": "event_order-0000",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.3104246854782104,
+            1.6483372449874878,
+            0.0002746008976828307,
+            1.3154772520065308
+          ],
+          "case_id": "ownership-0000",
+          "correct": true,
+          "generation_continuation": " Ben has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.364635705947876,
+            1.419633150100708,
+            0.02622745744884014,
+            1.3010584115982056
+          ],
+          "case_id": "property-0000",
+          "correct": true,
+          "generation_continuation": " The token is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.439613103866577,
+            2.5076985359191895,
+            2.5085840225219727,
+            0.042534586042165756
+          ],
+          "case_id": "container-0001",
+          "correct": true,
+          "generation_continuation": " The yellow ring remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.0615815669298172,
+            0.09637678414583206,
+            4.040948390960693,
+            5.017469882965088
+          ],
+          "case_id": "event_order-0001",
+          "correct": true,
+          "generation_continuation": " No water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.00016821533790789545,
+            1.575759768486023,
+            1.970490574836731,
+            1.6679788827896118
+          ],
+          "case_id": "ownership-0001",
+          "correct": true,
+          "generation_continuation": " Ava has the red key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0343962162733078,
+            1.9309208393096924,
+            1.79835844039917,
+            1.9033715724945068
+          ],
+          "case_id": "property-0001",
+          "correct": true,
+          "generation_continuation": " The key is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.677525043487549,
+            2.625307083129883,
+            0.06166836991906166,
+            2.6184470653533936
+          ],
+          "case_id": "container-0002",
+          "correct": true,
+          "generation_continuation": " The silver token remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.2846871316432953,
+            5.045488357543945,
+            0.009318400174379349,
+            4.0749664306640625
+          ],
+          "case_id": "event_order-0002",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.4829766750335693,
+            1.4277845621109009,
+            0.00015335038187913597,
+            2.0980606079101562
+          ],
+          "case_id": "ownership-0002",
+          "correct": true,
+          "generation_continuation": " Eli has the green key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.035517930984497,
+            1.9224435091018677,
+            0.015606457367539406,
+            1.7816240787506104
+          ],
+          "case_id": "property-0002",
+          "correct": true,
+          "generation_continuation": " The card is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            2.814892292022705,
+            2.883045196533203,
+            2.873533248901367,
+            0.030237196013331413
+          ],
+          "case_id": "container-0003",
+          "correct": true,
+          "generation_continuation": " The red coin remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            5.079283714294434,
+            4.068664073944092,
+            0.12005370110273361,
+            0.04681934788823128
+          ],
+          "case_id": "event_order-0003",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5268480777740479,
+            6.832563667558134e-05,
+            1.138309121131897,
+            1.1791826486587524
+          ],
+          "case_id": "ownership-0003",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.7676011323928833,
+            1.5757992267608643,
+            1.7991641759872437,
+            0.01884937845170498
+          ],
+          "case_id": "property-0003",
+          "correct": true,
+          "generation_continuation": " The key is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            2.5340423583984375,
+            2.4516026973724365,
+            0.02397124655544758,
+            2.454469919204712
+          ],
+          "case_id": "container-0004",
+          "correct": true,
+          "generation_continuation": " The orange coin remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.05732733756303787,
+            4.0590128898620605,
+            0.10234188288450241,
+            4.9971513748168945
+          ],
+          "case_id": "event_order-0004",
+          "correct": true,
+          "generation_continuation": " No water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5318169593811035,
+            1.5579971075057983,
+            1.245824933052063,
+            0.0001502735394751653
+          ],
+          "case_id": "ownership-0004",
+          "correct": true,
+          "generation_continuation": " Cora has the yellow key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.5838674306869507,
+            1.5939488410949707,
+            1.8395642042160034,
+            0.021014874801039696
+          ],
+          "case_id": "property-0004",
+          "correct": true,
+          "generation_continuation": " The notebook is still green.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.5848610401153564,
+            3.6109580993652344,
+            3.567026138305664,
+            0.2074775993824005
+          ],
+          "case_id": "container-0005",
+          "correct": true,
+          "generation_continuation": " Eli has the silver key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.05103901028633118,
+            5.129123210906982,
+            0.11229247599840164,
+            4.241632461547852
+          ],
+          "case_id": "event_order-0005",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3065738677978516,
+            1.5475257635116577,
+            0.0001366277429042384,
+            1.255428671836853
+          ],
+          "case_id": "ownership-0005",
+          "correct": true,
+          "generation_continuation": " Ava has the yellow coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.01768561638891697,
+            1.3661682605743408,
+            1.5397802591323853,
+            1.4415966272354126
+          ],
+          "case_id": "property-0005",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.041634708642959595,
+            2.9239909648895264,
+            2.8556222915649414,
+            2.9434828758239746
+          ],
+          "case_id": "container-0006",
+          "correct": true,
+          "generation_continuation": " The silver ring remains inside the drawer.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.0783749669790268,
+            5.021754741668701,
+            4.007645130157471,
+            0.09717509895563126
+          ],
+          "case_id": "event_order-0006",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            9.675627370597795e-05,
+            1.2741565704345703,
+            1.014966368675232,
+            1.3121485710144043
+          ],
+          "case_id": "ownership-0006",
+          "correct": true,
+          "generation_continuation": " Cora has the silver ring.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.571230411529541,
+            0.009798758663237095,
+            1.7757951021194458,
+            1.7659226655960083
+          ],
+          "case_id": "property-0006",
+          "correct": true,
+          "generation_continuation": " The card is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.06496585160493851,
+            2.6203150749206543,
+            2.5443649291992188,
+            2.5327601432800293
+          ],
+          "case_id": "container-0007",
+          "correct": true,
+          "generation_continuation": " The orange notebook remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            5.177938461303711,
+            0.05508311837911606,
+            4.228230953216553,
+            0.10576184093952179
+          ],
+          "case_id": "event_order-0007",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001502583036199212,
+            1.785541296005249,
+            1.7913079261779785,
+            1.407872200012207
+          ],
+          "case_id": "ownership-0007",
+          "correct": true,
+          "generation_continuation": " Cora has the blue key.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            0.023562293499708176,
+            1.6473206281661987,
+            1.4398730993270874,
+            1.691794753074646
+          ],
+          "case_id": "property-0007",
+          "correct": true,
+          "generation_continuation": " The key is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            2.8450658321380615,
+            2.7997419834136963,
+            2.8654587268829346,
+            0.024705588817596436
+          ],
+          "case_id": "container-0008",
+          "correct": true,
+          "generation_continuation": " The orange key remains inside the basket.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.2750026285648346,
+            4.073979377746582,
+            0.010237420909106731,
+            5.051902770996094
+          ],
+          "case_id": "event_order-0008",
+          "correct": true,
+          "generation_continuation": " Some water reaches the studio.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.3798863887786865,
+            0.00015769668971188366,
+            1.7215595245361328,
+            1.3949525356292725
+          ],
+          "case_id": "ownership-0008",
+          "correct": true,
+          "generation_continuation": " Mara has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.009032053872942924,
+            1.6347042322158813,
+            1.7773487567901611,
+            1.7999504804611206
+          ],
+          "case_id": "property-0008",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.0675153732299805,
+            3.091409921646118,
+            3.0507590770721436,
+            0.22286643087863922
+          ],
+          "case_id": "container-0009",
+          "correct": true,
+          "generation_continuation": " Eli has the orange coin.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.227179527282715,
+            5.114307403564453,
+            0.005276819691061974,
+            0.3492155075073242
+          ],
+          "case_id": "event_order-0009",
+          "correct": true,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.2053714990615845,
+            1.2075480222702026,
+            1.4070454835891724,
+            0.00017650594236329198
+          ],
+          "case_id": "ownership-0009",
+          "correct": true,
+          "generation_continuation": " Mara has the silver coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.581936240196228,
+            1.4505362510681152,
+            1.4052088260650635,
+            0.019306689500808716
+          ],
+          "case_id": "property-0009",
+          "correct": true,
+          "generation_continuation": " The card is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            4.283731460571289,
+            4.27072286605835,
+            0.1680881828069687,
+            4.34775447845459
+          ],
+          "case_id": "container-0010",
+          "correct": true,
+          "generation_continuation": " Cora has the green key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            5.145186901092529,
+            0.008061235770583153,
+            0.300247460603714,
+            4.132379531860352
+          ],
+          "case_id": "event_order-0010",
+          "correct": true,
+          "generation_continuation": " Some water reaches the hall.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.00020147470058873296,
+            1.5243152379989624,
+            1.5271700620651245,
+            1.598385214805603
+          ],
+          "case_id": "ownership-0010",
+          "correct": true,
+          "generation_continuation": " Dax has the green coin.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.9307876825332642,
+            1.8061017990112305,
+            1.9059793949127197,
+            0.022006521001458168
+          ],
+          "case_id": "property-0010",
+          "correct": true,
+          "generation_continuation": " The token is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.851033926010132,
+            0.16893590986728668,
+            3.815889596939087,
+            3.8055756092071533
+          ],
+          "case_id": "container-0011",
+          "correct": true,
+          "generation_continuation": " Dax has the blue card.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            4.264412879943848,
+            0.04098111763596535,
+            0.1320621520280838,
+            5.304487228393555
+          ],
+          "case_id": "event_order-0011",
+          "correct": true,
+          "generation_continuation": " No water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2761331796646118,
+            1.0589203834533691,
+            0.9947863817214966,
+            0.00021718445350416005
+          ],
+          "case_id": "ownership-0011",
+          "correct": true,
+          "generation_continuation": " Ben has the silver token.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            1.9176781177520752,
+            0.014981098473072052,
+            1.7126201391220093,
+            1.8686952590942383
+          ],
+          "case_id": "property-0011",
+          "correct": true,
+          "generation_continuation": " The key is still orange.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            3.594059705734253,
+            3.657923936843872,
+            0.08650603145360947,
+            3.538015842437744
+          ],
+          "case_id": "container-0012",
+          "correct": true,
+          "generation_continuation": " Cora has the blue token.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            4.131714820861816,
+            5.001792907714844,
+            0.07338041812181473,
+            0.08222780376672745
+          ],
+          "case_id": "event_order-0012",
+          "correct": false,
+          "generation_continuation": " Some water reaches the porch.",
+          "generation_exact_answer_match": false,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.7569622993469238,
+            1.3175771236419678,
+            0.00010268374171573669,
+            1.3430880308151245
+          ],
+          "case_id": "ownership-0012",
+          "correct": true,
+          "generation_continuation": " Nora has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            1.6651942729949951,
+            1.5718767642974854,
+            0.006273726467043161,
+            1.4387134313583374
+          ],
+          "case_id": "property-0012",
+          "correct": true,
+          "generation_continuation": " The token is still silver.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            3.120551347732544,
+            3.0824027061462402,
+            3.11232590675354,
+            0.05293489992618561
+          ],
+          "case_id": "container-0013",
+          "correct": true,
+          "generation_continuation": " The yellow coin remains inside the jar.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            0.09998659789562225,
+            0.07627195119857788,
+            4.852078437805176,
+            3.9895975589752197
+          ],
+          "case_id": "event_order-0013",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.0001406938099535182,
+            1.7137471437454224,
+            1.2300243377685547,
+            1.912179946899414
+          ],
+          "case_id": "ownership-0013",
+          "correct": true,
+          "generation_continuation": " Owen has the yellow card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.5401387214660645,
+            1.7380971908569336,
+            0.023048974573612213,
+            1.7341668605804443
+          ],
+          "case_id": "property-0013",
+          "correct": true,
+          "generation_continuation": " The notebook is still yellow.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.016278887167572975,
+            2.6108150482177734,
+            2.657780408859253,
+            2.5878303050994873
+          ],
+          "case_id": "container-0014",
+          "correct": true,
+          "generation_continuation": " The silver card remains inside the cup.",
+          "generation_exact_answer_match": true,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            3.9852547645568848,
+            0.07491794228553772,
+            0.1016644835472107,
+            4.899319648742676
+          ],
+          "case_id": "event_order-0014",
+          "correct": true,
+          "generation_continuation": " No water reaches the garden.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.5585867166519165,
+            0.00017852545715868473,
+            1.5068695545196533,
+            1.5412473678588867
+          ],
+          "case_id": "ownership-0014",
+          "correct": true,
+          "generation_continuation": " Dax has the orange card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            1.2717961072921753,
+            1.2786180973052979,
+            1.4103033542633057,
+            0.04334745928645134
+          ],
+          "case_id": "property-0014",
+          "correct": true,
+          "generation_continuation": " The coin is still blue.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 3
+        },
+        {
+          "candidate_losses": [
+            3.366753339767456,
+            0.15832944214344025,
+            3.5067834854125977,
+            3.509852647781372
+          ],
+          "case_id": "container-0015",
+          "correct": true,
+          "generation_continuation": " Dax has the blue key.",
+          "generation_exact_answer_match": false,
+          "kind": "container",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 1
+        },
+        {
+          "candidate_losses": [
+            0.008868386037647724,
+            4.247367858886719,
+            0.29007434844970703,
+            5.2217864990234375
+          ],
+          "case_id": "event_order-0015",
+          "correct": true,
+          "generation_continuation": " Some water reaches the shelf.",
+          "generation_exact_answer_match": true,
+          "kind": "event_order",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        },
+        {
+          "candidate_losses": [
+            1.3139132261276245,
+            1.8023918867111206,
+            8.055307989707217e-05,
+            1.359098196029663
+          ],
+          "case_id": "ownership-0015",
+          "correct": true,
+          "generation_continuation": " Nora has the silver card.",
+          "generation_exact_answer_match": true,
+          "kind": "ownership",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 2
+        },
+        {
+          "candidate_losses": [
+            0.008266903460025787,
+            1.574992299079895,
+            1.7964260578155518,
+            1.7443976402282715
+          ],
+          "case_id": "property-0015",
+          "correct": true,
+          "generation_continuation": " The ring is still red.",
+          "generation_exact_answer_match": true,
+          "kind": "property",
+          "label_used_for_generation": false,
+          "label_used_for_prediction": false,
+          "predicted_index": 0
+        }
+      ],
+      "surface": "marulho_relation_binding_evaluation.v1"
+    },
+    "relation_exact": true,
+    "state_exact": true,
+    "state_sha256_after": "76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082",
+    "state_sha256_before": "76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082"
+  },
+  "surface": "marulho_span_encoder_falsification.v1"
+}

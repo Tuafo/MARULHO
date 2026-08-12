@@ -1049,13 +1049,13 @@ model, runner, test, checkpoint surface, or compatibility path survives. Report
 SHA-256 is
 `3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`.
 
-**`language_span_encoder_falsification.py`** — V54 is the active bounded test of
-whether representation learning plus direct span supervision solves the frozen-
-state ceiling. It trains 373,506 added parameters for exactly 2,096,640 padded
-positions, audits intact/question-only/mismatched-source behavior, verifies the
-inactive V39 checkpoint/state/logits/general/relation evidence, and strict-
-reloads a compact parent-bound checkpoint before promotion. A miss deletes this
-runner, model, tests, and checkpoint surface rather than tuning around the gate.
+V54's trainable source-encoder falsifier is retired and deleted. It passes every
+mechanical, isolation, runtime, and checkpoint check at 173.97k padded
+positions/s, but reaches only 16/64 intact answers versus zero for both controls.
+Ten failures contain truncated answer fragments, and its successes overlap weakly
+with V52/V53. The compact checkpoint, encoder, runner, tests, loader, and
+compatibility surface are absent. Report SHA-256 is
+`32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

@@ -1,0 +1,1682 @@
+{
+  "boundary": "This audit measures source-visible extractive QA on heldout SQuAD. It does not prove long-term memory, open-domain factuality, or general reasoning.",
+  "case_count": 64,
+  "checkpoint_path": "reports\\language_scaling\\span-encoder-v54-arm.pt",
+  "checkpoint_sha256": "d85ce801ab48960aba3b691c566dd032acbaff8af4c9733b67912e9ab5dd6809",
+  "decision": "v39_uses_visible_source_advance_to_continual_grounding",
+  "decode_control_scope": "generated_continuation_only",
+  "external_llm_used": false,
+  "external_text_data": true,
+  "intact_gain_over_stronger_control": 0.25,
+  "intact_source": {
+    "case_count": 64,
+    "exact_answer_accuracy": 0.25,
+    "exact_answer_count": 16,
+    "rows": [
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ec",
+        "continuation": " Denver",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Carolina Panthers"
+        ],
+        "case_id": "56be4db0acb8001400a502ed",
+        "continuation": " 24",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ef",
+        "continuation": " Denver",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gold"
+        ],
+        "case_id": "56be4db0acb8001400a502f0",
+        "continuation": " \"golden annivers",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "\"golden anniversary\"",
+          "gold-themed",
+          "\"golden anniversary"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d1",
+        "continuation": " 50th",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "American Football Conference"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d3",
+        "continuation": " Denver",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Nobel Prize"
+        ],
+        "case_id": "5733a5f54776f41900660f45",
+        "continuation": " Nobel Prize",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "1745"
+        ],
+        "case_id": "5733a5f54776f41900660f48",
+        "continuation": " 174",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Famous musicians",
+          "musicians"
+        ],
+        "case_id": "5733a5f54776f41900660f46",
+        "continuation": " Władys",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "seven months old"
+        ],
+        "case_id": "5733a5f54776f41900660f47",
+        "continuation": " Wars",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "100",
+          "over 100"
+        ],
+        "case_id": "57336755d058e614000b5a3d",
+        "continuation": " 100 different species of trees and the avenues",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "The Saxon Garden",
+          "Saxon Garden"
+        ],
+        "case_id": "57336755d058e614000b5a3c",
+        "continuation": " 15",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "France"
+        ],
+        "case_id": "56ddde6b9a695914005b9628",
+        "continuation": " 11",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10th and 11th centuries",
+          "in the 10th and 11th centuries"
+        ],
+        "case_id": "56ddde6b9a695914005b9629",
+        "continuation": " 11th",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Rollo"
+        ],
+        "case_id": "56ddde6b9a695914005b962b",
+        "continuation": " Rollo",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "10th century",
+          "the first half of the 10th century",
+          "10th"
+        ],
+        "case_id": "56ddde6b9a695914005b962c",
+        "continuation": " first half of the 10th century",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "William the Conqueror"
+        ],
+        "case_id": "56dddf4066d3e219004dad5f",
+        "continuation": " Conquer",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Richard I"
+        ],
+        "case_id": "56dddf4066d3e219004dad60",
+        "continuation": " Norm",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856"
+        ],
+        "case_id": "56df9e2838dc4217001520f6",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56df9e2838dc4217001520f8",
+        "continuation": " Tesla (Serb",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56df9e2838dc4217001520f9",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856",
+          "10 July 1856"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b7",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b8",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b9",
+        "continuation": " Tesla (Serb",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Computational complexity theory"
+        ],
+        "case_id": "56e16182e3433e1400422e28",
+        "continuation": " theory of computation in theoretical",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "inherent difficulty",
+          "their inherent difficulty"
+        ],
+        "case_id": "56e16182e3433e1400422e29",
+        "continuation": " according to their inherent",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "computational problems",
+          "computational problem"
+        ],
+        "case_id": "56e16182e3433e1400422e2a",
+        "continuation": " computational problems according to their inherent",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "if its solution requires significant resources",
+          "its solution requires significant resources"
+        ],
+        "case_id": "56e16839cd28a01900c67887",
+        "continuation": " difficult if its solution",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "mathematical models of computation"
+        ],
+        "case_id": "56e16839cd28a01900c67888",
+        "continuation": " mathematical models of computation",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "time and storage"
+        ],
+        "case_id": "56e16839cd28a01900c67889",
+        "continuation": " mathematical models of computation",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the curriculum.",
+          "curriculum"
+        ],
+        "case_id": "56e7477700c9c71400d76f23",
+        "continuation": " Teachers",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "pedagogy"
+        ],
+        "case_id": "56e7477700c9c71400d76f24",
+        "continuation": " These professional qualifications",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "university or college.",
+          "university",
+          "university or college"
+        ],
+        "case_id": "56e7477700c9c71400d76f25",
+        "continuation": " obtain specified professional qualifications",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "lesson plan"
+        ],
+        "case_id": "56e7477700c9c71400d76f26",
+        "continuation": " Teachers",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "school"
+        ],
+        "case_id": "56e7477700c9c71400d76f27",
+        "continuation": " formal education.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "cultures"
+        ],
+        "case_id": "56e748a200c9c71400d76f37",
+        "continuation": " A teacher's role may vary",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "German"
+        ],
+        "case_id": "56f7c651aef2371900625bf5",
+        "continuation": "ː",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "18 February 1546",
+          "1546"
+        ],
+        "case_id": "56f7c651aef2371900625bf6",
+        "continuation": " 18 February 154",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Catholic Church.",
+          "Late Medieval Catholic Church"
+        ],
+        "case_id": "56f7c651aef2371900625bf7",
+        "continuation": " Late Medieval Catholic Church",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "God's punishment",
+          "God's punishment for sin"
+        ],
+        "case_id": "56f7c651aef2371900625bf8",
+        "continuation": " sin could be purchased with money.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "excommunication"
+        ],
+        "case_id": "56f7c651aef2371900625bf9",
+        "continuation": " 1521 resulted in his excomm",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gift of God's grace",
+          "free gift",
+          "through faith"
+        ],
+        "case_id": "56f7c8aba6d7ea1400e1727a",
+        "continuation": " a free gift of God's grace",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "SoCal"
+        ],
+        "case_id": "5705e26d75f01819005e76d4",
+        "continuation": " SoC",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10 counties",
+          "10"
+        ],
+        "case_id": "5705e26d75f01819005e76d5",
+        "continuation": " 10 counties",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "economic center",
+          "major economic center"
+        ],
+        "case_id": "5705e26d75f01819005e76d6",
+        "continuation": "ifornia",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "demographics and economic ties",
+          "economic",
+          "demographics and economic"
+        ],
+        "case_id": "5705e26d75f01819005e76d7",
+        "continuation": " Los Angeles, Orange",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "historical political divisions"
+        ],
+        "case_id": "5705e26d75f01819005e76d8",
+        "continuation": " Obispo counties",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "11"
+        ],
+        "case_id": "5705e33f52bb89140068964d",
+        "continuation": " 11",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db0",
+        "continuation": " BSkyB",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db1",
+        "continuation": " BSkyB",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "2014"
+        ],
+        "case_id": "57092322efce8f15003a7db2",
+        "continuation": " 90",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky plc",
+          "British Sky Broadcasting Group plc"
+        ],
+        "case_id": "57092322efce8f15003a7db3",
+        "continuation": " November 2014",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky UK Limited"
+        ],
+        "case_id": "57092322efce8f15003a7db4",
+        "continuation": " Broadcasting Lim",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "2006"
+        ],
+        "case_id": "57094a79efce8f15003a7dc4",
+        "continuation": " Sports",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "diversified",
+          "highly diversified"
+        ],
+        "case_id": "570d2417fed7b91900d45c3d",
+        "continuation": " Victoria is highly divers",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "second"
+        ],
+        "case_id": "570d2417fed7b91900d45c3e",
+        "continuation": "GSP) is ran",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "fourth"
+        ],
+        "case_id": "570d2417fed7b91900d45c3f",
+        "continuation": " fourth",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "Melbourne"
+        ],
+        "case_id": "570d2417fed7b91900d45c40",
+        "continuation": " Ground is the larg",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Bendigo"
+        ],
+        "case_id": "570d2556fed7b91900d45c47",
+        "continuation": " Bendigo",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "New South Wales"
+        ],
+        "case_id": "570d2556fed7b91900d45c48",
+        "continuation": " Lambing Flat",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the southern and central parts of France",
+          "southern and central parts of France,",
+          "about one-eighth"
+        ],
+        "case_id": "57105da9a58dae1900cd699e",
+        "continuation": " 156",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "from 1562 to 1598",
+          "1562 to 1598",
+          "562 to 1598"
+        ],
+        "case_id": "57105da9a58dae1900cd69a0",
+        "continuation": " 1562 to 1598",
+        "exact_answer_match": true
+      },
+      {
+        "answers": [
+          "the Edict of Nantes",
+          "Edict of Nantes"
+        ],
+        "case_id": "57105da9a58dae1900cd69a1",
+        "continuation": " Nantes",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "derision"
+        ],
+        "case_id": "57106185b654c5140001f8db",
+        "continuation": " unclear origins",
+        "exact_answer_match": false
+      }
+    ]
+  },
+  "manifest_contract_sha256": "48a738e39f1d5327035e25b4781e33c473f58c911aafffd95576db1032bedc23",
+  "manifest_path": "reports\\language_curriculum\\squad-v47-validation-64-20260811.json",
+  "max_new_tokens": 8,
+  "mismatched_source": {
+    "case_count": 64,
+    "exact_answer_accuracy": 0.0,
+    "exact_answer_count": 0,
+    "rows": [
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ec",
+        "continuation": " 24",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Carolina Panthers"
+        ],
+        "case_id": "56be4db0acb8001400a502ed",
+        "continuation": " Denver",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ef",
+        "continuation": " emphas",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gold"
+        ],
+        "case_id": "56be4db0acb8001400a502f0",
+        "continuation": " Nobel Prize",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "\"golden anniversary\"",
+          "gold-themed",
+          "\"golden anniversary"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d1",
+        "continuation": " Nobel Prize",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "American Football Conference"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d3",
+        "continuation": " Nobel Prize",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Nobel Prize"
+        ],
+        "case_id": "5733a5f54776f41900660f45",
+        "continuation": " 1745",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1745"
+        ],
+        "case_id": "5733a5f54776f41900660f48",
+        "continuation": " Szpilman",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Famous musicians",
+          "musicians"
+        ],
+        "case_id": "5733a5f54776f41900660f46",
+        "continuation": " Warsaw",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "seven months old"
+        ],
+        "case_id": "5733a5f54776f41900660f47",
+        "continuation": " sit and relax",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "100",
+          "over 100"
+        ],
+        "case_id": "57336755d058e614000b5a3d",
+        "continuation": " 15",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "The Saxon Garden",
+          "Saxon Garden"
+        ],
+        "case_id": "57336755d058e614000b5a3c",
+        "continuation": " 11th",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "France"
+        ],
+        "case_id": "56ddde6b9a695914005b9628",
+        "continuation": " Rollo",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10th and 11th centuries",
+          "in the 10th and 11th centuries"
+        ],
+        "case_id": "56ddde6b9a695914005b9629",
+        "continuation": " Rol",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Rollo"
+        ],
+        "case_id": "56ddde6b9a695914005b962b",
+        "continuation": " the first half of the 10th century",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10th century",
+          "the first half of the 10th century",
+          "10th"
+        ],
+        "case_id": "56ddde6b9a695914005b962c",
+        "continuation": " Norman conquest of England",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "William the Conqueror"
+        ],
+        "case_id": "56dddf4066d3e219004dad5f",
+        "continuation": " Norm",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Richard I"
+        ],
+        "case_id": "56dddf4066d3e219004dad60",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856"
+        ],
+        "case_id": "56df9e2838dc4217001520f6",
+        "continuation": " Tesla (Serb",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56df9e2838dc4217001520f8",
+        "continuation": " 185",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56df9e2838dc4217001520f9",
+        "continuation": " Tesla (Serb",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856",
+          "10 July 1856"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b7",
+        "continuation": "ол",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b8",
+        "continuation": " Tesla (Serb",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b9",
+        "continuation": " Computational complexity theory is a branch",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Computational complexity theory"
+        ],
+        "case_id": "56e16182e3433e1400422e28",
+        "continuation": " according to their inherent",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "inherent difficulty",
+          "their inherent difficulty"
+        ],
+        "case_id": "56e16182e3433e1400422e29",
+        "continuation": " difficult if its solution",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "computational problems",
+          "computational problem"
+        ],
+        "case_id": "56e16182e3433e1400422e2a",
+        "continuation": " difficult if its solution",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "if its solution requires significant resources",
+          "its solution requires significant resources"
+        ],
+        "case_id": "56e16839cd28a01900c67887",
+        "continuation": " mathematical models of comput",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "mathematical models of computation"
+        ],
+        "case_id": "56e16839cd28a01900c67888",
+        "continuation": " learning, providing a course",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "time and storage"
+        ],
+        "case_id": "56e16839cd28a01900c67889",
+        "continuation": " facilitate student learning, providing",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the curriculum.",
+          "curriculum"
+        ],
+        "case_id": "56e7477700c9c71400d76f23",
+        "continuation": " These professional qualifications may include the study",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "pedagogy"
+        ],
+        "case_id": "56e7477700c9c71400d76f24",
+        "continuation": " facilitate",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "university or college.",
+          "university",
+          "university or college"
+        ],
+        "case_id": "56e7477700c9c71400d76f25",
+        "continuation": " facilitate student learning, providing",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "lesson plan"
+        ],
+        "case_id": "56e7477700c9c71400d76f26",
+        "continuation": " formal education.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "school"
+        ],
+        "case_id": "56e7477700c9c71400d76f27",
+        "continuation": " vary",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "cultures"
+        ],
+        "case_id": "56e748a200c9c71400d76f37",
+        "continuation": " /ˈlu�",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "German"
+        ],
+        "case_id": "56f7c651aef2371900625bf5",
+        "continuation": " Late Medieval Catholic Church",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "18 February 1546",
+          "1546"
+        ],
+        "case_id": "56f7c651aef2371900625bf6",
+        "continuation": " Late Medieval Catholic Church",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Catholic Church.",
+          "Late Medieval Catholic Church"
+        ],
+        "case_id": "56f7c651aef2371900625bf7",
+        "continuation": " God's punishment for sin",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "God's punishment",
+          "God's punishment for sin"
+        ],
+        "case_id": "56f7c651aef2371900625bf8",
+        "continuation": " 1521 resulted in his excomm",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "excommunication"
+        ],
+        "case_id": "56f7c651aef2371900625bf9",
+        "continuation": " free gift",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gift of God's grace",
+          "free gift",
+          "through faith"
+        ],
+        "case_id": "56f7c8aba6d7ea1400e1727a",
+        "continuation": "ographic and cultural region that generally",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "SoCal"
+        ],
+        "case_id": "5705e26d75f01819005e76d4",
+        "continuation": " 10 counties",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10 counties",
+          "10"
+        ],
+        "case_id": "5705e26d75f01819005e76d5",
+        "continuation": "ifornia",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "economic center",
+          "major economic center"
+        ],
+        "case_id": "5705e26d75f01819005e76d6",
+        "continuation": " Luis Obispo",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "demographics and economic ties",
+          "economic",
+          "demographics and economic"
+        ],
+        "case_id": "5705e26d75f01819005e76d7",
+        "continuation": " Luis Obispo",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "historical political divisions"
+        ],
+        "case_id": "5705e26d75f01819005e76d8",
+        "continuation": " 11",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "11"
+        ],
+        "case_id": "5705e33f52bb89140068964d",
+        "continuation": " BSkyB became the UK",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db0",
+        "continuation": "GSP) is ran",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db1",
+        "continuation": " November 2014",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "2014"
+        ],
+        "case_id": "57092322efce8f15003a7db2",
+        "continuation": " Broadcasting Lim",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky plc",
+          "British Sky Broadcasting Group plc"
+        ],
+        "case_id": "57092322efce8f15003a7db3",
+        "continuation": " Broadcasting Lim",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky UK Limited"
+        ],
+        "case_id": "57092322efce8f15003a7db4",
+        "continuation": " 2006",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "2006"
+        ],
+        "case_id": "57094a79efce8f15003a7dc4",
+        "continuation": "GSP) is ran",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "diversified",
+          "highly diversified"
+        ],
+        "case_id": "570d2417fed7b91900d45c3d",
+        "continuation": "ictoria",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "second"
+        ],
+        "case_id": "570d2417fed7b91900d45c3e",
+        "continuation": " Ground",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "fourth"
+        ],
+        "case_id": "570d2417fed7b91900d45c3f",
+        "continuation": " Ground is the larg",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Melbourne"
+        ],
+        "case_id": "570d2417fed7b91900d45c40",
+        "continuation": " particularly strong in Bendig",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Bendigo"
+        ],
+        "case_id": "570d2556fed7b91900d45c47",
+        "continuation": " Lambing Flat",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "New South Wales"
+        ],
+        "case_id": "570d2556fed7b91900d45c48",
+        "continuation": " 156",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the southern and central parts of France",
+          "southern and central parts of France,",
+          "about one-eighth"
+        ],
+        "case_id": "57105da9a58dae1900cd699e",
+        "continuation": " 1562 to 1598",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "from 1562 to 1598",
+          "1562 to 1598",
+          "562 to 1598"
+        ],
+        "case_id": "57105da9a58dae1900cd69a0",
+        "continuation": " Nantes",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the Edict of Nantes",
+          "Edict of Nantes"
+        ],
+        "case_id": "57105da9a58dae1900cd69a1",
+        "continuation": " Huguen",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "derision"
+        ],
+        "case_id": "57106185b654c5140001f8db",
+        "continuation": " Denver",
+        "exact_answer_match": false
+      }
+    ]
+  },
+  "model_state_sha256_after": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+  "model_state_sha256_before": "bf25071c8ef8505cc9487530f71f0e3e2c876a5dfd3ec8450c970494813f41b4",
+  "owned_by_marulho": true,
+  "promotion_gate": {
+    "minimum_gain_over_stronger_control": 0.1,
+    "minimum_intact_accuracy": 0.25,
+    "passed": true
+  },
+  "question_only": {
+    "case_count": 64,
+    "exact_answer_accuracy": 0.0,
+    "exact_answer_count": 0,
+    "rows": [
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ec",
+        "continuation": " The AFC at Super Bow",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Carolina Panthers"
+        ],
+        "case_id": "56be4db0acb8001400a502ed",
+        "continuation": " The NFL team is the N",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Denver Broncos"
+        ],
+        "case_id": "56be4db0acb8001400a502ef",
+        "continuation": " The NFL team has the best",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gold"
+        ],
+        "case_id": "56be4db0acb8001400a502f0",
+        "continuation": " The Super Bowl is still red",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "\"golden anniversary\"",
+          "gold-themed",
+          "\"golden anniversary"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d1",
+        "continuation": " The theme of the theme is the theme",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "American Football Conference"
+        ],
+        "case_id": "56be8e613aeaaa14008c90d3",
+        "continuation": " The AFC long coin is",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Nobel Prize"
+        ],
+        "case_id": "5733a5f54776f41900660f45",
+        "continuation": " The blue token remains inside the box",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1745"
+        ],
+        "case_id": "5733a5f54776f41900660f48",
+        "continuation": " The year was the beginning of the C",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Famous musicians",
+          "musicians"
+        ],
+        "case_id": "5733a5f54776f41900660f46",
+        "continuation": " Frédéric Chopin",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "seven months old"
+        ],
+        "case_id": "5733a5f54776f41900660f47",
+        "continuation": " The chopin was a small,",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "100",
+          "over 100"
+        ],
+        "case_id": "57336755d058e614000b5a3d",
+        "continuation": " Some trees are found in the Sax",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "The Saxon Garden",
+          "Saxon Garden"
+        ],
+        "case_id": "57336755d058e614000b5a3c",
+        "continuation": " The garden is still green.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "France"
+        ],
+        "case_id": "56ddde6b9a695914005b9628",
+        "continuation": " The Normandy is located in",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10th and 11th centuries",
+          "in the 10th and 11th centuries"
+        ],
+        "case_id": "56ddde6b9a695914005b9629",
+        "continuation": " The Normans in Normand",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Rollo"
+        ],
+        "case_id": "56ddde6b9a695914005b962b",
+        "continuation": " Dax has the orange coin",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10th century",
+          "the first half of the 10th century",
+          "10th"
+        ],
+        "case_id": "56ddde6b9a695914005b962c",
+        "continuation": " The Normans were the first to",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "William the Conqueror"
+        ],
+        "case_id": "56dddf4066d3e219004dad5f",
+        "continuation": " The duke was the first to be",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Richard I"
+        ],
+        "case_id": "56dddf4066d3e219004dad60",
+        "continuation": " The duchy of Normand",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856"
+        ],
+        "case_id": "56df9e2838dc4217001520f6",
+        "continuation": " The orange coin remains inside the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56df9e2838dc4217001520f8",
+        "continuation": " The Nikola Tesl",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56df9e2838dc4217001520f9",
+        "continuation": " The coin is still silver.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1856",
+          "10 July 1856"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b7",
+        "continuation": " The orange coin remains inside the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "1943"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b8",
+        "continuation": " The coin is still silver.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Serbian"
+        ],
+        "case_id": "56e0b94b7aa994140058e6b9",
+        "continuation": " The home country is a city with a",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Computational complexity theory"
+        ],
+        "case_id": "56e16182e3433e1400422e28",
+        "continuation": " The main focus of the study is on",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "inherent difficulty",
+          "their inherent difficulty"
+        ],
+        "case_id": "56e16182e3433e1400422e29",
+        "continuation": " The problem is that the algorithm can be",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "computational problems",
+          "computational problem"
+        ],
+        "case_id": "56e16182e3433e1400422e2a",
+        "continuation": " The task is to find the solution to",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "if its solution requires significant resources",
+          "its solution requires significant resources"
+        ],
+        "case_id": "56e16839cd28a01900c67887",
+        "continuation": " The problem is that the solution is not",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "mathematical models of computation"
+        ],
+        "case_id": "56e16839cd28a01900c67888",
+        "continuation": " The method is used to determine the amount",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "time and storage"
+        ],
+        "case_id": "56e16839cd28a01900c67889",
+        "continuation": " The key is still orange.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the curriculum.",
+          "curriculum"
+        ],
+        "case_id": "56e7477700c9c71400d76f23",
+        "continuation": " The course is a series of assignments",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "pedagogy"
+        ],
+        "case_id": "56e7477700c9c71400d76f24",
+        "continuation": " The science of teaching is a way of",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "university or college.",
+          "university",
+          "university or college"
+        ],
+        "case_id": "56e7477700c9c71400d76f25",
+        "continuation": " Some teachers have a strong interest in teaching",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "lesson plan"
+        ],
+        "case_id": "56e7477700c9c71400d76f26",
+        "continuation": " The teacher is a teacher who has the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "school"
+        ],
+        "case_id": "56e7477700c9c71400d76f27",
+        "continuation": " Some teachers are teaching at the same time",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "cultures"
+        ],
+        "case_id": "56e748a200c9c71400d76f37",
+        "continuation": " The teacher is the student.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "German"
+        ],
+        "case_id": "56f7c651aef2371900625bf5",
+        "continuation": " The coin is still red.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "18 February 1546",
+          "1546"
+        ],
+        "case_id": "56f7c651aef2371900625bf6",
+        "continuation": " The coin is still silver.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Catholic Church.",
+          "Late Medieval Catholic Church"
+        ],
+        "case_id": "56f7c651aef2371900625bf7",
+        "continuation": " The school was the first to use the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "God's punishment",
+          "God's punishment for sin"
+        ],
+        "case_id": "56f7c651aef2371900625bf8",
+        "continuation": " The church has been given a tax on",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "excommunication"
+        ],
+        "case_id": "56f7c651aef2371900625bf9",
+        "continuation": " The Church has been a part of the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "gift of God's grace",
+          "free gift",
+          "through faith"
+        ],
+        "case_id": "56f7c8aba6d7ea1400e1727a",
+        "continuation": " The silver coin remains inside the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "SoCal"
+        ],
+        "case_id": "5705e26d75f01819005e76d4",
+        "continuation": " Northern California has a large",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "10 counties",
+          "10"
+        ],
+        "case_id": "5705e26d75f01819005e76d5",
+        "continuation": " The counties are located in the nor",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "economic center",
+          "major economic center"
+        ],
+        "case_id": "5705e26d75f01819005e76d6",
+        "continuation": " The key is still orange.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "demographics and economic ties",
+          "economic",
+          "demographics and economic"
+        ],
+        "case_id": "5705e26d75f01819005e76d7",
+        "continuation": " The ties that are the most important",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "historical political divisions"
+        ],
+        "case_id": "5705e26d75f01819005e76d8",
+        "continuation": " The las two counties to be",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "11"
+        ],
+        "case_id": "5705e33f52bb89140068964d",
+        "continuation": " Some of the megaregions",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db0",
+        "continuation": " The company was the first to be established",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "BSkyB"
+        ],
+        "case_id": "57092322efce8f15003a7db1",
+        "continuation": " The UK's largest digital sub",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "2014"
+        ],
+        "case_id": "57092322efce8f15003a7db2",
+        "continuation": " The Sky is still orange.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky plc",
+          "British Sky Broadcasting Group plc"
+        ],
+        "case_id": "57092322efce8f15003a7db3",
+        "continuation": " The name of the ship is the",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Sky UK Limited"
+        ],
+        "case_id": "57092322efce8f15003a7db4",
+        "continuation": " The name of the BSkyB",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "2006"
+        ],
+        "case_id": "57094a79efce8f15003a7dc4",
+        "continuation": " The first year of the Sports A",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "diversified",
+          "highly diversified"
+        ],
+        "case_id": "570d2417fed7b91900d45c3d",
+        "continuation": " The economy is the largest economy in",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "second"
+        ],
+        "case_id": "570d2417fed7b91900d45c3e",
+        "continuation": " No water reaches the desk.",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "fourth"
+        ],
+        "case_id": "570d2417fed7b91900d45c3f",
+        "continuation": " The rank is the number of people",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Melbourne"
+        ],
+        "case_id": "570d2417fed7b91900d45c40",
+        "continuation": " The city is located in the north",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "Bendigo"
+        ],
+        "case_id": "570d2556fed7b91900d45c47",
+        "continuation": " The Asian influence is still in the middle",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "New South Wales"
+        ],
+        "case_id": "570d2556fed7b91900d45c48",
+        "continuation": " The Lambing Flat ri",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the southern and central parts of France",
+          "southern and central parts of France,",
+          "about one-eighth"
+        ],
+        "case_id": "57105da9a58dae1900cd699e",
+        "continuation": " The Huguenot population is",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "from 1562 to 1598",
+          "1562 to 1598",
+          "562 to 1598"
+        ],
+        "case_id": "57105da9a58dae1900cd69a0",
+        "continuation": " The Wars of Religion f",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "the Edict of Nantes",
+          "Edict of Nantes"
+        ],
+        "case_id": "57105da9a58dae1900cd69a1",
+        "continuation": " The Wars of Religion was",
+        "exact_answer_match": false
+      },
+      {
+        "answers": [
+          "derision"
+        ],
+        "case_id": "57106185b654c5140001f8db",
+        "continuation": " The word Huguenot is",
+        "exact_answer_match": false
+      }
+    ]
+  },
+  "surface": "marulho_source_visible_grounding.v1",
+  "valid": true,
+  "validity": {
+    "all_answers_absent_from_mismatched_source": true,
+    "all_answers_absent_from_question": true,
+    "all_answers_visible_in_intact_source": true,
+    "all_control_prompts_fit_manifest_bound": true,
+    "all_intact_prompts_fit_manifest_bound": true,
+    "model_state_immutable": true
+  }
+}

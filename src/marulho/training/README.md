@@ -370,13 +370,11 @@ preserved V39 exactly and reached 17/64 with a real source-control gain, but
 missed the 18/64 gate and fell two cases below V52. No pointer model, checkpoint,
 loader, runner, tests, routing option, or compatibility path remains.
 
-**`language_span_encoder.py`** — V54's active falsifier freezes the exact V39
-parent and trains a separate width-128, two-layer bidirectional encoder over
-read-only checkpoint token embeddings. Tokenizer character offsets produce
-source-contained start/end targets, and inference copies only the best legal
-span. The compact checkpoint stores only the 373,506 encoder parameters and is
-strictly bound to the parent checkpoint SHA-256. This path is experimental until
-the frozen 64-case source-control gate passes.
+V54's trainable source encoder is retired and deleted. Its 373,506 parameters
+train at 173.97k padded positions/s with exact parent isolation and checkpoint
+reload, but direct span copying reaches only 16/64 versus zero for both controls.
+The generic tokenizer offset contract remains for future auxiliary labels; no
+span encoder, loader, runner, test, checkpoint, or compatibility surface remains.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
