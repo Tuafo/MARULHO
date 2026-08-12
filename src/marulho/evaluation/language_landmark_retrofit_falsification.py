@@ -132,6 +132,7 @@ def _train_retrofit(
     cache_elapsed_seconds: float,
     config: LandmarkRetrofitFalsificationConfig,
 ) -> dict[str, Any]:
+    total_started = time.perf_counter()
     schedule, schedule_sha256 = _training_schedule(
         batch_count=len(batches),
         epoch_count=int(config.epoch_count),
@@ -595,6 +596,7 @@ def run_landmark_retrofit_falsification(
         raise ValueError("V56 is a CUDA-only evidence run")
     device = torch.device("cuda")
     checkpoint = Path(checkpoint_path)
+    print("[landmark-v56] loading frozen V39 checkpoint", flush=True)
     checkpoint_sha_before = sha256_file(checkpoint)
     base, tokenizer, checkpoint_metadata = load_language_model_checkpoint(
         checkpoint, map_location="cpu"
@@ -604,6 +606,7 @@ def run_landmark_retrofit_falsification(
         raise ValueError("V56 must preserve the V39 context length")
     parent_parameters = sum(parameter.numel() for parameter in base.parameters())
     parent_state_before = language_model_state_sha256(base)
+    print("[landmark-v56] loading immutable manifests", flush=True)
     training_manifest = load_squad_grounding_manifest(
         grounding_training_manifest_path, tokenizer
     )
@@ -614,6 +617,7 @@ def run_landmark_retrofit_falsification(
     validation_ids = {str(case["case_id"]) for case in validation["cases"]}
     if training_ids & validation_ids:
         raise ValueError("V56 training and validation case IDs overlap")
+    print("[landmark-v56] tokenizing frozen training cases", flush=True)
     training_batches, training_supervision = build_landmark_retrofit_batches(
         training_manifest,
         tokenizer,
@@ -622,6 +626,7 @@ def run_landmark_retrofit_falsification(
         maximum_blocks=int(config.maximum_blocks),
         query_length=int(config.query_length),
     )
+    print("[landmark-v56] tokenizing frozen validation cases", flush=True)
     validation_batches, validation_supervision = build_landmark_retrofit_batches(
         validation,
         tokenizer,
@@ -888,6 +893,7 @@ def run_landmark_retrofit_falsification(
         "parent": parent,
         "checkpoint_fidelity": checkpoint_fidelity,
         "gate": gate,
+        "total_wall_seconds": time.perf_counter() - total_started,
         "boundary": (
             "V56 tests frozen-parent block retrieval and causal evidence injection "
             "on heldout extractive long-context questions. It does not prove open-"
