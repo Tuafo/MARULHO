@@ -376,6 +376,13 @@ positive controlled result—not a replacement for frontier Transformers.
     rejects context expansion plus unrestricted full-model fine-tuning: evidence
     localization is real, but the privileged arm still misses capability and
     overwrites retained behavior. No candidate or V57 machinery survives.
+27. Test V58 as the capacity ceiling for a protected evidence organ. V39 stays
+    immutable and owns ordinary language. A separate full-width, ten-layer clone
+    reads bounded source/question records bidirectionally and copies one learned
+    contiguous tokenizer span. The frozen gate is 192/256 exact title-disjoint
+    answers with strong mismatched-source separation and exact parent fidelity.
+    A miss closes this extractive-organ family; a pass earns a matched random-
+    initialization control before routing, synthesis, or compression work.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

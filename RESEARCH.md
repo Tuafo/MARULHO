@@ -1646,6 +1646,63 @@ large hybrid rewrite:
    bottleneck. They do not address today's context-72 training cost or grounding
    failure.
 
+### V58 preregistration: protected bidirectional evidence organ
+
+V57 removes the context-length excuse but leaves two different failures:
+full-source localization is weak, and updating the common language cortex
+destroys retained behavior. V58 therefore stops asking one causal model to own
+both stable language and exact document lookup. It tests a deliberately large
+capacity ceiling before spending more runs on compact adapters.
+
+The V39 causal cortex and checkpoint remain immutable and continue to own every
+source-absent language request. A separate MARULHO-owned evidence organ clones
+V39's checkpoint-trained token embedding, ten full-width Transformer blocks,
+and final norm, but runs the cloned blocks bidirectionally over one bounded
+`Context` plus `Question` record. It has no vocabulary head. Two new linear
+scorers predict the start and end of one contiguous source span. Inference
+copies that consecutive checkpoint-tokenizer interval exactly; it cannot join
+noncontiguous positions, so V55's malformed BPE assembly is structurally
+impossible. The organ is protected rather than residual: it never alters the
+causal cortex, and source-absent generation bypasses it exactly.
+
+This is not presented as a novel span-QA primitive. V54 already tested a
+373,506-parameter, two-layer span encoder and reached only 16/64; V55 tested a
+2.13M-parameter multi-view pointer and reached 20/64. V58 asks the missing
+capacity question with approximately one full V39 body and the title-disjoint
+V57 data boundary. A failure therefore closes this SQuAD-style extractive-organ
+line rather than causing another width, depth, endpoint, or pointer sweep.
+
+The primary `v39_initialized` arm uses all 8,192 frozen V57 training cases and
+the 256 frozen validation cases, whose 171/22 titles are disjoint. Each
+source/question record is padded to 320 positions. Eight exact epochs at batch
+32 give 2,048 optimizer steps and 20,971,520 padded positions. All organ
+parameters train with BF16 AdamW, peak learning rate 1e-4, 5% warmup, cosine
+decay to 10% of peak, weight decay 0.1, gradient clipping at 1.0, data seed
+58121, and model seed 58131. Counted training must finish within 1,800 seconds
+on the RTX 3060. No general or relation replay enters the organ because the
+causal parent is structurally unreachable from its optimizer.
+
+Before training, every gold character answer must map to a contiguous tokenizer
+span whose copied decode matches an accepted normalized answer; this makes the
+mechanical oracle 256/256. Promotion requires at least 192/256 learned exact
+spans, at least 70 percentage points over mismatched-source extraction, at most
+8/256 mismatched exact answers, all 2,048 steps and positions, nonzero final
+gradients for every organ tensor, parent file/tokenizer/state/logit identity,
+and exact organ tensor/logit reload. Question-only requests have no episodic
+source and therefore exercise the unchanged causal route rather than receiving
+an invented empty-document classifier.
+
+If the initialized arm passes capability, one mandatory `random_initialized`
+arm runs the same architecture, records, order, optimizer, and budget. A
+16-case initialized advantage supports transfer from the language cortex. If
+both pass without that margin, the exact evidence organ may still advance as a
+specialized memory mechanism, but not as evidence that language pretraining
+created the localization skill. If the primary arm fails, the random control is
+unnecessary and the entire extractive-organ line is retired. A passing organ
+advances to learned routing, mixed extractive/generative evidence, and then
+compression against this ceiling; it does not by itself qualify general
+grounded generation or a frontier model.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

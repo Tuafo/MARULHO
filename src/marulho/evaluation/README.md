@@ -1116,6 +1116,19 @@ generation 89.06%→34.38%/75.00%. All mechanical and fidelity checks pass at
 deleted; the retained report SHA-256 is
 `fe93519ca693837796c76ba8e1161e68e7f4d210ad31a47341f854f90660cb99`.
 
+V58 is preregistered as a protected full-capacity evidence-localization test,
+not another compact source head. It clones V39's embedding, ten Transformer
+blocks, and norm into an independently optimized bidirectional organ, predicts
+one contiguous start/end interval, and copies only consecutive tokenizer IDs.
+The causal parent remains immutable and source-absent requests bypass the organ.
+The primary arm processes the V57 8,192-case title-disjoint training manifest
+for eight epochs: 2,048 batch-32 updates and 20,971,520 padded context-320
+positions. At least 192/256 heldout exact spans, a 70-point source gain, at most
+8 mismatched exact answers, complete gradients, bounded runtime, parent
+identity, and strict organ reload are required. A passing primary arm triggers
+the same-budget random-initialization control; a primary miss closes the
+extractive evidence-organ line.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

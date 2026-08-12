@@ -401,6 +401,14 @@ while both regress general retention. Context expansion plus unrestricted base
 fine-tuning is therefore rejected. No V57 optimizer, checkpoint, runner, test,
 or loading surface remains.
 
+V58 is preregistered outside the installed language model as a protected
+evidence-organ falsifier. It leaves V39 entirely outside the optimizer, clones
+the checkpoint-trained embedding and ten-block body into a bidirectional
+source/question encoder, and trains only that independent organ plus two span
+scorers. Eight epochs equal 2,048 batch-32 steps and 20,971,520 padded positions.
+No optimizer, loader, or checkpoint surface becomes production machinery unless
+the organ first passes the frozen 192/256 capability and control gates.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

@@ -780,6 +780,22 @@ expanding context and unrestrictedly fine-tuning every base tensor. No candidate
 runner, tests, or checkpoint surface survives; the report SHA-256 is
 `fe93519ca693837796c76ba8e1161e68e7f4d210ad31a47341f854f90660cb99`.
 
+V58 is preregistered as a protected capacity ceiling for exact evidence
+localization. The immutable V39 causal cortex remains the only source-absent
+language path. A separate evidence organ clones its embedding, ten full-width
+blocks, and final norm, changes only the clone's attention visibility to
+bidirectional over a bounded source/question record, and learns start/end
+scorers for one contiguous source span. Exact consecutive-token copying removes
+V55's malformed noncontiguous output surface. The primary arm trains all organ
+parameters for eight epochs over the title-disjoint V57 8,192-case manifest:
+2,048 batch-32 updates and 20,971,520 padded positions at context 320. It must
+reach at least 192/256 exact heldout spans, gain 70 source-control points, keep
+mismatched answers at or below 8/256, finish within 1,800 seconds, cover every
+final gradient, preserve parent/tokenizer/logit identity, and strict-reload the
+organ. Only a capability pass triggers the same-budget random-initialization
+control. Failure closes the extractive evidence-organ family rather than
+authorizing another compact pointer or span-head sweep.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
