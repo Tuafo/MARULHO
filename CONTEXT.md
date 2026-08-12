@@ -847,34 +847,26 @@ No transient state or checkpoint survives; report SHA-256 is
 Raw next-token adaptation is closed; a future write-time learner must be
 meta-trained for later readout rather than tuned post hoc.
 
-V60 is preregistered as a protected meta-gradient episodic matrix. Frozen V39
-causal source states and exact next-token embeddings produce eight per-document
-16x96 fast matrices through one differentiable reconstruction-gradient write
-from zero. Learned key/query projections, write rates, read gates, and one
-width-768 output projection total less than 1% of V39. Only this slow controller
-trains through answer loss; the question and answer never enter the fast write,
-V39 never enters the optimizer, and each document state is discarded.
+**Meta-gradient Episodic Matrix v60 (retired)** — Frozen V39 causal source states
+and exact next-token embeddings produced eight per-document 16x96 matrices
+through one differentiable linear reconstruction write. The 786,449-parameter
+slow controller was 0.7811% of V39 and trained only through downstream answer
+loss; questions, answers, spans, and labels never entered the write.
 
-Data preflight finds that the frozen V57 query-plus-answer boundary reaches 96
-tokens. V60 therefore uses five context-64 source chunks and reconstructs the
-same V39 tensors with a parameter-free rotary context of 96 for query readout;
-all common prefixes through 72 must remain logit-exact. No parameter or tokenizer
-changes.
-
-The V57 8,192/256 title-disjoint manifests remain frozen. Eight batch-32 epochs
-give 2,048 controller updates and 20,971,520 padded source-memory positions.
-True memory needs 64/256 exact, a 20-point margin over zero and shuffled memory,
-shuffled at most 16/256, oracle at least 128/256, and a true/oracle gap at most
-64 cases. Complete gradients, under-1% parameters, exact schedule/cache/parent
-fidelity, training below 1,800 seconds, cache plus training below 2,400 seconds,
-and strict compact reload are mandatory. This is the first end-to-end
-meta-learned write/read test; it is not an admitted continual-memory runtime.
-
-V60's first terminal invocation completed training and every behavioral view,
-then failed only while hashing one scalar BF16 controller gate for JSON evidence.
-It emitted no report or checkpoint. The serializer now flattens all tensors
-before byte hashing; the frozen experiment repeats unchanged, and the observed
-but unadmitted 0/256 view counts are not a terminal result until that rerun.
+The corrected exact rerun completed all 2,048 batch-32 updates and 20,971,520
+padded source positions in 372.55 seconds at 56,292 positions/s. Setup plus
+training took 383.82 seconds, peak CUDA allocation was 1,272,701,952 bytes, all
+six controller tensors received final nonzero gradients, and the tokenizer,
+parent state, and common-prefix logits remained exact. Nevertheless, untrained
+true, learned zero, shuffled, true, and oracle-short memory each scored 0/256
+strict answers; all five also contained zero accepted answers. Capability,
+source gain, and oracle gates fail. Decision:
+`retire_v60_one_step_linear_meta_gradient_memory`. No checkpoint exists; the
+runner, tests, and logs are deleted. Report SHA-256 is
+`76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
+This closes one-step linear fast memory, not meta-learning as a class. The frozen
+branch advances to an iterative nonlinear MLP fast learner rather than another
+span pointer, raw full-model update, or larger linear matrix.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

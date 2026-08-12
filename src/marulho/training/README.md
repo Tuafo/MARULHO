@@ -434,15 +434,15 @@ no checkpoint is saved. Report SHA-256 is
 Do not restore raw source-only AdamW with a different epoch or learning rate;
 the next inner learner must be meta-trained for downstream readout.
 
-V60 preregisters that meta-learning step without modifying V39. Frozen source
-hidden states and frozen next-token embeddings construct per-document fast
-matrices; only key/query projections, positive write rates, bounded gates, and
-one read projection receive outer answer-loss gradients. The controller is
-under 1% of V39, trains for 2,048 batch-32 steps, and may save a compact
-parent-bound checkpoint only after capability, isolation, cache, runtime, and
-strict-reload gates all pass. The frozen data requires a parameter-free
-context-96 rotary read path while source writes remain five context-64 chunks;
-the V39 tensors and all prefixes through 72 must remain exact.
+V60's meta-gradient linear write is terminally negative and deleted. Its
+786,449 trainable parameters are 0.7811% of V39, all receive gradients, and
+20,971,520 padded source positions train at 56,292 positions/s with 1.27 GB peak
+CUDA allocation. Exact parent fidelity also passes. However, untrained, zero,
+shuffled, true, and oracle memory all produce 0/256 strict answers and contain no
+accepted answer. No checkpoint or live loading surface survives. Report SHA-256
+is `76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
+Do not restore the one-step linear matrix at a different width; the surviving
+branch is iterative nonlinear fast learning with the source-only write boundary.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

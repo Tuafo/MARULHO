@@ -1889,6 +1889,26 @@ checkpoint is admitted. The scalar is flattened before hashing and the exact
 frozen run must repeat; seeds, data, model, schedule, optimizer, gates, and
 interpretation remain unchanged.
 
+### V60 terminal result: retire one-step linear fast memory
+
+The corrected exact rerun is terminally negative. The controller contains
+786,449 parameters, 0.7811% of frozen V39, and all six tensors receive final
+nonzero gradients. All 2,048 optimizer steps and 20,971,520 padded source
+positions complete in 372.55 seconds at 56,292 positions/s; setup plus training
+takes 383.82 seconds and peak CUDA allocation is 1,272,701,952 bytes. Frozen V39
+state, tokenizer, and common-prefix logits remain exact.
+
+None of that machinery produces usable source-conditioned language. Untrained
+true memory, learned zero memory, shuffled memory, true memory, and oracle-short
+memory each score 0/256 exact answers and contain zero accepted answers. The
+minimum true, source-gain, and oracle gates fail, so no checkpoint is saved.
+Decision: `retire_v60_one_step_linear_meta_gradient_memory`. Report SHA-256 is
+`76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
+The failed runner and tests are deleted. This result rejects a single linear
+gradient-equivalent outer-product write plus late residual read. It does not
+reject end-to-end fast learning; the preregistered next branch is an iterative
+nonlinear MLP state trained through downstream answer loss.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

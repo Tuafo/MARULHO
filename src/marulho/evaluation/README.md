@@ -1164,18 +1164,17 @@ report SHA-256 is
 Naive full-model test-time adaptation is closed; later work requires an
 end-to-end meta-learned write/read contract.
 
-V60 preregisters a sub-1% meta-gradient episodic matrix around immutable V39.
-One self-supervised gradient write from zero stores source next-token embeddings
-in eight 16x96 per-document matrices; learned queries and a bounded read
-projection influence V39's unchanged vocabulary logits. Eight epochs over all
-8,192 V57 training cases give 2,048 batch-32 updates. Frozen records reach 96
-query-plus-answer tokens, so the same V39 tensors use a parameter-free context-
-96 rotary read path and five context-64 source chunks; prefixes through 72 must
-remain exact. The 256-case title-disjoint gate requires true at least 64, a
-20-percentage-point margin over zero
-and shuffled, shuffled at most 16, oracle at least 128, and true within 64 cases
-of oracle.
-Cache, gradient, parameter, time, parent, and compact-reload truth are mandatory.
+V60's sub-1% meta-gradient episodic matrix is terminally negative and deleted.
+All 2,048 updates finish, all six controller tensors receive gradients, frozen
+V39 fidelity is exact, and 20,971,520 source positions train in 372.55 seconds
+at 56,292 positions/s with 1.27 GB peak CUDA allocation. But untrained true,
+learned zero, shuffled, true, and oracle-short views all score 0/256 exact and
+contain zero accepted answers. The failure is capability, not execution.
+Decision: `retire_v60_one_step_linear_meta_gradient_memory`; no checkpoint is
+saved. Report SHA-256 is
+`76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
+The next admissible evaluator must test iterative nonlinear fast learning, not
+another one-step linear matrix or extractive reader.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
