@@ -918,6 +918,12 @@ the blocker. Oracle failure retires this compressed source-write/read interface:
 V62 may not add sites, width, or epochs. The next branch must preserve exact
 source tokens or change the base computational substrate instead.
 
+The real CUDA preflight counts 1,001,483 controller parameters (0.9947% of V39),
+gives every tensor a gradient, and keeps inactive hidden/logit/all-21-KV-state
+outputs bit-exact. Twenty steady batch-32 updates run at 46,442 source positions/s
+with 1.214 GB peak allocation, projecting the counted phase near 452 seconds.
+This admits the terminal run; it does not predict its capability result.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

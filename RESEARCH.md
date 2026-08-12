@@ -2054,6 +2054,15 @@ multi-depth read family; adding a fourth site, wider keys, or more epochs is not
 an admissible response. The next branch must retain exact source tokens or
 change the base language computation.
 
+Implementation preflight passes on the RTX 3060. The controller has 1,001,483
+parameters, 0.9947% of V39, and every tensor receives a nonzero gradient on a
+real batch-32 forward/backward. The inactive custom forward is bit-exact to V39
+for hidden states, logits, and all 21 streaming-state tensors. One warm-up batch
+peaks at 1,208,395,264 CUDA bytes. Twenty steady optimizer steps sustain 46,442
+source positions/s and project the frozen 2,048-step training phase to about 452
+seconds, with 1,214,325,248 bytes peak allocation. These are feasibility facts,
+not quality evidence.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a
