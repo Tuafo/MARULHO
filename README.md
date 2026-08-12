@@ -398,7 +398,9 @@ positive controlled result—not a replacement for frontier Transformers.
     states can read it through V39's own vocabulary head. The source-only write
     never sees questions or answers, and each document state is discarded.
     Zero, shuffled, true, and oracle memory views decide whether this learned
-    write/read contract transfers to all 22 unseen validation titles.
+    write/read contract transfers to all 22 unseen validation titles. The same
+    V39 tensors use five context-64 source chunks and a parameter-free context-96
+    rotary read path because the frozen question/answer records reach 96 tokens.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

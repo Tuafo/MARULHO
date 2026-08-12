@@ -1831,8 +1831,11 @@ but the gradient update is not organized for later question readout. V60 tests
 the smallest end-to-end remedy. It is a protected fast learner, not another span
 head, source pointer, cross-attention reader, or durable fine-tune.
 
-The exact V39 checkpoint remains immutable. Its context-72 causal hidden states
-encode source chunks and question/answer prefixes under `torch.no_grad`. A
+The exact V39 checkpoint remains immutable. Its causal hidden states encode five
+64-token source chunks under `torch.no_grad`. V57 permits question-plus-answer
+records up to 96 tokens, so the read path reconstructs the same tensors with a
+parameter-free rotary context of 96; common prefixes through 72 must remain
+logit-exact. A
 MARULHO-owned slow controller contains learned key and query projections from
 width 768 into eight 16-wide heads, a learned positive write rate per head, one
 width-768 read projection, and bounded read gates. It adds fewer than 1% of

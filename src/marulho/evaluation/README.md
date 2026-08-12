@@ -1168,8 +1168,11 @@ V60 preregisters a sub-1% meta-gradient episodic matrix around immutable V39.
 One self-supervised gradient write from zero stores source next-token embeddings
 in eight 16x96 per-document matrices; learned queries and a bounded read
 projection influence V39's unchanged vocabulary logits. Eight epochs over all
-8,192 V57 training cases give 2,048 batch-32 updates. The 256-case title-
-disjoint gate requires true at least 64, a 20-percentage-point margin over zero
+8,192 V57 training cases give 2,048 batch-32 updates. Frozen records reach 96
+query-plus-answer tokens, so the same V39 tensors use a parameter-free context-
+96 rotary read path and five context-64 source chunks; prefixes through 72 must
+remain exact. The 256-case title-disjoint gate requires true at least 64, a
+20-percentage-point margin over zero
 and shuffled, shuffled at most 16, oracle at least 128, and true within 64 cases
 of oracle.
 Cache, gradient, parameter, time, parent, and compact-reload truth are mandatory.

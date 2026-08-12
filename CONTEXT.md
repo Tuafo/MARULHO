@@ -855,6 +855,12 @@ width-768 output projection total less than 1% of V39. Only this slow controller
 trains through answer loss; the question and answer never enter the fast write,
 V39 never enters the optimizer, and each document state is discarded.
 
+Data preflight finds that the frozen V57 query-plus-answer boundary reaches 96
+tokens. V60 therefore uses five context-64 source chunks and reconstructs the
+same V39 tensors with a parameter-free rotary context of 96 for query readout;
+all common prefixes through 72 must remain logit-exact. No parameter or tokenizer
+changes.
+
 The V57 8,192/256 title-disjoint manifests remain frozen. Eight batch-32 epochs
 give 2,048 controller updates and 20,971,520 padded source-memory positions.
 True memory needs 64/256 exact, a 20-point margin over zero and shuffled memory,

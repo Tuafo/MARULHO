@@ -440,7 +440,9 @@ matrices; only key/query projections, positive write rates, bounded gates, and
 one read projection receive outer answer-loss gradients. The controller is
 under 1% of V39, trains for 2,048 batch-32 steps, and may save a compact
 parent-bound checkpoint only after capability, isolation, cache, runtime, and
-strict-reload gates all pass.
+strict-reload gates all pass. The frozen data requires a parameter-free
+context-96 rotary read path while source writes remain five context-64 chunks;
+the V39 tensors and all prefixes through 72 must remain exact.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
