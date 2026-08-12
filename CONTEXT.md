@@ -569,6 +569,17 @@ general loss, and relation evidence are exact. Decision:
 runner, test, loader, or compatibility path survives. Report SHA-256 is
 `3af6ebad988b2844d83b91f73fe3f7c22443dab933e5f6fcbf9a1bbf48ae4620`.
 
+**Trainable Source Encoder v54 (preregistered)** — V54 freezes the exact V39
+checkpoint and reads its token embeddings into a separate width-128, two-layer,
+four-head bidirectional encoder. Direct start/end supervision teaches a source-
+contained span of at most eight tokens; the selected span is copied to output.
+No-context language remains owned by unchanged V39. The matched run uses the
+same 512 training and 64 heldout SQuAD cases, exactly 2,096,640 padded positions,
+455 batch-64 updates, no replay, and fewer than 0.75% added parameters. Promotion
+requires at least 19/64 intact answers, +25 source-control points, complete
+gradients, exact inactive parent evidence, sub-1,200-second training, and a
+strict parent-bound checkpoint reload.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

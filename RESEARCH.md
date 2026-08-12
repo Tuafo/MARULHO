@@ -1261,6 +1261,44 @@ compatibility path are deleted. Report SHA-256 is
 source audit SHA-256 is
 `72c89a9b714c4297913ca4f8b0e99a6c3fefb1930e74c8b7df28825fad30ca2e`.
 
+### V54 preregistration: trainable source encoder with direct span supervision
+
+V53 demonstrates that exact isolation is cheap and effective, but a pointer over
+frozen final language states stops at 17/64. V54 changes the representation and
+learning signal together, as preregistered after that terminal miss. The exact
+V39 checkpoint remains immutable. Its checkpoint-owned token embeddings are
+read-only inputs to a separate width-128, two-layer, four-head bidirectional
+source/question encoder. A trainable projection, positional/type embeddings,
+and start/end scorers learn the answer span directly. At inference the module
+copies the best source-contained span of at most eight tokens. If no explicit
+`Context:` field exists, V39 owns generation unchanged.
+
+This combines established span-QA and pointer ideas rather than claiming a new
+primitive. [Pointer Networks](https://arxiv.org/abs/1506.03134) established
+selection over input positions; [BiDAF](https://arxiv.org/abs/1611.01603)
+established explicit context-question interaction; and
+[BERT](https://arxiv.org/abs/1810.04805) popularized direct start/end span
+supervision. MARULHO's falsifiable claim is narrower and architectural: such a
+source organ can be trained continually, stored separately, and activated
+without modifying or replaying the general language cortex.
+
+The matched V54 screen uses exactly the same 512 SQuAD training cases and fixed
+64-case V47 holdout as V52/V53. It processes 2,096,640 padded positions in 455
+batch-64 updates; every example keeps the complete prompt and gold span. Only
+the source encoder trains, with AdamW, cosine decay, BF16 CUDA, seed 54131, and
+no replay. Added parameters must remain below 0.75% of V39. Parent checkpoint,
+state, tokenizer, sample logits, general loss, and relation evidence must remain
+exact; the module checkpoint is bound to the parent SHA-256 and must strict-
+reload.
+
+Capability requires at least 19/64 intact answers, at least +25 points over the
+stronger question-only or mismatched-source control, complete trainable-gradient
+coverage, and observed training below 1,200 seconds. A pass advances immediately
+to a larger disjoint SQuAD training set, multi-source span/copy data, and learned
+route integration. A miss deletes the encoder, runner, tests, and checkpoint
+surface, and moves to joint generative-plus-span training or a longer-context
+source architecture rather than tuning width/depth after the result.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

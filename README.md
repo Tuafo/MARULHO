@@ -333,6 +333,13 @@ positive controlled result—not a replacement for frontier Transformers.
     below the 18/64 floor and two below V52. The result is promising but fails
     the frozen gate, so no checkpoint or compatibility path survives. V54 must
     add a trainable source encoder or direct span supervision.
+23. Preregister V54's trainable source encoder. A separate width-128, two-layer
+    bidirectional encoder reads frozen V39 token embeddings, learns answer start
+    and end positions directly, and copies a source-contained span. It trains
+    fewer than 0.75% added parameters on the same 512 aligned cases for exactly
+    2,096,640 positions with no replay. The parent must remain exact. Promotion
+    requires at least 19/64 heldout answers, +25 points over controls, complete
+    gradients, bounded runtime, and strict compact-checkpoint reload.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
