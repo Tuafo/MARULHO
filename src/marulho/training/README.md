@@ -444,6 +444,15 @@ is `76becda7f4d4986eb0bfca1056d2dd14f074c4d348bf5cf0f735c6125e9718fb`.
 Do not restore the one-step linear matrix at a different width; the surviving
 branch is iterative nonlinear fast learning with the source-only write boundary.
 
+V61 preregisters that branch as eight per-document two-layer MLPs with two exact
+differentiable source-reconstruction updates. Meta-learned key, target, and query
+views plus the MLP initialization, positive step sizes, gates, and read projection
+must remain below 2% of V39. Outer answer loss trains only these shared tensors;
+V39 stays immutable and temporary document weights are discarded. The frozen
+schedule is 2,048 batch-32 updates over 20,971,520 source positions. Both inner
+steps must measurably lower reconstruction loss, and no-write/shuffled controls
+must prove that any answer gain comes from the document update.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

@@ -868,6 +868,32 @@ This closes one-step linear fast memory, not meta-learning as a class. The froze
 branch advances to an iterative nonlinear MLP fast learner rather than another
 span pointer, raw full-model update, or larger linear matrix.
 
+V61 is preregistered as the nonlinear fast-learner falsifier. Frozen V39 source
+states feed learned key and target views into eight temporary two-layer MLPs.
+Each document starts from the same meta-learned initialization and takes two
+exact positive-rate reconstruction-gradient steps using source tokens only.
+Question states use a separate learned query view to read the adapted MLPs; a
+bounded residual reaches V39's unchanged tied vocabulary head. V39 never enters
+the optimizer, and every per-document state is discarded.
+
+V61 reuses the immutable V57 8,192/256 title-disjoint manifests, five context-64
+source chunks, context-96 question/answer path, eight batch-32 epochs, 2,048
+outer updates, and 20,971,520 padded source positions. The slow controller must
+remain below 2% of V39. True memory must reach 64/256 exact with at least a
+20-point gain over the stronger no-write or shuffled control; shuffled must stay
+at or below 16, oracle must reach 128, and true must remain within 64 of oracle.
+Both inner steps must reduce masked source reconstruction loss, every slow
+parameter must receive a final nonzero gradient, and exact data, schedule,
+parent, context-prefix, time, memory, and optional strict-reload evidence is
+mandatory. Training must finish below 1,800 seconds and setup plus training
+below 2,400 seconds on the RTX 3060.
+
+A joint pass advances nonlinear fast memory to multi-document routing and
+conflict/version writes. Oracle-only success isolates source localization. If
+oracle also fails, V61 closes nonlinear final-residual fast memory and the next
+falsifier moves a protected memory read throughout the frozen cortex depth,
+following the V57/V58 evidence instead of merely increasing fast-state width.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

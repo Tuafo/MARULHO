@@ -1909,6 +1909,63 @@ gradient-equivalent outer-product write plus late residual read. It does not
 reject end-to-end fast learning; the preregistered next branch is an iterative
 nonlinear MLP state trained through downstream answer loss.
 
+### V61 preregistration: iterative nonlinear fast learner
+
+V60 changed a document-specific linear matrix only once. Its exact oracle failure
+leaves two coupled hypotheses: the memory update may need nonlinear iterative
+learning, or a final-hidden residual may be too late to control V39. V61 changes
+only the first factor. This is the strongest fair test of the frozen branch
+declared before V60 ran; a later all-depth test remains separate.
+
+The exact V39 checkpoint and tokenizer remain immutable. Five causal context-64
+source chunks are encoded under `torch.no_grad`. A slow MARULHO controller learns
+three projections from width 768: source keys, source reconstruction targets,
+and question queries. Keys and queries split into eight width-32 heads; targets
+split into eight width-96 heads. Each head owns a meta-learned width-32 hidden
+MLP initialization. For every document, two explicit differentiable gradient
+steps minimize masked source target reconstruction with learned positive step
+sizes. Those temporary weights are then queried by the question stream, joined,
+projected to width 768, and added through bounded per-head and output gates before
+V39's unchanged vocabulary head. The slow controller must remain below 2% of
+V39. Temporary weights never persist between documents.
+
+The source write sees source causal states and next-source states only. It never
+sees the question, answer, accepted strings, answer span, validation title, or
+metric labels. Outer teacher-forced answer loss is the sole downstream signal
+and updates only the shared initialization, learned views, positive inner step
+sizes, and readout. Manual per-example gradient formulas keep the two inner
+steps exact and differentiable without cloning a full model or aggregating state
+across batch members.
+
+V61 freezes the V57 title-disjoint manifests: 8,192 train cases over 171 titles
+and 256 validation cases over 22 unseen titles. It uses five context-64 source
+chunks and the parameter-free V39 context-96 read path, with exact common-prefix
+logits through context 72. Eight epochs at batch 32 give exactly 2,048 outer
+AdamW updates and 20,971,520 padded source positions. The outer schedule remains
+3e-4, betas 0.9/0.95, weight decay 0.1, 5% warmup, cosine decay to 10%, BF16,
+clip 1.0, data seed 61121, and model seed 61131. Inner reconstruction uses
+float32 accumulation and two learned softplus-positive rates. Training must stay
+below 1,800 seconds and setup plus training below 2,400 seconds.
+
+Before training, true-source accuracy is diagnostic only. Terminal views are
+no-write shared initialization, shuffled-source adaptation, true-source
+adaptation, and oracle-short adaptation on the same 256 questions and generated-
+only V44 decoding. Promotion requires true at least 64/256, at least 20
+percentage points above the stronger no-write or shuffled control, shuffled no
+more than 16/256, oracle at least 128/256, and true no more than 64 cases behind
+oracle. Both inner steps must reduce masked reconstruction loss, all slow tensors
+must have final nonzero gradients, slow parameters must remain below 2%, and
+data/schedule hashes, isolation, finite state, CUDA allocation, timing, parent
+file/tokenizer/state/logit fidelity, and optional qualified checkpoint strict
+tensor/logit reload must pass.
+
+A joint pass advances to routed multi-document state, conflict replacement, and
+continual consolidation. Oracle-only success means the fast learner is viable
+but source localization needs hierarchy. If oracle fails, iterative nonlinear
+fast state at the final residual is retired; the next controlled variable is a
+protected read injected throughout V39's depth. Widening the MLP, adding more
+epochs, or returning to spans is not an admissible interpretation of failure.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a
