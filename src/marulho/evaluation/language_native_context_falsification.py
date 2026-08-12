@@ -457,8 +457,6 @@ def _train_arm(
     if processed_positions != int(config.padded_position_budget_per_arm):
         raise ValueError("V57 padded position budget differs")
     warmup_steps = max(1, math.ceil(total_steps * float(config.warmup_fraction)))
-    received_gradient = {name: False for name, _parameter in trainable}
-    received_nonzero_gradient = {name: False for name, _parameter in trainable}
     losses_by_kind: dict[str, list[float]] = {
         "grounding": [],
         "relation": [],
@@ -502,11 +500,6 @@ def _train_arm(
         if not bool(torch.isfinite(loss).item()):
             raise ValueError(f"V57 loss became non-finite at step {step}")
         loss.backward()
-        for name, parameter in trainable:
-            if parameter.grad is not None:
-                received_gradient[name] = True
-                if bool(parameter.grad.detach().ne(0).any().item()):
-                    received_nonzero_gradient[name] = True
         gradient_norm = torch.nn.utils.clip_grad_norm_(
             model.parameters(), float(config.gradient_clip)
         )
@@ -570,19 +563,22 @@ def _train_arm(
             kind: sum(values) / len(values) for kind, values in losses_by_kind.items()
         },
         "trace": trace,
-        "all_parameters_received_gradient": all(received_gradient.values()),
+        "gradient_audit_policy": (
+            "final_optimizer_step_only; a final gradient proves receipt during training"
+        ),
+        "all_parameters_received_gradient": all(final_gradient.values()),
         "all_parameters_received_nonzero_gradient": all(
-            received_nonzero_gradient.values()
+            final_nonzero_gradient.values()
         ),
         "all_parameters_received_final_gradient": all(final_gradient.values()),
         "all_parameters_received_final_nonzero_gradient": all(
             final_nonzero_gradient.values()
         ),
         "missing_gradient_parameters": [
-            name for name, seen in received_gradient.items() if not seen
+            name for name, seen in final_gradient.items() if not seen
         ],
         "zero_gradient_parameters": [
-            name for name, seen in received_nonzero_gradient.items() if not seen
+            name for name, seen in final_nonzero_gradient.items() if not seen
         ],
         "final_missing_gradient_parameters": [
             name for name, seen in final_gradient.items() if not seen

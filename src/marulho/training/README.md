@@ -401,6 +401,10 @@ The evaluation-owned runner now builds the exact 2,048-step schedule and updates
 all base tensors under the existing Muon/AdamW ownership split. Tests prove that
 extending rotary context changes no parameter and preserves short-prefix logits;
 the counted runs, rather than these mechanical checks, own the scientific result.
+Gradient completeness is reduced only after the final optimizer step; checking
+every parameter with a host readback at every step is rejected instrumentation
+because it adds roughly 160,000 CUDA synchronizations without strengthening the
+final-gradient gate.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

@@ -769,6 +769,11 @@ Focused data, schedule, context-parity, and decision tests pass. No V57 quality
 or checkpoint claim exists until the two counted arms finish. Parent grounding
 generation is intentionally omitted because no gate consumes it; parent general
 loss and relation generation remain the exact retention baselines.
+The counted trainer audits nonzero gradients on the final optimizer step. That
+is logically sufficient for the frozen complete-final-gradient gate and avoids
+the invalid prototype's roughly 160,000 per-parameter CUDA synchronizations.
+Those interrupted execution-only attempts emitted no report or checkpoint and
+carry no quality evidence.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -1605,6 +1605,14 @@ passes but retention fails, replay/objective design is the blocker. Only a joint
 native pass advances to larger unique data, continual evidence writes, and the
 same-checkpoint sustained runtime qualification.
 
+Runner profiling before a terminal arm exposed and removed two non-scientific
+costs: unused parent grounding generation, and per-parameter nonzero-gradient
+host readbacks on every update. The latter forced roughly 160,000 CUDA
+synchronizations. V57 now retains the preregistered final-step gradient truth,
+parent general/relation baselines, and every trained-arm source control without
+those costs. Interrupted profiling invocations emitted no report or checkpoint
+and are not experiment results.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 
