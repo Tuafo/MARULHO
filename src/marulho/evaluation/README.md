@@ -1057,6 +1057,14 @@ with V52/V53. The compact checkpoint, encoder, runner, tests, loader, and
 compatibility surface are absent. Report SHA-256 is
 `32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`.
 
+V55 is preregistered as a materially larger multi-view falsifier: 8,192 new
+official-train SQuAD cases, 15 exact epochs, 8,847,360 padded positions, and the
+unchanged 64-case source-control panel. Its gate requires 32 intact answers, a
+45-point causal source gain, and a four-case fused advantage over both trained
+single-view inference ablations, in addition to exact parent/checkpoint and
+bounded-runtime evidence. No throughput or oracle-union result can substitute
+for those heldout checks.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode

@@ -376,6 +376,12 @@ reload, but direct span copying reaches only 16/64 versus zero for both controls
 The generic tokenizer offset contract remains for future auxiliary labels; no
 span encoder, loader, runner, test, checkpoint, or compatibility surface remains.
 
+V55 preregisters a new multi-view autoregressive source organ. Frozen V39 causal
+states and a separate bidirectional embedding encoder feed a learned fusion and
+pointer decoder that emits the full answer-token sequence plus EOS. Span
+start/end loss is auxiliary. The parent remains immutable; any surviving compact
+checkpoint must contain only the new organ and bind strictly to V39's file hash.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

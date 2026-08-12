@@ -587,6 +587,29 @@ is `32f2c700c8168c6fdccb4c681afda978f9113645b0686ca44253b81aed04d0e0`;
 source-audit SHA-256 is
 `3eefb53d6a448fb024a79b0f84469f4ee1f9d198d2cd9876decd19f4e2923f9c`.
 
+**Multi-View Answer Transducer v55 (preregistered)** — V55 is a replacement,
+not a larger V54 span head. The exact V39 checkpoint remains frozen. One view
+projects its read-only causal hidden states; a second width-192, two-layer,
+six-head bidirectional encoder reads frozen token embeddings plus source/question
+types. A learned fusion feeds a two-layer autoregressive pointer decoder that
+emits the complete source-token answer sequence followed by EOS. Direct
+start/end loss remains only an auxiliary training signal. Deterministic view
+dropout trains both single-view paths instead of allowing silent branch collapse.
+
+The immutable training manifest contains 8,192 official SQuAD train cases from
+134 titles, excludes every V48 train and V47 validation case ID, and preserves
+the fixed 64-case validation/control panel. Its contract SHA-256 is
+`1e2616822256474b21a8981005f86c988c697d70a1f4210da199605ed5af97d1` and
+file SHA-256 is
+`e8dc81609403a4c4fc66e92341eb6b9d6f0131f92e689eab382bd66bbc18efd6`.
+Fifteen full batch-64 epochs process exactly 8,847,360 padded source positions.
+Added parameters must remain below 2.5% of V39 and total cache-plus-training time
+below 1,200 seconds. Promotion requires 32/64 intact answers, at least +45
+source-control points, both-view accuracy at least four cases above each trained
+single-view inference ablation, complete nonzero gradients, exact parent file/
+state/logits/general/relation evidence, and strict parent-bound compact reload.
+A miss deletes the model, runner, tests, and checkpoint surface.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

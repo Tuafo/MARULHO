@@ -1327,6 +1327,65 @@ labels. Report SHA-256 is
 source audit SHA-256 is
 `3eefb53d6a448fb024a79b0f84469f4ee1f9d198d2cd9876decd19f4e2923f9c`.
 
+### V55 preregistration: multi-view autoregressive answer transducer
+
+V55 follows the V54 branch rule directly: it replaces terminal span copying
+with joint generative-plus-span training and scales the evidence, rather than
+tuning the failed encoder width or threshold. The exact V39 language model is
+immutable. For each source/question prompt, V55 reads two distinct frozen-parent
+interfaces:
+
+1. V39 causal final states, which carry the language model's learned sequential
+   representation and reproduce the useful V53 interface;
+2. frozen V39 token embeddings passed through a new width-192, two-layer,
+   six-head bidirectional source/question encoder, which retains V54's direct
+   access to both sides of the question-context relation.
+
+A learned normalized fusion feeds a width-192, two-layer autoregressive pointer
+decoder. Starting from BOS, it predicts one legal source-token position at a
+time and finally EOS, so answer length and boundaries are learned as a sequence
+rather than inferred from two independent endpoint scores. An auxiliary
+start/end loss keeps exact localization pressure. A frozen-token embedding of
+the previously selected source token feeds the next decoder step. This remains
+fully MARULHO-owned and can output only evidence-visible tokens in this
+extractive falsifier. Source-absent prompts route to unchanged V39. A
+deterministic 70/15/15 schedule trains both views, bidirectional-only, and
+causal-only examples so neither path can be dead while the fused result appears
+strong.
+
+The new immutable manifest uses the official SQuAD training split but excludes
+all 512 prior V48 training IDs and all 64 fixed V47 validation IDs. It contains
+8,192 cases from 134 titles, each complete prompt fits 64 tokens, and answers fit
+one to eight tokenizer tokens. The validation panel and its question-only and
+mismatched-source controls remain unchanged. Manifest contract SHA-256 is
+`1e2616822256474b21a8981005f86c988c697d70a1f4210da199605ed5af97d1`;
+file SHA-256 is
+`e8dc81609403a4c4fc66e92341eb6b9d6f0131f92e689eab382bd66bbc18efd6`.
+This is a 16-times larger unique curriculum than V54. Fifteen exact epochs at
+batch 64 and context 72 process 8,847,360 padded source positions in 1,920
+optimizer updates. Frozen V39 causal states may be cached in host BF16 memory;
+cache construction time and bytes remain part of the report and total runtime.
+The optimizer is AdamW at 3e-4 with BF16 CUDA, 5% warmup, cosine decay, 0.1
+minimum fraction, 0.1 weight decay, gradient clipping at 1.0, data seed 55121,
+and model seed 55131. No replay is needed because the parent cannot mutate.
+
+The architecture may add at most 2.5% of V39 parameters and must finish causal-
+state caching plus training within 1,200 seconds. It must give every trainable
+tensor a nonzero gradient and strict-reload a compact checkpoint bound to the
+V39 file hash. Parent checkpoint, state, tokenizer, sample logits, heldout
+general loss, and relation behavior must remain exact. Capability promotion
+requires at least 32/64 intact answers, at least +45 points over the stronger
+question-only or mismatched-source control, and a minimum four-case advantage
+over each trained single-view inference ablation. The 32-case bar doubles V54
+and materially exceeds V52; the ablation bar prevents an attractive multi-view
+story from surviving if one view actually owns the result.
+
+A pass advances the compact source organ to multi-document retrieval, larger
+mixed extractive/generative corpora, and an owned learned route from the base
+language model. A miss deletes the transducer, runner, tests, checkpoint surface,
+and caches, then moves to a longer-context retrieval architecture rather than
+another SQuAD-only source head.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

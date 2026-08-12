@@ -344,6 +344,17 @@ positive controlled result—not a replacement for frontier Transformers.
     survives. The next branch must combine complementary causal and
     bidirectional views with learned answer generation rather than enlarge the
     failed span head.
+24. Preregister V55's multi-view answer transducer. The exact V39 parent stays
+    frozen while a compact source organ combines read-only V39 causal states
+    with a bidirectional source/question encoder. An autoregressive pointer
+    decoder learns the entire answer-token sequence plus EOS; start/end span
+    loss is auxiliary rather than the output mechanism. The frozen curriculum
+    expands to 8,192 new official SQuAD training cases with zero overlap against
+    the prior 512 train cases or fixed 64 validation cases, and runs 15 epochs
+    for 8,847,360 padded source positions. Promotion requires at least 32/64
+    answers, +45 points over source controls, a four-case advantage over both
+    single-view inference ablations, exact parent evidence, full gradients,
+    bounded runtime, and strict compact-checkpoint reload.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

@@ -47,10 +47,13 @@ audio, event-camera style input, and multimodal streams.
 - BPE training and source encoding consume bounded text chunks, preferring
   blank-line document boundaries and preserving the exact concatenated source.
   Corpus size must not become one monolithic Rust tokenizer allocation.
-- Both owned tokenizer implementations expose token-to-character offsets. The
-  V54 span-supervision path uses those offsets to prove that every start/end
+- Both owned tokenizer implementations expose token-to-character offsets.
+  Span-supervised source paths use those offsets to prove that every start/end
   target lies inside the visible source field; special tokens have zero-width
   offsets and byte tokens for one multibyte character share its character span.
+- V55 freezes an 8,192-case official-train SQuAD manifest after excluding every
+  prior V48 training and fixed V47 validation ID. Its stored contract and file
+  hashes own the scaled curriculum; runtime code must not refetch or reshuffle it.
 - Language splits treat blank-line-delimited documents as independent only for
   legacy corpora. Maintained materializers write an explicit MARULHO record
   separator, so paragraphs remain inside one dataset document and each record
