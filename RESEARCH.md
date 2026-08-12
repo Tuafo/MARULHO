@@ -1537,6 +1537,74 @@ or long-context memory in general. Do not tune it on this validation panel. Move
 to a base-native context mechanism or recurrent segment state where evidence can
 participate throughout the language computation.
 
+### V57 preregistration: evidence inside the native causal computation
+
+V56 separates two hypotheses cleanly. Learned top-two retrieval reaches 71.09%,
+but oracle evidence still produces no correct answers. The next experiment must
+therefore stop freezing the language computation. V57 asks whether V39 can learn
+long evidence use when the source participates in every causal layer, while a
+matched oracle-localized arm determines whether answer realization itself is
+still the blocker.
+
+The exact 100,679,424 V39 tensors are strict-loaded into the same Transformer
+with rotary context expanded from 72 to 320. No parameter, tokenizer token, head,
+sidecar, pointer, or external model is added. Before counted training, common
+prefixes up to 72 tokens must remain logit-exact. Both arms reset to that state:
+
+- `native_full` receives each complete 128–278-token source;
+- `oracle_short` receives the stored answer-bearing source region, with its
+  location supplied by the benchmark rather than learned.
+
+Both inputs are right-padded to 320, so parameter count, tensor shape, attention
+compute, cases, answers, initialization, optimizer, and schedule remain matched.
+The oracle arm is a control only. Each causal prefix ends in the same encoded
+trailing space used at generation; the standalone answer and EOS are appended
+without a cross-boundary BPE merge. Ordinary next-token loss covers the complete
+record and the existing V39 answer objective raises answer/EOS targets to weight
+4. General and relation replay use ordinary full-vocabulary loss.
+
+The new train manifest has 8,192 cases from 171 titles and excludes every prior
+V48/V55/V56 train case. The new validation panel has 256 cases from 22 titles and
+excludes V47/V56 validation. Train contract/file SHA-256 values are
+`fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7` and
+`aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133`;
+validation values are
+`9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c` and
+`b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80`.
+
+Training uses four complete grounding epochs at batch 32. Exactly half of 2,048
+updates are grounding, one quarter are document-aligned relation replay, and one
+quarter are balanced across the two general sources. Each arm processes exactly
+20,971,520 padded positions; together they process 41,943,040. Muon uses 3e-4,
+5% warmup, cosine decay to 0.1 of peak, weight decay 0.1, BF16, clip 1.0, data
+seed 57121, and model seed 57131. Eager execution is frozen. Its real full-step
+preflight reaches 16,129.8 positions/s at 7.15 GB. Inductor is rejected because
+loss drift is 0.001868 above the 0.001 tolerance and steady speed collapses to
+328.5 positions/s after a 165.24-second compile.
+
+Promotion requires all of the following:
+
+- oracle-short exact generation at least 128/256;
+- native-full exact generation at least 128/256 and at least 45 points above the
+  stronger question-only or mismatched-source control;
+- native-full no more than 16 cases behind oracle-short, and mismatched source at
+  most 16/256;
+- matched general heldout loss regression at most 0.10 and stratified relation
+  exact-generation regression at most five percentage points from V39;
+- exact 20,971,520 positions and 2,048 updates per arm, unchanged parameters,
+  complete nonzero final gradients, and at most 1,800 counted training seconds
+  per arm;
+- initial short-prefix parity, tokenizer identity, parent-file immutability, and
+  strict candidate tensor/logit/checkpoint reload.
+
+Both trained models are evaluated on full and oracle prompts. If oracle passes
+and native fails, V57 identifies long-range localization/integration as the
+blocker and pivots to recurrent segment state. If oracle fails, context length
+is exonerated and the base/task objective must change. If native capability
+passes but retention fails, replay/objective design is the blocker. Only a joint
+native pass advances to larger unique data, continual evidence writes, and the
+same-checkpoint sustained runtime qualification.
+
 The frontier architectures suggest later, separate falsifiers rather than one
 large hybrid rewrite:
 

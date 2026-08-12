@@ -1,0 +1,79 @@
+{
+  "surface": "marulho_native_context_v57_preflight.v1",
+  "decision": "select_eager_batch32_reject_inductor_and_memory_pressure",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "checkpoint": {
+    "path": "reports/language_scaling/v39-answer-objective-qualified-100m-218m-20260810.pt",
+    "sha256": "6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d"
+  },
+  "model": {
+    "parameters": 100679424,
+    "parent_context_tokens": 72,
+    "preflight_context_tokens": 320,
+    "tensor_state_loaded_strictly": true,
+    "architecture_parameter_count_changed": false
+  },
+  "eager_full_optimizer_steps": [
+    {
+      "batch_size": 16,
+      "loss": 4.3180742263793945,
+      "elapsed_seconds": 0.754752400011057,
+      "positions_per_second": 6783.681641721169,
+      "peak_cuda_allocated_bytes": 3899355136,
+      "all_parameters_received_nonzero_gradient": true
+    },
+    {
+      "batch_size": 24,
+      "loss": 4.264287948608398,
+      "elapsed_seconds": 0.5214036999968812,
+      "positions_per_second": 14729.469698903054,
+      "peak_cuda_allocated_bytes": 5537032192,
+      "all_parameters_received_nonzero_gradient": true
+    },
+    {
+      "batch_size": 32,
+      "loss": 4.205923080444336,
+      "elapsed_seconds": 0.6348495999991428,
+      "positions_per_second": 16129.804602560711,
+      "peak_cuda_allocated_bytes": 7150854144,
+      "all_parameters_received_nonzero_gradient": true
+    }
+  ],
+  "memory_pressure_probe": {
+    "batch_sizes": [40, 48, 56, 64],
+    "terminated_without_admission": true,
+    "reason": "aggregate probe exceeded 180 seconds without returning a stable result",
+    "quality_result_used": false
+  },
+  "inductor": {
+    "requested": true,
+    "windows_triton_cache_alias_applied": true,
+    "compile_seconds": 165.24337059998652,
+    "compile_peak_cuda_allocated_bytes": 4656087552,
+    "eager_loss": 4.205923080444336,
+    "compiled_loss": 4.204055309295654,
+    "absolute_loss_delta": 0.0018677711486816406,
+    "parity_tolerance": 0.001,
+    "parity_passed": false,
+    "steady_positions_per_second": [
+      339.3974948717919,
+      408.855593350396,
+      328.30155836998665,
+      329.7088913584297,
+      328.585422652386,
+      328.49772175772443
+    ],
+    "steady_median_positions_per_second": 328.49772175772443,
+    "steady_peak_cuda_allocated_bytes": 5083642880,
+    "admitted": false
+  },
+  "selected": {
+    "execution_backend": "pytorch_eager",
+    "batch_size": 32,
+    "sequence_length": 320,
+    "positions_per_optimizer_step": 10240,
+    "reason": "largest returned full optimizer step before the memory-pressure cliff and over 49 times the rejected compiled steady throughput"
+  },
+  "boundary": "This is execution feasibility and selection evidence only. It contains no V57 language-quality, continual-retention, or checkpoint-promotion result."
+}

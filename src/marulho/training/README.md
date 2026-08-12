@@ -389,6 +389,15 @@ parent fidelity, and strict compact reload. The result rejects a small residual
 cross-attention adapter as the language-realization interface. No model, loader,
 checkpoint surface, cache, runner, test, or compatibility import remains.
 
+V57 is preregistered as a full-model native-context continuation, not an adapter.
+The exact V39 tensors are loaded into a 320-token rotary context with unchanged
+parameter count, then all layers train. Full-source and oracle-localized arms use
+the same 320-token padded shape and 20,971,520-position mixed grounding/general/
+relation schedule. Eager batch 32 is selected by a real Muon/AdamW full-step
+preflight. Inductor is rejected after parity failure and a collapse to 328.5
+positions/s versus eager's 16.1k. No V57 checkpoint surface exists until the
+joint capability, retention, gradient, runtime, and reload gate passes.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

@@ -717,7 +717,7 @@ SHA-256 is `7b53df754d275a211412df2c006956901cb7f7a910da26556c4a8a8abfef6e3d`.
 The next source branch must test context expansion or recurrent segment memory,
 not another frozen answer extractor.
 
-**Native Long-Context v57 (data frozen; architecture preregistration pending)** —
+**Native Long-Context v57 (preregistered)** —
 V57 has a fresh official SQuAD boundary before model work. The train manifest has
 8,192 cases from 171 titles and excludes every V48, V55, and V56 train ID. The
 256-case validation manifest spans 22 titles and excludes every V47 and V56
@@ -730,7 +730,38 @@ Train contract/file SHA-256 values are
 validation values are
 `9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c` and
 `b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80`.
-No architecture, quality, retention, or runtime claim exists yet.
+V57 reconstructs V39 with context 320 and strict-loads the exact same tensors;
+rotary positions add no parameter. Before training, all common prefixes up to 72
+tokens must be logit-exact. Two exact-reset arms then update all 100,679,424
+parameters. `native_full` reads the full 128–278-token source. `oracle_short`
+reads the answer-bearing localized source stored in the manifest. Both are padded
+to 320 tokens and use identical questions, answers, batch 32, schedule, Muon
+3e-4, BF16, answer weight 4, and eager execution. Four grounding epochs give
+1,024 grounding updates. A 50/25/25 grounding/general/relation schedule gives
+2,048 total optimizer steps and 20,971,520 padded positions per arm; the two-arm
+comparison processes 41,943,040 positions.
+
+The oracle arm is a localization control, not a candidate. Promotion requires
+oracle-short accuracy at least 128/256, native-full accuracy at least 128/256,
+native source gain at least 45 points over the stronger question-only or
+mismatched-source control, native no more than 16 cases behind oracle, mismatch
+at most 16/256, general heldout loss regression at most 0.10, relation exact-
+generation regression at most five points, unchanged parameter count, complete
+nonzero final gradients, at most 1,800 counted training seconds per arm, and a
+strict exact checkpoint reload. Both arms are also evaluated cross-conditionally.
+If oracle passes and native fails, localization/long-range integration is the
+blocker and the branch moves to recurrent segment state. If oracle fails, the
+base/task objective is inadequate and context length is not blamed. Only a
+native joint pass can become the next continual checkpoint.
+
+The real RTX 3060 preflight selects eager batch 32: a full BF16 forward/backward,
+clipped Muon/AdamW update reaches 16,129.8 positions/s and 7,150,854,144 peak
+CUDA bytes with every gradient nonzero. A larger aggregate probe enters memory
+pressure and is terminated. Inductor takes 165.24 seconds to compile, misses the
+0.001 loss-parity tolerance at 0.001868, and collapses to 328.5 steady
+positions/s, so it is rejected. Preflight report SHA-256 is
+`bf4f5a74b3710835085bc152a4c1d0eababdc339066c2372944cde8eef831a5e`.
+No V57 quality or checkpoint claim exists yet.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

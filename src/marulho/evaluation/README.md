@@ -1094,8 +1094,17 @@ manifest excludes all V48/V55/V56 train IDs; its 256-case official-validation
 manifest excludes V47/V56 validation IDs. Every full causal prompt, standalone
 answer, and EOS fits 320 tokens, with exact trailing-space BPE prefixes shared by
 training and generation. Each case also stores an answer-containing oracle-short
-prompt of at most 96 tokens for a matched localization control. This freezes data
-only; the architecture and gate are not yet admitted.
+prompt of at most 96 tokens for a matched localization control. This data was
+frozen before the architecture and gate immediately below.
+
+The architecture is now preregistered. V57 compares full-source native context
+against an oracle-localized control under exact 320-token padded compute. Both
+update all V39 parameters for 20,971,520 positions with 50% grounding, 25%
+general replay, and 25% relation replay. Native and oracle each need 128/256;
+native must gain 45 source-control points, remain within 16 cases of oracle, and
+retain general/relation behavior. Eager batch 32 is frozen after the real
+preflight; compiled execution is invalid and slower. Preflight report SHA-256 is
+`bf4f5a74b3710835085bc152a4c1d0eababdc339066c2372944cde8eef831a5e`.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
