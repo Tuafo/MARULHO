@@ -103,7 +103,7 @@ def _gold_evidence_indices(gold_mask: Sequence[bool], valid_count: int) -> list[
     if int(valid_count) == 1:
         return [first, first]
     adjacent = first + 1 if first + 1 < int(valid_count) else first - 1
-    return [first, adjacent]
+    return sorted((first, adjacent))
 
 
 def _normalized_words(text: str) -> str:
@@ -147,6 +147,7 @@ def build_landmark_retrofit_batches(
     target_rows = []
     loss_mask_rows = []
     answer_lengths = []
+    generator_answer_lengths = []
     block_counts = []
     boundary_spanning_count = 0
     for case in cases:
@@ -192,20 +193,17 @@ def build_landmark_retrofit_batches(
         retrieval_ids = tokenizer.encode(question, add_bos=True, add_eos=False)
         if len(retrieval_ids) > query:
             raise ValueError("retrieval query exceeds the V39 context")
-        full_text = f"{question_prompt} {answer}"
-        full_ids, full_offsets = tokenizer.encode_with_offsets(
-            full_text, add_bos=True, add_eos=True
+        generator_prefix = tokenizer.encode(
+            f"{question_prompt} ", add_bos=True, add_eos=False
         )
+        answer_ids = tokenizer.encode(answer, add_bos=False, add_eos=True)
+        full_ids = generator_prefix + answer_ids
         if len(full_ids) > query + 1:
             raise ValueError("generator query and answer exceed the V39 context")
         generator_input = full_ids[:-1]
         generator_targets = full_ids[1:]
-        answer_character_start = len(question_prompt) + 1
         target_mask = [
-            bool(
-                target_index == len(full_ids) - 1
-                or full_offsets[target_index][1] > answer_character_start
-            )
+            target_index >= len(generator_prefix)
             for target_index in range(1, len(full_ids))
         ]
         if not any(target_mask):
@@ -233,6 +231,7 @@ def build_landmark_retrofit_batches(
         )
         loss_mask_rows.append(target_mask + [False] * (query - len(target_mask)))
         answer_lengths.append(len(answer_span))
+        generator_answer_lengths.append(len(answer_ids) - 1)
         block_counts.append(block_count)
     tensors = {
         "source_ids": torch.stack(source_rows),
@@ -270,6 +269,8 @@ def build_landmark_retrofit_batches(
         "boundary_spanning_answer_count": boundary_spanning_count,
         "minimum_answer_tokens": min(answer_lengths),
         "maximum_answer_tokens": max(answer_lengths),
+        "minimum_generator_answer_tokens": min(generator_answer_lengths),
+        "maximum_generator_answer_tokens": max(generator_answer_lengths),
         "all_gold_evidence_contains_answer_union": True,
         "all_retrieval_queries_answer_free": True,
         "all_generator_sequences_fit": True,
@@ -622,7 +623,7 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
         )
         generator_query = torch.tensor(
             self.tokenizer.encode(
-                f"Question: {question_text}{answer_marker}",
+                f"Question: {question_text}{answer_marker} ",
                 add_bos=True,
                 add_eos=False,
             ),
@@ -691,12 +692,14 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
             torch.ones_like(retrieval_query, dtype=torch.bool),
         )
         indices = (
-            scores.topk(k=min(2, int(valid.sum().item())), dim=1).indices
+            scores.topk(k=min(2, int(valid.sum().item())), dim=1)
+            .indices.sort(dim=1)
+            .values
             if evidence_indices is None
-            else evidence_indices.to(self.device).reshape(1, 2)
+            else evidence_indices.to(self.device).reshape(1, -1).sort(dim=1).values
         )
-        if int(indices.shape[1]) == 1:
-            indices = indices.repeat(1, 2)
+        if not 1 <= int(indices.shape[1]) <= 2:
+            raise ValueError("V56 requires one or two evidence blocks")
         evidence, evidence_mask, score_gate = self.select_evidence(
             source_hidden, source_mask, scores, indices
         )
@@ -764,13 +767,13 @@ class FrozenBaseLandmarkRetrofit(nn.Module):
                 no_repeat_ngram_size=max(0, int(no_repeat_ngram_size)),
             )
             next_id = controlled.argmax(dim=-1)
-            if finished:
-                next_id.fill_(self.eos_id)
             continuation.append(next_id)
             finished = finished or bool(next_id.eq(self.eos_id).all().item())
+            if finished:
+                break
             query = torch.cat((query, next_id.unsqueeze(1)), dim=1)
             if int(query.shape[1]) > self.context_length:
-                raise ValueError("V56 generated query exceeded the V39 context")
+                query = query[:, -self.context_length :]
         generated = torch.cat(
             (
                 prompt,

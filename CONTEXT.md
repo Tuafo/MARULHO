@@ -674,6 +674,17 @@ loss covers answer tokens plus EOS, with no answer token entering retriever
 inputs. Added parameters must remain below 3% of
 V39 and cache plus training below 1,200 seconds.
 
+Implementation preflight made the BPE boundary contract explicit before any
+counted training. The retriever encodes only the bare question. The causal
+question/answer prefix and the accepted answer are encoded separately, with a
+virtual trailing answer-space, so runtime generation begins from exactly the
+same token IDs as teacher forcing. This split encoding still fits every frozen
+case: prefix plus answer plus EOS is at most 73 IDs, hence at most 72 model
+inputs. Standalone accepted validation answers require at most ten generated
+tokens, so the frozen evaluation requests twelve tokens rather than inheriting
+V55's invalid eight-token pointer limit. This correction changes no manifest,
+training position budget, capability threshold, or control.
+
 Promotion requires predicted-retrieval intact accuracy at least 64/128, at least
 +45 points over question-only and mismatched-source controls, predicted top-two
 block-union answer coverage at least 80%, oracle-evidence accuracy at least

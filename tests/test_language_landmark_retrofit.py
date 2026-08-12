@@ -2,6 +2,9 @@ import pytest
 import torch
 
 from marulho.data.language_tokenizer import ByteLevelLanguageTokenizer
+from marulho.evaluation.language_landmark_retrofit_falsification import (
+    _evaluate_landmark_grounding,
+)
 from marulho.training.language_landmark_retrofit import (
     FrozenBaseLandmarkRetrofit,
     build_landmark_retrofit_batches,
@@ -59,6 +62,7 @@ def _manifest():
     )
     cases = []
     for index, (source, question, answer) in enumerate(rows):
+        mismatched_source = rows[(index + 1) % len(rows)][0]
         question_only = f"Question: {question}\nAnswer:"
         cases.append(
             {
@@ -68,6 +72,10 @@ def _manifest():
                 "answers": [answer],
                 "question_only_prompt": question_only,
                 "prompt": f"Context: {source}\nQuestion: {question}\nAnswer:",
+                "mismatched_source_text": mismatched_source,
+                "mismatched_prompt": (
+                    f"Context: {mismatched_source}\nQuestion: {question}\nAnswer:"
+                ),
             }
         )
     return {"cases": cases}
@@ -124,7 +132,9 @@ def test_runtime_split_matches_training_blocks_exactly() -> None:
         batches[0].retrieval_query_attention_mask[0]
     ]
     expected_generator_query = torch.tensor(
-        tokenizer.encode(_manifest()["cases"][0]["question_only_prompt"], add_eos=False)
+        tokenizer.encode(
+            f"{_manifest()['cases'][0]['question_only_prompt']} ", add_eos=False
+        )
     )
     assert torch.equal(retrieval_query[0], expected_retrieval_query)
     assert torch.equal(generator_query[0], expected_generator_query)
@@ -183,6 +193,40 @@ def test_source_absent_generation_is_exact_parent_bypass() -> None:
     )
 
     assert torch.equal(candidate["generated_ids"], parent["generated_ids"])
+
+
+def test_landmark_grounding_evaluator_runs_all_interventions() -> None:
+    model, tokenizer = _model()
+    batches = build_landmark_retrofit_batches(
+        _manifest(),
+        tokenizer,
+        batch_size=2,
+        block_tokens=model.block_tokens,
+        maximum_blocks=model.maximum_blocks,
+        query_length=model.context_length,
+    )[0]
+    cached = cache_landmark_retrofit_hidden(
+        model.base, batches, device=torch.device("cpu")
+    )[0]
+
+    report = _evaluate_landmark_grounding(
+        model,
+        tokenizer,
+        _manifest(),
+        cached,
+        maximum_answer_tokens=2,
+    )
+
+    assert report["valid"]
+    assert set(report["conditions"]) == {
+        "predicted_top2",
+        "predicted_top1",
+        "oracle",
+        "shuffled",
+        "question_only",
+        "mismatched_source",
+    }
+    assert all(value["case_count"] == 2 for value in report["conditions"].values())
 
 
 def test_landmark_checkpoint_is_compact_and_parent_strict(tmp_path) -> None:

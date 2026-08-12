@@ -367,6 +367,11 @@ positive controlled result—not a replacement for frontier Transformers.
     least 64/128 long-context answers, 80% top-two gold-block recall, small
     predicted-versus-oracle evidence loss, exact source-absent parent behavior,
     full gradients, bounded runtime, and strict compact-checkpoint reload.
+    The implementation fixes BPE boundaries explicitly: retrieval sees the bare
+    question, while the causal prefix and answer are encoded separately so
+    teacher forcing and generation begin from identical token IDs. A 12-token
+    generation bound covers every standalone validation answer encoding; no
+    V56 quality result exists until the frozen run completes.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

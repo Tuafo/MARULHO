@@ -1078,14 +1078,18 @@ and has contract/file SHA-256 values
 `feca4f4088d3452265f2fc35240f7aa45de68dfc856e0be80af7f45a9e470a84` and
 `fa609b4c6c381d1d0c347fc3286dc2ed5e35daea4c57da8400b20056f0facbc6`.
 Train, validation, and all prior case-ID intersections are zero. This proves the
-long-context benchmark contract only; no V56 architecture or result exists yet.
+long-context benchmark contract only; no V56 quality result exists yet.
 
 V56 is preregistered as a frozen-parent landmark-evidence retrofit, not another
 copy head. The heldout gate separates predicted, oracle, and shuffled block
 interventions, requires 80% top-two answer-block recall and 64/128 predicted-
 evidence answers, and keeps exact source-absent parent behavior. Fifteen batch-32
 epochs process 20,643,840 adapter positions after a measured nondurable frozen-
-state cache. The old 64-case panel and throughput are diagnostics only.
+state cache. Preflight additionally freezes separate BPE encoding of the bare
+retrieval question, causal prefix, and accepted answer. Every separated sequence
+fits V39's window; standalone validation answers need at most ten IDs, so the
+full-vocabulary evaluator requests twelve tokens. The old 64-case panel and
+throughput are diagnostics only.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

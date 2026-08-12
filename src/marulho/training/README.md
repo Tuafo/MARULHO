@@ -386,8 +386,12 @@ V56 preregisters a compact landmark-evidence retrofit around frozen V39. A
 question-only retriever selects two 48-token source blocks; two trainable causal
 cross-attention layers inject their frozen V39 states into the frozen V39 query
 stream before its owned full-vocabulary head. Source-absent generation bypasses
-the entire retrofit bit-exactly. No implementation or checkpoint is admitted
-until the long-context retrieval, generation, retention, and reload gates pass.
+the entire retrofit bit-exactly. The preflight-only implementation is
+`language_landmark_retrofit.py`; it keeps runtime and teacher-forced BPE prefixes
+identical by separately encoding the causal prefix and answer, and it parses
+runtime prompts through the checkpoint tokenizer with an exact round trip. Its
+model/checkpoint surface remains unadmitted until the long-context retrieval,
+generation, retention, and reload gates pass.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

@@ -1458,6 +1458,16 @@ cross-attention contribution so the second block need not become an equal-weight
 distractor. Predicted top-one is reported as a matched diagnostic because older
 V24 evidence showed that indiscriminate top-two context can be harmful.
 
+The implementation freezes one additional tokenization invariant before the
+run. Retrieval encodes the bare question, excluding structural `Question:` and
+`Answer:` text. The generator encodes its question/answer prefix separately from
+the accepted answer, with a virtual trailing space after `Answer:`. This prevents
+whole-string BPE merges from making the teacher-forced prefix differ from the
+runtime prefix. All train/validation sequences still fit: the separated prefix,
+answer, and EOS use at most 73 IDs. Standalone validation answers use at most ten
+generated IDs, so evaluation requests twelve tokens; V55's eight-token pointer
+limit does not carry into this full-vocabulary experiment.
+
 For generation, frozen V39 encodes the question plus teacher-forced answer prefix
 inside its existing 72-token window. A trainable 256-wide projection and two
 causal Transformer-decoder layers cross-attend to the two selected frozen
