@@ -1112,6 +1112,9 @@ preparation audit yields 256 grounding batches per arm, 2,773 relation batches,
 346/296 general batches, and schedule hash
 `bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
 This is execution-contract evidence only; neither arm has a quality result yet.
+The runner does not generate an unused parent grounding panel. Only parent
+general/relation behavior defines retention; each trained arm still runs every
+full, oracle, question-only, and mismatched-source capability condition.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

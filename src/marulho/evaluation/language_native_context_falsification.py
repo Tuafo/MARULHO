@@ -949,16 +949,6 @@ def run_native_context_falsification(
             batch_size=int(config.relation_eval_batch_size),
             max_new_tokens=int(config.relation_generation_tokens),
         )
-        baseline_grounding = {
-            arm: _evaluate_grounding(
-                extended,
-                tokenizer,
-                validation_manifest,
-                primary=arm,
-                max_new_tokens=int(config.grounding_generation_tokens),
-            )
-            for arm in ARM_NAMES
-        }
     finally:
         torch.backends.cuda.matmul.allow_tf32 = baseline_previous_tf32
         torch.set_float32_matmul_precision(baseline_previous_precision)
@@ -1166,7 +1156,13 @@ def run_native_context_falsification(
         "baseline": {
             "general": baseline_general,
             "relation": baseline_relation,
-            "grounding": baseline_grounding,
+            "grounding": {
+                "performed": False,
+                "reason": (
+                    "No V57 gate or branch decision consumes parent grounding; "
+                    "the disjoint trained-arm source controls own capability truth."
+                ),
+            },
         },
         "arms": arm_rows,
         "parent": parent,

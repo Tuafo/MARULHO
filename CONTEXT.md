@@ -766,7 +766,9 @@ batches, 346/296 general batches, and the exact frozen 1,024/512/256/256 update
 schedule with hash
 `bc736bbb94434c79d2a1e59d667a751ca3dfd211cc38b0603b46b6bb79037d9d`.
 Focused data, schedule, context-parity, and decision tests pass. No V57 quality
-or checkpoint claim exists until the two counted arms finish.
+or checkpoint claim exists until the two counted arms finish. Parent grounding
+generation is intentionally omitted because no gate consumes it; parent general
+loss and relation generation remain the exact retention baselines.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
