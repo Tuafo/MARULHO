@@ -870,6 +870,12 @@ fidelity, training below 1,800 seconds, cache plus training below 2,400 seconds,
 and strict compact reload are mandatory. This is the first end-to-end
 meta-learned write/read test; it is not an admitted continual-memory runtime.
 
+V60's first terminal invocation completed training and every behavioral view,
+then failed only while hashing one scalar BF16 controller gate for JSON evidence.
+It emitted no report or checkpoint. The serializer now flattens all tensors
+before byte hashing; the frozen experiment repeats unchanged, and the observed
+but unadmitted 0/256 view counts are not a terminal result until that rerun.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

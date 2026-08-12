@@ -1012,7 +1012,11 @@ def run_v60(
             "initial_controller_state_sha256": sha256_json(
                 {
                     name: hashlib.sha256(
-                        value.contiguous().view(torch.uint8).numpy().tobytes()
+                        value.contiguous()
+                        .reshape(-1)
+                        .view(torch.uint8)
+                        .numpy()
+                        .tobytes()
                     ).hexdigest()
                     for name, value in initial_state.items()
                 }

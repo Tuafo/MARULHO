@@ -1880,6 +1880,15 @@ If oracle fails, one linear meta-gradient step is too weak and the branch moves
 to an iterative MLP fast learner; it does not return to extractive spans or raw
 full-model AdamW.
 
+The first terminal invocation completed all 2,048 updates and all 1,280
+generation cases, with every learned zero/shuffled/true/oracle view at 0/256,
+then stopped before writing a report because the evidence serializer attempted
+to byte-view a scalar BF16 gate without first flattening it. This is an
+execution-only reporting defect after all behavioral computation. No report or
+checkpoint is admitted. The scalar is flattened before hashing and the exact
+frozen run must repeat; seeds, data, model, schedule, optimizer, gates, and
+interpretation remain unchanged.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a
