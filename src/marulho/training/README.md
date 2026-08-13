@@ -144,6 +144,15 @@ But its later-segment loss is 5.95039 versus the Transformer's 5.85117 despite
 ordinary language capacity. No V72 model, runner, tests, loader, checkpoint,
 runtime option, or compatibility path remains.
 
+`language_exact_cortex_sidecar.py` is V73's temporary, uninstalled falsifier.
+Unlike V72 it preserves the full 100.679M Transformer and adds a shared
+width-256 read/write path around it. Zero read gates and an explicit disabled
+mode are bit-exact to the Transformer. The writer consumes detached hidden
+states and a detached tied vocabulary matrix, so its local reconstruction loss
+cannot alter the base cortex. Persistent, reset, and shuffled arms have identical
+parameters and compute. No runtime, generation, checkpoint, loader, or
+compatibility surface exists unless the frozen real-language gates pass.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
