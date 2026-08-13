@@ -148,6 +148,16 @@ runtime or checkpoint surface. It clears all three frozen seeds at 100% versus
 V72 undergoes its real sequential-language falsifier. A failure there deletes
 the candidate and this A1 machinery together.
 
+The same module now owns V72's uninstalled A2 candidate. It preserves all ten
+width-768 full-attention Transformer layers, adds two reads from the previous
+completed eight-token workspace and one post-segment write, and reduces only
+SwiGLU hidden width from 3,072 to 2,768. The resulting 100,769,281 parameters are
+1.00089 times the 100,679,424-parameter Transformer. Completed-state gradients
+stop at each 320-token boundary; an identical local landmark-reconstruction
+objective trains the writer in persistent, reset, and shuffled arms. No
+incremental generation, checkpoint loader, runtime installation, or compatibility
+surface exists before the frozen sequential-language gate passes.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
