@@ -1098,6 +1098,17 @@ state by narrowing the base model. The next experiment must therefore keep
 Transformer capacity exact and make any adaptation conditional or temporary,
 with a zero-action path that is bit-exact and equal to the base model.
 
+**V73 exact-cortex adaptive sidecar (current experiment)** — preserve every
+100,679,424 Transformer parameter and its complete width-768, ten-layer path.
+Add a shared low-rank document-state sidecar only after the exact Transformer
+blocks; it may improve later segments but cannot take capacity away from the
+base. V72's immutable Transformer report is reused because V73 freezes the same
+tokenizer, documents, seed, order, optimizer, and 7,864,320-position recipe.
+Persistent and reset sidecars have identical parameters and compute, so extra
+capacity cannot masquerade as durable memory. Persistent runs first and must
+beat both the Transformer and, if admitted, reset by at least 0.02. A miss
+deletes V73 without a width, gate, or auxiliary sweep.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

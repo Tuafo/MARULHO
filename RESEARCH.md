@@ -2983,6 +2983,79 @@ persistent, and early-stop reports retain the evidence. The terminal report is
 `c81b525ec612886785302f0d3c7e318e113eb3ec47fd5685ff827279209c5db8`). V72 rules out this
 compressed detached-workspace interface, not every form of long context.
 
+### Post-V72 synthesis: keep the Transformer, adapt around it
+
+The user's correction is adopted: MARULHO should stop repeatedly replacing the
+only local language cortex that survives matched scaling. The original
+[TTT layers](https://arxiv.org/abs/2407.04620) make their hidden state a linear
+model or MLP and update it with self-supervised gradient descent; they were
+evaluated as sequence layers from 125M to 1.3B parameters. The later
+[end-to-end TTT](https://arxiv.org/abs/2512.23675) is conceptually closer to
+MARULHO's target: a standard sliding-window Transformer continues next-token
+learning on test context, and training meta-learns an initialization for those
+future updates. Its reported 3B-parameter, 164B-token regime cannot be treated
+as locally validated on one RTX 3060. [Titans](https://arxiv.org/abs/2501.00663)
+similarly separates precise short-term attention from a neural memory updated
+at test time, but V72 shows that real state utility does not automatically make
+a better complete model.
+
+MARULHO has already tested non-equivalent shortcuts. V59's ordinary source-time
+full-model update memorized source loss but produced 0/64 answers. V60--V63
+meta-trained linear, nonlinear, multi-depth, and exact-token protected adapters
+around frozen V39; none produced usable source-conditioned language. Those
+failures do not reproduce end-to-end TTT, because the base Transformer was not
+jointly trained from scratch to make its own future update useful. They do show
+that another post-hoc frozen-model adapter is not an admissible novelty claim.
+
+### V73 preregistration: exact-cortex adaptive sidecar
+
+V72 isolates a sharper variable before paying second-order meta-gradient cost:
+its state-swap delta is +0.03867, but the candidate loses 0.09922 overall and is
+already 0.09297 worse on the first segment, where no document history exists.
+The plausible cause is not absent memory; it is paying for memory by reducing
+every Transformer SwiGLU from 3,072 to 2,768 and allowing the auxiliary write
+objective to alter the shared cortex. V73 removes exactly those two costs. This
+is a new isolated test, not a V72 width sweep.
+
+The full 100,679,424-parameter width-768, ten-layer, twelve-head Transformer is
+kept unchanged. After layers 3 and 7, a shared four-head width-256 sidecar reads
+eight width-256 document-state tokens and adds a residual controlled by one
+zero-initialized scalar per read site. The sidecar has its own token-query,
+state-key/value, and width-768 output projections. After the final Transformer
+layer, eight learned width-256 queries attend to a **detached** view of the
+completed segment through separate width-256 key/value projections. A learned
+content gate, residual update, and RMS normalization form the next state. The
+writer reconstructs the eight already-observed 40-token landmarks through its
+own width-256-to-768 projection and the unchanged tied vocabulary head at weight
+0.1. Detaching its source hidden states prevents this local objective from
+changing the Transformer. State is detached between segments. No target from a
+future segment, question, answer, retrieval index, external model, compilation,
+or custom kernel participates.
+
+V73 reuses V72's immutable A2 tokenizer, first-eligible 8,192 train and 1,024
+heldout documents, hashes, seed `72121` schedule, seed `72131` base initialization,
+batch 32, three 320-token segments, 256 unique-document Muon/AdamW updates, and
+7,864,320 positions. The retained V72 Transformer arm at later loss 5.851171875,
+22,203.68 positions/s, and 5,852,532,736 peak bytes is the exact baseline; it is
+not rerun. Fresh `persistent` and, only after admission, `reset` and `shuffled`
+arms use identical sidecar parameters, operations, objective, and initialization.
+Reset restores the learned initial state at every boundary; shuffled rotates
+the completed state across documents. No static adapter or extra parameter can
+explain persistent-versus-reset.
+
+Before quality, V73 must prove: disabled read gates reproduce the complete
+Transformer hidden states and logits bit-exactly; future-segment perturbations
+cannot change earlier outputs/state; reset is exact; candidate parameters are
+at most 1.02 times the Transformer; every parameter receives a finite nonzero
+gradient after a real optimizer step; throughput is at least 70% of the retained
+control; and peak allocation is below 11.5 GiB. Persistent then runs first. It
+must reach later-segment loss at most 5.831171875, state swap must worsen loss by
+at least 0.02, and both corpus-specific later losses must improve over V72's
+Transformer values. Any miss is terminal and deletes V73 without running controls
+that cannot rescue it. If admitted, reset and shuffled run; persistent must beat
+each by at least 0.02 under the same joint gates. A full pass advances only to
+checkpoint/generation and continual validation. It does not install a runtime.
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token
