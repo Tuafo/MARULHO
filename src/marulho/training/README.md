@@ -131,6 +131,14 @@ unique-data updates its heldout loss is 5.7188 versus control's 5.5000. The mode
 preflight, quality runner, tests, and partial arms are deleted. No incremental
 generation, checkpoint, compatibility, or runtime surface exists.
 
+**`language_periodic_hierarchy.py`** — V71's active training-only falsifier.
+It freezes ten layers as four 64-token local layers plus one exact global-token
+layer, repeated twice. `periodic_macro` has 100,722,432 parameters and shifts
+four completed-block summaries through local query/output conditioning;
+`periodic_local` has exactly the Transformer's 100,679,424 parameters and no
+macro path. Both copy every common Transformer tensor exactly. Neither exposes
+generation, checkpoint loading, or runtime installation.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
