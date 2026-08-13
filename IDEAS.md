@@ -42,6 +42,19 @@ requirement, not this matrix-state realization. A successor needs less edit
 arithmetic, larger dense tiles, or a different state geometry; sparse slots or
 small units cannot be added merely to rescue the failed base.
 
+The next concrete synthesis is **causal micro-macro exchange**. Small units are
+64-token neighborhoods, not separate models. Four trailing summary tokens read
+each completed neighborhood; a short global summary sequence organizes them;
+the previous completed macro output returns as prefix context for the next
+neighborhood at the following depth. Every neighborhood still uses the same
+shared learned rules, and all neighborhoods at one depth run together. This is
+closer to nature's repeated local/global organization, but the justification is
+computational rather than metaphorical: dense short attention maps well to the
+GPU, causal shifting is auditable, and summaries expose explicit future memory
+boundaries. MEGABYTE, Block Transformer, and H-Net own the broad hierarchical
+precedent. MARULHO must earn value through its repeated shifted exchange,
+consumer-GPU evidence, continual learning, and later structural extension.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

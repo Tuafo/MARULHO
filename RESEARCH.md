@@ -2426,6 +2426,63 @@ admission threshold. The next candidate must reduce the state-edit arithmetic
 or expose substantially larger dense tiles, not merely refactor the same WY
 system or add another launch wrapper.
 
+### V66 causal micro-macro exchange: preregistration
+
+**Bet.** Replace compressed recurrent matrices with compressed *token
+representations* and use only dense attention. Split a causal sequence into
+64-token neighborhoods. Each neighborhood appends four learned summary tokens
+after its real tokens, so a standard causal mask lets summaries read the whole
+completed neighborhood while preventing real tokens from reading summaries.
+All neighborhoods execute in parallel by folding the neighborhood index into
+the batch dimension. The four summaries from every neighborhood then enter a
+small global causal mixer. Block `j` receives the completed global output from
+block `j-1` as four prefix tokens during the next local stage. Block zero uses a
+learned start prefix. Two or more exchanges can repeat across depth.
+
+This is not a novelty claim for hierarchy. [MEGABYTE](https://arxiv.org/abs/2305.07185)
+uses local and global decoders across fixed patches; [Block Transformer](https://arxiv.org/abs/2406.02657)
+pretrains a global-to-local hierarchy and reports 10--20x inference throughput
+with equivalent perplexity/zero-shot behavior; [H-Net](https://arxiv.org/abs/2507.07955)
+learns dynamic byte chunks and reports compute/data-matched gains. V66's isolated
+question is whether repeated **completed-summary global exchange followed by a
+one-block causal shift back into the token stream** gives MARULHO a fast,
+source-sensitive macro path on this consumer GPU. The implementation, model
+weights, tokenizer, and checkpoint remain MARULHO-owned; no external model or
+cognition package participates.
+
+**Stage A — attention-core truth and speed.** Implement one exchange with direct
+PyTorch CUDA SDPA, no Inductor. At batch 32, width 640, ten heads, four summaries,
+and neighborhood 64, compare forward/backward at context 320 and 1,024 against
+ordinary causal SDPA over the same input tensor. Perturb all tokens after a
+chosen boundary and require all earlier outputs to remain bitwise equal in FP64
+or within 1e-6 in FP32. Perturb a completed earlier block and require a nonzero
+change in later-block outputs. Every input and learned-summary gradient must be
+present and finite. Context-1,024 candidate throughput must exceed control and
+context-320 throughput must remain at least 70% of control; peak allocation must
+stay below control at 1,024 and below 2.0 GB incremental at 320. The process-tree
+watchdog bounds every CUDA run. A miss deletes Stage-A code before model work.
+
+**Controls.** The causal control is one ordinary full-attention exchange. A
+local-only ablation removes global summaries; a shuffled-summary return keeps
+compute but sends each block another document's macro prefix; a no-shift invalid
+diagnostic must fail anti-leakage and is never trainable. Stage A measures the
+operator, not language quality, and cannot promote the architecture alone.
+
+**Stage B — matched base model.** On a Stage-A pass, build an approximately 100M
+model with the same embedding, tied vocabulary head, SwiGLU budget, tokenizer,
+optimizer, and data as the fresh 100,679,424-parameter Transformer. Match total
+parameters by adjusting local/global depth, not by giving V66 an extra decoder.
+Train first on a short unique-data loss curve; only a real heldout signal admits
+V64's frozen 8,192-step general/source-QA curriculum. Terminal promotion still
+requires general loss within 0.02 of control, at least 64/256 true-source exact
+answers, +20 cases over Transformer, +51 over absent/shuffled source, coherent
+unseen prose, at least 70% control training throughput, strict checkpoint reload,
+continual retention, and the 524,288-token sustained run.
+
+Dynamic boundaries, extra summary counts, sparse experts, persistent archives,
+and structural growth are later experiments. V66 fixes 64/4 so an attractive
+hierarchy cannot hide an unmeasured routing or segmentation effect.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

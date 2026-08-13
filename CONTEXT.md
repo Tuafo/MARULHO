@@ -1007,6 +1007,27 @@ exists; all live V65 code is deleted after the compact report is retained.
 Report SHA-256 is
 `dc141e7d6df1a25f1f238bfe68d37865556ef3c875e3523a84a67a77bddff755`.
 
+**V66 causal micro-macro exchange (current bet)** — V66 abandons matrix-state
+editing and keeps the GPU-friendly operation Transformers are best at: dense
+attention on much shorter sequences. All 64-token neighborhoods process in
+parallel. A few trailing summary tokens causally read each completed
+neighborhood; summaries then communicate globally on a sequence compressed by
+16--64x; only a completed earlier macro representation is shifted back as
+prefix context for the next neighborhood. Repeating local summary, global
+exchange, and shifted return across depth creates micro/macro organization
+without token-sequential training or future leakage.
+
+MEGABYTE, Block Transformer, and H-Net constrain the claim: multiscale local/
+global language models and hierarchical chunking already exist and have strong
+evidence. MARULHO's question is narrower—whether repeated shifted summary return
+is an effective owned base cortex on one RTX 3060 and later supplies clean
+boundaries for continual memory and structural extension. Stage A first compares
+the complete forward/backward attention core with ordinary causal attention at
+matched width, batch, precision, and context 320/1,024. It must prove prefix
+causality by future-block perturbation, keep every gradient finite, beat control
+throughput at 1,024, and not fall below 70% at 320. Only then may a parameter-
+matched approximately 100M language model exist.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
