@@ -89,6 +89,13 @@ reports own the evidence. A successor must change the parallel training
 computation, not preserve a delta compatibility surface or add another launch
 wrapper around token-sequential recurrence.
 
+V65 tests that requirement directly and also stops before a model exists. Its
+exact chunk factorization and owned Triton coordinate backward pass all parity
+gates, but the best chunk-64 operator reaches 249.7k positions/s—83.24% of the
+frozen 300k admission floor. CUDA Graph does not change speed. The V65 reference,
+kernels, runner, and tests are deleted; only the compact report and research
+conclusion remain. No delta/editable-state runtime is installed.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

@@ -2400,6 +2400,32 @@ ablations only after the parallel state path proves both speed and language
 value. This prevents an attractive collection of ideas from hiding which
 mechanism worked.
 
+**Outcome.** Stage A is a rigorous systems negative. The independently derived
+change of coordinates writes `S_t = G_t Z_t`, transforms the key/query/erase
+vectors by cumulative channel decay, and solves every corrected write in a chunk
+through one causal lower-triangular system. Exact FP64 recurrent/parallel output,
+final state, split-stream continuation, and all seven gradients pass for chunks
+16/32/64. Owned Triton cumulative-coordinate forward/backward passes the FP32
+output/state tolerance of 2e-4 and every-gradient tolerance of 3e-3.
+
+Chunk 64 is decisively best. The PyTorch CUDA reference reaches 240.4k complete
+forward/backward positions/s with 460 MB incremental allocation. One-warp Triton
+coordinate fusion reaches the overall best 249.7k at 518 MB; fusing the gated
+write falls to 215.7k, combined fusion reaches 226.4k, and two/four coordinate
+warps reach 229.2k/228.1k. CUDA Graph replay remains 249.7k, showing launch
+capture is not the missing speed. The best path is 1.37x V64's 182.2k and halves
+its 1.033 GB workspace, but reaches only 83.24% of the frozen 300k Stage-A floor.
+
+Decision: `stop_v65_stage_a_parallel_kernel_misses_throughput`. No 100M model,
+checkpoint, or language-quality claim exists. The reference, kernels, evaluator,
+tests, and transient reports are deleted. Compact stop report SHA-256 is
+`dc141e7d6df1a25f1f238bfe68d37865556ef3c875e3523a84a67a77bddff755`.
+The result does not contradict Gated DeltaNet-2's H100/1.3B evidence; it says
+this exact matrix-state training shape does not clear MARULHO's consumer-GPU
+admission threshold. The next candidate must reduce the state-edit arithmetic
+or expose substantially larger dense tiles, not merely refactor the same WY
+system or add another launch wrapper.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

@@ -33,6 +33,15 @@ specific memory or capacity jobs. If it fails, they do not rescue it. Wavelets,
 tori, reservoirs, chaos, and free-energy objectives remain scoped tools whose
 own falsifiers must earn entry; V65 deliberately tests one causal difference.
 
+V65 has now falsified that first parallel-state implementation before model
+construction. Its factorization is exact and the best chunk-64 path improves
+V64 operator throughput by 37% while halving workspace, but 249.7k positions/s
+misses the 300k consumer-GPU gate. CUDA Graph is speed-neutral. The idea ledger
+therefore retains “recurrent inference plus parallel training” as a design
+requirement, not this matrix-state realization. A successor needs less edit
+arithmetic, larger dense tiles, or a different state geometry; sparse slots or
+small units cannot be added merely to rescue the failed base.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

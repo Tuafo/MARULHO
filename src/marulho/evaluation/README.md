@@ -1679,6 +1679,14 @@ base-substrate experiment must change the parallel training computation rather
 than add another execution wrapper to V64; `RESEARCH.md` owns the terminal
 evidence and unchanged language-quality objective.
 
+V65 then independently derives and tests the corresponding chunk-parallel
+matrix-state form. Exact recurrent/parallel and every-gradient truth pass, but
+the best chunk-64 CUDA/Triton operator reaches 249.7k positions/s against its
+frozen 300k admission floor. Its 518 MB incremental allocation passes; CUDA
+Graph is speed-neutral. Decision:
+`stop_v65_stage_a_parallel_kernel_misses_throughput`. No model, checkpoint, or
+language run exists, and all live V65 machinery is deleted.
+
 ### 1. Relation-binding falsification
 
 Continue a branch from the active checkpoint on a procedural entity/event

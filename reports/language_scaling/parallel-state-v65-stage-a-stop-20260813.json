@@ -1,0 +1,108 @@
+{
+  "artifact_kind": "marulho_parallel_editable_state_stage_a_stop",
+  "surface": "marulho_parallel_editable_state_stage_a_stop.v1",
+  "decision": "stop_v65_stage_a_parallel_kernel_misses_throughput",
+  "question": "Can an exact chunk-parallel form of separately decayed, erased, and written matrix state clear a 300000 position/s operator floor on the RTX 3060?",
+  "frozen_shape": {
+    "batch_size": 32,
+    "heads": 10,
+    "context_length": 320,
+    "key_dim": 64,
+    "value_dim": 64
+  },
+  "gates": {
+    "minimum_positions_per_second": 300000.0,
+    "maximum_incremental_peak_cuda_bytes": 800000000,
+    "output_final_state_and_every_gradient_parity": true,
+    "throughput": false,
+    "memory": true
+  },
+  "parity": {
+    "fp64_recurrent_parallel_chunk_sizes": [16, 32, 64],
+    "multi_chunk_time": 73,
+    "split_stream_continuation": true,
+    "all_seven_input_and_state_gradients": true,
+    "triton_float32_output_state_atol_rtol": 0.0002,
+    "triton_float32_gradient_atol_rtol": 0.003,
+    "tests_passed": 7
+  },
+  "measurements": [
+    {
+      "implementation": "torch_reference",
+      "chunk_size": 16,
+      "positions_per_second": 77551.25842819634,
+      "incremental_peak_cuda_bytes": 601359872
+    },
+    {
+      "implementation": "torch_reference",
+      "chunk_size": 32,
+      "positions_per_second": 135375.4818791389,
+      "incremental_peak_cuda_bytes": 499385856
+    },
+    {
+      "implementation": "torch_reference",
+      "chunk_size": 64,
+      "positions_per_second": 240416.22058121985,
+      "incremental_peak_cuda_bytes": 460326400
+    },
+    {
+      "implementation": "triton_coordinate_and_write_fusion",
+      "chunk_size": 64,
+      "coordinate_num_warps": 1,
+      "positions_per_second": 226417.0968503774,
+      "incremental_peak_cuda_bytes": 560023040
+    },
+    {
+      "implementation": "triton_coordinate_fusion_only",
+      "chunk_size": 64,
+      "coordinate_num_warps": 1,
+      "positions_per_second": 249732.95158010605,
+      "incremental_peak_cuda_bytes": 518080000
+    },
+    {
+      "implementation": "triton_write_fusion_only",
+      "chunk_size": 64,
+      "positions_per_second": 215711.85614600047,
+      "incremental_peak_cuda_bytes": 497108480
+    },
+    {
+      "implementation": "triton_coordinate_fusion_only",
+      "chunk_size": 64,
+      "coordinate_num_warps": 2,
+      "positions_per_second": 229177.5212656236,
+      "incremental_peak_cuda_bytes": 518080000
+    },
+    {
+      "implementation": "triton_coordinate_fusion_only",
+      "chunk_size": 64,
+      "coordinate_num_warps": 4,
+      "positions_per_second": 228089.08125976258,
+      "incremental_peak_cuda_bytes": 518080000
+    },
+    {
+      "implementation": "triton_coordinate_fusion_cuda_graph",
+      "chunk_size": 64,
+      "coordinate_num_warps": 1,
+      "positions_per_second": 249720.77120718398,
+      "graph_replay_incremental_peak_cuda_bytes": 46923776
+    }
+  ],
+  "best": {
+    "implementation": "triton_coordinate_fusion_only",
+    "positions_per_second": 249732.95158010605,
+    "fraction_of_throughput_gate": 0.8324431719336868,
+    "speedup_over_v64_direct_forward_backward": 1.3706539603737986,
+    "v64_direct_forward_backward_positions_per_second": 182200.0,
+    "incremental_peak_cuda_bytes": 518080000,
+    "v64_incremental_peak_cuda_bytes": 1033000000
+  },
+  "interpretation": "The algebraic chunk factorization is exact and improves the prior V64 operator by 37 percent while halving incremental workspace, but generic CUDA is already close to the fused result and the best owned Triton path remains 16.8 percent below the preregistered model-admission floor. CUDA Graph removes replay allocation growth but does not improve throughput. No full model or language training is admitted.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  },
+  "torch_compile_used": false,
+  "owned_by_marulho": true,
+  "external_llm_used": false
+}

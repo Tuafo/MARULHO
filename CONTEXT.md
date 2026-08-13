@@ -993,6 +993,20 @@ terminal throughput gate remain minimums, not success claims. Language quality,
 source use, continual retention, checkpoint fidelity, and sustained runtime
 still decide the architecture.
 
+V65 stops at that first gate. The independently derived cumulative-decay change
+of coordinates reduces each chunk to one causal triangular solve and dense
+matrix products. FP64 recurrent/parallel output, final state, continuation, and
+all seven gradients pass at chunk sizes 16/32/64; the owned Triton coordinate
+kernel also passes FP32 parity. Chunk 64 is best. The transparent CUDA reference
+reaches 240.4k positions/s at 460 MB incremental; one-warp coordinate fusion
+reaches 249.7k at 518 MB. Fusing writes, using two/four warps, and CUDA Graph do
+not improve it. The best result is 1.37x V64 and uses half its workspace, but is
+only 83.24% of the frozen 300k operator floor. Decision:
+`stop_v65_stage_a_parallel_kernel_misses_throughput`. No model or language run
+exists; all live V65 code is deleted after the compact report is retained.
+Report SHA-256 is
+`dc141e7d6df1a25f1f238bfe68d37865556ef3c875e3523a84a67a77bddff755`.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
