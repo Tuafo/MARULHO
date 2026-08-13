@@ -1,0 +1,250 @@
+{
+  "artifact_kind": "marulho_delta_state_direct_kernel_benchmark",
+  "surface": "marulho_delta_state_direct_kernel_benchmark.v2",
+  "rows": [
+    {
+      "batch_size": 2,
+      "heads": 10,
+      "time": 320,
+      "key_channels": 64,
+      "value_channels": 64,
+      "first_direct_call_seconds_including_compile_if_uncached": 0.7389628000000812,
+      "parity": {
+        "output_maximum_absolute_delta": 1.5497207641601562e-06,
+        "output_mean_absolute_delta": 2.0695799207715027e-07,
+        "state_maximum_absolute_delta": 1.5497207641601562e-06,
+        "state_mean_absolute_delta": 2.3166217033576686e-07,
+        "within_bf16_mixed_tolerance": true
+      },
+      "eager_compact_wy": {
+        "steps": 2,
+        "seconds": 0.04175290000011955,
+        "sequence_positions": 1280,
+        "sequence_positions_per_second": 30656.55319741467,
+        "head_state_updates_per_second": 306565.53197414667,
+        "baseline_cuda_bytes": 16220160,
+        "peak_cuda_bytes": 23760896,
+        "incremental_peak_cuda_bytes": 7540736
+      },
+      "direct_recurrent_triton": {
+        "steps": 2,
+        "seconds": 0.0018390000000181317,
+        "sequence_positions": 1280,
+        "sequence_positions_per_second": 696030.4513253833,
+        "head_state_updates_per_second": 6960304.513253832,
+        "baseline_cuda_bytes": 16220160,
+        "peak_cuda_bytes": 20152320,
+        "incremental_peak_cuda_bytes": 3932160
+      },
+      "direct_to_eager_throughput_ratio": 22.704132680645944
+    },
+    {
+      "batch_size": 32,
+      "heads": 10,
+      "time": 320,
+      "key_channels": 64,
+      "value_channels": 64,
+      "first_direct_call_seconds_including_compile_if_uncached": 0.01037129999986064,
+      "parity": {
+        "output_maximum_absolute_delta": 1.9073486328125e-06,
+        "output_mean_absolute_delta": 2.065996227429423e-07,
+        "state_maximum_absolute_delta": 1.9073486328125e-06,
+        "state_mean_absolute_delta": 2.3361204171123973e-07,
+        "within_bf16_mixed_tolerance": true
+      },
+      "eager_compact_wy": {
+        "steps": 2,
+        "seconds": 0.038167799999882845,
+        "sequence_positions": 20480,
+        "sequence_positions_per_second": 536577.9531453964,
+        "head_state_updates_per_second": 5365779.531453964,
+        "baseline_cuda_bytes": 134873088,
+        "peak_cuda_bytes": 260837376,
+        "incremental_peak_cuda_bytes": 125964288
+      },
+      "direct_recurrent_triton": {
+        "steps": 2,
+        "seconds": 0.019212200000310986,
+        "sequence_positions": 20480,
+        "sequence_positions_per_second": 1065989.3192694483,
+        "head_state_updates_per_second": 10659893.192694481,
+        "baseline_cuda_bytes": 134873088,
+        "peak_cuda_bytes": 200540160,
+        "incremental_peak_cuda_bytes": 65667072
+      },
+      "direct_to_eager_throughput_ratio": 1.9866439033148224
+    }
+  ],
+  "training_rows": [
+    {
+      "batch_size": 2,
+      "heads": 10,
+      "time": 320,
+      "key_channels": 64,
+      "value_channels": 64,
+      "first_direct_forward_backward_seconds_including_compile_if_uncached": 1.3890898999998171,
+      "gradient_parity": {
+        "rows": [
+          {
+            "input_index": 0,
+            "maximum_absolute_delta": 6.184563972055912e-11,
+            "mean_absolute_delta": 6.225386092045815e-12,
+            "finite": true
+          },
+          {
+            "input_index": 1,
+            "maximum_absolute_delta": 9.822542779147625e-11,
+            "mean_absolute_delta": 8.194304609854264e-12,
+            "finite": true
+          },
+          {
+            "input_index": 2,
+            "maximum_absolute_delta": 1.4901161193847656e-08,
+            "mean_absolute_delta": 9.815785337319305e-13,
+            "finite": true
+          },
+          {
+            "input_index": 3,
+            "maximum_absolute_delta": 1.4901161193847656e-08,
+            "mean_absolute_delta": 6.680098640042542e-13,
+            "finite": true
+          },
+          {
+            "input_index": 4,
+            "maximum_absolute_delta": 5.960464477539063e-08,
+            "mean_absolute_delta": 1.5811389740896797e-12,
+            "finite": true
+          },
+          {
+            "input_index": 5,
+            "maximum_absolute_delta": 1.127773430198431e-10,
+            "mean_absolute_delta": 2.4761141054208125e-11,
+            "finite": true
+          },
+          {
+            "input_index": 6,
+            "maximum_absolute_delta": 8.185452315956354e-12,
+            "mean_absolute_delta": 1.1066734551326562e-12,
+            "finite": true
+          }
+        ],
+        "global_cosine": 1.00000000037179,
+        "maximum_absolute_element_delta": 5.960464477539063e-08,
+        "passes_frozen_gate": true
+      },
+      "eager_compact_wy_autograd": {
+        "steps": 2,
+        "seconds": 0.15768839999964257,
+        "sequence_positions": 1280,
+        "sequence_positions_per_second": 8117.274320767421,
+        "head_state_updates_per_second": 81172.74320767421,
+        "baseline_cuda_bytes": 32768000,
+        "peak_cuda_bytes": 66683904,
+        "incremental_peak_cuda_bytes": 33915904,
+        "final_loss": 0.10596912354230881
+      },
+      "direct_reversible_triton_autograd": {
+        "steps": 2,
+        "seconds": 0.006829699999798322,
+        "sequence_positions": 1280,
+        "sequence_positions_per_second": 187416.7240197663,
+        "head_state_updates_per_second": 1874167.240197663,
+        "baseline_cuda_bytes": 40468480,
+        "peak_cuda_bytes": 107611136,
+        "incremental_peak_cuda_bytes": 67142656,
+        "final_loss": 0.10596899688243866
+      },
+      "direct_to_eager_training_throughput_ratio": 23.088627612384006
+    },
+    {
+      "batch_size": 32,
+      "heads": 10,
+      "time": 320,
+      "key_channels": 64,
+      "value_channels": 64,
+      "first_direct_forward_backward_seconds_including_compile_if_uncached": 0.04710049999994226,
+      "gradient_parity": {
+        "rows": [
+          {
+            "input_index": 0,
+            "maximum_absolute_delta": 4.320099833421409e-12,
+            "mean_absolute_delta": 3.8952998812624706e-13,
+            "finite": true
+          },
+          {
+            "input_index": 1,
+            "maximum_absolute_delta": 6.821210263296962e-12,
+            "mean_absolute_delta": 5.119293660857394e-13,
+            "finite": true
+          },
+          {
+            "input_index": 2,
+            "maximum_absolute_delta": 1.862645149230957e-09,
+            "mean_absolute_delta": 5.1545813922531866e-14,
+            "finite": true
+          },
+          {
+            "input_index": 3,
+            "maximum_absolute_delta": 9.313225746154785e-10,
+            "mean_absolute_delta": 4.1334147340759894e-14,
+            "finite": true
+          },
+          {
+            "input_index": 4,
+            "maximum_absolute_delta": 7.450580596923828e-09,
+            "mean_absolute_delta": 9.517313694952512e-14,
+            "finite": true
+          },
+          {
+            "input_index": 5,
+            "maximum_absolute_delta": 8.185452315956354e-12,
+            "mean_absolute_delta": 1.5517811645035517e-12,
+            "finite": true
+          },
+          {
+            "input_index": 6,
+            "maximum_absolute_delta": 5.826450433232822e-13,
+            "mean_absolute_delta": 6.898323736239179e-14,
+            "finite": true
+          }
+        ],
+        "global_cosine": 1.000000023582446,
+        "maximum_absolute_element_delta": 7.450580596923828e-09,
+        "passes_frozen_gate": true
+      },
+      "eager_compact_wy_autograd": {
+        "steps": 2,
+        "seconds": 0.15348649999987174,
+        "sequence_positions": 20480,
+        "sequence_positions_per_second": 133431.9304956274,
+        "head_state_updates_per_second": 1334319.3049562739,
+        "baseline_cuda_bytes": 275644416,
+        "peak_cuda_bytes": 819807232,
+        "incremental_peak_cuda_bytes": 544162816,
+        "final_loss": 0.10587939620018005
+      },
+      "direct_reversible_triton_autograd": {
+        "steps": 2,
+        "seconds": 0.08133309999993799,
+        "sequence_positions": 20480,
+        "sequence_positions_per_second": 251804.00107724426,
+        "head_state_updates_per_second": 2518040.0107724424,
+        "baseline_cuda_bytes": 403046400,
+        "peak_cuda_bytes": 1436288000,
+        "incremental_peak_cuda_bytes": 1033241600,
+        "final_loss": 0.1058792844414711
+      },
+      "direct_to_eager_training_throughput_ratio": 1.8871345122710035
+    }
+  ],
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  },
+  "forward_only": false,
+  "training_backend_admitted": true,
+  "torch_compile_used": false,
+  "owned_by_marulho": true,
+  "external_llm_used": false
+}

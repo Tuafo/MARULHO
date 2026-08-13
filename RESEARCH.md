@@ -2292,6 +2292,23 @@ tested first as a short isolated kernel; another full-model or recurrence
 `torch.compile` attempt is forbidden. The compact stop report SHA-256 is
 `7060aba8aa591e50ba9cb7673811dd7502b369dd3e4ecddf8307c6a674589be6`.
 
+The first direct-kernel replacement passes its operator gate. One explicit
+Triton recurrence owns forward execution; its backward uses the algebraic
+inverse only inside four-token spans separated by exact matrix-state boundaries.
+The unrestricted 320-token inverse correctly failed with non-finite early
+gradients, and an eight-token boundary left four of 2,560 adversarial elements
+outside tolerance; neither form was promoted. Four-token boundaries pass the
+context-320 adversarial test and the small forward/state/every-input-gradient
+oracle. At real batch 32, ten heads, context 320, and width 64, direct/eager
+forward is 1.066M/536.6k positions/s (1.99x) and complete forward/backward is
+251.8k/133.4k (1.89x). Global gradient cosine is effectively 1.0, maximum
+element delta is 7.45e-9, and first uncached forward/backward compilation takes
+1.39 seconds. Incremental operator peak is 1.033 GB versus 0.544 GB. No
+`torch.compile` or Inductor cache participates. This advances the kernel into
+full nine-layer loss/every-gradient and optimizer-inclusive preflight; it is not
+yet a language-quality or whole-model throughput result. Report SHA-256 is
+`2527d7525a80cb3f52c0547734530c5013eacdafb84bc2d5ccb9c0f9f1431f33`.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

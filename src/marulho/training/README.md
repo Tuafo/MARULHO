@@ -117,9 +117,21 @@ live V64 module contains no `torch.compile` backend.
 experiment. Its first forward-only Triton operator maps one CUDA program to one
 value column of one batch/head matrix state and executes the exact recurrent
 decay/erase/write equation without compiling the model. Tiny CUDA forward and
-final-state parity pass in a 9.68-second isolated test whose disposable cache is
-deleted afterward. The operator rejects every autograd input until a matched
-backward exists; it is not yet a training backend or throughput claim.
+final-state parity pass in an isolated test whose disposable cache is deleted
+afterward. The admitted backward reconstructs at most four recurrent steps
+between exact state boundaries, avoiding per-token state storage and unstable
+full-sequence inversion. Context-320 adversarial gradients and every small-shape
+input/state gradient pass against the sequential oracle.
+
+At batch 32, context 320, ten heads, and width 64, the direct operator reaches
+1.066M forward positions/s versus compact-WY's 536.6k, and 251.8k complete
+forward/backward positions/s versus 133.4k: 1.99x and 1.89x respectively. Global
+gradient cosine is effectively 1.0 and maximum element delta is 7.45e-9. Direct
+operator incremental peak allocation is 1.033 GB versus 0.544 GB because four-
+token state boundaries and reduction workspaces trade memory for speed. First
+uncached forward/backward compilation takes 1.39 seconds. These are operator-
+level results; the kernel is not a V64 model-training backend until the full
+nine-layer loss/every-gradient and optimizer-inclusive preflight passes.
 
 **`language_model.py`** — the language model contract. It owns:
 
