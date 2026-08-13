@@ -2278,14 +2278,19 @@ compilation takes 587.20 seconds once and then reaches 19.97k positions/s with
 gradient parity still decide terminal admission; the 70% promotion gate is
 unchanged.
 
-Full-model compilation is rejected as an iteration backend. A graph that fused
-the answer-weighted cross-entropy hit the 1,204-second per-process ceiling twice,
-and a later model-only retry hit the same ceiling; none produced an atomic
-artifact. V64 now compiles only the shared compact-WY recurrence once and reuses
-that fixed-shape operator across all nine delta layers. Dense projections,
-local attention, weighted cross-entropy, and fused AdamW remain eager.
-`fullgraph=True` still forbids recurrence fallback, and end-to-end loss/every-
-gradient parity plus optimizer-inclusive timing still decide admission.
+The Inductor execution branch is terminally rejected. A graph that fused the
+answer-weighted cross-entropy hit the 1,204-second per-process ceiling twice; a
+model-only retry and a shared compact-WY recurrence retry each hit the same
+bound. None produced an atomic artifact, and the repeated compiler load froze
+and crashed the Windows host. The generated cache and V64 Inductor backend are
+deleted. The exact eager candidate remains only a mathematical oracle: its
+8.09k versus 24.30k positions/s is 33.3% of control and fails the frozen 50%
+preflight floor. Decision: `stop_v64_for_kernel_redesign_no_quality_verdict`.
+This makes no language-quality claim because terminal training never started.
+The next admissible V64 execution path is a directly owned CUDA/Triton operator
+tested first as a short isolated kernel; another full-model or recurrence
+`torch.compile` attempt is forbidden. The compact stop report SHA-256 is
+`7060aba8aa591e50ba9cb7673811dd7502b369dd3e4ecddf8307c6a674589be6`.
 
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,

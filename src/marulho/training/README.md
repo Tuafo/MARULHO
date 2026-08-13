@@ -104,12 +104,14 @@ seconds once, keeps loss within 0.000150, then reaches 19.97k positions/s at
 gradient-parity preflight only; it is not a quality result or terminal
 throughput pass.
 
-Full-model compilation is rejected after two weighted-graph attempts and one
-model-only retry each hit the 1,204-second bound without an artifact. The next
-preflight compiles only the shared compact-WY recurrence with `fullgraph=True`
-and reuses it across nine layers. Dense layers, weighted loss, and fused AdamW
-remain eager; final loss and every gradient still face the eager oracle before
-optimizer-inclusive timing.
+V64's Inductor branch is deleted. Two weighted full-model attempts, one
+model-only attempt, and one shared-recurrence attempt each reached the
+1,204-second bound without an artifact; repeated compilation also destabilized
+the Windows host. The exact eager implementation reaches only 8.09k positions/s
+versus 24.30k for the control, below the frozen 50% preflight floor. V64 is
+therefore stopped for kernel redesign without a language-quality verdict. Only
+a bounded, directly owned CUDA/Triton operator may reopen the preflight; the
+live V64 module contains no `torch.compile` backend.
 
 **`language_model.py`** — the language model contract. It owns:
 

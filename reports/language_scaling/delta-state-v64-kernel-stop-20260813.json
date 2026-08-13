@@ -1,0 +1,51 @@
+{
+  "artifact_kind": "marulho_delta_state_kernel_stop",
+  "surface": "marulho_delta_state_kernel_stop.v1",
+  "decision": "stop_v64_for_kernel_redesign_no_quality_verdict",
+  "observed_execution": {
+    "candidate_eager_positions_per_second": 8090.0,
+    "control_eager_positions_per_second": 24300.0,
+    "candidate_to_control_eager_ratio": 0.3329218106995885,
+    "candidate_eager_peak_cuda_gb": 11.01,
+    "diagnostic_scalar_loss_full_graph": {
+      "compile_seconds": 587.2,
+      "steady_positions_per_second": 19970.0,
+      "peak_cuda_gb": 7.36,
+      "eager_compiled_loss_absolute_delta": 0.00015,
+      "exact_weighted_training_recipe": false
+    }
+  },
+  "failed_inductor_attempts": [
+    {
+      "scope": "full_model_plus_answer_weighted_loss",
+      "attempts": 2,
+      "bound_seconds_each": 1204,
+      "artifact_created": false
+    },
+    {
+      "scope": "full_model_only",
+      "attempts": 1,
+      "bound_seconds_each": 1204,
+      "artifact_created": false
+    },
+    {
+      "scope": "shared_compact_wy_recurrence",
+      "attempts": 1,
+      "bound_seconds_each": 1204,
+      "artifact_created": false
+    }
+  ],
+  "host_safety": {
+    "observed_failure": "repeated_inductor_compilation_froze_and_crashed_windows_host",
+    "generated_cache_deleted": "C:\\Users\\thiag\\AppData\\Local\\Temp\\torchinductor_thiag",
+    "inductor_backend_removed_from_v64": true
+  },
+  "scientific_interpretation": {
+    "delta_state_mathematics_falsified": false,
+    "terminal_language_quality_run_started": false,
+    "throughput_preflight_passed": false,
+    "next_admissible_execution_path": "bounded_marulho_owned_cuda_or_triton_kernel"
+  },
+  "owned_by_marulho": true,
+  "external_llm_used": false
+}

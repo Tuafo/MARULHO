@@ -1669,15 +1669,15 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-The immediate V64 program replaces the base computation rather than repairing
-V39. A fresh 100M-class delta-state/local-attention cortex and fresh V34-shape
-Transformer control receive the same 8,192-step context-320 curriculum: 6,144
-unique general batches plus 2,048 source-QA batches. The evaluation owner must
-report disjoint general loss, question-only/shuffled/true/oracle source
-generation, frozen unseen prose, full gradient coverage, sequential/chunk/
-streaming parity, checkpoint reload, CUDA throughput, and peak allocation.
-`RESEARCH.md` owns the immutable V64 thresholds and terminal branch decisions;
-neither a low loss alone nor a fast recurrent kernel can promote the model.
+The immediate V64 program is stopped at kernel preflight, before terminal
+training. Its exact eager delta-state path is only 33.3% of matched Transformer
+throughput, and four bounded Inductor variants produced no exact-training
+artifact while destabilizing the host. That backend is deleted. The next
+experiment is a directly owned, short-isolated CUDA/Triton delta operator. Only
+after it passes forward/state/every-gradient parity, the 50% preflight floor,
+and the memory bound may the fresh 100M candidate and control enter the frozen
+8,192-step context-320 curriculum. `RESEARCH.md` owns the unchanged language
+quality gates; kernel speed alone cannot promote the model.
 
 ### 1. Relation-binding falsification
 

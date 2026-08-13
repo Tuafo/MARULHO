@@ -959,6 +959,15 @@ the oracle floor, the training objective is invalid rather than evidence for a
 candidate win. Quality outranks speed; no terminal checkpoint survives a failed
 joint gate.
 
+V64 is currently stopped at its execution gate, before terminal language
+training. The exact eager implementation reaches 8.09k positions/s versus
+24.30k for the matched Transformer, only 33.3% and below the frozen 50%
+preflight floor. Four bounded Inductor attempts produced no exact-training
+artifact and repeated compilation destabilized the Windows host, so the V64
+Inductor surface and cache are deleted. This is no language-quality verdict.
+The candidate may reopen only through a short-isolated, MARULHO-owned CUDA or
+Triton kernel that passes eager parity and the existing throughput/memory gate.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
