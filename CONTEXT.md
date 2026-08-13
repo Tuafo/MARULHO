@@ -1075,11 +1075,14 @@ recover most of V70's deficit, but macro makes the matched topology 0.125 worse
 and 6.17% slower. V66--V71's four-summary path is retired for base language;
 periodic-local is a near-control, not a promoted model. All V71 code is deleted.
 
-**Persistent latent workspace (next research direction)** — preserve exact
-Transformer token communication and test a small state *beside* it, rather than
-compressing or replacing it. The state must persist across segments and beat
-zero, shuffled, and same-compute token-local controls. This requires a fresh
-design, not more summary tokens.
+**V72 persistent cross-segment workspace (current bet)** — preserve all ten
+exact Transformer layers and add eight latent tokens whose only unique property
+is survival from one 320-token segment to the next within a document. Completed
+segments update the workspace; the following segment reads it through small
+residual cross-attention at frozen depths. Reset, shuffled-document state, and
+same-compute nonpersistent controls separate durable information from extra
+parameters/compute. V72 first uses synthetic delayed recall and real sequential
+long-document heldout loss; it cannot advance from randomly shuffled windows.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

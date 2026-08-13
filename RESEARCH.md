@@ -2830,6 +2830,59 @@ partials are deleted; compact report `periodic-v71-quality-stop-20260813.json`
 owns the evidence (SHA-256
 `776d710784f1fc128005cf36c675eade8ec008b7dfac52ea5094aac1b3aa3e0e`).
 
+### V72 persistent cross-segment workspace: preregistration
+
+**Why this is not V4/V5 again.** V4 passed a transient mean among depth-aligned
+modules and V5 used a within-window content-addressed workspace; neither owned
+durable document state, both reduced exact-stream capacity, and V5 lost to
+shuffled/no-exchange. V70/V71 additionally show that compressed summaries must
+not replace token communication. V72 therefore leaves a complete ten-layer
+width-768 Transformer intact and tests only whether eight persistent latent
+tokens add useful information beyond its 320-token window.
+
+**Mechanism.** Documents are split into ordered nonoverlapping 320-token
+segments. Each layer still performs ordinary full-token causal attention and
+SwiGLU. After layers 3 and 7, segment tokens read the *previous completed*
+eight-token workspace through residual cross-attention. After the final layer,
+eight learned write queries cross-attend to the completed segment and update the
+workspace with a gated residual plus RMS normalization. The updated state is
+detached between segments in Stage A, bounding training memory and isolating
+state content rather than long backpropagation. It resets at document boundaries
+and is never shared across documents. No source labels, future segment, target
+tokens, retrieval index, external model, summary replacement, recurrence over
+individual tokens, Inductor, or custom kernel participates.
+
+**Stage A1 — mechanism truth.** Use a small owned model on delayed associative
+recall where key/value evidence appears in segment zero, distractors occupy at
+least one full segment, and the query appears in the final segment. Compare
+`persistent`, `reset_each_segment`, `shuffled_document_state`, and
+`nonpersistent_same_compute`; all have identical parameters and execute the
+same reads/writes, while controls change only state identity/lifetime. Require
+future-segment perturbation not to change earlier outputs, exact state reset,
+finite nonzero gradients, persistent accuracy at least 80%, at least +20 points
+over every control, and three fixed seeds. Failure deletes V72 before real data.
+
+**Stage A2 — sequential real-language admission.** Materialize disjoint long
+FineWeb-Edu and Cosmopedia documents with at least three complete segments; do
+not stream-pack across documents. Use the same tokenizer and match candidate/
+Transformer parameters within 0.99--1.01 by reducing candidate MLP width, not
+removing attention depth. Train fresh `persistent`, `reset`, `shuffled`, and
+Transformer arms on identical ordered document/segment schedules. Loss on the
+first segment is diagnostic; the frozen promotion metric is loss on segments
+two and later, where durable state can matter. Persistent must beat Transformer
+and every workspace control by at least 0.02, retain at least 70% throughput,
+stay below 11.5 GiB, and show a positive state-swap counterfactual: replacing a
+document's state with another document's must worsen its next-segment loss by at
+least 0.02. Any miss retires the mechanism; no scale or source-QA run follows.
+
+**Stage B only after both passes.** Add strict state/checkpoint reload and owned
+incremental generation, then test sequential-domain learning, source grounding,
+state retention, shuffled/zero state, unseen long prose, and the 524,288-token
+sustained contract. Base-runtime promotion still requires general quality not
+worse than Transformer, a material long-context/source gain, at least 70%
+throughput, bounded state, and every prior terminal safety gate. Stage A cannot
+install a model.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
