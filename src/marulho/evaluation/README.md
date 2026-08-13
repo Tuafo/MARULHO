@@ -1204,9 +1204,10 @@ FP32 controller learns bounded per-head 64x64 corrections to source keys and
 values only; zero correction must be bit-exact to ordinary V39. Raw true/oracle
 prefix diagnostics precede training. Terminal question-only/shuffled/true/oracle
 controls require 64 true, a 20-point source gain, at most 16 shuffled, at least
-128 oracle, and a true/oracle gap at most 64. Exact suffix/source masks, complete
-gradients, parent and active-zero fidelity, time/VRAM, and strict reload are
-mandatory. Oracle failure returns the research to the base language substrate.
+128 oracle, and a true/oracle gap at most 64. Exact tokenizer-offset source
+boundaries, delimiter-normalized suffixes, complete gradients, parent and
+active-zero fidelity, time/VRAM, and strict reload are mandatory. Oracle failure
+returns the research to the base language substrate.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

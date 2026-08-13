@@ -2110,13 +2110,17 @@ document's bounded exact causal state.
 
 For every manifest record, the exact V57 `causal_prompt` or
 `oracle_causal_prompt` is tokenized with BOS and the first accepted answer plus
-EOS is appended. The question/answer suffix is verified token-for-token against
-the corresponding question-only suffix before the source mask is admitted.
-Inputs are right-padded only after EOS to context 320; source masks mark only the
-native `Context:` prefix, while answer loss marks answer tokens plus EOS. The
-shuffled control uses the manifest's immutable mismatched causal prompt with the
-same question. No answer, span, accepted string, label, or validation record can
-alter a source mask or correction.
+EOS is appended. The tokenizer's exact character offsets must place a clean
+boundary after `Context: {source_text}`; the remaining delimiter/question/answer
+text must equal the corresponding question-only prompt after removing only its
+boundary whitespace. This offset contract is required because causal prompts
+intentionally contain a final space after `Answer:` while question-only prompts
+do not, so literal suffix-token equality would be false. Inputs are right-padded
+only after EOS to context 320; source masks mark only the native `Context:`
+prefix, while answer loss marks answer tokens plus EOS. The shuffled control uses
+the manifest's immutable mismatched causal prompt with the same question. No
+answer, span, accepted string, label, or validation record can alter a source
+mask or correction.
 
 V39 is reconstructed at context 320 and strict-loads the exact same tensors.
 Each frozen attention layer computes its ordinary 12 heads of width 64. A

@@ -934,8 +934,9 @@ Before training, raw true/oracle prefix views measure what frozen V39 already
 extracts. Terminal question-only, shuffled-source, true-source, and oracle-short
 views require true at least 64/256, a 20-point gain over the stronger question-
 only or shuffled control, shuffled at most 16, oracle at least 128, and a true/
-oracle gap at most 64. Every controller tensor, exact source-mask/suffix/data/
-schedule contract, active-zero/inactive/parent fidelity, finite state, timing,
+oracle gap at most 64. Every controller tensor, exact tokenizer-offset source-
+boundary and normalized delimiter/suffix/data/schedule contract, active-zero/
+inactive/parent fidelity, finite state, timing,
 CUDA allocation, and strict reload on pass are mandatory. Counted training must
 finish below 1,800 seconds and setup plus training below 2,400 seconds.
 
