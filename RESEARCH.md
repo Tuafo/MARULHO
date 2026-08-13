@@ -2701,7 +2701,9 @@ recipe, seed, BF16 policy, and evaluation code. Each arm receives exactly 512
 batch-32 context-320 optimizer updates, or 5,242,880 target positions, with no
 relation/source-QA records and no repeated selected window. Persist schedule,
 tokenizer, split, initial-state, and final-state hashes plus per-arm partial
-rows atomically. Candidate must finish at least 0.02 heldout loss below control,
+rows atomically. Learning rate warms linearly for 26 steps from 0.1x to 3e-4,
+then cosines to 3e-5; heldout loss is recorded before training and after steps
+128, 256, and 512. Candidate must finish at least 0.02 heldout loss below control,
 retain at least 70% measured end-to-end throughput, remain below 11.5 GiB, and
 keep complete finite gradients. A tie or loss deletes the model/runner/tests and
 records `retire_v70_no_short_language_signal`; it cannot be rescued by more
