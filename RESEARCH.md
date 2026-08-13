@@ -2264,6 +2264,20 @@ reported separately and eager remains valid. A real batch-32/context-320 step
 must fit below 11.5 GiB. If candidate preflight throughput is below half the
 control, the terminal run stops for kernel redesign without a quality verdict.
 
+The frozen numerical tolerances are `atol=rtol=3e-6` for FP64 chunk/reference
+forward, state, and gradients; `atol=rtol=2e-5` for FP32 chunk composition and
+streaming logits; compiled/eager BF16 loss absolute delta at most `1e-3`; and
+compiled/eager gradients finite for every tensor with global cosine at least
+`0.999` and maximum absolute element delta at most `0.01`. The first observed
+all-BF16 batch-32 measurement was rejected as a recipe mismatch rather than
+promoted. Under the frozen FP32-master/BF16-autocast recipe, eager candidate/
+control throughput is 8.09k/24.30k positions/s, while full-graph candidate
+compilation takes 587.20 seconds once and then reaches 19.97k positions/s with
+0.000150 scalar-loss delta and 7.36 GB peak allocation. This clears only the
+50% preflight floor. A backend-matched optimizer-inclusive comparison and
+gradient parity still decide terminal admission; the 70% promotion gate is
+unchanged.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

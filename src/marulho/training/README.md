@@ -92,6 +92,18 @@ context-320 schedule, optimizer, 83.89M positions, and evaluation. None of this
 machinery is installed or maintained until the joint quality/source-use gate
 passes; the old serial delta code remains deleted.
 
+`language_delta_state.py` now owns that uninstalled model. Its 100,202,970
+parameters are 99.527% of the 100,679,424-parameter control. FP64 compact-WY
+outputs, final state, and all gradients match the recurrent oracle; FP32 chunk
+composition and full-model token streaming also match. On the RTX 3060, the
+first actual batch-32/context-320 probe fits at 11.01 GB eager. An initial
+all-BF16 compilation probe was rejected because it did not preserve the frozen
+FP32-master recipe. The corrected FP32-master/BF16-autocast graph takes 587.20
+seconds once, keeps loss within 0.000150, then reaches 19.97k positions/s at
+7.36 GB versus the eager control's 24.30k. This admits optimizer-inclusive and
+gradient-parity preflight only; it is not a quality result or terminal
+throughput pass.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
