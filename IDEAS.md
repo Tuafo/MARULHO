@@ -87,6 +87,12 @@ idea is periodic exact global reset: several cheap macro-local layers organize
 regions, then a full-token layer restores detailed communication before the
 next hierarchy stage.
 
+V71 rejects that rescue as a base cortex. Periodic exact layers improve the
+macro result to 5.6875, but the same topology without summaries reaches 5.5625
+and Transformer remains best at 5.5000. Four completed-block summaries are a
+harmful bottleneck here. A better small-unit idea should add persistent latent
+state beside intact token communication and prove counterfactual utility.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

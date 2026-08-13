@@ -56,11 +56,10 @@ but terminally worse all-local macro cortex: 5.7188 versus 5.5000 heldout loss
 after 512 matched updates. The compact report retains exact hashes, curves,
 throughput, memory, and gradient evidence. No V70 evaluation surface remains.
 
-**`language_periodic_hierarchy_quality.py`** — V71's active frozen Phase-1
-runner. It accepts only `periodic_macro` and `periodic_local`, reproduces V70's
-immutable tokenizer/schedule/common hashes, executes 512 unique eager-Muon
-updates, and atomically stores heldout milestones, state/source hashes,
-throughput, memory, and gradient coverage. It cannot save a model checkpoint.
+The deleted V71 runner proves periodic-local nearly matches but does not beat
+the Transformer, while its macro channel is strictly worse than the exact same
+topology without summaries. The compact report retains its curves and hashes;
+no V71 evaluation surface remains.
 
 For supervised records that individually fit the causal context, the support can
 instead build one right-padded row per document. Padding occurs only after EOS

@@ -1059,7 +1059,7 @@ retaining 94.61% throughput and only 69.4 MB extra peak allocation. The failure
 is language learning, not execution. Its model, runners, tests, and partials are
 deleted; no checkpoint or runtime surface exists.
 
-**V71 periodic global-reset hierarchy (current bet)** — V70 compressed
+**V71 periodic global-reset hierarchy (stopped)** — V70 compressed
 every cross-block interaction through four summaries. A successor should retain
 mostly fast macro-local layers but periodically run exact full-token attention,
 so detailed token relations can be reconstructed instead of being permanently
@@ -1069,8 +1069,17 @@ channel plus V70's immutable Transformer control. Macro must beat both by 0.02;
 this is a new architecture, not a V70 depth or hyperparameter rescue.
 Phase 0 passes: macro/local full steps reach 18.24k/19.32k positions/s, or
 99.86%/105.76% of the immutable Transformer, at 5.52/5.48 GB peak. Both reproduce
-the exact common hash and complete gradients. Only the frozen quality screen can
-now decide whether the macro channel earns its 5.6% cost over periodic-local.
+the exact common hash and complete gradients. The quality result is 5.5000
+Transformer, 5.5625 periodic-local, and 5.6875 periodic-macro. Exact resets
+recover most of V70's deficit, but macro makes the matched topology 0.125 worse
+and 6.17% slower. V66--V71's four-summary path is retired for base language;
+periodic-local is a near-control, not a promoted model. All V71 code is deleted.
+
+**Persistent latent workspace (next research direction)** — preserve exact
+Transformer token communication and test a small state *beside* it, rather than
+compressing or replacing it. The state must persist across segments and beat
+zero, shuffled, and same-compute token-local controls. This requires a fresh
+design, not more summary tokens.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

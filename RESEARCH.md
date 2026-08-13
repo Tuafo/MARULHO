@@ -2813,6 +2813,23 @@ known. Phase 0 admits only the two frozen 512-update arms. Compact report
 `periodic-v71-phase0-pass-20260813.json` owns the timings and gates (SHA-256
 `3f8b2b27f3d5a8f66200b844089f192a7afde6d33de6daa3899b479a49557142`).
 
+**Phase-1 outcome.** V71 terminates with
+`retire_v71_macro_and_periodic_local_no_language_win`. All arms start at 9.1875
+loss. At steps 128/256/512, macro reaches 6.9063/6.0000/5.6875, local reaches
+6.6563/5.8438/5.5625, and immutable Transformer is 6.5000/5.7500/5.5000.
+Exact resets recover most of V70's deficit but do not win. Macro worsens its
+matched topology by 0.125 and runs at 93.83% of local throughput. Both arms
+retain at least 95% of Transformer throughput, stay near 5.1 GiB, and observe
+every gradient; all hash, data, and uniqueness contracts match.
+
+This closes V66--V71's four-summary completed-block channel as a base-language
+mechanism. It does not reject all hierarchy or latent state. A successor must
+preserve intact token communication and test whether persistent internal state
+adds information under zero, shuffled, and same-compute controls. V71 code and
+partials are deleted; compact report `periodic-v71-quality-stop-20260813.json`
+owns the evidence (SHA-256
+`776d710784f1fc128005cf36c675eade8ec008b7dfac52ea5094aac1b3aa3e0e`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

@@ -1,0 +1,64 @@
+{
+  "artifact_kind": "marulho_periodic_hierarchy_v71_quality",
+  "surface": "marulho_periodic_hierarchy_v71_quality.v1",
+  "decision": "retire_v71_macro_and_periodic_local_no_language_win",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "topology": ["local", "local", "local", "local", "global", "local", "local", "local", "local", "global"],
+  "matched_truth": {
+    "transformer_parameters": 100679424,
+    "periodic_local_parameters": 100679424,
+    "periodic_macro_parameters": 100722432,
+    "common_parameter_hash": "700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a",
+    "tokenizer_hash": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+    "schedule_sha256": "8342013bb10d842f136c28338664e24db3132c13f5f160ea1eb94065b99daa07",
+    "updates_per_arm": 512,
+    "positions_per_arm": 5242880,
+    "relation_updates": 0,
+    "repeated_selected_windows": 0
+  },
+  "immutable_transformer": {
+    "heldout_curve": [[0, 9.1875], [128, 6.5], [256, 5.75], [512, 5.5]],
+    "positions_per_second": 18267.22012061404,
+    "peak_cuda_bytes": 5446176256,
+    "source_report": "macro-cortex-v70-quality-stop-20260813.json"
+  },
+  "periodic_local": {
+    "initial_state_hash": "700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a",
+    "final_state_hash": "4d5f302b5d07ec53913a53f81ad40646e5e9e61cc2a5a6d41b96bd4d42c57f4b",
+    "heldout_curve": [[0, 9.1875], [128, 6.65625], [256, 5.84375], [512, 5.5625]],
+    "training_seconds": 282.94515850004063,
+    "positions_per_second": 18529.668532919066,
+    "peak_cuda_bytes": 5465968128,
+    "missing_gradient_parameters": 0
+  },
+  "periodic_macro": {
+    "initial_state_hash": "195e3465f02f2ee1c7391793c7d4b471b9b5b57d77af21135cf81faf4ce25323",
+    "final_state_hash": "19762d93951b764a3680967ca73abe78452ece5544e1b32577b2690578803afb",
+    "heldout_curve": [[0, 9.1875], [128, 6.90625], [256, 6.0], [512, 5.6875]],
+    "training_seconds": 301.5600555000037,
+    "positions_per_second": 17385.856993914553,
+    "peak_cuda_bytes": 5504765440,
+    "missing_gradient_parameters": 0
+  },
+  "comparison": {
+    "transformer_minus_periodic_local_final_loss": -0.0625,
+    "periodic_local_minus_periodic_macro_final_loss": -0.125,
+    "periodic_local_to_transformer_throughput_ratio": 1.0143659048557207,
+    "periodic_macro_to_transformer_throughput_ratio": 0.9517549792426997,
+    "periodic_macro_to_local_throughput_ratio": 0.9382722703000304
+  },
+  "gates": {
+    "all_initial_losses_equal": true,
+    "all_hash_contracts_match": true,
+    "both_complete_finite_gradients": true,
+    "both_at_least_0_70_transformer_throughput": true,
+    "both_below_11_5_gib": true,
+    "periodic_macro_at_least_0_02_better_than_transformer": false,
+    "periodic_macro_at_least_0_02_better_than_periodic_local": false,
+    "periodic_local_better_than_transformer": false,
+    "phase1_passed": false
+  },
+  "interpretation": "Periodic exact global attention recovers most of the all-local V70 deficit, but does not beat the Transformer. Adding the four-summary macro channel to the exact same topology worsens final loss by 0.125 and reduces throughput. The V66-V71 completed-summary macro channel is retired as a base-language mechanism; periodic locality remains a measured near-control but is not promoted.",
+  "hardware": {"device": "NVIDIA GeForce RTX 3060", "torch_version": "2.12.1+cu132", "cuda_version": "13.2"}
+}
