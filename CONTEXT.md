@@ -1046,7 +1046,9 @@ macro state even when compute is faster. V70 must be freshly preregistered at
 the actual model boundary: approximately 100M parameters, at least 70% end-to-
 end Transformer throughput, below the RTX 3060's 11.5 GiB ceiling, and superior
 held-out/source behavior. This changes the scientific question transparently;
-it does not rewrite V69's failed gate.
+it does not rewrite V69's failed gate. The frozen first quality screen is 512
+fresh context-320 batch-32 updates per arm (5,242,880 positions) and requires at
+least a 0.02 heldout-loss win before any longer curriculum or checkpoint exists.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

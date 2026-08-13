@@ -2662,6 +2662,59 @@ full-model boundary, using the existing at-least-70% end-to-end throughput and
 at-most-11.5-GiB hardware gates. It must receive a new version and preregistration;
 V69's failed result remains immutable.
 
+### V70 parameter-matched macro cortex: preregistration
+
+**Question.** Does V69's completed-block macro pathway improve language learning
+enough to earn its measured 7.81% full-block memory overhead? V70 reuses the
+mechanism under a new version; it does not reclassify V69. Candidate and control
+are fresh approximately 100M decoder-only models with vocabulary 8,192, width
+768, ten layers, twelve 64-wide heads, SwiGLU ratio 4, RMSNorm, tied embeddings,
+and context 320. Every unchanged embedding, norm, MLP, QKV, output, and head
+tensor is initialized exactly equal and hash-audited. Candidate adds four
+summary queries, one start macro, and query/output elementwise macro scales per
+layer; expected parameter ratio must remain 0.99--1.01.
+
+**Candidate layer.** Each layer applies RMSNorm, combined QKV projection, local
+RoPE, four queried summaries per completed 64-token block, causal RoPE over the
+short global summary stream, a one-block shift, macro-conditioned local query
+and output, residual, then the same normalized SwiGLU residual as control.
+Candidate input stays `[B,block,64,width]` within each attention operation and
+returns logical `[B,time,width]` for the residual/MLP. A block never receives
+its own summary. No recurrence, prefix token, dynamic boundary, expert, sparse
+kernel, Inductor, external weight, or pretrained model participates.
+
+**Phase 0 — full-step admission.** Transfer exact common tensors and verify
+their named hashes. On the RTX 3060, BF16, batch 32, context 320, and whole-
+matrix MARULHO Muon at learning rate 3e-4, run exact candidate/control warmup
+and at least three complete forward, cross-entropy backward, gradient clipping,
+and optimizer steps inside the process-tree watchdog. Both must keep all
+gradients finite and nonzero, candidate peak allocation must remain below 11.5
+GiB, and candidate median positions/s must be at least 70% of control. Also
+require FP64/FP32 future-block isolation, completed-block influence, and exact
+inactive common initialization. A miss deletes V70 before quality training.
+
+**Phase 1 — frozen short quality screen.** From exact fresh resets, use one
+tokenizer, immutable unique-data general-language schedule, heldout split, Muon
+recipe, seed, BF16 policy, and evaluation code. Each arm receives exactly 512
+batch-32 context-320 optimizer updates, or 5,242,880 target positions, with no
+relation/source-QA records and no repeated selected window. Persist schedule,
+tokenizer, split, initial-state, and final-state hashes plus per-arm partial
+rows atomically. Candidate must finish at least 0.02 heldout loss below control,
+retain at least 70% measured end-to-end throughput, remain below 11.5 GiB, and
+keep complete finite gradients. A tie or loss deletes the model/runner/tests and
+records `retire_v70_no_short_language_signal`; it cannot be rescued by more
+tokens, another learning rate, or summary/block-size tuning.
+
+**Phase 2 only after a Phase-1 win.** Add strict training-only checkpoint reload,
+owned incremental generation state, local-only and shuffled-macro controls, then
+run the frozen 8,192-step general/source-QA curriculum. Terminal promotion still
+requires general loss within 0.02 of Transformer, true-source exact at least
+64/256 and +20 over Transformer and +51 over absent/shuffled, oracle at least
+128/256, coherent unseen prose, at least 70% control throughput, less than 11.5
+GiB, exact reload, continual retention, and the 524,288-token sustained run.
+Failure deletes the candidate surface; success may replace the installed base
+only after every gate, never from the short loss screen alone.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
