@@ -125,6 +125,14 @@ Its implementation, evaluator, tests, and partial artifacts are deleted. The
 result justifies a separately preregistered model-level quality falsifier, not a
 V69 model or checkpoint surface.
 
+**`language_macro_cortex.py`** — V70's active training-only quality falsifier.
+It matches the 100,679,424-parameter Transformer at 100,733,184 parameters and
+copies every common tensor exactly. Ten macro-conditioned layers retain local
+64-token attention while four completed-block summaries causally condition the
+next block. The candidate implements full-vocabulary loss and heldout evaluation
+but intentionally has no incremental generation or checkpoint surface until it
+passes the frozen full-step and 512-update quality gates.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
