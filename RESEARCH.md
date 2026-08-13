@@ -2612,9 +2612,11 @@ to block `j`; block zero uses one learned per-head start vector.
 
 Two learned per-head elementwise scales inject that shifted macro vector without
 creating tokens: one adds it in place to local queries before length-64 causal
-attention, and one adds it in place to the attention output before the shared-
-shape output projection. Query conditioning can select local information while
-output conditioning carries macro content itself. No prefix concatenation,
+attention, and one is passed through the shared output weight then added in
+place to the projected block output. The latter is algebraically identical to
+adding the macro before the bias-free output projection, but does not mutate the
+SDPA output saved for backward. Query conditioning can select local information
+while output conditioning carries macro content itself. No prefix concatenation,
 macro projection matrix, recurrence, dynamic boundary, MLP, normalization,
 checkpointing, custom kernel, or Inductor is present. This is one complete
 attention sublayer, not a raw post-projection operator.
