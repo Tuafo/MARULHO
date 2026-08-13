@@ -2681,11 +2681,13 @@ and output, residual, then the same normalized SwiGLU residual as control.
 Candidate input stays `[B,block,64,width]` within each attention operation and
 returns logical `[B,time,width]` for the residual/MLP. A block never receives
 its own summary. No recurrence, prefix token, dynamic boundary, expert, sparse
-kernel, Inductor, external weight, or pretrained model participates.
+kernel, Inductor, compiled optimizer, external weight, or pretrained model
+participates.
 
 **Phase 0 — full-step admission.** Transfer exact common tensors and verify
 their named hashes. On the RTX 3060, BF16, batch 32, context 320, and whole-
-matrix MARULHO Muon at learning rate 3e-4, run exact candidate/control warmup
+matrix MARULHO Muon at learning rate 3e-4 with
+`compile_orthogonalizer=False`, run exact candidate/control warmup
 and at least three complete forward, cross-entropy backward, gradient clipping,
 and optimizer steps inside the process-tree watchdog. Both must keep all
 gradients finite and nonzero, candidate peak allocation must remain below 11.5
