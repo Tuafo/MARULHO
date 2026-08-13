@@ -1049,6 +1049,11 @@ held-out/source behavior. This changes the scientific question transparently;
 it does not rewrite V69's failed gate. The frozen first quality screen is 512
 fresh context-320 batch-32 updates per arm (5,242,880 positions) and requires at
 least a 0.02 heldout-loss win before any longer curriculum or checkpoint exists.
+Phase 0 now passes: at 100,733,184 versus 100,679,424 parameters, candidate and
+control share one exact common-state hash; complete eager-Muon steps reach
+18.57k/19.41k positions/s (95.67% retention) and 5.53/5.48 GB peak allocation.
+Every gradient is present, finite, and nonzero. V70 is admitted only to the
+frozen 512-update quality screen; no checkpoint or runtime claim exists.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

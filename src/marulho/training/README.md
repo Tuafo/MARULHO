@@ -133,6 +133,11 @@ next block. The candidate implements full-vocabulary loss and heldout evaluation
 but intentionally has no incremental generation or checkpoint surface until it
 passes the frozen full-step and 512-update quality gates.
 
+V70 Phase 0 passes at 18.57k candidate versus 19.41k control positions/s and
+5.53 versus 5.48 GB peak allocation. All common tensors hash exactly and every
+gradient is healthy. This admits the training-only candidate to its 512-update
+heldout-loss falsifier; it does not admit generation, checkpoints, or runtime.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

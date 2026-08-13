@@ -2717,6 +2717,18 @@ GiB, exact reload, continual retention, and the 524,288-token sustained run.
 Failure deletes the candidate surface; success may replace the installed base
 only after every gate, never from the short loss screen alone.
 
+**Phase-0 outcome.** V70 advances to the frozen 512-update quality screen.
+Candidate/control parameters are 100,733,184/100,679,424 (ratio 1.000534) and
+their 106,970,880 common named state elements hash identically. Complete eager-
+Muon forward/cross-entropy/backward/clip/step throughput is 18.57k/19.41k
+positions/s, or 95.67% retention. Peak allocation is 5.53/5.48 GB; the 46.9 MB
+candidate overhead is only 0.86%, and both are far below 11.5 GiB. Every tensor
+gradient is present, finite, and nonzero. No compilation occurred, both bounded
+processes exited normally, and Phase 0 contains no language-quality evidence.
+Compact report `macro-cortex-v70-phase0-pass-20260813.json` owns the exact
+timings and hashes (SHA-256
+`48747a3e2df299560f755d82223d9f222f9427dc0a48bb9632f3e271482ab7b3`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

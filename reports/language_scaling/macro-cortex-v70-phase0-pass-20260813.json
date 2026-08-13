@@ -1,0 +1,67 @@
+{
+  "artifact_kind": "marulho_macro_cortex_v70_phase0",
+  "surface": "marulho_macro_cortex_v70_phase0.v1",
+  "decision": "advance_v70_to_frozen_512_update_quality_screen",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "vocab_size": 8192,
+    "width": 768,
+    "layers": 10,
+    "heads": 12,
+    "context_length": 320,
+    "batch_size": 32,
+    "precision": "bfloat16",
+    "optimizer": "marulho_muon_eager_orthogonalizer",
+    "learning_rate": 0.0003,
+    "weight_decay": 0.1,
+    "gradient_clip": 1.0,
+    "warmup_steps": 1,
+    "timing_steps": 3,
+    "torch_compile_used": false
+  },
+  "matched_truth": {
+    "control_parameters": 100679424,
+    "candidate_parameters": 100733184,
+    "candidate_to_control_parameter_ratio": 1.0005339720656328,
+    "common_parameter_hash": "477e294ffb882c83802e3eea8e60283287480a51cf01298bc18bdb10f841f78d",
+    "copied_common_elements": 106970880,
+    "candidate_only_parameter_elements": 53760
+  },
+  "candidate": {
+    "timing_step_seconds": [0.5411502075195312, 0.55365576171875, 0.5515635986328125],
+    "median_step_seconds": 0.5515635986328125,
+    "positions_per_second": 18565.402113885662,
+    "losses": [8.8125, 8.5, 8.25],
+    "gradient_norms_before_clip": [1.0234375, 0.9765625, 0.98828125],
+    "all_gradients_present_finite_nonzero": true,
+    "peak_cuda_bytes": 5527507456
+  },
+  "control": {
+    "timing_step_seconds": [0.5272156372070312, 0.5321553955078125, 0.52766064453125],
+    "median_step_seconds": 0.52766064453125,
+    "positions_per_second": 19406.412257819145,
+    "losses": [8.75, 8.375, 8.0],
+    "gradient_norms_before_clip": [1.2734375, 1.3984375, 1.6484375],
+    "all_gradients_present_finite_nonzero": true,
+    "peak_cuda_bytes": 5480649216
+  },
+  "candidate_to_control_throughput_ratio": 0.95666328568308,
+  "candidate_to_control_peak_memory_ratio": 1.008549760831838,
+  "candidate_peak_memory_delta_bytes": 46858240,
+  "gates": {
+    "parameter_ratio_0_99_to_1_01": true,
+    "common_initialization_hash": true,
+    "complete_finite_nonzero_gradients": true,
+    "candidate_at_least_0_70_control_throughput": true,
+    "candidate_below_11_5_gib": true,
+    "control_below_11_5_gib": true,
+    "no_compile": true,
+    "phase0_passed": true
+  },
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}

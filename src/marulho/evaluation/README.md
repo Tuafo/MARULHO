@@ -51,6 +51,12 @@ contract hash and atomic replacement, so a runner can reuse only an exact
 completed arm after interruption. Architecture decisions remain owned by the
 specific runner; this support cannot promote a model.
 
+**`scripts/evaluate_language_macro_cortex_v70_preflight.py`** — V70's bounded
+100M full-step admission runner. It uses eager Muon with no Inductor, exact
+common-state transfer, three timed complete optimizer steps per process, and the
+11.5-GiB watchdog-safe device gate. Its Phase-0 pass admits only the frozen
+512-update quality screen.
+
 For supervised records that individually fit the causal context, the support can
 instead build one right-padded row per document. Padding occurs only after EOS
 and the report includes the counterfactual global-stride boundary count. This
