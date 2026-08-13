@@ -912,9 +912,10 @@ V60--V62 jointly close compressed matrix memory at final and spaced internal
 read sites. The next branch must retain exact source-token KV state or replace
 the base computational substrate, not enlarge this interface.
 
-V63 is preregistered as exact-token adaptive KV memory. Every V57 causal record
-keeps its full source, question, and answer in native order and positions inside
-a context-320 V39 reconstruction. At each of the ten frozen self-attention
+V63 is implemented as exact-token adaptive KV memory in
+`language_exact_token_kv_falsification.py`; its CUDA terminal result is pending.
+Every V57 causal record keeps its full source, question, and answer in native
+order and positions inside a context-320 V39 reconstruction. At each of the ten frozen self-attention
 layers, a separate FP32 controller applies bounded head-specific 64x64 residual
 maps to keys and values only where an exact source-token mask is true. Question
 and answer keys/values remain ordinary V39 computation. The source is therefore

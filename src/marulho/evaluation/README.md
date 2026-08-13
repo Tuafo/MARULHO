@@ -1198,8 +1198,9 @@ SHA-256 is `7742199d52ed13c11cf20816fc4e593500dec7ee99486fd41f44bf416cf5e5b1`.
 The next evaluator must retain exact source-token KV state instead of projecting
 the document into another fixed matrix.
 
-V63 preregisters that evaluator. Full V57 causal records remain at their native
-context-320 positions through all ten frozen V39 blocks. A 983,040-parameter
+**`language_exact_token_kv_falsification.py`** implements the preregistered V63
+evaluator. Full V57 causal records remain at their native context-320 positions
+through all ten frozen V39 blocks. A 983,040-parameter
 FP32 controller learns bounded per-head 64x64 corrections to source keys and
 values only; zero correction must be bit-exact to ordinary V39. Raw true/oracle
 prefix diagnostics precede training. Terminal question-only/shuffled/true/oracle
