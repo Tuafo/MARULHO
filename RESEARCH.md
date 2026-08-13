@@ -2801,6 +2801,18 @@ macro, source-QA, general retention, unseen prose, continual learning, and
 524,288-token sustained gates defined under V70/V67 apply. Phase 1 alone cannot
 promote runtime.
 
+**Phase-0 outcome.** Both V71 arms advance. `periodic_macro` has 100,722,432
+parameters, reaches 18.24k complete-step positions/s (99.86% of immutable
+Transformer), and peaks at 5.52 GB. `periodic_local` exactly matches the
+100,679,424 control parameter count, reaches 19.32k positions/s (105.76%), and
+peaks at 5.48 GB. Both reproduce common hash
+`700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a`,
+stay below 11.5 GiB, and have complete finite nonzero gradients. The macro
+channel costs 5.58% throughput relative to periodic-local before quality is
+known. Phase 0 admits only the two frozen 512-update arms. Compact report
+`periodic-v71-phase0-pass-20260813.json` owns the timings and gates (SHA-256
+`3f8b2b27f3d5a8f66200b844089f192a7afde6d33de6daa3899b479a49557142`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
