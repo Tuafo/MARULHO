@@ -571,7 +571,7 @@ def train_controller(
         torch.nn.utils.clip_grad_norm_(controller.parameters(), config.gradient_clip)
         optimizer.step()
         answer_positions += int(answer_mask.sum())
-        if (step + 1) % 256 == 0 or step + 1 == config.optimizer_steps:
+        if (step + 1) % 64 == 0 or step + 1 == config.optimizer_steps:
             final_loss = float(loss.detach())
             maximum = max(
                 float(controller.key_corrections.detach().abs().max()),
@@ -786,6 +786,7 @@ def evaluate_view(
     generated_by_index: list[list[int]] = [[] for _ in rows]
     started = time.perf_counter()
     completed = 0
+    next_progress = 64
     for prompt_length in sorted(groups):
         indices = groups[prompt_length]
         for offset in range(0, len(indices), config.batch_size):
@@ -802,8 +803,10 @@ def evaluate_view(
             for index, ids in zip(batch_indices, generated, strict=True):
                 generated_by_index[index] = ids
             completed += len(batch_indices)
-            if completed % 64 == 0 or completed == len(rows):
+            if completed >= next_progress or completed == len(rows):
                 print(f"[v63] {view} {completed}/{len(rows)}", flush=True)
+                while next_progress <= completed:
+                    next_progress += 64
     if parent.device.type == "cuda":
         torch.cuda.synchronize(parent.device)
     elapsed = max(time.perf_counter() - started, 1.0e-9)
