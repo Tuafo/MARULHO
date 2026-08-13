@@ -1,0 +1,206 @@
+{
+  "arm": "transformer",
+  "contract_sha256": "eb56d6828e9a89ec7a0a7092663694e5c27c4c1d29dc1104b15ad29d10739d27",
+  "control_parameter_count": 100679424,
+  "environment": {
+    "cuda": "13.2",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.9",
+    "torch": "2.12.1+cu132",
+    "torch_compile_used": false
+  },
+  "evaluation": {
+    "first_segment_loss": 5.6515625,
+    "later_loss_by_source": {
+      "cosmopedia_v2": 5.88203125,
+      "fineweb_edu": 5.82109375
+    },
+    "later_segment_loss": 5.851171875,
+    "segment_losses": [
+      5.6515625,
+      5.82890625,
+      5.8734375
+    ],
+    "state_swap": {
+      "correct_loss": null,
+      "tokens": 0,
+      "wrong_loss": null,
+      "wrong_minus_correct": null
+    }
+  },
+  "final_state_sha256": "14387f189063dbd9e2ae77e26a8c9e1071ef8843007424dbbbaa564995343693",
+  "initial_state_sha256": "60cdef5d01cbb41091afa47a1cea1a466c02f91ac36bbfb925890d22d3917ead",
+  "parameter_count": 100679424,
+  "parameter_ratio": 1.0,
+  "recipe": {
+    "batch_size": 32,
+    "compiled": false,
+    "data_seed": 72121,
+    "model_seed": 72131,
+    "processed_positions": 7864320,
+    "segment_length": 320,
+    "segments": 3,
+    "state_detached_between_segments": false,
+    "train_steps": 256,
+    "workspace_reconstruction_weight": 0.0
+  },
+  "source_selections": {
+    "eval": {
+      "cosmopedia_v2": {
+        "document_tokens": 961,
+        "eligible_before_completion": 512,
+        "parsed_before_completion": 1920,
+        "path": "C:\\Users\\thiag\\Documents\\GitHub\\MARULHO\\reports\\language_curriculum\\cosmopedia-v2-eval-10k-shard2-20260710.txt",
+        "requested": 512,
+        "selected_token_sha256": "325f9ca1a220cee21202a857f76d43515c23054adb3c1f24d1d985cce0bdc59c",
+        "selection": "first_eligible_in_file_order"
+      },
+      "fineweb_edu": {
+        "document_tokens": 961,
+        "eligible_before_completion": 512,
+        "parsed_before_completion": 1152,
+        "path": "C:\\Users\\thiag\\Documents\\GitHub\\MARULHO\\reports\\language_curriculum\\fineweb-edu-eval-10k-shard1-20260710.txt",
+        "requested": 512,
+        "selected_token_sha256": "3235bc1b7bbfb1b390b1aeeaaf5d584d1c6880a3836d720f98b83f11192defa4",
+        "selection": "first_eligible_in_file_order"
+      }
+    },
+    "train": {
+      "cosmopedia_v2": {
+        "document_tokens": 961,
+        "eligible_before_completion": 4096,
+        "parsed_before_completion": 14592,
+        "path": "C:\\Users\\thiag\\Documents\\GitHub\\MARULHO\\reports\\language_curriculum\\cosmopedia-v2-replay-75k-shard4-20260710.txt",
+        "requested": 4096,
+        "selected_token_sha256": "9a179bb3adb799399c03e6c24e9469e0a3b2e1e63db2b7062ccace001f10af13",
+        "selection": "first_eligible_in_file_order"
+      },
+      "fineweb_edu": {
+        "document_tokens": 961,
+        "eligible_before_completion": 4096,
+        "parsed_before_completion": 10240,
+        "path": "C:\\Users\\thiag\\Documents\\GitHub\\MARULHO\\reports\\language_curriculum\\fineweb-edu-replay-75k-shard2-20260710.txt",
+        "requested": 4096,
+        "selected_token_sha256": "5c293b285b99a825b47a753f22c352752ca921eb7e3d5fc70289105ee396da9f",
+        "selection": "first_eligible_in_file_order"
+      }
+    }
+  },
+  "surface": "marulho_persistent_workspace_v72.a2_arm.v1",
+  "tokenizer_sha256": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+  "training": {
+    "final_losses": {
+      "language": 5.90625,
+      "workspace_reconstruction": 0.0
+    },
+    "gradient_audit": {
+      "missing": [],
+      "nonfinite": [],
+      "passed": true,
+      "zero": []
+    },
+    "optimizer": {
+      "adamw_fallback_betas": [
+        0.9,
+        0.95
+      ],
+      "adamw_fallback_parameter_count": 6307584,
+      "adamw_fallback_parameter_names": [
+        "token_embedding.weight",
+        "state_block.layers.0.attention_norm.weight",
+        "state_block.layers.0.mlp_norm.weight",
+        "state_block.layers.1.attention_norm.weight",
+        "state_block.layers.1.mlp_norm.weight",
+        "state_block.layers.2.attention_norm.weight",
+        "state_block.layers.2.mlp_norm.weight",
+        "state_block.layers.3.attention_norm.weight",
+        "state_block.layers.3.mlp_norm.weight",
+        "state_block.layers.4.attention_norm.weight",
+        "state_block.layers.4.mlp_norm.weight",
+        "state_block.layers.5.attention_norm.weight",
+        "state_block.layers.5.mlp_norm.weight",
+        "state_block.layers.6.attention_norm.weight",
+        "state_block.layers.6.mlp_norm.weight",
+        "state_block.layers.7.attention_norm.weight",
+        "state_block.layers.7.mlp_norm.weight",
+        "state_block.layers.8.attention_norm.weight",
+        "state_block.layers.8.mlp_norm.weight",
+        "state_block.layers.9.attention_norm.weight",
+        "state_block.layers.9.mlp_norm.weight",
+        "state_block.output_norm.weight"
+      ],
+      "external_weights_loaded": false,
+      "fused": false,
+      "kind": "marulho_muon_with_adamw_fallback",
+      "learning_rate": 0.0003,
+      "momentum": 0.95,
+      "muon_parameter_count": 94371840,
+      "muon_parameter_names": [
+        "state_block.layers.0.attention.qkv.weight",
+        "state_block.layers.0.attention.output.weight",
+        "state_block.layers.0.gate_up.weight",
+        "state_block.layers.0.down.weight",
+        "state_block.layers.1.attention.qkv.weight",
+        "state_block.layers.1.attention.output.weight",
+        "state_block.layers.1.gate_up.weight",
+        "state_block.layers.1.down.weight",
+        "state_block.layers.2.attention.qkv.weight",
+        "state_block.layers.2.attention.output.weight",
+        "state_block.layers.2.gate_up.weight",
+        "state_block.layers.2.down.weight",
+        "state_block.layers.3.attention.qkv.weight",
+        "state_block.layers.3.attention.output.weight",
+        "state_block.layers.3.gate_up.weight",
+        "state_block.layers.3.down.weight",
+        "state_block.layers.4.attention.qkv.weight",
+        "state_block.layers.4.attention.output.weight",
+        "state_block.layers.4.gate_up.weight",
+        "state_block.layers.4.down.weight",
+        "state_block.layers.5.attention.qkv.weight",
+        "state_block.layers.5.attention.output.weight",
+        "state_block.layers.5.gate_up.weight",
+        "state_block.layers.5.down.weight",
+        "state_block.layers.6.attention.qkv.weight",
+        "state_block.layers.6.attention.output.weight",
+        "state_block.layers.6.gate_up.weight",
+        "state_block.layers.6.down.weight",
+        "state_block.layers.7.attention.qkv.weight",
+        "state_block.layers.7.attention.output.weight",
+        "state_block.layers.7.gate_up.weight",
+        "state_block.layers.7.down.weight",
+        "state_block.layers.8.attention.qkv.weight",
+        "state_block.layers.8.attention.output.weight",
+        "state_block.layers.8.gate_up.weight",
+        "state_block.layers.8.down.weight",
+        "state_block.layers.9.attention.qkv.weight",
+        "state_block.layers.9.attention.output.weight",
+        "state_block.layers.9.gate_up.weight",
+        "state_block.layers.9.down.weight"
+      ],
+      "nesterov": true,
+      "newton_schulz_coefficients": [
+        3.4445,
+        -4.775,
+        2.0315
+      ],
+      "newton_schulz_steps": 5,
+      "orthogonalization_grouped_by_matrix_shape": true,
+      "orthogonalizer_compile_requested": false,
+      "orthogonalizer_dynamic_matrix_shapes": false,
+      "paper": "https://arxiv.org/abs/2502.16982",
+      "per_head_attention_qkv": false,
+      "reference_implementation": "https://github.com/MoonshotAI/Moonlight/blob/master/examples/toy_train.py",
+      "row_partition_count_by_parameter": {},
+      "row_partitioned_parameter_names": [],
+      "update_rms_target": 0.2,
+      "weight_decay": 0.1
+    },
+    "peak_cuda_allocated_bytes": 5852532736,
+    "positions": 7864320,
+    "positions_per_second": 22203.676087144173,
+    "seconds": 354.18999849999636,
+    "steps": 256
+  },
+  "transfer": null
+}
