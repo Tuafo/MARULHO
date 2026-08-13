@@ -10,6 +10,8 @@ from torch import nn
 import torch.nn.functional as F
 
 from .language_transformer import TransformerRMSNorm
+from .language_model import LanguageModelConfig, MarulhoLanguageModel
+from .language_transformer import MarulhoTransformerBlock
 
 
 WorkspaceMode = Literal[
@@ -337,3 +339,171 @@ def v72_recall_loss(
     total = answer + (0.5 * key) + (0.5 * value) + (0.1 * gate)
     return total, {"answer": answer, "key": key, "value": value, "gate": gate}
 
+
+LanguageWorkspaceMode = Literal["persistent", "reset", "shuffled"]
+
+
+class V72PersistentWorkspaceLanguageModel(nn.Module):
+    """V72 A2 full-Transformer training candidate without runtime installation."""
+
+    surface = "marulho_persistent_workspace_language_candidate.v1"
+    read_layer_indices = (2, 6)
+
+    def __init__(self, config: LanguageModelConfig, *, workspace_tokens: int = 8) -> None:
+        super().__init__()
+        if int(config.state_layers) != 10:
+            raise ValueError("V72 A2 requires exactly ten Transformer layers")
+        if int(config.embedding_dim) != int(config.state_dim):
+            raise ValueError("V72 A2 requires equal embedding and state widths")
+        if not bool(config.tie_embeddings):
+            raise ValueError("V72 A2 requires tied embeddings")
+        self.config = config
+        self.workspace_tokens = int(workspace_tokens)
+        width = int(config.state_dim)
+        self.token_embedding = nn.Embedding(config.vocab_size, config.embedding_dim)
+        self.state_block = nn.Module()
+        self.state_block.layers = nn.ModuleList(
+            MarulhoTransformerBlock(
+                width,
+                attention_heads=config.attention_heads,
+                context_length=config.transformer_context_length,
+                mlp_ratio=config.transformer_mlp_ratio,
+                dropout=config.transformer_dropout,
+            )
+            for _ in range(config.state_layers)
+        )
+        self.state_block.output_norm = TransformerRMSNorm(width)
+        self.workspace_initial = nn.Parameter(torch.empty(self.workspace_tokens, width))
+        self.workspace_write_queries = nn.Parameter(
+            torch.empty(self.workspace_tokens, width)
+        )
+        self.workspace_read_norms = nn.ModuleList(
+            TransformerRMSNorm(width) for _ in self.read_layer_indices
+        )
+        self.workspace_reads = nn.ModuleList(
+            nn.MultiheadAttention(
+                width,
+                config.attention_heads,
+                batch_first=True,
+                dropout=0.0,
+                bias=False,
+            )
+            for _ in self.read_layer_indices
+        )
+        self.workspace_write_norm = TransformerRMSNorm(width)
+        self.workspace_write = nn.MultiheadAttention(
+            width,
+            config.attention_heads,
+            batch_first=True,
+            dropout=0.0,
+            bias=False,
+        )
+        self.workspace_output_norm = TransformerRMSNorm(width)
+        self.workspace_gate = nn.Linear(width, 1)
+        self.lm_head = nn.Linear(width, config.vocab_size, bias=False)
+        self.lm_head.weight = self.token_embedding.weight
+        for module in self.modules():
+            if isinstance(module, (nn.Linear, nn.Embedding)):
+                nn.init.normal_(module.weight, mean=0.0, std=0.02)
+                bias = getattr(module, "bias", None)
+                if isinstance(bias, torch.Tensor):
+                    nn.init.zeros_(bias)
+        nn.init.normal_(self.workspace_initial, mean=0.0, std=0.02)
+        nn.init.normal_(self.workspace_write_queries, mean=0.0, std=0.02)
+
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
+
+    def initial_workspace(self, batch_size: int) -> torch.Tensor:
+        return self.workspace_initial.unsqueeze(0).expand(int(batch_size), -1, -1)
+
+    def boundary_workspace(
+        self,
+        workspace: torch.Tensor,
+        mode: LanguageWorkspaceMode,
+    ) -> torch.Tensor:
+        if mode == "persistent":
+            return workspace
+        if mode == "reset":
+            return self.initial_workspace(int(workspace.shape[0]))
+        if mode == "shuffled":
+            return workspace.roll(1, dims=0)
+        raise ValueError(f"Unsupported V72 language workspace mode: {mode}")
+
+    def forward_segment(
+        self,
+        input_ids: torch.Tensor,
+        workspace: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        if input_ids.ndim != 2:
+            raise ValueError("V72 language inputs must be [batch,time]")
+        if int(input_ids.shape[1]) != int(self.config.transformer_context_length):
+            raise ValueError("V72 language segments must fill the frozen context")
+        hidden = self.token_embedding(input_ids.to(self.device, dtype=torch.long))
+        read_index = 0
+        for layer_index, layer in enumerate(self.state_block.layers):
+            hidden, _, _ = layer(
+                hidden,
+                past_key=None,
+                past_value=None,
+                position_offset=0,
+            )
+            if layer_index in self.read_layer_indices:
+                query = self.workspace_read_norms[read_index](hidden)
+                read, _ = self.workspace_reads[read_index](
+                    query,
+                    workspace,
+                    workspace,
+                    need_weights=False,
+                )
+                hidden = hidden + read
+                read_index += 1
+        hidden = self.state_block.output_norm(hidden)
+        queries = self.workspace_write_queries.unsqueeze(0).expand(
+            int(hidden.shape[0]), -1, -1
+        )
+        queries = queries + workspace
+        normalized = self.workspace_write_norm(hidden)
+        candidate, _ = self.workspace_write(
+            queries,
+            normalized,
+            normalized,
+            need_weights=False,
+        )
+        gate_logits = self.workspace_gate(hidden.mean(dim=1)).squeeze(-1)
+        gate = torch.sigmoid(gate_logits).view(-1, 1, 1)
+        next_workspace = self.workspace_output_norm(workspace + gate * candidate)
+        return {
+            "logits": self.lm_head(hidden),
+            "next_workspace": next_workspace,
+            "workspace_logits": self.lm_head(next_workspace),
+            "gate_logits": gate_logits,
+        }
+
+
+def transfer_v72_transformer_common_state(
+    control: MarulhoLanguageModel,
+    candidate: V72PersistentWorkspaceLanguageModel,
+) -> dict[str, object]:
+    """Copy every identically named and shaped Transformer tensor."""
+
+    control_state = control.state_dict()
+    candidate_state = candidate.state_dict()
+    copied: list[str] = []
+    candidate_only: list[str] = []
+    for name, value in candidate_state.items():
+        source = control_state.get(name)
+        if source is not None and source.shape == value.shape:
+            candidate_state[name] = source.detach().clone()
+            copied.append(name)
+        else:
+            candidate_only.append(name)
+    candidate.load_state_dict(candidate_state, strict=True)
+    return {
+        "copied_names": copied,
+        "candidate_only_names": candidate_only,
+        "copied_parameter_count": sum(
+            int(candidate_state[name].numel()) for name in copied
+        ),
+    }

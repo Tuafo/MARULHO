@@ -4,10 +4,13 @@ import torch
 
 from marulho.training.language_persistent_workspace import (
     V72PersistentWorkspaceRecall,
+    V72PersistentWorkspaceLanguageModel,
     V72RecallConfig,
     make_v72_recall_batch,
+    transfer_v72_transformer_common_state,
     v72_recall_loss,
 )
+from marulho.training.language_model import LanguageModelConfig, MarulhoLanguageModel
 
 
 def _batch(model: V72PersistentWorkspaceRecall, seed: int = 5):
@@ -86,3 +89,64 @@ def test_v72_loss_is_finite_and_reaches_every_parameter() -> None:
     assert missing == []
     assert nonfinite == []
 
+
+def _language_config(*, workspace: bool) -> LanguageModelConfig:
+    width = 32
+    hidden = 114 if workspace else 128
+    return LanguageModelConfig(
+        vocab_size=96,
+        embedding_dim=width,
+        state_dim=width,
+        state_layers=10,
+        attention_heads=4,
+        transformer_context_length=16,
+        transformer_mlp_ratio=hidden / width,
+        transformer_dropout=0.0,
+        tie_embeddings=True,
+        active_language_path="v72_test",
+    )
+
+
+def test_v72_language_candidate_is_causal_and_parameter_matched() -> None:
+    torch.manual_seed(19)
+    control = MarulhoLanguageModel(_language_config(workspace=False))
+    torch.manual_seed(19)
+    candidate = V72PersistentWorkspaceLanguageModel(
+        _language_config(workspace=True), workspace_tokens=4
+    ).eval()
+    transfer = transfer_v72_transformer_common_state(control, candidate)
+    ratio = sum(p.numel() for p in candidate.parameters()) / sum(
+        p.numel() for p in control.parameters()
+    )
+    assert 0.99 <= ratio <= 1.01
+    assert transfer["copied_parameter_count"] > 0
+    first = torch.randint(0, 96, (3, 16))
+    second = first.clone()
+    second[:, 9:] = torch.randint(0, 96, (3, 7))
+    workspace = candidate.initial_workspace(3)
+    with torch.no_grad():
+        first_result = candidate.forward_segment(first, workspace)
+        second_result = candidate.forward_segment(second, workspace)
+    assert torch.equal(first_result["logits"][:, :9], second_result["logits"][:, :9])
+    assert not torch.equal(first_result["next_workspace"], workspace)
+
+
+def test_v72_language_local_reconstruction_reaches_workspace_writer() -> None:
+    torch.manual_seed(23)
+    candidate = V72PersistentWorkspaceLanguageModel(
+        _language_config(workspace=True), workspace_tokens=4
+    ).train()
+    inputs = torch.randint(0, 96, (2, 16))
+    targets = torch.randint(0, 96, (2, 16))
+    result = candidate.forward_segment(inputs, candidate.initial_workspace(2))
+    landmark_targets = inputs[:, torch.tensor([3, 7, 11, 15])]
+    loss = torch.nn.functional.cross_entropy(
+        result["logits"].reshape(-1, 96), targets.reshape(-1)
+    ) + 0.1 * torch.nn.functional.cross_entropy(
+        result["workspace_logits"].reshape(-1, 96), landmark_targets.reshape(-1)
+    )
+    loss.backward()
+    assert candidate.workspace_write.in_proj_weight.grad is not None
+    assert torch.count_nonzero(candidate.workspace_write.in_proj_weight.grad)
+    assert candidate.workspace_gate.weight.grad is not None
+    assert torch.count_nonzero(candidate.workspace_gate.weight.grad)
