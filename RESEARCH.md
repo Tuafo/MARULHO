@@ -2537,6 +2537,24 @@ protocol. Adjust the number of local/global layers to reach parameter ratio
 the frozen 8,192-step general/source-QA curriculum. Local-only, shuffled-summary
 return, and question/source controls remain mandatory mechanism falsifiers.
 
+**Outcome.** V67 passes causal and compute gates but stops on memory before
+model construction. FP32 future perturbation changes earlier output by exactly
+zero; perturbing a completed block changes the following block by up to 2.2634;
+all 414,720 audited gradient elements are finite and nonzero. At context 320 it
+reaches 1.729M positions/s versus 2.339M (0.739x), clearing the 0.70 floor. At
+context 1,024 it reaches 2.260M versus 1.652M (1.368x), but peaks at 646 MB
+versus 505 MB (1.279x). The explicit head-major to folded-block transforms and
+prefix/output materialization are the leading allocation hypothesis, not a
+validated cause. V67's code, runner, partials, and tests are deleted; the compact
+report `queried-summary-v67-stage-a-stop-20260813.json` owns the evidence
+(SHA-256
+`7cfcfdade10aa7789191dc1b54f82bf9ff7cba6958aa0775d8f309d7bdbb45a9`).
+
+V68 may isolate that hypothesis by retaining block as a native leading SDPA
+dimension and otherwise preserving V67's equations, seeds, shapes, losses,
+warmup/timing counts, hardware, controls, and gates. It must be preregistered
+separately before implementation.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

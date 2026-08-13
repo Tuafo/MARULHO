@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "marulho_queried_summary_stage_a",
+  "surface": "marulho_queried_summary_stage_a.v1",
+  "decision": "stop_v67_before_model_work",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "batch_size": 32,
+    "width": 640,
+    "heads": 10,
+    "head_dimension": 64,
+    "neighborhood_size": 64,
+    "summary_queries": 4,
+    "dtype": "torch.bfloat16",
+    "warmup_steps": 2,
+    "timing_steps": 5,
+    "torch_compile_used": false
+  },
+  "validation": {
+    "precision": "torch.float32",
+    "future_maximum_delta": 0.0,
+    "future_tolerance": 1e-06,
+    "completed_block_later_maximum_delta": 2.263360023498535,
+    "gradient_elements": {
+      "hidden": 409600,
+      "summary_queries": 2560,
+      "start_prefix": 2560
+    },
+    "all_gradients_present_finite_nonzero": true
+  },
+  "context_320": {
+    "candidate": {
+      "positions_per_second": 1728795.2077351434,
+      "median_step_seconds": 0.005923200130462647,
+      "timing_step_seconds": [
+        0.006289408206939697,
+        0.006337440013885498,
+        0.00497433614730835,
+        0.005923200130462647,
+        0.005641024112701416
+      ],
+      "peak_cuda_bytes": 208326144,
+      "incremental_peak_cuda_bytes": 182091264
+    },
+    "control": {
+      "positions_per_second": 2339181.1834070347,
+      "median_step_seconds": 0.004377600193023682,
+      "timing_step_seconds": [
+        0.004377600193023682,
+        0.0034288640022277833,
+        0.005678624153137207,
+        0.0033827519416809084,
+        0.004754752159118652
+      ],
+      "peak_cuda_bytes": 162950656,
+      "incremental_peak_cuda_bytes": 135677440
+    },
+    "candidate_to_control_throughput_ratio": 0.7390599838945098
+  },
+  "context_1024": {
+    "candidate": {
+      "positions_per_second": 2259837.098967938,
+      "median_step_seconds": 0.014500160217285157,
+      "timing_step_seconds": [
+        0.01477017593383789,
+        0.014401056289672852,
+        0.014873215675354004,
+        0.014413472175598144,
+        0.014500160217285157
+      ],
+      "peak_cuda_bytes": 645623296,
+      "incremental_peak_cuda_bytes": 561716736
+    },
+    "control": {
+      "positions_per_second": 1651690.2201600613,
+      "median_step_seconds": 0.019839071273803712,
+      "timing_step_seconds": [
+        0.02089574432373047,
+        0.019839071273803712,
+        0.020593120574951173,
+        0.018919679641723634,
+        0.018706623077392577
+      ],
+      "peak_cuda_bytes": 504638976,
+      "incremental_peak_cuda_bytes": 420742656
+    },
+    "candidate_to_control_throughput_ratio": 1.3681966941409527,
+    "candidate_to_control_peak_memory_ratio": 1.2793765973399565
+  },
+  "gates": {
+    "future_causality": true,
+    "completed_block_signal": true,
+    "complete_finite_gradients": true,
+    "context_320_minimum_0_70_control_throughput": true,
+    "context_1024_exceeds_control_throughput": true,
+    "context_320_below_2gb_incremental": true,
+    "context_1024_below_control_peak_memory": false,
+    "stage_a_passed": false
+  },
+  "interpretation": "Replacing the first local self-attention with four summary queries fixes both throughput gates, but the head-major to block-major copies and prefix concatenation are inferred to retain more activation storage than full Flash SDPA. V67 is rejected before model construction. A successor may test the exact same equations with block-major tensors native throughout; this layout hypothesis is not yet validated.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}

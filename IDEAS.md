@@ -48,12 +48,17 @@ return. Its causal mechanism works and its long-context core is 6.57% faster
 than full attention, but the two local token passes cost too much at context 320
 and retain too much activation memory. The rejected code is deleted.
 
-The surviving idea is **queried-summary exchange**: four learned queries read a
-completed raw block using cross-attention, the short summary stream organizes
-globally, and its shifted output enters a single local token pass. This keeps
-the useful micro/macro boundary while directly removing the full first local
-pass that V66 measured as waste. It remains a falsifiable systems candidate,
-not an architectural claim, until it clears the unchanged V66 gates.
+V67 then tested **queried-summary exchange**: four learned queries read a
+completed raw block, the short summary stream organizes globally, and its
+shifted output enters a single local token pass. This fixes both throughput
+gates, reaching 1.368x full attention speed at context 1,024, but still uses
+1.279x its peak allocation. The rejected implementation is deleted.
+
+The next isolated idea is block-native layout. V67's head-major input is copied
+when blocks are folded into the batch and copied again around the prefix/output
+layout. SDPA can instead retain block as a native leading dimension. V68 tests
+the identical hierarchy without those explicit layout copies; only evidence can
+decide whether the excess allocation is truly a layout problem.
 
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a

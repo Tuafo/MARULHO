@@ -104,6 +104,12 @@ uses 37.55% more peak allocation at 1,024. The reference, evaluator, partial
 artifacts, and tests are deleted. V67 may test queried summary extraction with
 only one local token pass; no micro-macro model or checkpoint surface exists.
 
+V67 queried-summary exchange is stopped as well. It clears both speed gates at
+73.91% of control throughput at context 320 and 136.82% at context 1,024, but
+uses 27.94% more peak allocation in the long-context arm. Its implementation,
+evaluator, tests, and partial artifacts are deleted. V68 may isolate native
+block-major layout; no queried-summary model or checkpoint surface exists.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

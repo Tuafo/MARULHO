@@ -1017,14 +1017,19 @@ reaches only 1.516M versus 2.729M positions/s, or 55.55% of control, below the
 frozen 70% floor. The implementation, runner, and tests are deleted; the compact
 report owns the result.
 
-**V67 queried-summary exchange (current bet)** — retain V66's causal completed-
-block organization while removing its measured waste. Four learned queries read
-each raw 64-token neighborhood with cheap cross-attention; the compressed
-summaries mix globally; the previous completed macro output prefixes one and
-only one local token-attention pass. This preserves parallel neighborhoods and
-the one-block causal shift while removing V66's first full local-token pass.
-Stage A must rerun the same frozen truth, context-320/context-1,024 throughput,
-and memory gates before any model is constructed.
+**V67 queried-summary exchange (stopped)** — replacing V66's first full local
+pass with four cross-attention queries fixes both speed gates. V67 reaches 73.91%
+of full attention throughput at context 320 and 136.82% at context 1,024, with
+exact causal isolation and complete gradients. It still peaks at 646 MB versus
+505 MB for the long-context control, failing the frozen memory gate. No model is
+built and all V67 implementation code is deleted.
+
+**V68 block-native queried exchange (current bet)** — test the exact successful
+V67 equations with token activations remaining `[batch,block,head,token,dim]`
+throughout the candidate. PyTorch SDPA accepts leading batch dimensions, so the
+block index need not be folded through a permute-plus-reshape copy. The frozen
+V67 truth, speed, and memory gates remain unchanged. This isolates whether
+layout copies—not the hierarchy—caused V67's only failure.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
