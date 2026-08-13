@@ -2731,6 +2731,26 @@ Compact report `macro-cortex-v70-phase0-pass-20260813.json` owns the exact
 timings and hashes (SHA-256
 `48747a3e2df299560f755d82223d9f222f9427dc0a48bb9632f3e271482ab7b3`).
 
+**Phase-1 outcome.** V70 terminates with `retire_v70_no_short_language_signal`.
+Candidate/control start at identical 9.1875 heldout loss. At steps 128/256/512,
+candidate loss is 6.9063/6.0000/5.7188 versus control's 6.5000/5.7500/5.5000.
+The required candidate gain was +0.02; actual control-minus-candidate loss is
+-0.21875. This is not explained by systems failure: candidate retains 94.61%
+end-to-end throughput (17.28k versus 18.27k positions/s), uses 5.14 versus 5.07
+GiB peak allocation, and both arms observe every parameter gradient. Tokenizer,
+schedule, common-initialization, source-selection, and unique-window contracts
+match exactly; relation updates and repeated selected windows are zero.
+
+The conclusion is narrow: ten layers of 64-token local attention with a four-
+summary completed-block channel lose too much detailed cross-block information
+for short general-language learning. It does not reject hierarchy, summaries,
+or macro conditioning in architectures that periodically restore exact token-
+level communication. No V70 checkpoint or generation implementation is built.
+The model, preflight, quality runner, tests, and partial arms are deleted; the
+compact quality report `macro-cortex-v70-quality-stop-20260813.json` owns the
+terminal evidence (SHA-256
+`5ba460b305c7a2f661e6bbf570efe6a55a217eaacac0a9c2957641544bda1e6b`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

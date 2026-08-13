@@ -1040,7 +1040,7 @@ use less long-context peak memory: 703 MB versus 652 MB (1.078x). V69 is not
 retroactively promoted; its transient code is deleted and it has no language-
 quality verdict.
 
-**V70 parameter-matched macro cortex (next bet)** — V66--V69 show that the
+**V70 parameter-matched macro cortex (stopped)** — V66--V69 show that the
 strict below-FlashAttention memory gate selects against carrying any additional
 macro state even when compute is faster. V70 must be freshly preregistered at
 the actual model boundary: approximately 100M parameters, at least 70% end-to-
@@ -1052,8 +1052,19 @@ least a 0.02 heldout-loss win before any longer curriculum or checkpoint exists.
 Phase 0 now passes: at 100,733,184 versus 100,679,424 parameters, candidate and
 control share one exact common-state hash; complete eager-Muon steps reach
 18.57k/19.41k positions/s (95.67% retention) and 5.53/5.48 GB peak allocation.
-Every gradient is present, finite, and nonzero. V70 is admitted only to the
-frozen 512-update quality screen; no checkpoint or runtime claim exists.
+Every gradient is present, finite, and nonzero. The frozen 512-update screen is
+nevertheless terminally negative: candidate/control start tied at 9.1875 loss,
+then finish at 5.7188/5.5000. V70 is worse at every 128-step milestone while
+retaining 94.61% throughput and only 69.4 MB extra peak allocation. The failure
+is language learning, not execution. Its model, runners, tests, and partials are
+deleted; no checkpoint or runtime surface exists.
+
+**Periodic global-reset hierarchy (next research direction)** — V70 compressed
+every cross-block interaction through four summaries. A successor should retain
+mostly fast macro-local layers but periodically run exact full-token attention,
+so detailed token relations can be reconstructed instead of being permanently
+compressed. This is a new architecture requiring a fresh preregistration, not a
+V70 depth or hyperparameter rescue.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

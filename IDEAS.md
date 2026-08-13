@@ -78,6 +78,15 @@ useful organization by definition. A new model experiment may instead enforce
 the real 11.5 GiB device ceiling and require the state to earn its cost through
 language and source-learning gains.
 
+V70 performs that model-level falsifier and rejects the all-local macro cortex.
+It runs at 94.61% of Transformer speed with only 1.27% more peak memory, but
+finishes 0.21875 heldout loss worse after 5.24M matched positions. The macro
+path is active and every parameter trains; the likely bottleneck is forcing all
+cross-block detail through four summaries in every layer. The surviving design
+idea is periodic exact global reset: several cheap macro-local layers organize
+regions, then a full-token layer restores detailed communication before the
+next hierarchy stage.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

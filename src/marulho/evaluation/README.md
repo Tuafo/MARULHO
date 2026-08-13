@@ -51,18 +51,10 @@ contract hash and atomic replacement, so a runner can reuse only an exact
 completed arm after interruption. Architecture decisions remain owned by the
 specific runner; this support cannot promote a model.
 
-**`scripts/evaluate_language_macro_cortex_v70_preflight.py`** — V70's bounded
-100M full-step admission runner. It uses eager Muon with no Inductor, exact
-common-state transfer, three timed complete optimizer steps per process, and the
-11.5-GiB watchdog-safe device gate. Its Phase-0 pass admits only the frozen
-512-update quality screen.
-
-**`language_macro_cortex_quality.py`** — V70's frozen Phase-1 quality runner.
-Candidate and control run in separate bounded processes over the same 512-entry
-unique indexed-host schedule. It owns exact source/tokenizer/schedule/state
-hashes, eager Muon, the 26-step warmup plus cosine schedule, heldout milestones,
-gradient coverage, throughput, peak memory, and atomic per-arm rows. It saves no
-model checkpoint.
+The deleted V70 preflight and quality runner established a mechanically healthy
+but terminally worse all-local macro cortex: 5.7188 versus 5.5000 heldout loss
+after 512 matched updates. The compact report retains exact hashes, curves,
+throughput, memory, and gradient evidence. No V70 evaluation surface remains.
 
 For supervised records that individually fit the causal context, the support can
 instead build one right-padded row per document. Padding occurs only after EOS

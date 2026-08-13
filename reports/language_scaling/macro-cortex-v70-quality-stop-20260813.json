@@ -1,0 +1,89 @@
+{
+  "artifact_kind": "marulho_macro_cortex_v70_quality",
+  "surface": "marulho_macro_cortex_v70_quality.v1",
+  "decision": "retire_v70_no_short_language_signal",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "vocab_size": 8192,
+    "width": 768,
+    "layers": 10,
+    "heads": 12,
+    "context_length": 320,
+    "batch_size": 32,
+    "updates_per_arm": 512,
+    "positions_per_arm": 5242880,
+    "precision": "bfloat16",
+    "optimizer": "marulho_muon_eager_orthogonalizer",
+    "peak_learning_rate": 0.0003,
+    "minimum_learning_rate": 0.00003,
+    "warmup_steps": 26,
+    "weight_decay": 0.1,
+    "gradient_clip": 1.0,
+    "minimum_candidate_loss_gain": 0.02,
+    "minimum_throughput_ratio": 0.7,
+    "maximum_peak_cuda_bytes": 12348030976,
+    "torch_compile_used": false
+  },
+  "matched_truth": {
+    "control_parameters": 100679424,
+    "candidate_parameters": 100733184,
+    "candidate_to_control_parameter_ratio": 1.0005339720656328,
+    "common_parameter_hash": "700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a",
+    "tokenizer_hash": "faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715",
+    "schedule_sha256": "8342013bb10d842f136c28338664e24db3132c13f5f160ea1eb94065b99daa07",
+    "relation_updates": 0,
+    "repeated_selected_windows": 0,
+    "common_hashes_match": true,
+    "schedule_hashes_match": true,
+    "tokenizer_hashes_match": true
+  },
+  "candidate": {
+    "initial_state_hash": "8f4c2f55c2ca7213c7518c6143adec1b7bf59552a9a8ef6539478edb2ef9e28b",
+    "final_state_hash": "432c3e7ad023a0df5b48d1fccdece51a981128d4bb10719224b9435f2315e1e4",
+    "heldout_curve": [
+      {"step": 0, "heldout_loss": 9.1875},
+      {"step": 128, "heldout_loss": 6.90625},
+      {"step": 256, "heldout_loss": 6.0},
+      {"step": 512, "heldout_loss": 5.71875}
+    ],
+    "training_seconds": 303.37470590000885,
+    "positions_per_second": 17281.86265379696,
+    "peak_cuda_bytes": 5515578880,
+    "missing_gradient_parameters": 0
+  },
+  "control": {
+    "initial_state_hash": "700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a",
+    "final_state_hash": "003710b94dcfe7063f5468d1faf0d9cfd5e4d97e6d364ddbaa16daedab611698",
+    "heldout_curve": [
+      {"step": 0, "heldout_loss": 9.1875},
+      {"step": 128, "heldout_loss": 6.5},
+      {"step": 256, "heldout_loss": 5.75},
+      {"step": 512, "heldout_loss": 5.5}
+    ],
+    "training_seconds": 287.0102820999873,
+    "positions_per_second": 18267.22012061404,
+    "peak_cuda_bytes": 5446176256,
+    "missing_gradient_parameters": 0
+  },
+  "comparison": {
+    "control_minus_candidate_final_loss": -0.21875,
+    "candidate_to_control_throughput_ratio": 0.9460587073287012,
+    "candidate_to_control_peak_memory_ratio": 1.01274336722458,
+    "candidate_peak_memory_delta_bytes": 69402624
+  },
+  "gates": {
+    "initial_heldout_loss_equal": true,
+    "candidate_final_loss_at_least_0_02_better": false,
+    "candidate_at_least_0_70_control_throughput": true,
+    "candidate_below_11_5_gib": true,
+    "complete_finite_gradients": true,
+    "phase1_passed": false
+  },
+  "interpretation": "V70 is mechanically healthy and nearly speed-neutral, but it is worse than the exact Transformer control at every post-training milestone and finishes 0.21875 loss behind. The all-local 64-token path plus four-summary macro channel is an information bottleneck on short general-language learning. No checkpoint, generation surface, longer curriculum, or parameter tuning is admitted.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}
