@@ -136,27 +136,13 @@ quality at 5.5625 versus 5.5000 while running slightly faster, but does not win.
 Adding the macro channel worsens loss to 5.6875. The model, runners, tests, and
 partials are deleted; no generation, checkpoint, or runtime surface exists.
 
-`language_persistent_workspace.py` is V72's temporary Stage-A1 mechanism
-falsifier. A complete small causal token path reads and writes eight latent
-tokens across three synthetic document segments. Persistent, reset,
-wrong-document, and document-anonymous batch-mean arms execute identical
-modules; only state identity and lifetime differ. The state is detached at
-segment boundaries, and local reconstruction trains writes without leaking the
-later query answer backward. This is training-only machinery, not a language
-runtime or checkpoint surface. It clears all three frozen seeds at 100% versus
-6.23%--7.15% controls with exact mechanical contracts, so it remains only while
-V72 undergoes its real sequential-language falsifier. A failure there deletes
-the candidate and this A1 machinery together.
-
-The same module now owns V72's uninstalled A2 candidate. It preserves all ten
-width-768 full-attention Transformer layers, adds two reads from the previous
-completed eight-token workspace and one post-segment write, and reduces only
-SwiGLU hidden width from 3,072 to 2,768. The resulting 100,769,281 parameters are
-1.00089 times the 100,679,424-parameter Transformer. Completed-state gradients
-stop at each 320-token boundary; an identical local landmark-reconstruction
-objective trains the writer in persistent, reset, and shuffled arms. No
-incremental generation, checkpoint loader, runtime installation, or compatibility
-surface exists before the frozen sequential-language gate passes.
+V72's persistent workspace is retired and deleted. Its small synthetic model
+proves eight detached tokens can carry delayed facts, and the real 100M model's
+state-swap delta of 0.03867 proves document-specific state affects predictions.
+But its later-segment loss is 5.95039 versus the Transformer's 5.85117 despite
+96.61% throughput and safe memory. Causal memory did not outweigh reduced
+ordinary language capacity. No V72 model, runner, tests, loader, checkpoint,
+runtime option, or compatibility path remains.
 
 **`language_model.py`** — the language model contract. It owns:
 

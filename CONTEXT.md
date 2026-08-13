@@ -1075,18 +1075,28 @@ recover most of V70's deficit, but macro makes the matched topology 0.125 worse
 and 6.17% slower. V66--V71's four-summary path is retired for base language;
 periodic-local is a near-control, not a promoted model. All V71 code is deleted.
 
-**V72 persistent cross-segment workspace (current bet)** — preserve all ten
-exact Transformer layers and add eight latent tokens whose only unique property
-is survival from one 320-token segment to the next within a document. Its frozen
-Stage-A1 mechanism screen passes all three seeds: persistent delayed-recall
-accuracy is 100%, while reset, wrong-document, and document-anonymous controls
-remain between 6.23% and 7.15% (chance is 6.25%). Initial tensors and schedules
-match within each seed, every parameter receives a finite nonzero gradient,
-future perturbations leave earlier outputs/state bit-exact, and peak CUDA
-allocation is 333.51 MiB. This proves useful information survives the state
-channel; it does not prove language value. V72 now advances only to the frozen
-sequential long-document Transformer/control comparison. Randomly shuffled
-windows cannot promote it.
+**V72 persistent cross-segment workspace (retired)** — compact state is causal
+but does not improve the joint language system. Stage A1 reaches 100% delayed
+recall versus 6.23%--7.15% controls in all three seeds. In the real 100M-parameter
+long-document screen, swapping the state worsens later-segment loss by 0.03867,
+proving document-specific contents matter; the candidate also retains 96.61% of
+Transformer throughput at 5.89 GB peak allocation. Nevertheless, persistent/
+Transformer later-segment loss is 5.95039/5.85117: memory regresses language by
+0.09922 instead of improving it by 0.02. It is worse on both FineWeb-Edu and
+Cosmopedia and even on the first segment. The terminal Transformer gate fires,
+so reset/shuffled arms are not spent after they can no longer rescue promotion.
+All V72 model, evaluator, and test code is deleted. The installed language path
+remains the Transformer.
+
+**Transformer-centered self-improvement (current direction)** — stop replacing
+the only language cortex that survives matched scale. Preserve the full
+Transformer and improve the system around its demonstrated weaknesses: training
+efficiency, continual learning, durable exact context, adaptive compute, and
+verification. V59--V63 already reject post-hoc source-time fine-tuning and small
+memory retrofits onto a frozen parent; V72 rejects paying for compressed latent
+state by narrowing the base model. The next experiment must therefore keep
+Transformer capacity exact and make any adaptation conditional or temporary,
+with a zero-action path that is bit-exact and equal to the base model.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

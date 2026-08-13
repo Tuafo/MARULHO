@@ -1,0 +1,47 @@
+{
+  "surface": "marulho_persistent_workspace_v72.a2_early_stop.v1",
+  "decision": "retire_v72_persistent_workspace_real_language_failure",
+  "passed": false,
+  "terminal_gate": "persistent_later_segment_loss_must_beat_transformer_by_0_02",
+  "contract_sha256": "eb56d6828e9a89ec7a0a7092663694e5c27c4c1d29dc1104b15ad29d10739d27",
+  "completed_arms": [
+    "transformer",
+    "persistent"
+  ],
+  "unrun_arms": [
+    "reset",
+    "shuffled"
+  ],
+  "early_stop_reason": "The persistent arm is 0.09921875 worse than the Transformer. Reset and shuffled controls cannot repair the already terminal Transformer comparison, so they are omitted to avoid non-informative GPU spend.",
+  "transformer": {
+    "later_segment_loss": 5.851171875,
+    "first_segment_loss": 5.6515625,
+    "positions_per_second": 22203.676087144173,
+    "peak_cuda_allocated_bytes": 5852532736,
+    "report_sha256": "03f736293a3cc3820ded6a65326ace6bb6090cd19c86122fd72555fa10e480a5"
+  },
+  "persistent": {
+    "later_segment_loss": 5.950390625,
+    "first_segment_loss": 5.74453125,
+    "positions_per_second": 21451.58805220007,
+    "peak_cuda_allocated_bytes": 5890541568,
+    "state_swap_wrong_minus_correct": 0.038671875,
+    "report_sha256": "ed9d3a529b776f263532c8e6ecb514da20acad500b46b06ac4407650ecfd3411"
+  },
+  "deltas": {
+    "persistent_minus_transformer_later_loss": 0.09921875,
+    "persistent_minus_transformer_first_loss": 0.09296875,
+    "persistent_minus_transformer_fineweb_later_loss": 0.09140625,
+    "persistent_minus_transformer_cosmopedia_later_loss": 0.10859375,
+    "persistent_throughput_ratio": 0.9661277694741927
+  },
+  "checks": {
+    "persistent_beats_transformer_by_0_02": false,
+    "persistent_throughput_at_least_70_percent": true,
+    "persistent_peak_below_11_5_gib": true,
+    "state_swap_worsens_loss_by_0_02": true,
+    "all_gradients_complete": true,
+    "parameter_ratio_0_99_to_1_01": true
+  },
+  "claim_boundary": "V72 demonstrates causally useful compact cross-segment state, but this matched implementation worsens real language prediction and is not a runtime or architecture promotion."
+}

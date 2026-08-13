@@ -2960,6 +2960,29 @@ language-quality claim. Compact report
 `persistent-workspace-v72-a2-preflight-20260813.json` owns the evidence
 (SHA-256 `aeccb9a6ce0f4eae2c40e7fa63633fc567d8c5b589ce9d1d8152b7f18299df40`).
 
+**A2 terminal result: STOP.** Persistent state is mechanically real but loses
+the joint language gate. After the frozen 256 unique-document updates,
+Transformer/persistent later-segment heldout loss is 5.85117/5.95039. The
+candidate is worse by 0.09922 overall, 0.09141 on FineWeb-Edu, and 0.10859 on
+Cosmopedia. First-segment loss is also worse by 0.09297, evidence that the
+slightly narrowed SwiGLU path and auxiliary write objective reduce ordinary
+language learning before memory could help. This is not dead state: replacing a
+document's workspace with another document's worsens later loss by 0.03867,
+above the causal 0.02 gate. Candidate throughput is 21.45k versus 22.20k
+positions/s (96.61%), peak allocation is 5.89 GB, parameter ratio is 1.000893,
+and every gradient is finite and nonzero. Useful state is therefore insufficient
+for a better complete model.
+
+The Transformer comparison is already terminally failed, so the reset and
+shuffled training arms cannot rescue the joint gate and are not run. This is a
+preregistered early stop, not a positive control claim. Decision:
+`retire_v72_persistent_workspace_real_language_failure`. All V72 implementation,
+runners, and tests are deleted; the compact A1, preflight, Transformer,
+persistent, and early-stop reports retain the evidence. The terminal report is
+`persistent-workspace-v72-a2-early-stop-20260813.json` (SHA-256
+`c81b525ec612886785302f0d3c7e318e113eb3ec47fd5685ff827279209c5db8`). V72 rules out this
+compressed detached-workspace interface, not every form of long context.
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token
