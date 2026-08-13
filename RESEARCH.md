@@ -2178,6 +2178,117 @@ This closes adapter-level rescue around V39; V64 must replace the base language
 computation or its learning objective, not alter memory rank, gates, sites, or
 replay proportions.
 
+### V64 delta-state cortex: preregistered base replacement
+
+**Question.** Can a bounded recurrent matrix state integrated during base
+pretraining learn source-conditioned language more effectively than a matched
+Transformer without giving up general continuation quality or consumer-GPU
+feasibility? This is the first post-V63 base replacement. It starts from random
+weights, imports no external model, and uses `external_llm_used=false`.
+
+**Null hypothesis.** At roughly 100M parameters and 83.89M matched training
+positions, the candidate does not jointly improve source-conditioned exact
+generation and preserve heldout general language. A loss-only, recognition-only,
+oracle-only, or throughput-only advantage is a failure.
+
+**Candidate.** The MARULHO delta-state cortex has twelve width-640, ten-head
+pre-norm blocks and tied 8,192-token embeddings. Blocks repeat three delta-state
+mixers followed by one local-attention mixer, giving nine recurrent and three
+attention blocks. Each head owns a 64x64 FP32 state. The recurrent update has
+independent learned channel decay, key-side erase, and value-side write; query,
+key, value, erase, write, decay, output gate, and output projections are trained
+with the base. Local attention has a hard 64-token window. Delta training uses
+an owned chunk-32 parallel form and generation uses the algebraically identical
+recurrent form. The SwiGLU hidden width is 2,624 so the measured candidate count
+must fall within 0.99--1.01 times the control's 100,679,424 parameters.
+
+This is not the retired V33/delta-v1 path under a new name. V33 used two serial,
+small-state diagonal-affine recurrent blocks and two attention blocks, lost its
+early advantage by 16.78M tokens, and ran at roughly one tenth of the control.
+V64 uses a current full per-head matrix state, separately controllable
+decay/erase/write, chunk-parallel training, three bounded exact-attention
+specialists, a 100M-class base, and a mixed real-language/source-use objective.
+The mechanism is informed by
+[Gated Delta Networks](https://arxiv.org/abs/2412.06464),
+[Kimi Linear](https://arxiv.org/abs/2510.26692), and
+[Gated DeltaNet-2](https://arxiv.org/abs/2605.22791), but MARULHO owns the
+implementation, runtime state, weights, generation, checkpoint, and report.
+The Flash Linear Attention package may be inspected as reference code but is
+not a runtime dependency and supplies no kernel or learned tensor.
+
+**Matched control and schedule.** The control is a fresh V34-shape Transformer:
+width 768, ten layers, twelve heads, 100,679,424 parameters. Both arms use the
+same existing 8,192-token BPE, context 320, batch 32, BF16 dense projections,
+FP32 recurrent algebra where required, fused AdamW, 4e-4 peak learning rate,
+5% warmup, cosine decay to 10%, identical seeds-by-role, and the same immutable
+batch order. The frozen vocabulary hash is
+`faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`.
+There are 8,192 optimizer steps and 83,886,080 padded positions:
+
+- 6,144 unique general batches, 3,072 from each frozen FineWeb-Edu and
+  Cosmopedia source, totaling 62,914,560 positions;
+- 2,048 document-aligned source-QA batches, eight exact passes over 8,192
+  title-disjoint training records, totaling 20,971,520 positions;
+- deterministic `general, general, general, QA` interleaving; ordinary causal
+  loss on general batches and the retained renormalized four-times answer
+  emphasis on QA answer spans while every non-pad token remains trained.
+
+The immutable inputs are the existing `fineweb-edu-replay-75k-shard2` and
+`cosmopedia-v2-replay-75k-shard4` corpora with SHA-256
+`034a3a00ea86ec097b913f6002485a6081c6adb2b66c14ddc82be7d57b13751c` and
+`7b6f41e3b3d2c1871d0124dc19f212713e3c8136e9f66cb462c845354e267aa7`;
+their disjoint eval corpora hash to
+`a4e00212ab6101ebb4e269068fae414d53a16bca063ba37038331c10e3cda64a`
+and `e0a86c6014f701b5fa91578cf2e9079e9351c61778ac3917acacc3f166c97491`.
+The QA train/validation manifests hash to
+`aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133`
+and `b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80`.
+
+The validation side is never sampled for training. General evaluation repacks
+the existing disjoint FineWeb-Edu and Cosmopedia holdouts at context 320. Source
+evaluation uses the frozen 256-record title-disjoint manifest and reports
+question-only, shuffled-source, true-source, and oracle-localized generation.
+It also records answer containment and token-boundary validity so a tokenizer
+or prompt bug cannot masquerade as a mechanism result. Fixed unseen general
+prompts are generated before and after training for both arms under one frozen
+decode policy.
+
+**Kernel truth before quality.** The sequential FP32 reference is the oracle for
+the owned chunkwise implementation. Random and adversarial short sequences must
+match forward outputs, final state, every input/parameter gradient, chunk
+composition, token-by-token streaming, and state reset. CUDA BF16/FP32 mixed
+execution must remain within preregistered numerical tolerances and all trainable
+tensors must receive a finite nonzero gradient. Compiled execution is admitted
+only after eager/compiled loss, state, and gradient parity; compile time is
+reported separately and eager remains valid. A real batch-32/context-320 step
+must fit below 11.5 GiB. If candidate preflight throughput is below half the
+control, the terminal run stops for kernel redesign without a quality verdict.
+
+**Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
+parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
+finite state, owned generation, checkpoint tensor/logit/state reload, and
+observed CUDA accounting. Behavioral promotion requires all of:
+
+1. candidate disjoint general loss at most `control + 0.02`;
+2. candidate true-source exact answers at least 64/256, at least 20 cases above
+   the Transformer, and at least 51 cases above
+   `max(question_only, shuffled_source)`;
+3. shuffled-source exact answers at most 16/256, oracle at least 128/256, and
+   true-to-oracle gap at most 64 cases;
+4. no obvious collapse on the frozen unseen prose panel;
+5. candidate steady training throughput at least 70% of the control and peak
+   CUDA allocation no greater than 11.5 GiB.
+
+If neither arm reaches 128/256 oracle, decide
+`redesign_v64_training_objective_no_architecture_verdict`. If the Transformer
+passes source/general gates and the candidate does not, decide
+`retire_v64_delta_state_cortex`. If the candidate passes every joint gate and
+materially beats the control on true-source behavior, decide
+`scale_v64_delta_state_cortex_to_continual_validation`. No extra rank, gate,
+layer-order, optimizer, replay, or decode sweep is allowed after seeing terminal
+results. A failed candidate leaves only compact evidence; its model, runner,
+tests, and checkpoint are deleted.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

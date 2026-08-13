@@ -1669,6 +1669,16 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
+The immediate V64 program replaces the base computation rather than repairing
+V39. A fresh 100M-class delta-state/local-attention cortex and fresh V34-shape
+Transformer control receive the same 8,192-step context-320 curriculum: 6,144
+unique general batches plus 2,048 source-QA batches. The evaluation owner must
+report disjoint general loss, question-only/shuffled/true/oracle source
+generation, frozen unseen prose, full gradient coverage, sequential/chunk/
+streaming parity, checkpoint reload, CUDA throughput, and peak allocation.
+`RESEARCH.md` owns the immutable V64 thresholds and terminal branch decisions;
+neither a low loss alone nor a fast recurrent kernel can promote the model.
+
 ### 1. Relation-binding falsification
 
 Continue a branch from the active checkpoint on a procedural entity/event

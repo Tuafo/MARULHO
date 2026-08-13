@@ -79,8 +79,18 @@ The editable delta-memory v1 model, falsification runner, generation audit, and
 tests are also deleted after durable falsification. Its 2/2 hybrid beat the
 Transformer at 1.06M and 4.20M tokens, then lost heldout loss, free relation
 recall, throughput, and unseen semantic generation at 16.78M. New work starts
-from the distributed multi-timescale hypothesis in `RESEARCH.md`, not from a
-delta compatibility surface.
+from the V64 base-substrate hypothesis in `RESEARCH.md`, not from a delta
+compatibility surface.
+
+V64 is preregistered as a clean, from-scratch replacement candidate. Its
+MARULHO-owned delta-state cortex will provide an owned sequential reference,
+chunk-32 training form, exact recurrent generation state, and a strict
+checkpoint surface. Nine full per-head matrix-state blocks with independent
+decay/erase/write alternate in a 3:1 pattern with three window-64 attention
+blocks. It faces a fresh 100.68M Transformer at matched parameters, tokenizer,
+context-320 schedule, optimizer, 83.89M positions, and evaluation. None of this
+machinery is installed or maintained until the joint quality/source-use gate
+passes; the old serial delta code remains deleted.
 
 **`language_model.py`** — the language model contract. It owns:
 

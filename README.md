@@ -429,6 +429,17 @@ positive controlled result—not a replacement for frontier Transformers.
     true, and oracle are 0/0/0/1 of 256. No checkpoint survives; code and tests
     are deleted. V39 memory adapters are closed, and the next experiment must
     change the base language substrate or learning objective.
+33. V64 is the from-scratch base-substrate decision, not another V39 repair.
+    A 100M-class MARULHO delta-state cortex with nine independently gated
+    decay/erase/write matrix-state blocks and three bounded local-attention
+    blocks faces a fresh 100.68M Transformer on the same tokenizer, context-320
+    data order, optimizer, 83.89M padded positions, and heldout evaluations.
+    The curriculum contains 62.91M unique general positions and eight exact
+    passes over 8,192 title-disjoint source-QA records. Recurrent/chunk parity,
+    full gradients, source controls, unseen prose, throughput, VRAM, and strict
+    checkpoint reload decide the branch. The candidate is not installed unless
+    it jointly preserves general likelihood and materially improves causal
+    source use; a fast but weak recurrent model is retired.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

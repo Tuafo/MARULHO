@@ -930,6 +930,35 @@ memory adaptation around V39. No extra rank, reader, gate, injection site, or
 SQuAD replay sweep is admissible. The next experiment must change the base
 language computation or learning objective.
 
+**V64 delta-state cortex (preregistered base replacement)** — V64 starts both
+arms from random weights and compares a 100M-class MARULHO delta-state/local-
+attention cortex with a fresh 100,679,424-parameter Transformer. It does not
+load V39 and does not restore the retired V33 serial delta implementation. The
+candidate uses twelve width-640 blocks: nine bounded matrix-state blocks with
+independent channel decay, key-side erase, and value-side write, plus three
+window-64 local-attention blocks in a repeated 3:1 pattern. Ten heads keep a
+64-dimensional per-head state; chunk size is 32 and streaming state is exact.
+Its 2,624-wide SwiGLU is chosen to keep the final parameter count within one
+percent of the control, not to add an unmatched capacity advantage.
+
+Both arms see the same deterministic 8,192-step, batch-32, context-320 schedule:
+6,144 unique general batches split equally across frozen FineWeb-Edu and
+Cosmopedia sources, interleaved with 2,048 source-QA batches covering all 8,192
+title-disjoint records for eight epochs. That is 83,886,080 padded positions,
+75% general and 25% source-QA, with the existing four-times answer emphasis only
+on QA batches. A fresh fused AdamW recipe, cosine schedule, tokenizer, exact
+batch order, evaluation manifests, and generation policies are shared. The
+architecture verdict requires owned sequential/chunk/recurrent agreement,
+complete gradients, finite state, strict checkpoint reload, a heldout general
+loss no more than 0.02 above the control, at least 64/256 exact true-source
+answers, at least 20 cases above the Transformer, and a 51-case gain over the
+stronger source-absent/shuffled control,
+oracle at least 128/256, coherent unseen prose, at least 70% of control training
+throughput, and no more than 11.5 GiB peak allocation. If neither arm reaches
+the oracle floor, the training objective is invalid rather than evidence for a
+candidate win. Quality outranks speed; no terminal checkpoint survives a failed
+joint gate.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
