@@ -2877,9 +2877,11 @@ each boundary. `reset_each_segment` restores the learned initial bank,
 `nonpersistent_same_compute` replaces document state with the batch-mean bank;
 all still execute the write/read tensors. Train 600 AdamW updates at `3e-4`
 with no weight decay, gradient norm 1.0, and evaluate 4,096 fresh documents per
-seed. Accuracy is the only behavioral selection metric. No width, step,
-learning-rate, auxiliary weight, or dataset sweep is allowed after observing
-an arm result.
+seed. The frozen loss is final-query value cross-entropy plus `0.5` times each
+of the segment-zero workspace key and value reconstruction losses plus `0.1`
+times visible write-marker binary cross-entropy. Accuracy is the only
+behavioral selection metric. No width, step, learning-rate, auxiliary weight,
+or dataset sweep is allowed after observing an arm result.
 
 **Stage A2 — sequential real-language admission.** Materialize disjoint long
 FineWeb-Edu and Cosmopedia documents with at least three complete segments; do
