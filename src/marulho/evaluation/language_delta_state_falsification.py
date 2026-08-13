@@ -128,19 +128,35 @@ def weighted_causal_loss(
 def build_compiled_weighted_loss(
     model: MarulhoLanguageModel | MarulhoDeltaStateLanguageModel,
 ) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]:
+    def logits(input_ids: torch.Tensor) -> torch.Tensor:
+        return model(
+            input_ids,
+            collect_telemetry=False,
+            decode_vocab_only=False,
+        )["logits"]
+
+    compiled_logits = torch.compile(
+        logits,
+        backend="inductor",
+        fullgraph=True,
+        dynamic=False,
+    )
+
     def loss(
         input_ids: torch.Tensor,
         target_ids: torch.Tensor,
         target_weights: torch.Tensor,
     ) -> torch.Tensor:
-        return weighted_causal_loss(model, input_ids, target_ids, target_weights)
+        observed_logits = compiled_logits(input_ids)
+        losses = F.cross_entropy(
+            observed_logits.reshape(-1, observed_logits.shape[-1]),
+            target_ids.reshape(-1),
+            reduction="none",
+        ).reshape(target_ids.shape)
+        weights = target_weights.to(device=losses.device, dtype=losses.dtype)
+        return (losses * weights).sum() / weights.sum().clamp_min(1.0)
 
-    return torch.compile(
-        loss,
-        backend="inductor",
-        fullgraph=True,
-        dynamic=False,
-    )
+    return loss
 
 
 def _gradient_inventory(
@@ -284,7 +300,7 @@ def _preflight_arm(
     model.zero_grad(set_to_none=True)
 
     compiled_loss = build_compiled_weighted_loss(model)
-    print(f"[v64-preflight] {name} compiling exact weighted graph", flush=True)
+    print(f"[v64-preflight] {name} compiling model graph", flush=True)
     torch.cuda.synchronize(model.device)
     compile_started = time.perf_counter()
     with torch.autocast("cuda", dtype=torch.bfloat16):
@@ -353,6 +369,8 @@ def _preflight_arm(
         / max(elapsed + compile_seconds, 1.0e-9),
         "peak_cuda_bytes": int(torch.cuda.max_memory_allocated(model.device)),
         "optimizer": "fused_AdamW",
+        "compiled_scope": "model_forward_backward_fullgraph",
+        "explicit_uncompiled_scope": "weighted_cross_entropy_and_optimizer",
         "fp32_master_parameters": all(
             parameter.dtype == torch.float32 for parameter in model.parameters()
         ),

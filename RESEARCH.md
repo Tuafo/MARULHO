@@ -2278,6 +2278,14 @@ compilation takes 587.20 seconds once and then reaches 19.97k positions/s with
 gradient parity still decide terminal admission; the 70% promotion gate is
 unchanged.
 
+An attempted full graph that also fused the answer-weighted cross-entropy hit
+the 1,204-second per-process ceiling twice and produced no artifact. That
+execution form is rejected without a quality conclusion. V64 therefore compiles
+the fixed-shape model forward/backward graph while keeping the inexpensive
+weighted cross-entropy and fused AdamW step explicit. `fullgraph=True` still
+forbids model-graph fallback, and end-to-end loss/gradient parity plus
+optimizer-inclusive timing still decide admission.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
