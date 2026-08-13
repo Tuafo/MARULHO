@@ -7,6 +7,32 @@ into an operation, prediction, control, and kill condition before implementation
 
 ## Current synthesis
 
+V64 now adds a decisive systems result to the ledger. Its 100,202,970-parameter
+delta-state/local-attention cortex was mathematically correct, its owned Triton
+backward passed full-model parity, and CUDA Graph reproduced an eager fused-
+AdamW update exactly. It still reached only 9.24k positions/s versus the fresh
+Transformer's 21.03k, so the branch stopped at 43.93% of control before language
+training. The live model and kernels are deleted. This rejects token-sequential
+training on the RTX 3060; it does not show that editable finite state lacks
+language value.
+
+The current creative bet is therefore narrower and stronger: **parallel state
+weaving**. Each state layer must expose the same two faces—an exact recurrent
+update for streaming generation and an algebraically identical chunk-parallel
+form for training. Channel-wise decay decides what broadly persists, key-side
+erase removes stale associations, and value-side write commits new content.
+Two such layers followed by one bounded exact-attention layer form one cell.
+This is inspired by Gated DeltaNet-2, Kimi Delta Attention, and Mamba-3 rather
+than claimed as an invented primitive. MARULHO's contribution must come from an
+owned implementation, consumer-GPU evidence, later cross-layer organization,
+continual learning, and structural extension—not renaming published equations.
+
+Small units are not the starting assumption. If the parallel state base works,
+Raven-style sparse slots or LCO-like conditional units may later receive
+specific memory or capacity jobs. If it fails, they do not rescue it. Wavelets,
+tori, reservoirs, chaos, and free-energy objectives remain scoped tools whose
+own falsifiers must earn entry; V65 deliberately tests one causal difference.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

@@ -970,6 +970,29 @@ the frozen 50% preflight floor. Candidate peak allocation is 8.70 GB. Decision:
 checkpoint started. Four failed Inductor attempts, their cache, and that backend
 remain deleted.
 
+**V65 parallel editable-state cortex (current bet)** — V64's terminal result
+rejects token-sequential training, not separately controlled state editing.
+Gated DeltaNet-2 independently reports that channel-wise decay plus separate
+channel-wise erase and write can compete strongly at 1.3B parameters when the
+same recurrence is trained through a fused chunkwise WY algorithm. V65 tests
+that computational distinction directly. MARULHO will derive an owned
+chunk-parallel implementation from the published equations; it will not import
+external model weights, use an external cognition service, or copy NVIDIA's
+non-commercial implementation. The sequential equation remains an FP64 oracle
+and streaming-inference form only.
+
+The first gate is operator truth and speed, not a new language run. An isolated
+CUDA kernel must match sequential outputs, final state, and every input gradient
+at chunk sizes 16/32/64, avoid Inductor, survive the process-tree watchdog, and
+materially beat V64's 182.2k forward/backward positions/s without its 1.033 GB
+incremental workspace. Only then may a fresh approximately 100M-parameter stack
+alternate two parallel editable-state blocks with one bounded exact-attention
+block and face the fresh Transformer at matched tokenizer, data, parameters,
+optimizer, context, and effective batch. The 50% preflight floor and 70%
+terminal throughput gate remain minimums, not success claims. Language quality,
+source use, continual retention, checkpoint fidelity, and sustained runtime
+still decide the architecture.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

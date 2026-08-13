@@ -2336,6 +2336,70 @@ Another launch-capture layer cannot repair a compute path whose complete graph
 is already 2.28 times slower than control; the next architecture must change the
 parallel training computation rather than wrap this recurrence again.
 
+### V65 parallel editable-state cortex: preregistration
+
+**Question.** Did V64 fail because finite editable state is a weak language
+mechanism, or because its training kernel performed the recurrence token by
+token? The null is that a true chunk-parallel algorithm either remains too slow
+on the RTX 3060 or reaches speed by changing the recurrence enough to lose exact
+state and gradient truth.
+
+The current literature makes this distinction testable. [Gated DeltaNet-2](https://arxiv.org/abs/2605.22791)
+uses the update
+
+`S_t = (I - k_t (b_t * k_t)^T) D_t S_(t-1) + k_t (w_t * v_t)^T`,
+
+where channel-wise decay, erase, and write have separate jobs. This is close to
+V64's intended state semantics, but the reported system derives an asymmetric
+WY form and gate-aware backward so training is parallel inside chunks. At 1.3B
+parameters and 100B FineWeb-Edu tokens it reports stronger aggregate language,
+commonsense, and retrieval results than its matched recurrent competitors.
+[Mamba-3](https://arxiv.org/abs/2603.15569) is the strongest alternative
+state-space control, while [Raven](https://arxiv.org/abs/2607.25357) motivates
+sparse slot writes for later interference tests. Neither becomes V65 by name or
+dependency. The official Gated DeltaNet-2 code is non-commercially licensed;
+MARULHO will not copy it. Published mathematics and independently written
+oracles/kernels are the allowed inputs. `external_llm_used` remains false.
+
+**Stage A — kernel admission.** Implement the exact sequential equation in FP64,
+then independently derive a chunkwise forward/backward with direct CUDA/Triton
+execution. Test chunk sizes 16, 32, and 64; random and adversarial decay/erase/
+write regimes; non-contiguous head layouts; final-state continuation; and every
+input/state gradient. Global gradient cosine must be at least 0.999 and maximum
+absolute gradient delta at most 0.01. No `torch.compile`, Inductor cache, hidden
+external package, inverse-state reconstruction, or unbounded process is allowed.
+The watchdog and disposable compiler cache are mandatory.
+
+At V64's batch-32, ten-head, context-320, key/value-64 operator shape, complete
+forward/backward must exceed 300k positions/s and incremental peak allocation
+must stay below 0.80 GB. These are mechanism-admission thresholds chosen to be
+materially beyond V64's 182.2k and 1.033 GB, not claims of model speed. A miss
+deletes the kernel and stops V65 before model construction.
+
+**Stage B — full-model admission.** If Stage A passes, build a fresh roughly
+100M-parameter model with repeated two-state/one-bounded-attention cells. State
+training uses only the admitted parallel form; recurrent form is generation and
+continuation truth. Compare with the fresh 100,679,424-parameter Transformer at
+matched tokenizer, data, optimizer, precision, effective batch, and context.
+Sweep context 320, 1,024, and the largest safe longer point so the result shows
+both the short-context constant cost and the intended scaling regime. The
+candidate must reach at least 50% of control at its actual training context,
+retain at least 70% for terminal promotion, remain below 11.5 GiB, and pass exact
+optimizer/checkpoint parity before language training.
+
+**Stage C — capability.** Reuse V64's frozen 8,192-step mixed general/source-QA
+curriculum only after Stage B. The candidate must remain within 0.02 heldout
+general loss of control, reach at least 64/256 exact true-source answers, beat
+the Transformer by at least 20 cases and the stronger absent/shuffled control by
+at least 51, preserve coherent unseen prose, and exactly reload. A useful base
+then earns continual-domain retention and the 524,288-token sustained run.
+
+Cross-layer value routing, sparse Raven-like slots, MoE, reservoirs, wavelets,
+and structural growth are excluded from V65's base gate. They become isolated
+ablations only after the parallel state path proves both speed and language
+value. This prevents an attractive collection of ideas from hiding which
+mechanism worked.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
