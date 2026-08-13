@@ -2496,11 +2496,46 @@ tests are deleted; `micro-macro-v66-stage-a-stop-20260813.json` owns the durable
 evidence (SHA-256
 `ade21fd08089e576d2369f2a187e1081cc4ab6c3e3885974365f0375091843fd`).
 
-The next isolated variable is V67 queried-summary exchange. Four learned queries
-cross-attend to each completed raw 64-token block, the resulting summaries use
-the same global causal mixer, and the shifted macro prefix participates in only
-one local token-attention pass. This removes V66's first full local pass without
-changing neighborhood size, summary count, shift boundary, hardware, or gates.
+### V67 queried-summary exchange: preregistration
+
+**Isolated variable.** Replace V66's first length-68 local self-attention pass
+with four learned queries cross-attending to the 64 raw hidden vectors of each
+completed block. Fold blocks into the batch exactly as in V66. Flatten the four
+outputs per block into the same causal global summary stream. Shift block
+`j-1`'s completed global outputs into block `j` as four prefix vectors; block
+zero receives a learned start prefix. Run exactly one length-68 local causal
+self-attention pass over prefix plus raw block and return its 64 real outputs.
+There are no summary projections, gates, convolutions, recurrence, dynamic
+boundaries, or additional local pass. Neighborhood size remains 64 and summary
+count remains four.
+
+**Stage A frozen protocol.** Use direct PyTorch CUDA SDPA without Inductor on
+the same RTX 3060. At batch 32, width 640, ten heads, BF16, and contexts 320 and
+1,024, run two warmup steps and time five complete forward/backward steps. The
+candidate loss is mean-squared local output plus mean-squared global-summary
+output; the ordinary full causal-attention control uses mean-squared output.
+Report median positions/s, all samples, absolute and incremental peak CUDA
+allocation, device/software identity, and whether every input/query/start
+gradient is present, finite, and nonzero. A separate FP32 context-320 truth arm
+must keep outputs before a future perturbation boundary within 1e-6 and must
+show a nonzero change in the immediately following block when a completed block
+is perturbed.
+
+The unchanged admission gates are candidate/control throughput greater than
+1.00 at context 1,024, at least 0.70 at context 320, candidate peak allocation
+below control at 1,024, and candidate incremental allocation below 2.0 GB at
+320. Every CUDA process uses the process-tree watchdog. This exact implementation
+gets one measurement; no query count, block size, precision, loss, or attention
+layout changes are allowed after observing it. Any miss records a compact report
+and deletes all V67 code before model work.
+
+**Stage B only after a complete pass.** Build an approximately 100M owned model
+against the fresh 100,679,424-parameter Transformer with the same tokenizer,
+embedding/head, SwiGLU budget, Muon/AdamW optimizer, data, and causal-language
+protocol. Adjust the number of local/global layers to reach parameter ratio
+0.99--1.01. A short unique-data curve must show a real heldout signal before
+the frozen 8,192-step general/source-QA curriculum. Local-only, shuffled-summary
+return, and question/source controls remain mandatory mechanism falsifiers.
 
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
@@ -2518,14 +2553,14 @@ observed CUDA accounting. Behavioral promotion requires all of:
    CUDA allocation no greater than 11.5 GiB.
 
 If neither arm reaches 128/256 oracle, decide
-`redesign_v64_training_objective_no_architecture_verdict`. If the Transformer
+`redesign_v67_training_objective_no_architecture_verdict`. If the Transformer
 passes source/general gates and the candidate does not, decide
-`retire_v64_delta_state_cortex`. If the candidate passes every joint gate and
-materially beats the control on true-source behavior, decide
-`scale_v64_delta_state_cortex_to_continual_validation`. No extra rank, gate,
-layer-order, optimizer, replay, or decode sweep is allowed after seeing terminal
-results. A failed candidate leaves only compact evidence; its model, runner,
-tests, and checkpoint are deleted.
+`retire_v67_queried_summary_exchange`. If the candidate passes every joint gate
+and materially beats the control on true-source behavior, decide
+`scale_v67_queried_summary_exchange_to_continual_validation`. No extra query
+count, layer-order, optimizer, replay, or decode sweep is allowed after seeing
+terminal results. A failed candidate leaves only compact evidence; its model,
+runner, tests, and checkpoint are deleted.
 
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
