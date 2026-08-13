@@ -2862,6 +2862,25 @@ future-segment perturbation not to change earlier outputs, exact state reset,
 finite nonzero gradients, persistent accuracy at least 80%, at least +20 points
 over every control, and three fixed seeds. Failure deletes V72 before real data.
 
+The frozen A1 recipe uses seeds `7201`, `7202`, and `7203`; batches of 128
+synthetic documents; three nonoverlapping 64-token segments; 16 possible keys,
+16 possible values, and four independently sampled key/value bindings per
+document. Segment zero exposes the four bindings in shuffled pair order, one
+entire middle segment contains only distractors, and the final segment exposes
+only a query key. The owned width-64, two-head, two-token-block model carries
+eight width-64 workspace tokens. Every arm uses the same learned initial state,
+two token-to-workspace reads, one eight-query workspace write, local
+key/value reconstruction of segment-zero writes, and a visible-input write-gate
+target; no query answer supervises an earlier segment. State is detached at
+each boundary. `reset_each_segment` restores the learned initial bank,
+`shuffled_document_state` rotates state to another batch member, and
+`nonpersistent_same_compute` replaces document state with the batch-mean bank;
+all still execute the write/read tensors. Train 600 AdamW updates at `3e-4`
+with no weight decay, gradient norm 1.0, and evaluate 4,096 fresh documents per
+seed. Accuracy is the only behavioral selection metric. No width, step,
+learning-rate, auxiliary weight, or dataset sweep is allowed after observing
+an arm result.
+
 **Stage A2 — sequential real-language admission.** Materialize disjoint long
 FineWeb-Edu and Cosmopedia documents with at least three complete segments; do
 not stream-pack across documents. Use the same tokenizer and match candidate/
