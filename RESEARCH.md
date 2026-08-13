@@ -2883,6 +2883,19 @@ times visible write-marker binary cross-entropy. Accuracy is the only
 behavioral selection metric. No width, step, learning-rate, auxiliary weight,
 or dataset sweep is allowed after observing an arm result.
 
+**Stage-A1 result: PASS.** All three frozen persistent arms reach 4,096/4,096
+correct (100%). The largest control accuracy is 7.1533%; the smallest is 6.2256%,
+around the 6.25% chance level. The minimum persistent margin is therefore
+92.8467 percentage points. Initial parameter hashes and complete synthetic
+schedules match within every seed, future perturbation and reset errors are
+exactly zero, every parameter receives a finite nonzero gradient, and maximum
+peak CUDA allocation is 333.51 MiB. The run uses eager PyTorch without
+compilation and completes safely in 958.1 seconds. Decision:
+`advance_v72_to_sequential_real_language`. This validates durable state content,
+not general language quality or runtime promotion. Compact report
+`persistent-workspace-v72-stage-a1-20260813.json` owns the evidence (SHA-256
+`bfbd03cdad6079fe8952596f194431c93384b818a57ce4949dbed3e997357a40`).
+
 **Stage A2 — sequential real-language admission.** Materialize disjoint long
 FineWeb-Edu and Cosmopedia documents with at least three complete segments; do
 not stream-pack across documents. Use the same tokenizer and match candidate/

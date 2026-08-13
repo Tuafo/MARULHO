@@ -1077,12 +1077,16 @@ periodic-local is a near-control, not a promoted model. All V71 code is deleted.
 
 **V72 persistent cross-segment workspace (current bet)** — preserve all ten
 exact Transformer layers and add eight latent tokens whose only unique property
-is survival from one 320-token segment to the next within a document. Completed
-segments update the workspace; the following segment reads it through small
-residual cross-attention at frozen depths. Reset, shuffled-document state, and
-same-compute nonpersistent controls separate durable information from extra
-parameters/compute. V72 first uses synthetic delayed recall and real sequential
-long-document heldout loss; it cannot advance from randomly shuffled windows.
+is survival from one 320-token segment to the next within a document. Its frozen
+Stage-A1 mechanism screen passes all three seeds: persistent delayed-recall
+accuracy is 100%, while reset, wrong-document, and document-anonymous controls
+remain between 6.23% and 7.15% (chance is 6.25%). Initial tensors and schedules
+match within each seed, every parameter receives a finite nonzero gradient,
+future perturbations leave earlier outputs/state bit-exact, and peak CUDA
+allocation is 333.51 MiB. This proves useful information survives the state
+channel; it does not prove language value. V72 now advances only to the frozen
+sequential long-document Transformer/control comparison. Randomly shuffled
+windows cannot promote it.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

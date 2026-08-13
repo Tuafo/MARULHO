@@ -143,8 +143,10 @@ wrong-document, and document-anonymous batch-mean arms execute identical
 modules; only state identity and lifetime differ. The state is detached at
 segment boundaries, and local reconstruction trains writes without leaking the
 later query answer backward. This is training-only machinery, not a language
-runtime or checkpoint surface. It must be deleted if three frozen seeds do not
-clear the preregistered delayed-recall gates.
+runtime or checkpoint surface. It clears all three frozen seeds at 100% versus
+6.23%--7.15% controls with exact mechanical contracts, so it remains only while
+V72 undergoes its real sequential-language falsifier. A failure there deletes
+the candidate and this A1 machinery together.
 
 **`language_model.py`** — the language model contract. It owns:
 
