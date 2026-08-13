@@ -453,14 +453,14 @@ state or checkpoint survives. Report SHA-256 is
 Do not restore the MLP with a smaller inner rate or extra width; the next isolated
 variable is protected memory participation across multiple frozen V39 depths.
 
-V62 preregisters that variable with V60's exact one-step linear source write and
-three shared-memory reads before frozen V39 blocks 2, 5, and 8. Each read has a
-site-specific query, token-dependent head gate, and bounded scalar, while one
-output projection and one fast state are shared. V39 stays outside the optimizer;
-the active graph propagates answer loss through frozen later blocks, and the
-inactive graph must reproduce ordinary V39 logits and KV state exactly. Added
-slow parameters are capped at 1.25%. Oracle failure retires the interface rather
-than permitting another depth or width sweep.
+V62's three-depth compressed memory is terminally negative and deleted. Its
+1.001M parameters all receive gradients, inactive hidden/logit/KV output remains
+exact, and it trains at 44,303 positions/s with 1.46 GB peak allocation. But
+inactive, shuffled, true, and oracle-short score 0/1/1/1 of 256; correct source
+does not beat wrong source. No checkpoint survives. Report SHA-256 is
+`7742199d52ed13c11cf20816fc4e593500dec7ee99486fd41f44bf416cf5e5b1`.
+Do not restore the matrix with FP32 gates, wider keys, or another read site. The
+next admissible memory must retain exact source-token KV state.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

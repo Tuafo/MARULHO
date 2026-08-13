@@ -410,14 +410,15 @@ positive controlled result—not a replacement for frontier Transformers.
     1/256 and not source-selective. No checkpoint survives and failed code is
     deleted. The next branch moves protected memory reads throughout V39's depth
     rather than widening or retuning another final-residual learner.
-31. Test V62's protected three-depth shared memory. It restores V60's stable
-    one-step source-only matrix write, but reads the same per-document state
-    before frozen V39 blocks 2, 5, and 8. Each site owns its query and
-    input-dependent gate while sharing one read projection, so memory can shape
-    several later attention/MLP computations without altering a V39 tensor.
-    The corrected V57 title split and exact inactive, shuffled, true, and oracle
-    controls remain unchanged. Oracle failure retires this compressed fast-
-    memory interface rather than authorizing more read sites or width.
+31. Retire V62's protected three-depth compressed memory. Its 1,001,483 slow
+    parameters are 0.995% of V39, every tensor receives gradients, and inactive
+    hidden/logit/all-21-state parity is bit-exact. Training sustains 44.30k source
+    positions/s with 1.46 GB peak CUDA allocation and reaches 3.1527 answer loss.
+    Yet inactive, shuffled, true, and oracle-short score 0/1/1/1 of 256; every
+    view contains an accepted answer only once. The fixed site gates remain
+    0.1192, while learned queries and token gates still cannot create causal
+    source use. No checkpoint survives; code and tests are deleted. Compressed
+    matrices are closed, and the next branch must retain exact source tokens.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is

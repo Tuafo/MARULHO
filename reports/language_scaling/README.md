@@ -1,15 +1,15 @@
-# Marulho Nonlinear Fast Learner Falsification
+# Marulho Three Depth Shared Memory Falsification
 
 ## Summary
 
 | Field | Value |
 |-------|-------|
-| Artifact Kind | marulho_nonlinear_fast_learner_falsification |
-| Surface | marulho_nonlinear_fast_learner_falsification.v1 |
+| Artifact Kind | marulho_three_depth_shared_memory_falsification |
+| Surface | marulho_three_depth_shared_memory_falsification.v1 |
 | Owned By Marulho | true |
 | External Llm Used | false |
-| Decision | retire_v61_final_residual_nonlinear_fast_learner |
-| Experiment Contract Sha256 | 6e9de97f20ea947b63e986019916c13c36f6eb11f2183e7c2ce9df000c78ebd4 |
+| Decision | retire_v62_compressed_three_depth_fast_memory |
+| Experiment Contract Sha256 | 7ec7ee63d466075dbfb2251c6e681f15bfde9e20ad7d0b6f257611c9e6ac3164 |
 
 ## Configuration
 
@@ -24,10 +24,8 @@
 | Optimizer Steps | 2048 |
 | Padded Source Position Budget | 20971520 |
 | Memory Heads | 8 |
-| Key Width Per Head | 32 |
-| Hidden Width Per Head | 32 |
+| Key Width Per Head | 16 |
 | Value Width Per Head | 96 |
-| Inner Steps | 2 |
 | Learning Rate | 0.0003 |
 | Warmup Fraction | 0.05 |
 | Minimum Learning Rate Fraction | 0.1 |
@@ -41,13 +39,12 @@
 | Maximum Shuffled Exact Answers | 16 |
 | Minimum Oracle Exact Answers | 128 |
 | Maximum True Oracle Gap | 64 |
-| Maximum Parameter Fraction | 0.02 |
+| Maximum Parameter Fraction | 0.0125 |
 | Maximum Training Seconds | 1800 |
 | Maximum Total Setup Training Seconds | 2400 |
-| Data Seed | 61121 |
-| Model Seed | 61131 |
+| Data Seed | 62121 |
+| Model Seed | 62131 |
 | Precision | bfloat16 |
-| Inner Accumulation | float32 |
 | Execution Backend | pytorch_eager |
 
 ## Data
@@ -66,7 +63,7 @@
 | Validation Title Count | 22 |
 | Title Intersection Count | 0 |
 | Prepared Tensor Sha256 | c011802453da81f4db953fceef3856f567d513b3a9055c69bf1e24163e0d7c02 |
-| Schedule Sha256 | 2c96f6e00e0e246b6baefd3c4b6f32f723d327493729317485c50ae96fd56527 |
+| Schedule Sha256 | 400c4466179f566ea98af268e05157019998ebe6fe94a84ef29f791517242816 |
 | Cache Policy | online_frozen_v39_no_persistent_hidden_cache |
 | Persistent Cache Bytes | 0 |
 | Write Inputs Exclude Question | true |
@@ -78,20 +75,20 @@
 
 | Field | Value |
 |-------|-------|
-| Controller Parameter Count | 1605657 |
+| Controller Parameter Count | 1001483 |
 | Parent Parameter Count | 100679424 |
-| Controller Parameter Fraction | 0.0159482 |
-| Fast State Values Per Document | 32768 |
-| Initial Controller State Sha256 | 0abeecae6fc4f4503d4a9895e876b5d48a5d1cbfadc11f66a9f97194ba94d753 |
-| Fast Write | two_exact_nonlinear_per_document_gradient_steps |
-| Source Target Owner | learned_view_of_frozen_v39_next_token_embeddings |
-| Read Interface | bounded_final_hidden_residual |
+| Controller Parameter Fraction | 0.00994725 |
+| Fast State Values Per Document | 12288 |
+| Initial Controller State Sha256 | 185efda40a087f00559f592189569628d17cb7fd40c7dd2bda46804fddd6f4e1 |
+| Fast Write | v60_one_exact_linear_reconstruction_step |
+| Shared Read Projection | true |
+| Input Dependent Site Gates | true |
 
 ## Setup
 
 | Field | Value |
 |-------|-------|
-| Seconds | 12.7401 |
+| Seconds | 9.43915 |
 | Persistent Cache Bytes | 0 |
 
 ## Training
@@ -101,10 +98,10 @@
 | Optimizer Steps | 2048 |
 | Padded Source Positions | 20971520 |
 | Answer Target Positions | 470952 |
-| Final Training Loss | 3.34082 |
-| Training Seconds | 416.164 |
-| Source Positions Per Second | 50392.5 |
-| Peak Cuda Bytes | 1410242048 |
+| Final Training Loss | 3.15268 |
+| Training Seconds | 473.361 |
+| Source Positions Per Second | 44303.5 |
+| Peak Cuda Bytes | 1460438528 |
 
 ## Parent
 
@@ -132,25 +129,30 @@
 
 | Field | Value |
 |-------|-------|
-| Total Setup Training Seconds | 428.904 |
-| Total Wall Seconds | 1092.6 |
-| Peak Cuda Bytes | 1410242048 |
+| Total Setup Training Seconds | 482.8 |
+| Total Wall Seconds | 1067.76 |
+| Peak Cuda Bytes | 1460438528 |
 
 ## JSON Preview
 
 ```json
 {
   "architecture": {
-    "controller_parameter_count": 1605657,
-    "controller_parameter_fraction": 0.01594821400646869,
-    "fast_state_values_per_document": 32768,
-    "fast_write": "two_exact_nonlinear_per_document_gradient_steps",
-    "initial_controller_state_sha256": "0abeecae6fc4f4503d4a9895e876b5d48a5d1cbfadc11f66a9f97194ba94d753",
+    "controller_parameter_count": 1001483,
+    "controller_parameter_fraction": 0.009947246023179474,
+    "fast_state_values_per_document": 12288,
+    "fast_write": "v60_one_exact_linear_reconstruction_step",
+    "initial_controller_state_sha256": "185efda40a087f00559f592189569628d17cb7fd40c7dd2bda46804fddd6f4e1",
+    "injection_layers": [
+      2,
+      5,
+      8
+    ],
+    "input_dependent_site_gates": true,
     "parent_parameter_count": 100679424,
-    "read_interface": "bounded_final_hidden_residual",
-    "source_target_owner": "learned_view_of_frozen_v39_next_token_embeddings"
+    "shared_read_projection": true
   },
-  "artifact_kind": "marulho_nonlinear_fast_learner_falsification",
+  "artifact_kind": "marulho_three_depth_shared_memory_falsification",
   "checkpoint": {
     "path": null,
     "saved": false,
@@ -161,17 +163,19 @@
   "configuration": {
     "batch_size": 32,
     "context_length": 96,
-    "data_seed": 61121,
+    "data_seed": 62121,
     "epochs": 8,
     "execution_backend": "pytorch_eager",
     "generation_tokens": 16,
     "gradient_clip": 1.0,
-    "hidden_width_per_head": 32,
-    "inner_accumulation": "float32",
-    "inner_steps": 2,
-    "key_width_per_head": 32,
+    "injection_layers": [
+      2,
+      5,
+      8
+    ],
+    "key_width_per_head": 16,
     "learning_rate": 0.0003,
-    "maximum_parameter_fraction": 0.02,
+    "maximum_parameter_fraction": 0.0125,
     "maximum_shuffled_exact_answers": 16,
     "maximum_total_setup_training_seconds": 2400.0,
     "maximum_training_seconds": 1800.0,
@@ -181,7 +185,7 @@
     "minimum_oracle_exact_answers": 128,
     "minimum_true_exact_answers": 64,
     "minimum_true_source_gain": 0.2,
-    "model_seed": 61131,
+    "model_seed": 62131,
     "no_repeat_ngram_size": 3,
     "optimizer_steps": 2048,
     "padded_source_position_budget": 20971520,
@@ -198,7 +202,7 @@
     "cache_policy": "online_frozen_v39_no_persistent_hidden_cache",
     "persistent_cache_bytes": 0,
     "prepared_tensor_sha256": "c011802453da81f4db953fceef3856f567d513b3a9055c69bf1e24163e0d7c02",
-    "schedule_sha256": "2c96f6e00e0e246b6baefd3c4b6f32f723d327493729317485c50ae96fd56527",
+    "schedule_sha256": "400c4466179f566ea98af268e05157019998ebe6fe94a84ef29f791517242816",
     "title_intersection_count": 0,
     "train_case_count": 8192,
     "train_manifest_contract_sha256": "fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7",
@@ -215,12 +219,11 @@
     "write_inputs_exclude_question": true,
     "write_inputs_exclude_span": true
   },
-  "decision": "retire_v61_final_residual_nonlinear_fast_learner",
-  "experiment_contract_sha256": "6e9de97f20ea947b63e986019916c13c36f6eb11f2183e7c2ce9df000c78ebd4",
+  "decision": "retire_v62_compressed_three_depth_fast_memory",
+  "experiment_contract_sha256": "7ec7ee63d466075dbfb2251c6e681f15bfde9e20ad7d0b6f257611c9e6ac3164",
   "external_llm_used": false,
   "gate": {
     "behavioral_checks": {
-      "both_inner_steps_reduce_loss": false,
       "complete_final_gradients": true,
       "exact_optimizer_steps": true,
       "exact_position_budget": true,
@@ -232,10 +235,12 @@
       "minimum_true_exact_answers": false,
       "minimum_true_source_gain": false,
       "parameter_fraction": true,
-      "parent_fidelity": true
+      "parent_and_inactive_fidelity": true
     },
     "checkpoint_passed": false,
     "observed": {
-      "final_inner_losses": [
-        35.7097320556
+      "inactive_exact_answers": 0,
+      "oracle_exact_answers": 1,
+      "shuffled_exact_answers": 1,
+      "true_exac
 ```

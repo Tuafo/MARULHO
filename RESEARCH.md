@@ -2063,6 +2063,33 @@ source positions/s and project the frozen 2,048-step training phase to about 452
 seconds, with 1,214,325,248 bytes peak allocation. These are feasibility facts,
 not quality evidence.
 
+### V62 terminal result: retire compressed multi-depth memory
+
+The exact frozen run completes mechanically and fails behavior. The 1,001,483-
+parameter controller is 0.9947% of V39; every one of its 13 tensors receives a
+final nonzero gradient. All 2,048 updates and 20,971,520 padded source positions
+finish in 473.36 seconds at 44,303 positions/s. Setup plus training is 482.80
+seconds, total wall time is 1,067.76 seconds, peak CUDA allocation is
+1,460,438,528 bytes, and final answer loss is 3.1527. Parent checkpoint,
+tokenizer, common-prefix logits, and inactive hidden/logit/all-21-state outputs
+remain exact before and after training.
+
+The three BF16 scalar site gates stay at 0.1192, although their gradients and
+all higher-dimensional write, query, token-gate, and shared-read gradients are
+nonzero. That quantization is a limitation but not the behavioral explanation:
+untrained true, inactive, shuffled, true, and oracle-short views score 0, 0, 1,
+1, and 1 of 256. Every view contains an accepted answer exactly once. Correct
+and wrong sources are therefore indistinguishable, and oracle evidence does not
+rescue the interface. Capability, causal source-gain, and oracle gates fail.
+
+Decision: `retire_v62_compressed_three_depth_fast_memory`. Report SHA-256 is
+`7742199d52ed13c11cf20816fc4e593500dec7ee99486fd41f44bf416cf5e5b1`.
+No checkpoint survives; failed code, tests, and logs are deleted. V60 to V62
+tested linear versus nonlinear writes and final versus three-depth reads. The
+shared failure is compressed reconstructed memory. The next falsifier must keep
+the source's exact token-level KV state available to every frozen attention
+layer, or leave the V39 substrate entirely; it may not tune this matrix family.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a
