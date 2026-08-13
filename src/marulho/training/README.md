@@ -462,14 +462,13 @@ does not beat wrong source. No checkpoint survives. Report SHA-256 is
 Do not restore the matrix with FP32 gates, wider keys, or another read site. The
 next admissible memory must retain exact source-token KV state.
 
-V63 implements exact-token adaptive KV memory in
-`language_exact_token_kv_falsification.py`. Context-320 V39 keeps each aligned
-source/question/answer record in native causal order. At every frozen attention
-layer, an FP32 sub-1% controller applies bounded head-specific 64x64 residual
-corrections only to source-token keys and values. Zero correction must reproduce
-ordinary V39 hidden/logit/KV tensors exactly; question-only execution uses the
-parent directly. V39 never enters the optimizer. Oracle failure closes protected
-V39 memory adaptation rather than authorizing another adapter sweep.
+V63 exact-token adaptive KV memory is retired. Its sub-1% FP32 controller passed
+all tokenizer-boundary, zero-parity, parent-fidelity, finite-state, timing, and
+240/240 matrix-gradient checks. It processed 20.97M context-320 positions at
+27.92k positions/s and reduced answer loss to 3.2313, yet question-only,
+shuffled, true, and oracle scored 0/0/0/1 of 256. No checkpoint survives. The
+runner/tests are deleted, and protected V39 memory adaptation is closed rather
+than widened or replay-tuned.
 
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot

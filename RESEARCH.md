@@ -2090,7 +2090,7 @@ shared failure is compressed reconstructed memory. The next falsifier must keep
 the source's exact token-level KV state available to every frozen attention
 layer, or leave the V39 substrate entirely; it may not tune this matrix family.
 
-### V63 preregistration: exact-token adaptive KV memory
+### V63 exact-token adaptive KV memory: terminal RETIRE
 
 V52 proved that aligned exact causal records produce source-conditioned answers,
 but unrestricted shared-weight learning forgot old capabilities. V57 showed the
@@ -2159,6 +2159,24 @@ localization and justifies bounded selection over exact tokens. Oracle failure
 retires protected memory adaptation around V39; another rank, gate, read site,
 or SQuAD replay mix is forbidden. The following architecture experiment must
 change the base language computation or learning objective.
+
+The terminal CUDA run is mechanically valid and behaviorally negative. All
+25,344 tokenizer-boundary views, zero hidden/logit/all-21-state parity, immutable
+V39 checks, finite FP32 controller state, exact schedule/position budget, and
+240/240 final correction-matrix gradients pass. The 2,048 updates process
+20,971,520 positions in 751.066 seconds at 27,922 positions/s with 4.315 GB peak
+allocation; setup plus training is 780.932 seconds. Answer loss falls to 3.2313,
+but raw true/oracle both score 0/256 and learned question-only, shuffled, true,
+and oracle score 0/0/0/1. Correct exact evidence does not beat wrong or absent
+evidence, and even the localized oracle misses its 128/256 floor by 127 cases.
+
+Decision: `retire_v39_protected_memory_adaptation`. No checkpoint survives.
+The failed runner and tests are deleted after retaining
+`exact-token-kv-v63-20m-20260812.json`, SHA-256
+`08baf18c9b203c85fe6a2e8ef1913e31cbf025173be3789e64ef789033cd5e43`.
+This closes adapter-level rescue around V39; V64 must replace the base language
+computation or its learning objective, not alter memory rank, gates, sites, or
+replay proportions.
 
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their

@@ -1198,17 +1198,15 @@ SHA-256 is `7742199d52ed13c11cf20816fc4e593500dec7ee99486fd41f44bf416cf5e5b1`.
 The next evaluator must retain exact source-token KV state instead of projecting
 the document into another fixed matrix.
 
-**`language_exact_token_kv_falsification.py`** implements the preregistered V63
-evaluator. Full V57 causal records remain at their native context-320 positions
-through all ten frozen V39 blocks. A 983,040-parameter
-FP32 controller learns bounded per-head 64x64 corrections to source keys and
-values only; zero correction must be bit-exact to ordinary V39. Raw true/oracle
-prefix diagnostics precede training. Terminal question-only/shuffled/true/oracle
-controls require 64 true, a 20-point source gain, at most 16 shuffled, at least
-128 oracle, and a true/oracle gap at most 64. Exact tokenizer-offset source
-boundaries, delimiter-normalized suffixes, complete gradients, parent and
-active-zero fidelity, time/VRAM, and strict reload are mandatory. Oracle failure
-returns the research to the base language substrate.
+V63 exact-token adaptive KV memory is retired and its runner/tests are deleted.
+All 25,344 tokenizer-boundary views, zero hidden/logit/all-21-state parity,
+parent fidelity, finite state, time/VRAM, and 240/240 correction-matrix gradients
+pass. The 20.97M-position run reaches 27.92k positions/s and 3.2313 loss, but raw
+true/oracle are 0/0 and terminal question-only/shuffled/true/oracle are 0/0/0/1
+of 256. No checkpoint survives. Report SHA-256 is
+`08baf18c9b203c85fe6a2e8ef1913e31cbf025173be3789e64ef789033cd5e43`.
+Protected V39 adaptation is closed; the next evaluator must test a changed base
+language computation or learning objective.
 
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It

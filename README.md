@@ -419,14 +419,16 @@ positive controlled result—not a replacement for frontier Transformers.
     0.1192, while learned queries and token gates still cannot create causal
     source use. No checkpoint survives; code and tests are deleted. Compressed
     matrices are closed, and the next branch must retain exact source tokens.
-32. Test V63's exact-token adaptive KV memory. The full aligned source, question,
-    and answer remain in their native causal positions through all ten frozen
-    V39 blocks. A sub-1% FP32 controller learns bounded per-head corrections only
-    to source-token keys and values at each layer; it never reconstructs the
-    document into a fixed state and never changes V39 weights. Zero-correction,
-    question-only, shuffled, true, and oracle views separate native prefix use
-    from learned source-specific use. Oracle failure sends the project back to
-    the base language substrate rather than another memory adapter.
+32. Retire V63's exact-token adaptive KV memory and protected V39 adaptation.
+    The 983,040-parameter FP32 controller changes only exact source-token keys
+    and values through all ten frozen V39 blocks. All 25,344 tokenizer-boundary
+    views, zero hidden/logit/all-21-state parity, parent fidelity, and 240/240
+    matrix gradients pass. Training processes 20.97M context-320 positions at
+    27.92k positions/s with 4.32 GB peak CUDA allocation and lowers answer loss
+    to 3.2313. Yet raw true/oracle are 0/0 and terminal question-only, shuffled,
+    true, and oracle are 0/0/0/1 of 256. No checkpoint survives; code and tests
+    are deleted. V39 memory adapters are closed, and the next experiment must
+    change the base language substrate or learning objective.
 
 A negative result is allowed to kill or redesign the archive path. Breaking
 changes are expected; failed live machinery is deleted after its evidence is
