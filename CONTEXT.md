@@ -912,6 +912,39 @@ V60--V62 jointly close compressed matrix memory at final and spaced internal
 read sites. The next branch must retain exact source-token KV state or replace
 the base computational substrate, not enlarge this interface.
 
+V63 is preregistered as exact-token adaptive KV memory. Every V57 causal record
+keeps its full source, question, and answer in native order and positions inside
+a context-320 V39 reconstruction. At each of the ten frozen self-attention
+layers, a separate FP32 controller applies bounded head-specific 64x64 residual
+maps to keys and values only where an exact source-token mask is true. Question
+and answer keys/values remain ordinary V39 computation. The source is therefore
+not pooled, retrieved, copied, span-decoded, or reconstructed into a fixed-size
+state. All V39 parameters stay outside the optimizer.
+
+All correction matrices initialize to zero. The active-zero custom forward must
+match ordinary V39 hidden states, logits, and all streaming KV tensors exactly;
+the inactive question-only route calls ordinary V39 directly. The controller has
+983,040 trainable values, 0.9764% of V39, and remains FP32 while frozen V39 runs
+BF16. Training uses the immutable V57 8,192/256 title split, full context-320
+records, eight batch-32 epochs, 2,048 updates, 20,971,520 padded positions, AdamW
+3e-4 with the existing warmup/cosine schedule, data seed 63121, model seed 63131,
+and generated-only V44 decoding.
+
+Before training, raw true/oracle prefix views measure what frozen V39 already
+extracts. Terminal question-only, shuffled-source, true-source, and oracle-short
+views require true at least 64/256, a 20-point gain over the stronger question-
+only or shuffled control, shuffled at most 16, oracle at least 128, and a true/
+oracle gap at most 64. Every controller tensor, exact source-mask/suffix/data/
+schedule contract, active-zero/inactive/parent fidelity, finite state, timing,
+CUDA allocation, and strict reload on pass are mandatory. Counted training must
+finish below 1,800 seconds and setup plus training below 2,400 seconds.
+
+A joint pass advances exact token memory to bounded archival selection and
+continual conflict writes. Oracle-only success isolates full-source localization.
+Oracle failure retires protected V39 memory adaptation as a direction: no extra
+rank, reader, gate, or replay sweep follows, and the next experiment changes the
+base language substrate or objective.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

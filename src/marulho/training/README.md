@@ -462,6 +462,14 @@ does not beat wrong source. No checkpoint survives. Report SHA-256 is
 Do not restore the matrix with FP32 gates, wider keys, or another read site. The
 next admissible memory must retain exact source-token KV state.
 
+V63 preregisters exact-token adaptive KV memory. Context-320 V39 keeps each
+aligned source/question/answer record in native causal order. At every frozen
+attention layer, an FP32 sub-1% controller applies bounded head-specific 64x64
+residual corrections only to source-token keys and values. Zero correction must
+reproduce ordinary V39 hidden/logit/KV tensors exactly; question-only execution
+uses the parent directly. V39 never enters the optimizer. Oracle failure closes
+protected V39 memory adaptation rather than authorizing another adapter sweep.
+
 V42's tokenizer-trie role-contrastive objective is deleted. It passed
 mechanical parity and full-batch gradient checks, but the exact 32x8 eager pilot
 ran for 16,507.6 seconds without persisting an arm result. No quality conclusion

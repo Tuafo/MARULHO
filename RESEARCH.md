@@ -2090,6 +2090,72 @@ shared failure is compressed reconstructed memory. The next falsifier must keep
 the source's exact token-level KV state available to every frozen attention
 layer, or leave the V39 substrate entirely; it may not tune this matrix family.
 
+### V63 preregistration: exact-token adaptive KV memory
+
+V52 proved that aligned exact causal records produce source-conditioned answers,
+but unrestricted shared-weight learning forgot old capabilities. V57 showed the
+same broader pattern at context 320: native full context reached 43/256 and
+oracle-short reached 122/256, while retention collapsed. V60--V62 protected the
+base but compressed evidence and failed even oracle controls. V63 combines only
+the parts that survived: exact token-level evidence, native causal attention at
+all ten layers, and structural protection of V39.
+
+The direction is consistent with [Memorizing Transformers](https://arxiv.org/abs/2203.08913),
+which retains internal key/value representations of past inputs, and with
+[LongMem](https://arxiv.org/abs/2306.07174), which freezes a backbone memory
+encoder while adapting a decoupled reader. Neither paper validates this small
+checkpoint or title-disjoint QA task; MARULHO's controls decide that. Unlike
+those systems, V63 performs no approximate retrieval and keeps only the current
+document's bounded exact causal state.
+
+For every manifest record, the exact V57 `causal_prompt` or
+`oracle_causal_prompt` is tokenized with BOS and the first accepted answer plus
+EOS is appended. The question/answer suffix is verified token-for-token against
+the corresponding question-only suffix before the source mask is admitted.
+Inputs are right-padded only after EOS to context 320; source masks mark only the
+native `Context:` prefix, while answer loss marks answer tokens plus EOS. The
+shuffled control uses the manifest's immutable mismatched causal prompt with the
+same question. No answer, span, accepted string, label, or validation record can
+alter a source mask or correction.
+
+V39 is reconstructed at context 320 and strict-loads the exact same tensors.
+Each frozen attention layer computes its ordinary 12 heads of width 64. A
+MARULHO controller owns one FP32 64x64 key-correction matrix and one FP32 64x64
+value-correction matrix per layer and head. Each is passed through an elementwise
+tanh, scaled by 0.25/sqrt(64), applied only to source-token keys/values, and added
+residually before ordinary causal attention. All matrices initialize exactly
+zero, giving 983,040 parameters (0.9764% of V39). Question and answer keys/values,
+attention outputs, MLPs, norms, embeddings, and vocabulary head remain frozen.
+The active-zero custom forward must be bit-exact to ordinary V39 for hidden
+states, logits, and all KV-state tensors; inactive question-only execution calls
+the unmodified parent directly.
+
+The immutable V57 8,192/256 title-disjoint split remains frozen. Eight batch-32
+epochs give 2,048 AdamW updates and 20,971,520 padded context-320 positions.
+Controller parameters and optimizer state remain FP32; V39 activations and
+weights remain BF16. AdamW uses 3e-4, betas 0.9/0.95, weight decay 0.1, 5%
+warmup, cosine decay to 10%, clip 1.0, data seed 63121, and model seed 63131.
+Training must finish below 1,800 seconds and setup plus training below 2,400
+seconds on the RTX 3060.
+
+Frozen raw true and raw oracle prefix accuracy are recorded before optimization
+but cannot promote. Terminal question-only, shuffled, true, and oracle-short
+views share the same 256 questions and V44 generated-only decode policy.
+Promotion requires true at least 64/256, at least 20 percentage points above the
+stronger question-only or shuffled control, shuffled at most 16, oracle at least
+128, and true no more than 64 cases behind oracle. Every correction tensor must
+receive a final nonzero gradient. Source/suffix/mask/data/schedule hashes,
+finite state, parameter budget, CUDA/time evidence, original parent identity,
+active-zero parity, inactive fidelity, and strict compact tensor/logit reload on
+a behavioral pass are mandatory.
+
+A joint pass advances exact KV state to selective archival storage, multiple
+documents, and version/conflict writes. Oracle-only success isolates full-source
+localization and justifies bounded selection over exact tokens. Oracle failure
+retires protected memory adaptation around V39; another rank, gate, read site,
+or SQuAD replay mix is forbidden. The following architecture experiment must
+change the base language computation or learning objective.
+
 The reports also reinforce a negative conclusion: frontier quality still comes
 with enormous data, capacity, careful curation, and post-training. Their
 architecture choices can improve MARULHO's compute frontier, but none provides a

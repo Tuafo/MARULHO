@@ -1198,6 +1198,16 @@ SHA-256 is `7742199d52ed13c11cf20816fc4e593500dec7ee99486fd41f44bf416cf5e5b1`.
 The next evaluator must retain exact source-token KV state instead of projecting
 the document into another fixed matrix.
 
+V63 preregisters that evaluator. Full V57 causal records remain at their native
+context-320 positions through all ten frozen V39 blocks. A 983,040-parameter
+FP32 controller learns bounded per-head 64x64 corrections to source keys and
+values only; zero correction must be bit-exact to ordinary V39. Raw true/oracle
+prefix diagnostics precede training. Terminal question-only/shuffled/true/oracle
+controls require 64 true, a 20-point source gain, at most 16 shuffled, at least
+128 oracle, and a true/oracle gap at most 64. Exact suffix/source masks, complete
+gradients, parent and active-zero fidelity, time/VRAM, and strict reload are
+mandatory. Oracle failure returns the research to the base language substrate.
+
 **`language_decode_comparison.py`** — compares greedy argmax with deterministic
 temperature/top-p sampling from the exact same checkpoint and prompts. It
 records checkpoint/tokenizer hashes and full decode-policy evidence. Decode
