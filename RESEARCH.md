@@ -2555,6 +2555,36 @@ dimension and otherwise preserving V67's equations, seeds, shapes, losses,
 warmup/timing counts, hardware, controls, and gates. It must be preregistered
 separately before implementation.
 
+### V68 block-native queried exchange: preregistration
+
+**Isolated variable.** Preserve V67's exact queried-summary/global-causal/
+shifted-prefix equations, four summaries, 64-token blocks, losses, and precision.
+Change only the post-projection candidate layout from `[B,H,T,D]` to contiguous
+`[B,block,H,token,D]`. Folding `B*block` for the 4-D Flash SDPA calls must be a
+storage-aliasing reshape, not a permute-copy. Return local outputs in the same
+block-native layout; do not materialize a time-major candidate output. Only the
+small summary stream may permute/copy between block-major and head-major forms.
+The ordinary control remains natively contiguous `[B,H,T,D]`. Both contain the
+same number, dtype, and statistical distribution of post-projection elements.
+
+This is a core-layout falsifier, not permission to omit real model costs. A
+Stage-A pass says only that the hierarchy's attention core can be represented
+efficiently. Any later approximately 100M model comparison must include its
+embedding, QKV/output projections, all layout operations, MLP, optimizer, and
+full forward/backward step against the Transformer.
+
+**Frozen measurement.** Reuse V67's CUDA truth arm, batch 32, width 640, ten
+heads, BF16 timing, contexts 320/1,024, two warmups, five measured steps, squared
+local-plus-summary candidate loss, squared control loss, and process-tree
+watchdog. Add an explicit storage-pointer assertion that candidate block folding
+aliases the native input. Admission still requires zero/1e-6 future leakage,
+nonzero completed-block influence, complete finite nonzero gradients, context-
+320 throughput at least 0.70x control with less than 2.0 GB incremental
+allocation, and context-1,024 throughput above control with peak allocation
+strictly below control. No kernel, checkpointing, block size, summary count,
+precision, or custom backward sweep is allowed. A miss deletes V68; a complete
+pass admits the parameter-matched Stage-B model defined by V67.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
