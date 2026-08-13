@@ -1024,12 +1024,20 @@ exact causal isolation and complete gradients. It still peaks at 646 MB versus
 505 MB for the long-context control, failing the frozen memory gate. No model is
 built and all V67 implementation code is deleted.
 
-**V68 block-native queried exchange (current bet)** — test the exact successful
-V67 equations with token activations remaining `[batch,block,head,token,dim]`
-throughout the candidate. PyTorch SDPA accepts leading batch dimensions, so the
-block index need not be folded through a permute-plus-reshape copy. The frozen
-V67 truth, speed, and memory gates remain unchanged. This isolates whether
-layout copies—not the hierarchy—caused V67's only failure.
+**V68 block-native queried exchange (stopped)** — native block layout aliases
+storage exactly, removes 84.5 MB from V67's context-1,024 peak, and increases
+long-context throughput to 2.451M positions/s or 1.528x full attention. Explicit
+copies were therefore real overhead, but not the whole problem: candidate peak
+remains 561 MB versus 505 MB, and the frozen context-320 ratio is 0.691 versus
+the 0.70 floor. No model is built and all V68 implementation code is deleted.
+
+**Macro-conditioned local attention (next research direction)** — stop carrying
+the completed macro state as concatenated prefix tokens. Instead, let the
+previous block's global summaries add a learned low-dimensional condition to
+the next block's Q/K/V projections before one ordinary length-64 causal
+attention. This can remove the remaining prefix activation and make the macro
+path part of the full attention block rather than a post-projection side input.
+It requires a fresh full-block preregistration; it is not yet validated.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

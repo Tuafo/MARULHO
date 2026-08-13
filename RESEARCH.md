@@ -2585,6 +2585,20 @@ strictly below control. No kernel, checkpointing, block size, summary count,
 precision, or custom backward sweep is allowed. A miss deletes V68; a complete
 pass admits the parameter-matched Stage-B model defined by V67.
 
+**Outcome.** V68 stops before model construction. Block folding aliases input
+storage, future perturbation changes earlier output by exactly zero, completed-
+block perturbation changes the following block by up to 2.6794, and all 414,720
+audited gradient elements are finite and nonzero. At context 1,024, native
+layout reaches 2.451M positions/s versus 1.604M (1.528x) and removes 84,541,440
+peak bytes relative to V67, validating real copy overhead. It still peaks at
+561 MB versus 505 MB (1.112x). At context 320 it reaches 2.029M versus 2.936M,
+or 0.691x against the 0.70 floor. The exact frozen result is not rerun or tuned.
+The remaining prefix concatenation is now the leading allocation hypothesis,
+not a validated cause. V68 code, runner, partials, and tests are deleted; the
+compact report `block-native-v68-stage-a-stop-20260813.json` owns the evidence
+(SHA-256
+`14cf9cc1dca10d2e049bb3f7d1ff3121d26df5434d8fc7b49ee652b8c72a85c5`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

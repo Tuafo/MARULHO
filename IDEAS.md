@@ -60,6 +60,14 @@ layout. SDPA can instead retain block as a native leading dimension. V68 tests
 the identical hierarchy without those explicit layout copies; only evidence can
 decide whether the excess allocation is truly a layout problem.
 
+V68 confirms that diagnosis only partly. Native layout removes 84.5 MB and
+raises long-context speed to 1.528x full attention, but still has 11.18% excess
+peak allocation and narrowly misses the short-context speed floor. The next
+architectural option is to eliminate macro prefix tokens themselves: use the
+completed macro representation to condition the next block's Q/K/V projection.
+That would preserve the causal micro/macro channel without materializing a
+second token sequence, but needs full-block evidence before it is trusted.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

@@ -110,6 +110,13 @@ uses 27.94% more peak allocation in the long-context arm. Its implementation,
 evaluator, tests, and partial artifacts are deleted. V68 may isolate native
 block-major layout; no queried-summary model or checkpoint surface exists.
 
+V68 proves that native block-major layout removes real copies but stops before
+model construction. It saves 84.5 MB versus V67 and reaches 152.81% of full
+attention throughput at context 1,024, yet still uses 11.18% more peak allocation
+and reaches only 69.13% of control at context 320. Its implementation, evaluator,
+tests, and partial artifacts are deleted. No block-native language surface
+exists.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

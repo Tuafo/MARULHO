@@ -1,0 +1,110 @@
+{
+  "artifact_kind": "marulho_block_native_summary_stage_a",
+  "surface": "marulho_block_native_summary_stage_a.v1",
+  "decision": "stop_v68_before_model_work",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "batch_size": 32,
+    "width": 640,
+    "heads": 10,
+    "head_dimension": 64,
+    "neighborhood_size": 64,
+    "summary_queries": 4,
+    "candidate_layout": "batch_block_head_token_dim",
+    "control_layout": "batch_head_time_dim",
+    "dtype": "torch.bfloat16",
+    "warmup_steps": 2,
+    "timing_steps": 5,
+    "torch_compile_used": false
+  },
+  "validation": {
+    "block_fold_aliases_input_storage": true,
+    "future_maximum_delta": 0.0,
+    "future_tolerance": 1e-06,
+    "completed_block_later_maximum_delta": 2.679352283477783,
+    "gradient_elements": {
+      "hidden": 409600,
+      "summary_queries": 2560,
+      "start_prefix": 2560
+    },
+    "all_gradients_present_finite_nonzero": true
+  },
+  "context_320": {
+    "candidate": {
+      "positions_per_second": 2029362.378462948,
+      "median_step_seconds": 0.005045919895172119,
+      "timing_step_seconds": [
+        0.004698112010955811,
+        0.005045919895172119,
+        0.00521670389175415,
+        0.004583199977874756,
+        0.005186367988586426
+      ],
+      "peak_cuda_bytes": 182111744,
+      "incremental_peak_cuda_bytes": 154828288
+    },
+    "control": {
+      "positions_per_second": 2935779.8871503593,
+      "median_step_seconds": 0.00348799991607666,
+      "timing_step_seconds": [
+        0.0034007039070129393,
+        0.004060128211975098,
+        0.003388736009597778,
+        0.00348799991607666,
+        0.0039186239242553714
+      ],
+      "peak_cuda_bytes": 162950656,
+      "incremental_peak_cuda_bytes": 135677440
+    },
+    "candidate_to_control_throughput_ratio": 0.6912515435320209
+  },
+  "context_1024": {
+    "candidate": {
+      "positions_per_second": 2450522.9772511856,
+      "median_step_seconds": 0.013371839523315429,
+      "timing_step_seconds": [
+        0.013001728057861327,
+        0.013109439849853516,
+        0.014304160118103027,
+        0.01356208038330078,
+        0.013371839523315429
+      ],
+      "peak_cuda_bytes": 561081856,
+      "incremental_peak_cuda_bytes": 477175296
+    },
+    "control": {
+      "positions_per_second": 1603643.3022086015,
+      "median_step_seconds": 0.0204334716796875,
+      "timing_step_seconds": [
+        0.020553728103637696,
+        0.02005059242248535,
+        0.02063088035583496,
+        0.02019273567199707,
+        0.0204334716796875
+      ],
+      "peak_cuda_bytes": 504638976,
+      "incremental_peak_cuda_bytes": 420742656
+    },
+    "candidate_to_control_throughput_ratio": 1.5280972856471433,
+    "candidate_to_control_peak_memory_ratio": 1.1118480392604475,
+    "peak_bytes_saved_versus_v67": 84541440
+  },
+  "gates": {
+    "block_fold_storage_alias": true,
+    "future_causality": true,
+    "completed_block_signal": true,
+    "complete_finite_gradients": true,
+    "context_320_minimum_0_70_control_throughput": false,
+    "context_1024_exceeds_control_throughput": true,
+    "context_320_below_2gb_incremental": true,
+    "context_1024_below_control_peak_memory": false,
+    "stage_a_passed": false
+  },
+  "interpretation": "Native block layout validates that V67 had real copy overhead: it removes 84,541,440 peak bytes and increases long-context speed to 1.528x control. It does not remove all excess activation memory, and the single frozen short-context measurement reaches 0.691x against the 0.70 gate. V68 is rejected before model construction. The remaining explicit macro-prefix concatenation is a candidate cause, not yet validated.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}
