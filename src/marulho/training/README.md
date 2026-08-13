@@ -136,6 +136,16 @@ quality at 5.5625 versus 5.5000 while running slightly faster, but does not win.
 Adding the macro channel worsens loss to 5.6875. The model, runners, tests, and
 partials are deleted; no generation, checkpoint, or runtime surface exists.
 
+`language_persistent_workspace.py` is V72's temporary Stage-A1 mechanism
+falsifier. A complete small causal token path reads and writes eight latent
+tokens across three synthetic document segments. Persistent, reset,
+wrong-document, and document-anonymous batch-mean arms execute identical
+modules; only state identity and lifetime differ. The state is detached at
+segment boundaries, and local reconstruction trains writes without leaking the
+later query answer backward. This is training-only machinery, not a language
+runtime or checkpoint surface. It must be deleted if three frozen seeds do not
+clear the preregistered delayed-recall gates.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
