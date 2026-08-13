@@ -2751,6 +2751,56 @@ compact quality report `macro-cortex-v70-quality-stop-20260813.json` owns the
 terminal evidence (SHA-256
 `5ba460b305c7a2f661e6bbf570efe6a55a217eaacac0a9c2957641544bda1e6b`).
 
+### V71 periodic global-reset hierarchy: preregistration
+
+**Hypothesis.** V70 fails because four summaries are the only cross-block path
+at every depth. V71 keeps width 768, ten layers, twelve heads, context 320,
+64-token blocks, SwiGLU, RMSNorm, tied 8,192 vocabulary, and all training
+contracts, but freezes the layer topology to `L,L,L,L,G,L,L,L,L,G`. `L` is
+V70's local attention; in the macro arm it also extracts four summaries, mixes
+them causally, and shifts the completed previous-block macro into local query
+and output. `G` is the exact ordinary full-token Transformer attention layer.
+Thus no information must survive summary compression for more than four layers.
+
+**Controls.** `periodic_macro` and `periodic_local` start from identical common
+embedding, norm, QKV/output, MLP, and head tensors. `periodic_local` runs the
+same frozen L/L/L/L/G topology but contains no summary/macro parameters or
+computation. It tests whether periodic locality alone explains a gain. The
+ordinary ten-global-layer Transformer control is the immutable V70 control row
+from `macro-cortex-v70-quality-stop-20260813.json`; reuse is valid only if V71
+reproduces its 100,679,424 parameters, common-state hash
+`700f403ac0405b11cc25262f87434b9a00174d4ed10bc46198e778b7ad84127a`,
+tokenizer hash `faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`,
+schedule hash `8342013bb10d842f136c28338664e24db3132c13f5f160ea1eb94065b99daa07`,
+initial loss 9.1875, and the exact optimizer/data/evaluation recipe. Any mismatch
+requires rerunning the Transformer; it cannot be ignored.
+
+**Phase 0.** FP64/FP32 tests require future-block isolation before every global
+reset, completed-block influence in macro L layers, exact common initialization,
+macro-off parameter absence, output shapes, and finite nonzero gradients. A
+bounded BF16 batch-32 context-320 100M eager-Muon preflight measures at least
+three complete steps for both V71 arms. Parameter ratios must remain 0.99--1.01,
+peak allocation below 11.5 GiB, and each arm at least 70% of V70's immutable
+18.267k Transformer positions/s. A miss deletes V71 before quality training.
+
+**Phase 1.** From fresh resets, both V71 arms consume the exact immutable V70
+512-entry indexed-host schedule: 5,242,880 unique context-320 target positions,
+zero relation records, no repeated selected window, batch 32, BF16, eager whole-
+matrix Muon, 26-step linear warmup to 3e-4 then cosine to 3e-5, clip 1.0, and
+heldout evaluation at 0/128/256/512. Atomic arm rows persist state/split/source/
+schedule/tokenizer hashes, gradients, throughput, and memory. `periodic_macro`
+must finish at least 0.02 loss below both the 5.5000 Transformer and
+`periodic_local`, retain at least 70% Transformer throughput, and stay below
+11.5 GiB. If local wins but macro does not, retire the macro channel and retain
+periodic exact reset as a separate future hypothesis. If neither beats the
+Transformer, retire this topology. No learning-rate, layer-position, summary,
+block-size, seed, or budget sweep follows the result.
+
+**Phase 2 only after joint win.** The same checkpoint/generation, shuffled-
+macro, source-QA, general retention, unseen prose, continual learning, and
+524,288-token sustained gates defined under V70/V67 apply. Phase 1 alone cannot
+promote runtime.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
