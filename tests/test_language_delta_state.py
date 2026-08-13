@@ -6,6 +6,7 @@ from marulho.training.language_delta_state import (
     delta_state_parameter_report,
     gated_delta_state_chunkwise,
     gated_delta_state_recurrent,
+    set_delta_state_execution_backend,
 )
 
 
@@ -104,3 +105,9 @@ def test_v64_shape_parameter_match_streaming_and_gradients() -> None:
     assert report["total_parameters"] == 100_202_970
     assert 0.99 <= report["total_parameters"] / 100_679_424 <= 1.01
     assert report["external_llm_used"] is False
+    set_delta_state_execution_backend(model, "eager")
+    assert all(
+        module.execution_backend == "eager"
+        for module in model.modules()
+        if module.__class__.__name__ == "MarulhoDeltaStateMixer"
+    )

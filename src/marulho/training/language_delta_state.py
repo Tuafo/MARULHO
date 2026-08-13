@@ -35,6 +35,7 @@ class DeltaStateLanguageModelConfig:
     local_attention_window: int = 64
     delta_chunk_size: int = 32
     delta_layers_per_cell: int = 3
+    delta_execution_backend: str = "eager"
 
 
 def _validate_delta_config(config: DeltaStateLanguageModelConfig) -> None:
@@ -55,6 +56,8 @@ def _validate_delta_config(config: DeltaStateLanguageModelConfig) -> None:
         raise ValueError("local_attention_window must be at least two")
     if int(config.delta_chunk_size) < 1:
         raise ValueError("delta_chunk_size must be positive")
+    if str(config.delta_execution_backend) not in {"eager", "inductor_recurrence"}:
+        raise ValueError("delta_execution_backend must be eager or inductor_recurrence")
     if not math.isfinite(float(config.transformer_mlp_ratio)):
         raise ValueError("MLP ratio must be finite")
 
@@ -180,6 +183,23 @@ def gated_delta_state_chunkwise(
     return output, state
 
 
+_COMPILED_DELTA_STATE_OPERATOR: Any | None = None
+
+
+def _compiled_delta_state_operator():
+    global _COMPILED_DELTA_STATE_OPERATOR
+    if _COMPILED_DELTA_STATE_OPERATOR is None:
+        if not hasattr(torch, "compile"):
+            raise RuntimeError("inductor_recurrence requires torch.compile")
+        _COMPILED_DELTA_STATE_OPERATOR = torch.compile(
+            gated_delta_state_chunkwise,
+            backend="inductor",
+            fullgraph=True,
+            dynamic=False,
+        )
+    return _COMPILED_DELTA_STATE_OPERATOR
+
+
 class MarulhoLocalCausalAttention(nn.Module):
     def __init__(self, width: int, *, heads: int, window: int) -> None:
         super().__init__()
@@ -243,12 +263,20 @@ class MarulhoLocalCausalAttention(nn.Module):
 
 
 class MarulhoDeltaStateMixer(nn.Module):
-    def __init__(self, width: int, *, heads: int, chunk_size: int) -> None:
+    def __init__(
+        self,
+        width: int,
+        *,
+        heads: int,
+        chunk_size: int,
+        execution_backend: str,
+    ) -> None:
         super().__init__()
         self.width = int(width)
         self.heads = int(heads)
         self.head_dim = self.width // self.heads
         self.chunk_size = int(chunk_size)
+        self.execution_backend = str(execution_backend)
         self.qkv = nn.Linear(width, width * 3, bias=False)
         self.qkv_conv = nn.Conv1d(
             width * 3,
@@ -294,7 +322,12 @@ class MarulhoDeltaStateMixer(nn.Module):
         rate = torch.exp(self.log_decay_rate.float()).view(1, self.heads, 1, 1)
         bias = self.decay_bias.float().view(self.heads, self.head_dim)
         log_decay = -rate * F.softplus(decay_logits + bias.view(1, self.heads, 1, -1))
-        mixed, next_state = gated_delta_state_chunkwise(
+        operator = (
+            gated_delta_state_chunkwise
+            if self.execution_backend == "eager"
+            else _compiled_delta_state_operator()
+        )
+        mixed, next_state = operator(
             query,
             key,
             candidate_value,
@@ -320,10 +353,16 @@ class MarulhoDeltaStateBlock(nn.Module):
         heads: int,
         chunk_size: int,
         hidden_width: int,
+        execution_backend: str,
     ) -> None:
         super().__init__()
         self.mixer_norm = TransformerRMSNorm(width)
-        self.mixer = MarulhoDeltaStateMixer(width, heads=heads, chunk_size=chunk_size)
+        self.mixer = MarulhoDeltaStateMixer(
+            width,
+            heads=heads,
+            chunk_size=chunk_size,
+            execution_backend=execution_backend,
+        )
         self.mlp_norm = TransformerRMSNorm(width)
         self.gate_up = nn.Linear(width, hidden_width * 2, bias=False)
         self.down = nn.Linear(hidden_width, width, bias=False)
@@ -402,6 +441,7 @@ class MarulhoDeltaStateCortex(nn.Module):
                         heads=int(config.attention_heads),
                         chunk_size=int(config.delta_chunk_size),
                         hidden_width=hidden_width,
+                        execution_backend=str(config.delta_execution_backend),
                     )
                 )
                 self.layer_kinds.append("delta_state")
@@ -492,6 +532,7 @@ class MarulhoDeltaStateCortex(nn.Module):
             "attention_heads": int(self.config.attention_heads),
             "head_dim": int(self.config.state_dim) // int(self.config.attention_heads),
             "delta_chunk_size": int(self.config.delta_chunk_size),
+            "delta_execution_backend": str(self.config.delta_execution_backend),
             "local_attention_window": int(self.config.local_attention_window),
             "recurrent_state_dtype": "float32",
             "external_llm_used": False,
@@ -570,3 +611,14 @@ def delta_state_parameter_report(
         "recurrent_mixer_parameters": int(recurrent),
         "external_llm_used": False,
     }
+
+
+def set_delta_state_execution_backend(
+    model: MarulhoDeltaStateLanguageModel, backend: str
+) -> None:
+    selected = str(backend)
+    if selected not in {"eager", "inductor_recurrence"}:
+        raise ValueError("delta execution backend must be eager or inductor_recurrence")
+    for module in model.modules():
+        if isinstance(module, MarulhoDeltaStateMixer):
+            module.execution_backend = selected

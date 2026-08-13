@@ -10,7 +10,7 @@ import math
 import os
 from pathlib import Path
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 from uuid import uuid4
 
 import torch
@@ -23,6 +23,7 @@ from marulho.training.language_delta_state import (
     DeltaStateLanguageModelConfig,
     MarulhoDeltaStateLanguageModel,
     delta_state_parameter_report,
+    set_delta_state_execution_backend,
 )
 from marulho.training.language_model import (
     LanguageModelConfig,
@@ -123,40 +124,6 @@ def weighted_causal_loss(
     ).reshape(target_ids.shape)
     weights = target_weights.to(device=losses.device, dtype=losses.dtype)
     return (losses * weights).sum() / weights.sum().clamp_min(1.0)
-
-
-def build_compiled_weighted_loss(
-    model: MarulhoLanguageModel | MarulhoDeltaStateLanguageModel,
-) -> Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]:
-    def logits(input_ids: torch.Tensor) -> torch.Tensor:
-        return model(
-            input_ids,
-            collect_telemetry=False,
-            decode_vocab_only=False,
-        )["logits"]
-
-    compiled_logits = torch.compile(
-        logits,
-        backend="inductor",
-        fullgraph=True,
-        dynamic=False,
-    )
-
-    def loss(
-        input_ids: torch.Tensor,
-        target_ids: torch.Tensor,
-        target_weights: torch.Tensor,
-    ) -> torch.Tensor:
-        observed_logits = compiled_logits(input_ids)
-        losses = F.cross_entropy(
-            observed_logits.reshape(-1, observed_logits.shape[-1]),
-            target_ids.reshape(-1),
-            reduction="none",
-        ).reshape(target_ids.shape)
-        weights = target_weights.to(device=losses.device, dtype=losses.dtype)
-        return (losses * weights).sum() / weights.sum().clamp_min(1.0)
-
-    return loss
 
 
 def _gradient_inventory(
@@ -299,15 +266,19 @@ def _preflight_arm(
     eager_loss_value = float(eager_loss.detach().float().cpu())
     model.zero_grad(set_to_none=True)
 
-    compiled_loss = build_compiled_weighted_loss(model)
-    print(f"[v64-preflight] {name} compiling model graph", flush=True)
+    if compare_compiled_gradients:
+        if not isinstance(model, MarulhoDeltaStateLanguageModel):
+            raise TypeError("compiled recurrence parity requires the delta-state model")
+        set_delta_state_execution_backend(model, "inductor_recurrence")
+    print(f"[v64-preflight] {name} preparing execution backend", flush=True)
     torch.cuda.synchronize(model.device)
     compile_started = time.perf_counter()
     with torch.autocast("cuda", dtype=torch.bfloat16):
-        observed = compiled_loss(inputs, targets, weights)
+        observed = weighted_causal_loss(model, inputs, targets, weights)
     observed.backward()
     torch.cuda.synchronize(model.device)
-    compile_seconds = time.perf_counter() - compile_started
+    preparation_seconds = time.perf_counter() - compile_started
+    compile_seconds = preparation_seconds if compare_compiled_gradients else 0.0
     compiled_loss_value = float(observed.detach().float().cpu())
     compiled_inventory = _gradient_inventory(model)
     gradient_parity = (
@@ -338,7 +309,7 @@ def _preflight_arm(
         torch.cuda.synchronize(model.device)
         started = time.perf_counter()
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            loss = compiled_loss(inputs, targets, weights)
+            loss = weighted_causal_loss(model, inputs, targets, weights)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), config.maximum_gradient_norm)
         optimizer.step()
@@ -360,6 +331,7 @@ def _preflight_arm(
             "gradients": gradient_parity,
         },
         "compile_seconds": compile_seconds,
+        "backend_preparation_seconds": preparation_seconds,
         "timing_step_seconds": durations,
         "timing_seconds": elapsed,
         "timing_steps": len(durations),
@@ -369,8 +341,16 @@ def _preflight_arm(
         / max(elapsed + compile_seconds, 1.0e-9),
         "peak_cuda_bytes": int(torch.cuda.max_memory_allocated(model.device)),
         "optimizer": "fused_AdamW",
-        "compiled_scope": "model_forward_backward_fullgraph",
-        "explicit_uncompiled_scope": "weighted_cross_entropy_and_optimizer",
+        "compiled_scope": (
+            "shared_compact_wy_recurrence_fullgraph"
+            if compare_compiled_gradients
+            else "none_control_eager"
+        ),
+        "explicit_uncompiled_scope": (
+            "dense_model_layers_weighted_cross_entropy_and_optimizer"
+            if compare_compiled_gradients
+            else "entire_transformer_control"
+        ),
         "fp32_master_parameters": all(
             parameter.dtype == torch.float32 for parameter in model.parameters()
         ),
@@ -421,7 +401,8 @@ def run_v64_candidate_preflight(
     runtime, compatibility = _prepare_cuda_preflight(device)
     inputs, targets, weights = _synthetic_preflight_batch(runtime, config)
     torch.manual_seed(int(config.model_seed))
-    model = MarulhoDeltaStateLanguageModel(DeltaStateLanguageModelConfig()).to(runtime)
+    candidate_config = DeltaStateLanguageModelConfig(delta_execution_backend="eager")
+    model = MarulhoDeltaStateLanguageModel(candidate_config).to(runtime)
     parameter_report = delta_state_parameter_report(model)
     arm = _preflight_arm(
         name="delta_state_cortex",
@@ -436,7 +417,10 @@ def run_v64_candidate_preflight(
         "artifact_kind": "marulho_delta_state_candidate_cuda_preflight",
         "surface": PREFLIGHT_SURFACE,
         "config": asdict(config),
-        "shape": asdict(DeltaStateLanguageModelConfig()),
+        "shape": {
+            **asdict(candidate_config),
+            "delta_execution_backend": "inductor_recurrence",
+        },
         "parameter_report": parameter_report,
         "arm": arm,
         "compiler_compatibility": compatibility,
@@ -540,7 +524,7 @@ def run_v64_preflight(
         "surface": PREFLIGHT_SURFACE,
         "decision": decision,
         "config": asdict(config),
-        "candidate_shape": asdict(DeltaStateLanguageModelConfig()),
+        "candidate_shape": candidate_payload["shape"],
         "control_shape": asdict(_control_config(config)),
         "candidate_parameter_report": candidate_payload["parameter_report"],
         "candidate": candidate,

@@ -104,11 +104,12 @@ seconds once, keeps loss within 0.000150, then reaches 19.97k positions/s at
 gradient-parity preflight only; it is not a quality result or terminal
 throughput pass.
 
-Fusing the separate answer-weighted cross-entropy into that full model graph is
-rejected after two 1,204-second bounded attempts produced no artifact. The
-admitted preflight compiles the model forward/backward with `fullgraph=True`
-and leaves weighted loss plus fused AdamW explicit; it still compares the final
-loss and every gradient against eager before timing complete optimizer steps.
+Full-model compilation is rejected after two weighted-graph attempts and one
+model-only retry each hit the 1,204-second bound without an artifact. The next
+preflight compiles only the shared compact-WY recurrence with `fullgraph=True`
+and reuses it across nine layers. Dense layers, weighted loss, and fused AdamW
+remain eager; final loss and every gradient still face the eager oracle before
+optimizer-inclusive timing.
 
 **`language_model.py`** — the language model contract. It owns:
 
