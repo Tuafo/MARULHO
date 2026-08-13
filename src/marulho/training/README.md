@@ -113,6 +113,14 @@ therefore stopped for kernel redesign without a language-quality verdict. Only
 a bounded, directly owned CUDA/Triton operator may reopen the preflight; the
 live V64 module contains no `torch.compile` backend.
 
+**`language_delta_state_triton.py`** — owns the replacement direct-kernel
+experiment. Its first forward-only Triton operator maps one CUDA program to one
+value column of one batch/head matrix state and executes the exact recurrent
+decay/erase/write equation without compiling the model. Tiny CUDA forward and
+final-state parity pass in a 9.68-second isolated test whose disposable cache is
+deleted afterward. The operator rejects every autograd input until a matched
+backward exists; it is not yet a training backend or throughput claim.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
