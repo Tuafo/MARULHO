@@ -2,6 +2,10 @@ import pytest
 import torch
 
 from marulho.training.language_delta_state import gated_delta_state_recurrent
+from marulho.training.language_delta_state import (
+    DeltaStateLanguageModelConfig,
+    MarulhoDeltaStateLanguageModel,
+)
 from marulho.training.language_delta_state_triton import (
     delta_state_triton_available,
     gated_delta_state_recurrent_triton,
@@ -123,3 +127,65 @@ def test_direct_triton_backward_is_stable_at_context_320() -> None:
     for actual, expected in zip(actual_gradients, expected_gradients):
         assert bool(torch.isfinite(actual).all())
         torch.testing.assert_close(actual, expected, atol=2e-3, rtol=2e-3)
+
+
+@pytest.mark.skipif(not delta_state_triton_available(), reason="requires CUDA Triton")
+def test_full_tiny_model_triton_matches_eager_loss_state_and_gradients() -> None:
+    common = dict(
+        vocab_size=97,
+        embedding_dim=32,
+        state_dim=32,
+        state_layers=4,
+        attention_heads=4,
+        transformer_context_length=24,
+        transformer_mlp_ratio=2.0,
+        local_attention_window=8,
+        delta_chunk_size=4,
+    )
+    torch.manual_seed(644)
+    eager = MarulhoDeltaStateLanguageModel(
+        DeltaStateLanguageModelConfig(**common, delta_execution_backend="eager")
+    ).cuda()
+    direct = MarulhoDeltaStateLanguageModel(
+        DeltaStateLanguageModelConfig(
+            **common, delta_execution_backend="triton_replay"
+        )
+    ).cuda()
+    direct.load_state_dict(eager.state_dict(), strict=True)
+    ids = torch.randint(0, 97, (2, 13), device="cuda")
+    eager_result = eager(ids, collect_telemetry=False)
+    direct_result = direct(ids, collect_telemetry=False)
+    torch.testing.assert_close(
+        direct_result["logits"], eager_result["logits"], atol=2e-5, rtol=2e-5
+    )
+    for name, state in eager_result["state"].items():
+        torch.testing.assert_close(
+            direct_result["state"][name], state, atol=2e-5, rtol=2e-5
+        )
+    eager_loss = eager_result["logits"].float().square().mean()
+    direct_loss = direct_result["logits"].float().square().mean()
+    eager_loss.backward()
+    direct_loss.backward()
+    dot = 0.0
+    eager_norm = 0.0
+    direct_norm = 0.0
+    maximum_delta = 0.0
+    for (direct_name, direct_parameter), (eager_name, eager_parameter) in zip(
+        direct.named_parameters(), eager.named_parameters()
+    ):
+        assert direct_name == eager_name
+        assert direct_parameter.grad is not None
+        assert eager_parameter.grad is not None
+        assert bool(torch.isfinite(direct_parameter.grad).all())
+        direct_gradient = direct_parameter.grad.float()
+        eager_gradient = eager_parameter.grad.float()
+        dot += float(torch.sum(direct_gradient * eager_gradient).item())
+        direct_norm += float(torch.sum(direct_gradient.square()).item())
+        eager_norm += float(torch.sum(eager_gradient.square()).item())
+        maximum_delta = max(
+            maximum_delta,
+            float(torch.max(torch.abs(direct_gradient - eager_gradient)).item()),
+        )
+    cosine = dot / (direct_norm * eager_norm) ** 0.5
+    assert cosine >= 0.999
+    assert maximum_delta <= 0.01

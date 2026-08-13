@@ -14,9 +14,11 @@ from marulho.core.inplace_column_cuda import ensure_windows_triton_compiler
 try:
     import triton
     import triton.language as tl
+    from triton.language.extra import libdevice
 except ImportError:  # pragma: no cover - optional CUDA dependency
     triton = None
     tl = None
+    libdevice = None
 
 
 TRAINING_STATE_CHECKPOINT_INTERVAL = 4
@@ -80,7 +82,7 @@ if triton is not None:
             current_value = tl.load(value + value_offset).to(tl.float32)
             current_write = tl.load(write + value_offset).to(tl.float32)
 
-            state *= tl.exp(decay_vector)
+            state *= libdevice.exp(decay_vector)
             old_value = tl.sum(state * erase_vector * key_vector, axis=0)
             state += key_vector * (current_write * current_value - old_value)
             current_output = tl.sum(state * query_vector, axis=0)
@@ -113,7 +115,7 @@ if triton is not None:
         erase,
         write,
         log_decay,
-        final_state,
+        initial_state,
         state_checkpoints,
         grad_output,
         grad_final_state,
@@ -142,9 +144,6 @@ if triton is not None:
             + key_offsets[:, None] * value_channels
             + value_offsets[None, :]
         )
-        state = tl.load(
-            final_state + state_offsets, mask=matrix_mask, other=0.0
-        ).to(tl.float32)
         grad_state = tl.load(
             grad_final_state + state_offsets, mask=matrix_mask, other=0.0
         ).to(tl.float32)
@@ -154,12 +153,10 @@ if triton is not None:
 
         for reverse_index in tl.range(0, time):
             token_index = time - 1 - reverse_index
-            boundary = ((token_index + 1) % checkpoint_interval == 0) & (
-                token_index != time - 1
-            )
-            checkpoint_index = tl.maximum(
-                (token_index + 1) // checkpoint_interval - 1, 0
-            )
+            chunk_index = token_index // checkpoint_interval
+            chunk_start = chunk_index * checkpoint_interval
+            first_chunk = chunk_index == 0
+            checkpoint_index = tl.maximum(chunk_index - 1, 0)
             checkpoint_offsets = (
                 (
                     batch_head * checkpoint_count + checkpoint_index
@@ -171,10 +168,66 @@ if triton is not None:
             )
             checkpoint_state = tl.load(
                 state_checkpoints + checkpoint_offsets,
-                mask=matrix_mask & boundary,
+                mask=matrix_mask & (~first_chunk),
                 other=0.0,
             ).to(tl.float32)
-            state = tl.where(boundary, checkpoint_state, state)
+            initial = tl.load(
+                initial_state + state_offsets,
+                mask=matrix_mask & first_chunk,
+                other=0.0,
+            ).to(tl.float32)
+            previous_state = tl.where(first_chunk, initial, checkpoint_state)
+
+            for local_index in tl.static_range(0, checkpoint_interval):
+                replay_index = chunk_start + local_index
+                replay_active = replay_index < token_index
+                replay_key_offsets = (
+                    (batch_head * time + replay_index) * key_channels + key_offsets
+                )
+                replay_value_offsets = (
+                    (batch_head * time + replay_index) * value_channels
+                    + value_offsets
+                )
+                replay_key = tl.load(
+                    key + replay_key_offsets,
+                    mask=key_mask & replay_active,
+                    other=0.0,
+                ).to(tl.float32)
+                replay_erase = tl.load(
+                    erase + replay_key_offsets,
+                    mask=key_mask & replay_active,
+                    other=0.0,
+                ).to(tl.float32)
+                replay_decay = libdevice.exp(
+                    tl.load(
+                        log_decay + replay_key_offsets,
+                        mask=key_mask & replay_active,
+                        other=0.0,
+                    ).to(tl.float32)
+                )
+                replay_value = tl.load(
+                    value + replay_value_offsets,
+                    mask=value_mask & replay_active,
+                    other=0.0,
+                ).to(tl.float32)
+                replay_write = tl.load(
+                    write + replay_value_offsets,
+                    mask=value_mask & replay_active,
+                    other=0.0,
+                ).to(tl.float32)
+                replay_decayed = replay_decay[:, None] * previous_state
+                replay_residual = replay_write * replay_value - tl.sum(
+                    replay_decayed
+                    * (replay_erase * replay_key)[:, None],
+                    axis=0,
+                )
+                replay_next = (
+                    replay_decayed
+                    + replay_key[:, None] * replay_residual[None, :]
+                )
+                previous_state = tl.where(
+                    replay_active, replay_next, previous_state
+                )
             key_side_offsets = (
                 (batch_head * time + token_index) * key_channels + key_offsets
             )
@@ -203,18 +256,14 @@ if triton is not None:
                 grad_output + value_side_offsets, mask=value_mask, other=0.0
             ).to(tl.float32)
 
-            decay = tl.exp(decay_vector)
+            decay = libdevice.exp(decay_vector)
             effective_key = erase_vector * key_vector
-            key_overlap = tl.sum(effective_key * key_vector, axis=0)
             written_value = write_vector * value_vector
-            state_overlap = tl.sum(
-                state * effective_key[:, None], axis=0
+            decayed_state = decay[:, None] * previous_state
+            residual = written_value - tl.sum(
+                decayed_state * effective_key[:, None], axis=0
             )
-            residual = (written_value - state_overlap) / tl.maximum(
-                1.0 - key_overlap, 1.0e-6
-            )
-            decayed_state = state - key_vector[:, None] * residual[None, :]
-            previous_state = decayed_state / tl.maximum(decay[:, None], 1.0e-20)
+            state = decayed_state + key_vector[:, None] * residual[None, :]
 
             partial_query = tl.sum(
                 state * output_gradient[None, :], axis=1
@@ -280,8 +329,6 @@ if triton is not None:
                 write_gradient,
                 mask=value_mask,
             )
-
-            state = previous_state
 
         tl.store(
             grad_initial_state + state_offsets,
@@ -449,7 +496,7 @@ def _gated_delta_state_recurrent_triton_backward(
     erase: torch.Tensor,
     write: torch.Tensor,
     log_decay: torch.Tensor,
-    final_state: torch.Tensor,
+    initial_state: torch.Tensor,
     state_checkpoints: torch.Tensor,
     grad_output: torch.Tensor,
     grad_final_state: torch.Tensor,
@@ -465,13 +512,19 @@ def _gated_delta_state_recurrent_triton_backward(
     partial_gradients = torch.empty(
         partial_shape, device=query.device, dtype=torch.float32
     )
-    grad_query = torch.empty_like(query)
-    grad_key = torch.empty_like(key)
-    grad_value = torch.empty_like(value)
-    grad_erase = torch.empty_like(erase)
-    grad_write = torch.empty_like(write)
-    grad_log_decay = torch.empty_like(log_decay)
-    grad_initial_state = torch.empty_like(final_state)
+    grad_query = torch.empty(query.shape, device=query.device, dtype=query.dtype)
+    grad_key = torch.empty(key.shape, device=key.device, dtype=key.dtype)
+    grad_value = torch.empty(value.shape, device=value.device, dtype=value.dtype)
+    grad_erase = torch.empty(erase.shape, device=erase.device, dtype=erase.dtype)
+    grad_write = torch.empty(write.shape, device=write.device, dtype=write.dtype)
+    grad_log_decay = torch.empty(
+        log_decay.shape, device=log_decay.device, dtype=log_decay.dtype
+    )
+    grad_initial_state = torch.empty(
+        initial_state.shape,
+        device=initial_state.device,
+        dtype=initial_state.dtype,
+    )
     ensure_windows_triton_compiler()
     _delta_state_recurrent_backward_kernel[(value_blocks, batch_heads)](
         query.contiguous(),
@@ -480,7 +533,7 @@ def _gated_delta_state_recurrent_triton_backward(
         erase.contiguous(),
         write.contiguous(),
         log_decay.contiguous(),
-        final_state.contiguous(),
+        initial_state.contiguous(),
         state_checkpoints.contiguous(),
         grad_output.contiguous(),
         grad_final_state.contiguous(),
@@ -561,23 +614,16 @@ class _DeltaStateTritonAutograd(torch.autograd.Function):
             erase,
             write,
             log_decay,
-            final_state,
+            initial_state,
             state_checkpoints,
         )
         return output, final_state
 
     @staticmethod
     def backward(ctx, grad_output, grad_final_state):
-        (
-            query,
-            key,
-            value,
-            erase,
-            write,
-            log_decay,
-            final_state,
-            state_checkpoints,
-        ) = ctx.saved_tensors
+        query, key, value, erase, write, log_decay, initial_state, state_checkpoints = (
+            ctx.saved_tensors
+        )
         if grad_output is None:
             grad_output = torch.zeros(
                 (*value.shape[:3], value.shape[-1]),
@@ -585,7 +631,7 @@ class _DeltaStateTritonAutograd(torch.autograd.Function):
                 dtype=torch.float32,
             )
         if grad_final_state is None:
-            grad_final_state = torch.zeros_like(final_state)
+            grad_final_state = torch.zeros_like(initial_state)
         return _gated_delta_state_recurrent_triton_backward(
             query,
             key,
@@ -593,7 +639,7 @@ class _DeltaStateTritonAutograd(torch.autograd.Function):
             erase,
             write,
             log_decay,
-            final_state,
+            initial_state,
             state_checkpoints,
             grad_output,
             grad_final_state,
@@ -609,7 +655,7 @@ def gated_delta_state_recurrent_triton_autograd(
     log_decay: torch.Tensor,
     initial_state: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Run the direct reversible V64 forward/backward CUDA operators."""
+    """Run the direct checkpoint/replay V64 forward/backward CUDA operators."""
 
     batch, heads, _, key_channels = map(int, query.shape)
     value_channels = int(value.shape[-1])

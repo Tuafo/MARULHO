@@ -118,20 +118,28 @@ experiment. Its first forward-only Triton operator maps one CUDA program to one
 value column of one batch/head matrix state and executes the exact recurrent
 decay/erase/write equation without compiling the model. Tiny CUDA forward and
 final-state parity pass in an isolated test whose disposable cache is deleted
-afterward. The admitted backward reconstructs at most four recurrent steps
-between exact state boundaries, avoiding per-token state storage and unstable
-full-sequence inversion. Context-320 adversarial gradients and every small-shape
-input/state gradient pass against the sequential oracle.
+afterward. The admitted backward never inverts a decayed state: it loads an
+exact four-token boundary and replays at most three forward transitions before
+applying the reverse equations. Context-320 adversarial gradients, strided head
+views, every small-shape input/state gradient, and a complete stacked model pass
+against the sequential/eager oracle.
 
 At batch 32, context 320, ten heads, and width 64, the direct operator reaches
-1.066M forward positions/s versus compact-WY's 536.6k, and 251.8k complete
-forward/backward positions/s versus 133.4k: 1.99x and 1.89x respectively. Global
-gradient cosine is effectively 1.0 and maximum element delta is 7.45e-9. Direct
+1.020M forward positions/s versus compact-WY's 486.1k, and 182.2k complete
+forward/backward positions/s versus 121.9k: 2.10x and 1.49x respectively. Global
+gradient cosine is 0.999999991 and maximum element delta is 3.73e-9. Direct
 operator incremental peak allocation is 1.033 GB versus 0.544 GB because four-
-token state boundaries and reduction workspaces trade memory for speed. First
-uncached forward/backward compilation takes 1.39 seconds. These are operator-
-level results; the kernel is not a V64 model-training backend until the full
-nine-layer loss/every-gradient and optimizer-inclusive preflight passes.
+token state boundaries and reduction workspaces trade memory for speed.
+
+The integrated 100,202,970-parameter model passes BF16 loss and every-gradient
+parity at physical batches 2, 8, 16, and 24. Batch 16 is selected: it reaches
+9.16k positions/s at 7.46 GB versus the identical eager model's 4.75k, with
+0.000021 loss delta, 0.999976 global gradient cosine, and 0.000061 maximum
+element delta. Batch 24 reaches a statistically tied 9.18k while consuming
+10.84 GB; batch 32 enters memory-pressure thrashing and is rejected. Effective
+batch 32 therefore uses two physical-16 microbatches. This advances CUDA Graph
+and optimizer-inclusive preflight; it is not yet a Transformer-relative
+throughput pass or language-quality result.
 
 **`language_model.py`** — the language model contract. It owns:
 

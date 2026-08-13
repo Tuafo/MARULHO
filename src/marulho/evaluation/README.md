@@ -1669,15 +1669,16 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-The immediate V64 program is stopped at kernel preflight, before terminal
-training. Its exact eager delta-state path is only 33.3% of matched Transformer
-throughput, and four bounded Inductor variants produced no exact-training
-artifact while destabilizing the host. That backend is deleted. The next
-experiment is a directly owned, short-isolated CUDA/Triton delta operator. Only
-after it passes forward/state/every-gradient parity, the 50% preflight floor,
-and the memory bound may the fresh 100M candidate and control enter the frozen
-8,192-step context-320 curriculum. `RESEARCH.md` owns the unchanged language
-quality gates; kernel speed alone cannot promote the model.
+The immediate V64 program has passed direct-kernel and full-model parity but
+remains before terminal training. Its MARULHO-owned Triton recurrence and exact
+four-token checkpoint/replay backward pass context-320, strided-layout, stacked-
+model, BF16 loss, and every-gradient gates. Physical batch 16 is selected at
+9.16k positions/s and 7.46 GB; effective batch 32 uses two microbatches. Batch
+24 is speed-tied at 10.84 GB and batch 32 is retired for memory-pressure
+thrashing. The next experiment captures the selected complete optimizer step
+with CUDA Graph and compares it to the fresh Transformer control. Only a 50%
+preflight throughput pass may enter the frozen 8,192-step curriculum;
+`RESEARCH.md` owns the unchanged language-quality gates.
 
 ### 1. Relation-binding falsification
 

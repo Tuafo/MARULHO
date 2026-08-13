@@ -302,7 +302,7 @@ def _benchmark_training_batch(
         ),
         "gradient_parity": parity,
         "eager_compact_wy_autograd": eager_timing,
-        "direct_reversible_triton_autograd": direct_timing,
+        "direct_checkpoint_replay_triton_autograd": direct_timing,
         "direct_to_eager_training_throughput_ratio": ratio,
     }
 

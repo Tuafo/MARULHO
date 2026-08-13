@@ -1,0 +1,81 @@
+{
+  "artifact_kind": "marulho_delta_state_direct_model_preflight",
+  "surface": "marulho_delta_state_direct_model_preflight.v1",
+  "decision": "select_physical_batch16_advance_cuda_graph_optimizer_preflight",
+  "config": {
+    "batch_size": 16,
+    "context_length": 320,
+    "timing_steps": 1,
+    "seed": 64801,
+    "answer_weight": 4.0,
+    "loss_tolerance": 0.001,
+    "gradient_cosine_tolerance": 0.999,
+    "gradient_maximum_delta_tolerance": 0.01
+  },
+  "parameter_report": {
+    "total_parameters": 100202970,
+    "trainable_parameters": 100202970,
+    "recurrent_mixer_parameters": 29571930,
+    "external_llm_used": false
+  },
+  "eager": {
+    "backend": "eager",
+    "loss": 9.014166831970215,
+    "first_forward_backward_seconds_including_compile_if_uncached": 1.966193299999759,
+    "gradient_inventory": {
+      "parameter_tensor_count": 146,
+      "missing": [],
+      "nonfinite": [],
+      "zero": [],
+      "all_present_finite_nonzero": true
+    },
+    "gradient_comparison": null,
+    "timing_step_seconds": [
+      1.0788775000000896
+    ],
+    "timing_positions_per_second": 4745.673164932603,
+    "peak_cuda_bytes": 7138447360
+  },
+  "direct": {
+    "backend": "triton_replay",
+    "loss": 9.014187812805176,
+    "first_forward_backward_seconds_including_compile_if_uncached": 3.620502600000691,
+    "gradient_inventory": {
+      "parameter_tensor_count": 146,
+      "missing": [],
+      "nonfinite": [],
+      "zero": [],
+      "all_present_finite_nonzero": true
+    },
+    "gradient_comparison": {
+      "names_equal": true,
+      "global_cosine": 0.9999757649863621,
+      "maximum_absolute_element_delta": 6.103515625e-05,
+      "maximum_delta_names": [
+        "state_block.layers.0.mixer.qkv_conv.weight"
+      ]
+    },
+    "timing_step_seconds": [
+      0.5587861999993038
+    ],
+    "timing_positions_per_second": 9162.717332687134,
+    "peak_cuda_bytes": 7457378304
+  },
+  "direct_to_eager_throughput_ratio": 1.930751868964255,
+  "gates": {
+    "loss": true,
+    "gradient_names": true,
+    "gradient_cosine": true,
+    "gradient_maximum_delta": true,
+    "eager_complete_gradients": true,
+    "direct_complete_gradients": true
+  },
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  },
+  "torch_compile_used": false,
+  "owned_by_marulho": true,
+  "external_llm_used": false
+}

@@ -8,35 +8,35 @@
       "time": 320,
       "key_channels": 64,
       "value_channels": 64,
-      "first_direct_call_seconds_including_compile_if_uncached": 0.7389628000000812,
+      "first_direct_call_seconds_including_compile_if_uncached": 0.8664588999999978,
       "parity": {
-        "output_maximum_absolute_delta": 1.5497207641601562e-06,
-        "output_mean_absolute_delta": 2.0695799207715027e-07,
-        "state_maximum_absolute_delta": 1.5497207641601562e-06,
-        "state_mean_absolute_delta": 2.3166217033576686e-07,
+        "output_maximum_absolute_delta": 7.152557373046875e-07,
+        "output_mean_absolute_delta": 8.433531206719636e-08,
+        "state_maximum_absolute_delta": 8.344650268554688e-07,
+        "state_mean_absolute_delta": 7.673510538097617e-08,
         "within_bf16_mixed_tolerance": true
       },
       "eager_compact_wy": {
         "steps": 2,
-        "seconds": 0.04175290000011955,
+        "seconds": 0.04292489999988902,
         "sequence_positions": 1280,
-        "sequence_positions_per_second": 30656.55319741467,
-        "head_state_updates_per_second": 306565.53197414667,
+        "sequence_positions_per_second": 29819.522002457998,
+        "head_state_updates_per_second": 298195.22002457996,
         "baseline_cuda_bytes": 16220160,
         "peak_cuda_bytes": 23760896,
         "incremental_peak_cuda_bytes": 7540736
       },
       "direct_recurrent_triton": {
         "steps": 2,
-        "seconds": 0.0018390000000181317,
+        "seconds": 0.0014469999996435945,
         "sequence_positions": 1280,
-        "sequence_positions_per_second": 696030.4513253833,
-        "head_state_updates_per_second": 6960304.513253832,
+        "sequence_positions_per_second": 884588.804640824,
+        "head_state_updates_per_second": 8845888.04640824,
         "baseline_cuda_bytes": 16220160,
         "peak_cuda_bytes": 20152320,
         "incremental_peak_cuda_bytes": 3932160
       },
-      "direct_to_eager_throughput_ratio": 22.704132680645944
+      "direct_to_eager_throughput_ratio": 29.6647546720537
     },
     {
       "batch_size": 32,
@@ -44,35 +44,35 @@
       "time": 320,
       "key_channels": 64,
       "value_channels": 64,
-      "first_direct_call_seconds_including_compile_if_uncached": 0.01037129999986064,
+      "first_direct_call_seconds_including_compile_if_uncached": 0.010417999999845051,
       "parity": {
-        "output_maximum_absolute_delta": 1.9073486328125e-06,
-        "output_mean_absolute_delta": 2.065996227429423e-07,
-        "state_maximum_absolute_delta": 1.9073486328125e-06,
-        "state_mean_absolute_delta": 2.3361204171123973e-07,
+        "output_maximum_absolute_delta": 9.5367431640625e-07,
+        "output_mean_absolute_delta": 8.436800413846868e-08,
+        "state_maximum_absolute_delta": 1.3113021850585938e-06,
+        "state_mean_absolute_delta": 7.695605575008813e-08,
         "within_bf16_mixed_tolerance": true
       },
       "eager_compact_wy": {
         "steps": 2,
-        "seconds": 0.038167799999882845,
+        "seconds": 0.04212970000025962,
         "sequence_positions": 20480,
-        "sequence_positions_per_second": 536577.9531453964,
-        "head_state_updates_per_second": 5365779.531453964,
+        "sequence_positions_per_second": 486117.86933858524,
+        "head_state_updates_per_second": 4861178.6933858525,
         "baseline_cuda_bytes": 134873088,
         "peak_cuda_bytes": 260837376,
         "incremental_peak_cuda_bytes": 125964288
       },
       "direct_recurrent_triton": {
         "steps": 2,
-        "seconds": 0.019212200000310986,
+        "seconds": 0.02008690000002389,
         "sequence_positions": 20480,
-        "sequence_positions_per_second": 1065989.3192694483,
-        "head_state_updates_per_second": 10659893.192694481,
+        "sequence_positions_per_second": 1019569.9684857118,
+        "head_state_updates_per_second": 10195699.684857117,
         "baseline_cuda_bytes": 134873088,
         "peak_cuda_bytes": 200540160,
         "incremental_peak_cuda_bytes": 65667072
       },
-      "direct_to_eager_throughput_ratio": 1.9866439033148224
+      "direct_to_eager_throughput_ratio": 2.097371919022324
     }
   ],
   "training_rows": [
@@ -82,79 +82,79 @@
       "time": 320,
       "key_channels": 64,
       "value_channels": 64,
-      "first_direct_forward_backward_seconds_including_compile_if_uncached": 1.3890898999998171,
+      "first_direct_forward_backward_seconds_including_compile_if_uncached": 2.129762600000504,
       "gradient_parity": {
         "rows": [
           {
             "input_index": 0,
-            "maximum_absolute_delta": 6.184563972055912e-11,
-            "mean_absolute_delta": 6.225386092045815e-12,
+            "maximum_absolute_delta": 2.3646862246096134e-11,
+            "mean_absolute_delta": 2.0732649538141024e-12,
             "finite": true
           },
           {
             "input_index": 1,
-            "maximum_absolute_delta": 9.822542779147625e-11,
-            "mean_absolute_delta": 8.194304609854264e-12,
+            "maximum_absolute_delta": 3.2741809263825417e-11,
+            "mean_absolute_delta": 2.731484526410921e-12,
             "finite": true
           },
           {
             "input_index": 2,
             "maximum_absolute_delta": 1.4901161193847656e-08,
-            "mean_absolute_delta": 9.815785337319305e-13,
+            "mean_absolute_delta": 2.6941171732755564e-13,
             "finite": true
           },
           {
             "input_index": 3,
-            "maximum_absolute_delta": 1.4901161193847656e-08,
-            "mean_absolute_delta": 6.680098640042542e-13,
+            "maximum_absolute_delta": 7.450580596923828e-09,
+            "mean_absolute_delta": 1.8224674156949727e-13,
             "finite": true
           },
           {
             "input_index": 4,
             "maximum_absolute_delta": 5.960464477539063e-08,
-            "mean_absolute_delta": 1.5811389740896797e-12,
+            "mean_absolute_delta": 6.135748918494055e-13,
             "finite": true
           },
           {
             "input_index": 5,
-            "maximum_absolute_delta": 1.127773430198431e-10,
-            "mean_absolute_delta": 2.4761141054208125e-11,
+            "maximum_absolute_delta": 3.637978807091713e-11,
+            "mean_absolute_delta": 4.390199575404763e-12,
             "finite": true
           },
           {
             "input_index": 6,
-            "maximum_absolute_delta": 8.185452315956354e-12,
-            "mean_absolute_delta": 1.1066734551326562e-12,
+            "maximum_absolute_delta": 3.637978807091713e-12,
+            "mean_absolute_delta": 3.410035925507926e-13,
             "finite": true
           }
         ],
-        "global_cosine": 1.00000000037179,
+        "global_cosine": 0.9999999369980821,
         "maximum_absolute_element_delta": 5.960464477539063e-08,
         "passes_frozen_gate": true
       },
       "eager_compact_wy_autograd": {
         "steps": 2,
-        "seconds": 0.15768839999964257,
+        "seconds": 0.1652539999995497,
         "sequence_positions": 1280,
-        "sequence_positions_per_second": 8117.274320767421,
-        "head_state_updates_per_second": 81172.74320767421,
+        "sequence_positions_per_second": 7745.65214762419,
+        "head_state_updates_per_second": 77456.52147624189,
         "baseline_cuda_bytes": 32768000,
         "peak_cuda_bytes": 66683904,
         "incremental_peak_cuda_bytes": 33915904,
         "final_loss": 0.10596912354230881
       },
-      "direct_reversible_triton_autograd": {
+      "direct_checkpoint_replay_triton_autograd": {
         "steps": 2,
-        "seconds": 0.006829699999798322,
+        "seconds": 0.01036389999990206,
         "sequence_positions": 1280,
-        "sequence_positions_per_second": 187416.7240197663,
-        "head_state_updates_per_second": 1874167.240197663,
+        "sequence_positions_per_second": 123505.63012110269,
+        "head_state_updates_per_second": 1235056.301211027,
         "baseline_cuda_bytes": 40468480,
         "peak_cuda_bytes": 107611136,
         "incremental_peak_cuda_bytes": 67142656,
-        "final_loss": 0.10596899688243866
+        "final_loss": 0.10596910119056702
       },
-      "direct_to_eager_training_throughput_ratio": 23.088627612384006
+      "direct_to_eager_training_throughput_ratio": 15.945155781232101
     },
     {
       "batch_size": 32,
@@ -162,79 +162,79 @@
       "time": 320,
       "key_channels": 64,
       "value_channels": 64,
-      "first_direct_forward_backward_seconds_including_compile_if_uncached": 0.04710049999994226,
+      "first_direct_forward_backward_seconds_including_compile_if_uncached": 0.06922260000010283,
       "gradient_parity": {
         "rows": [
           {
             "input_index": 0,
-            "maximum_absolute_delta": 4.320099833421409e-12,
-            "mean_absolute_delta": 3.8952998812624706e-13,
+            "maximum_absolute_delta": 1.8189894035458565e-12,
+            "mean_absolute_delta": 1.2914773688411235e-13,
             "finite": true
           },
           {
             "input_index": 1,
-            "maximum_absolute_delta": 6.821210263296962e-12,
-            "mean_absolute_delta": 5.119293660857394e-13,
+            "maximum_absolute_delta": 2.7284841053187847e-12,
+            "mean_absolute_delta": 1.7042681014264177e-13,
             "finite": true
           },
           {
             "input_index": 2,
             "maximum_absolute_delta": 1.862645149230957e-09,
-            "mean_absolute_delta": 5.1545813922531866e-14,
+            "mean_absolute_delta": 1.5134461134953987e-14,
             "finite": true
           },
           {
             "input_index": 3,
             "maximum_absolute_delta": 9.313225746154785e-10,
-            "mean_absolute_delta": 4.1334147340759894e-14,
+            "mean_absolute_delta": 1.2008284449270545e-14,
             "finite": true
           },
           {
             "input_index": 4,
-            "maximum_absolute_delta": 7.450580596923828e-09,
-            "mean_absolute_delta": 9.517313694952512e-14,
+            "maximum_absolute_delta": 3.725290298461914e-09,
+            "mean_absolute_delta": 2.6875320342117405e-14,
             "finite": true
           },
           {
             "input_index": 5,
-            "maximum_absolute_delta": 8.185452315956354e-12,
-            "mean_absolute_delta": 1.5517811645035517e-12,
+            "maximum_absolute_delta": 3.637978807091713e-12,
+            "mean_absolute_delta": 2.7458775270911007e-13,
             "finite": true
           },
           {
             "input_index": 6,
-            "maximum_absolute_delta": 5.826450433232822e-13,
-            "mean_absolute_delta": 6.898323736239179e-14,
+            "maximum_absolute_delta": 3.126388037344441e-13,
+            "mean_absolute_delta": 2.1415390009829442e-14,
             "finite": true
           }
         ],
-        "global_cosine": 1.000000023582446,
-        "maximum_absolute_element_delta": 7.450580596923828e-09,
+        "global_cosine": 0.9999999910490814,
+        "maximum_absolute_element_delta": 3.725290298461914e-09,
         "passes_frozen_gate": true
       },
       "eager_compact_wy_autograd": {
         "steps": 2,
-        "seconds": 0.15348649999987174,
+        "seconds": 0.16794349999963742,
         "sequence_positions": 20480,
-        "sequence_positions_per_second": 133431.9304956274,
-        "head_state_updates_per_second": 1334319.3049562739,
+        "sequence_positions_per_second": 121945.77343001791,
+        "head_state_updates_per_second": 1219457.7343001792,
         "baseline_cuda_bytes": 275644416,
         "peak_cuda_bytes": 819807232,
         "incremental_peak_cuda_bytes": 544162816,
         "final_loss": 0.10587939620018005
       },
-      "direct_reversible_triton_autograd": {
+      "direct_checkpoint_replay_triton_autograd": {
         "steps": 2,
-        "seconds": 0.08133309999993799,
+        "seconds": 0.11242550000042684,
         "sequence_positions": 20480,
-        "sequence_positions_per_second": 251804.00107724426,
-        "head_state_updates_per_second": 2518040.0107724424,
+        "sequence_positions_per_second": 182165.07820665458,
+        "head_state_updates_per_second": 1821650.782066546,
         "baseline_cuda_bytes": 403046400,
         "peak_cuda_bytes": 1436288000,
         "incremental_peak_cuda_bytes": 1033241600,
-        "final_loss": 0.1058792844414711
+        "final_loss": 0.10587938129901886
       },
-      "direct_to_eager_training_throughput_ratio": 1.8871345122710035
+      "direct_to_eager_training_throughput_ratio": 1.4938203521354123
     }
   ],
   "hardware": {

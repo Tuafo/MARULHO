@@ -2292,22 +2292,34 @@ tested first as a short isolated kernel; another full-model or recurrence
 `torch.compile` attempt is forbidden. The compact stop report SHA-256 is
 `7060aba8aa591e50ba9cb7673811dd7502b369dd3e4ecddf8307c6a674589be6`.
 
-The first direct-kernel replacement passes its operator gate. One explicit
-Triton recurrence owns forward execution; its backward uses the algebraic
-inverse only inside four-token spans separated by exact matrix-state boundaries.
-The unrestricted 320-token inverse correctly failed with non-finite early
-gradients, and an eight-token boundary left four of 2,560 adversarial elements
-outside tolerance; neither form was promoted. Four-token boundaries pass the
-context-320 adversarial test and the small forward/state/every-input-gradient
-oracle. At real batch 32, ten heads, context 320, and width 64, direct/eager
-forward is 1.066M/536.6k positions/s (1.99x) and complete forward/backward is
-251.8k/133.4k (1.89x). Global gradient cosine is effectively 1.0, maximum
-element delta is 7.45e-9, and first uncached forward/backward compilation takes
-1.39 seconds. Incremental operator peak is 1.033 GB versus 0.544 GB. No
-`torch.compile` or Inductor cache participates. This advances the kernel into
-full nine-layer loss/every-gradient and optimizer-inclusive preflight; it is not
-yet a language-quality or whole-model throughput result. Report SHA-256 is
-`2527d7525a80cb3f52c0547734530c5013eacdafb84bc2d5ccb9c0f9f1431f33`.
+The first direct-kernel replacement passes its operator and full-model parity
+gates. One explicit Triton recurrence owns forward execution. The first
+unrestricted inverse backward correctly failed with non-finite early gradients;
+an eight-token inverse left four of 2,560 adversarial elements outside tolerance,
+and a four-token inverse still rotated stacked-model gradients. None survives.
+The admitted backward instead loads an exact state every four tokens and replays
+at most three forward updates before applying the reverse equations. A separate
+layout audit then caught strided `empty_like` gradient buffers shuffling head
+views; explicitly contiguous logical gradients close that integration bug.
+
+At batch 32, ten heads, context 320, and width 64, direct/eager operator forward
+is 1.020M/486.1k positions/s (2.10x) and complete forward/backward is
+182.2k/121.9k (1.49x). Global gradient cosine is 0.999999991 and maximum element
+delta is 3.73e-9; incremental peak is 1.033 GB versus 0.544 GB. Exact stacked-
+model tests pass. The real 100,202,970-parameter BF16 model then passes loss and
+all-146-gradient parity at physical batches 2, 8, 16, and 24. Batch 16 is
+selected at 9.16k positions/s and 7.46 GB versus identical eager 4.75k, with
+0.000021 loss delta, 0.999976 gradient cosine, and 0.000061 maximum delta. Batch
+24 gains only 0.21% measured speed while adding 3.39 GB; batch 32 reaches the
+120-second memory-pressure bound without an artifact and is retired. Effective
+batch 32 uses two physical-16 microbatches. A process-tree watchdog now kills
+the real Python child on deadline; its deliberate timeout test passes. No
+`torch.compile` or Inductor cache participates. The next gate is optimizer-
+inclusive CUDA Graph replay against the fresh Transformer control; no language-
+quality run has started. Operator/model/sweep report SHA-256 values are
+`3f812d7dca0ab6a48aa038f4e3c7f9da350ca1c06669e28a5d7114175ee33f7f`,
+`9c38cd4dcd4f03389d07cf22f107958d04a705a7562ca4f7174105605aa5177f`, and
+`ae5bed5540703e7e22e1ba9f339bcc49fb7bf6003a233e291717005004d59f0c`.
 
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,

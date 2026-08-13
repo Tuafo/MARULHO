@@ -1,0 +1,84 @@
+{
+  "artifact_kind": "marulho_delta_state_direct_model_batch_sweep",
+  "surface": "marulho_delta_state_direct_model_batch_sweep.v1",
+  "decision": "select_physical_batch16_advance_cuda_graph_optimizer_preflight",
+  "rows": [
+    {
+      "physical_batch_size": 2,
+      "direct_positions_per_second": 2300.598335301903,
+      "eager_positions_per_second": 587.7143998200626,
+      "direct_to_eager_ratio": 3.9144835246614087,
+      "direct_peak_cuda_bytes": 1505022976,
+      "loss_absolute_delta": 0.00039005279541015625,
+      "gradient_global_cosine": 0.99997391701047,
+      "gradient_maximum_absolute_element_delta": 0.0001678466796875,
+      "status": "valid_diagnostic"
+    },
+    {
+      "physical_batch_size": 8,
+      "direct_positions_per_second": 8773.880978863692,
+      "eager_positions_per_second": 1744.0472974728555,
+      "direct_to_eager_ratio": 5.030758621957757,
+      "direct_peak_cuda_bytes": 4063033344,
+      "loss_absolute_delta": 0.00006961822509765625,
+      "gradient_global_cosine": 0.9999756716926607,
+      "gradient_maximum_absolute_element_delta": 0.000091552734375,
+      "status": "valid_diagnostic"
+    },
+    {
+      "physical_batch_size": 16,
+      "direct_positions_per_second": 9162.717332687134,
+      "eager_positions_per_second": 4745.673164932603,
+      "direct_to_eager_ratio": 1.930751868964255,
+      "direct_peak_cuda_bytes": 7457378304,
+      "loss_absolute_delta": 0.0000209808349609375,
+      "gradient_global_cosine": 0.9999757649863621,
+      "gradient_maximum_absolute_element_delta": 0.00006103515625,
+      "status": "selected"
+    },
+    {
+      "physical_batch_size": 24,
+      "direct_positions_per_second": 9182.067851893129,
+      "eager_positions_per_second": 6776.448066510464,
+      "direct_to_eager_ratio": 1.354997155113068,
+      "direct_peak_cuda_bytes": 10843072512,
+      "loss_absolute_delta": 0.00001430511474609375,
+      "gradient_global_cosine": 0.9999755031960303,
+      "gradient_maximum_absolute_element_delta": 0.00005340576171875,
+      "status": "rejected_no_material_speed_gain_for_3_39_gb_extra_memory"
+    },
+    {
+      "physical_batch_size": 32,
+      "status": "rejected_memory_pressure_timeout",
+      "deadline_seconds": 120,
+      "artifact_created": false,
+      "observed_before_termination": {
+        "gpu_memory_mib": 12026,
+        "gpu_utilization_percent": 100
+      }
+    }
+  ],
+  "selection": {
+    "physical_batch_size": 16,
+    "effective_batch_size": 32,
+    "gradient_accumulation_steps": 2,
+    "reason": "batch24 gained 0.21 percent measured speed while consuming 3.39 GB more peak CUDA memory; batch32 thrashed"
+  },
+  "host_safety": {
+    "outer_shell_timeout_left_python_child": true,
+    "orphan_was_terminated": true,
+    "gpu_memory_after_termination_mib": 388,
+    "process_tree_watchdog_added": "scripts/run_bounded_python.ps1",
+    "watchdog_deliberate_timeout_test_passed": true
+  },
+  "scientific_interpretation": {
+    "full_model_parity_passed_at_selected_batch": true,
+    "optimizer_inclusive_preflight_passed": false,
+    "transformer_throughput_gate_passed": false,
+    "language_quality_run_started": false,
+    "next_step": "cuda_graph_optimizer_inclusive_preflight_at_physical_batch16"
+  },
+  "torch_compile_used": false,
+  "owned_by_marulho": true,
+  "external_llm_used": false
+}
