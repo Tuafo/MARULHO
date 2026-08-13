@@ -2909,6 +2909,43 @@ stay below 11.5 GiB, and show a positive state-swap counterfactual: replacing a
 document's state with another document's must worsen its next-segment loss by at
 least 0.02. Any miss retires the mechanism; no scale or source-QA run follows.
 
+The frozen A2 recipe uses the qualified MARULHO 8,192-token BPE vocabulary and
+the already materialized, mutually disjoint FineWeb-Edu/Cosmopedia replay and
+evaluation shards. Select the first 4,096 eligible training documents from each
+replay shard and the first 512 eligible heldout documents from each evaluation
+shard in file order; eligibility is at least 961 encoded tokens including BOS.
+Keep exactly the first 961 tokens and form three ordered 320-input/320-target
+segments at token offsets 0, 320, and 640. Training seed `72121` shuffles the
+8,192-document schedule once; model seed `72131` initializes every arm. Use 256
+unique-document optimizer updates at batch 32 (7,864,320 input positions per
+arm), no relation data, and evaluate the fixed 1,024 heldout documents. No
+document repeats and no cross-document packing are allowed.
+
+The Transformer fixes width 768, ten layers, twelve heads, context 320, and
+SwiGLU hidden width 3,072. Workspace arms retain all ten full-attention layers,
+use SwiGLU hidden width 2,768 to pay for two width-768 cross-attention reads and
+one eight-query write, and must land within parameter ratio 0.99--1.01. Reads
+occur after layers 3 and 7. Eight width-768 write queries attend to the completed
+segment, then a learned scalar content gate, residual update, and RMS norm form
+the next detached state. To train the writer without cross-boundary gradients,
+each workspace slot predicts the already-observed token ending its fixed
+40-token segment partition (positions 39, 79, ..., 319) through the tied
+vocabulary head. Its local reconstruction loss weight is 0.1; every workspace
+control uses the identical objective and modules. The Transformer uses ordinary
+next-token loss only. Therefore persistent-versus-reset/shuffled isolates state
+lifetime, while persistent-versus-Transformer remains the joint system test.
+
+Use owned uncompiled Muon/AdamW, weight decay 0.1, gradient norm 1.0, thirteen
+linear warmup updates from `3e-5` to `3e-4`, then cosine decay to `3e-5` at
+update 256. Backpropagate each segment's one-third-scaled loss before advancing
+to the next segment, update once per three-segment document batch, and detach
+state exactly at boundaries. Frozen arms are `transformer`, `persistent`,
+`reset`, and `shuffled`; they execute in separate bounded processes. Report
+first-segment and combined later-segment heldout losses, corpus-specific later
+loss, state-swap next-segment delta, complete gradients, exact data/model hashes,
+training positions/s, and peak CUDA allocation. No optimizer, width, auxiliary,
+schedule, data-selection, or state rule changes are allowed after an arm result.
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token
