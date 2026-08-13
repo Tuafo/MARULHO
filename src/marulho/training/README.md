@@ -141,6 +141,15 @@ batch 32 therefore uses two physical-16 microbatches. This advances CUDA Graph
 and optimizer-inclusive preflight; it is not yet a Transformer-relative
 throughput pass or language-quality result.
 
+The complete optimizer-inclusive CUDA Graph preflight closes the branch. The
+captured physical-16 by accumulation-2 fused-AdamW step matches eager loss,
+gradient norm, and all 100,202,970 updated parameters exactly, but reaches only
+9.24k positions/s versus the fresh Transformer's 21.03k. Its 43.93% ratio misses
+the frozen 50% floor despite fitting at 8.70 GB. V64 therefore stops before the
+8,192-step curriculum with no language-quality verdict and no checkpoint. A
+successor must change the parallel training computation; another wrapper around
+this token-sequential recurrence is not admissible.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

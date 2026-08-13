@@ -1,0 +1,111 @@
+{
+  "artifact_kind": "marulho_delta_state_cuda_graph_preflight",
+  "surface": "marulho_delta_state_cuda_graph_preflight.v1",
+  "decision": "stop_v64_for_kernel_redesign_no_quality_verdict",
+  "config": {
+    "microbatch_size": 16,
+    "gradient_accumulation_steps": 2,
+    "context_length": 320,
+    "timing_steps": 3,
+    "learning_rate": 0.0004,
+    "weight_decay": 0.1,
+    "maximum_gradient_norm": 1.0,
+    "answer_weight": 4.0,
+    "graph_eager_loss_tolerance": 1e-05,
+    "graph_eager_gradient_norm_tolerance": 0.0001,
+    "graph_eager_update_cosine_tolerance": 0.999,
+    "graph_eager_parameter_rms_tolerance": 1e-06,
+    "graph_eager_parameter_maximum_tolerance": 0.0005,
+    "preflight_minimum_throughput_ratio": 0.5,
+    "promotion_minimum_throughput_ratio": 0.7,
+    "maximum_peak_cuda_bytes": 12348027699,
+    "model_seed": 16411,
+    "control_seed": 16412,
+    "data_seed": 16413
+  },
+  "candidate": {
+    "arm": "delta_state_triton_cuda_graph",
+    "parameter_report": {
+      "total_parameters": 100202970,
+      "trainable_parameters": 100202970,
+      "recurrent_mixer_parameters": 29571930,
+      "external_llm_used": false
+    },
+    "effective_batch_size": 32,
+    "physical_microbatch_size": 16,
+    "gradient_accumulation_steps": 2,
+    "capture_seconds": 0.5102016000000731,
+    "capture_peak_cuda_bytes": 8696872448,
+    "timing_step_seconds": [
+      1.1130887999997867,
+      1.107788199999959,
+      1.1037120999999388
+    ],
+    "timing_positions_per_second": 9240.239643450348,
+    "timing_peak_cuda_bytes": 1663675392,
+    "peak_cuda_bytes": 8696872448,
+    "parity": {
+      "graph_loss": 8.915863037109375,
+      "eager_loss": 8.915863037109375,
+      "loss_absolute_delta": 0.0,
+      "graph_gradient_norm": 0.7075174450874329,
+      "eager_gradient_norm": 0.7075174450874329,
+      "gradient_norm_absolute_delta": 0.0,
+      "updated_parameters": {
+        "names_equal": true,
+        "maximum_absolute_element_delta": 0.0,
+        "maximum_delta_names": [
+          "all_parameters_exact"
+        ],
+        "root_mean_square_element_delta": 0.0,
+        "update_global_cosine": 1.0,
+        "elements_above_1e_6": 0,
+        "elements_above_1e_5": 0,
+        "elements_above_1e_4": 0,
+        "compared_elements": 100202970
+      }
+    },
+    "optimizer": "fused_AdamW_capturable",
+    "maximum_gradient_norm": 1.0,
+    "torch_compile_used": false
+  },
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "control": {
+    "arm": "fresh_transformer_eager",
+    "parameter_count": 100679424,
+    "effective_batch_size": 32,
+    "physical_microbatch_size": 32,
+    "gradient_accumulation_steps": 1,
+    "timing_step_seconds": [
+      0.49092800000016723,
+      0.4828636000002007,
+      0.48670250000031956
+    ],
+    "timing_positions_per_second": 21033.977473777908,
+    "peak_cuda_bytes": 7474107904,
+    "optimizer": "fused_AdamW",
+    "maximum_gradient_norm": 1.0,
+    "torch_compile_used": false
+  },
+  "candidate_to_control_throughput_ratio": 0.4393006341748597,
+  "candidate_to_control_parameter_ratio": 0.9952676129732327,
+  "gates": {
+    "parameter_ratio": true,
+    "graph_eager_loss": true,
+    "graph_eager_gradient_norm": true,
+    "graph_eager_parameter_names": true,
+    "graph_eager_update_cosine": true,
+    "graph_eager_parameter_rms": true,
+    "graph_eager_parameter_maximum": true,
+    "throughput_floor": false,
+    "candidate_peak_memory": true,
+    "cuda_observed": true
+  },
+  "promotion_throughput_gate_passed": false,
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}

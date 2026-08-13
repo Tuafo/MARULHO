@@ -1669,16 +1669,15 @@ fail, and general FineWeb-Edu prompts remain unqualified.
 
 ## Next Evidence Program
 
-The immediate V64 program has passed direct-kernel and full-model parity but
-remains before terminal training. Its MARULHO-owned Triton recurrence and exact
-four-token checkpoint/replay backward pass context-320, strided-layout, stacked-
-model, BF16 loss, and every-gradient gates. Physical batch 16 is selected at
-9.16k positions/s and 7.46 GB; effective batch 32 uses two microbatches. Batch
-24 is speed-tied at 10.84 GB and batch 32 is retired for memory-pressure
-thrashing. The next experiment captures the selected complete optimizer step
-with CUDA Graph and compares it to the fresh Transformer control. Only a 50%
-preflight throughput pass may enter the frozen 8,192-step curriculum;
-`RESEARCH.md` owns the unchanged language-quality gates.
+V64 is closed before terminal training. Its direct Triton kernel, exact four-
+token checkpoint/replay backward, BF16 model, CUDA Graph, gradient clipping, and
+fused AdamW pass exact optimizer-update parity. The complete candidate reaches
+9.24k positions/s at 8.70 GB versus 21.03k for the fresh matched Transformer.
+That 43.93% ratio fails the frozen 50% preflight floor, so the 8,192-step
+curriculum never starts and no quality or checkpoint claim exists. The next
+base-substrate experiment must change the parallel training computation rather
+than add another execution wrapper to V64; `RESEARCH.md` owns the terminal
+evidence and unchanged language-quality objective.
 
 ### 1. Relation-binding falsification
 

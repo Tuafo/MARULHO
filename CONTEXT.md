@@ -959,15 +959,16 @@ the oracle floor, the training objective is invalid rather than evidence for a
 candidate win. Quality outranks speed; no terminal checkpoint survives a failed
 joint gate.
 
-V64 remains before terminal language training but has reopened its execution
-gate through a MARULHO-owned direct Triton recurrence. Its checkpoint/replay
-backward, stacked model, BF16 loss, and all 146 parameter gradients pass against
-the exact eager oracle. Physical batch 16 is selected at 9.16k positions/s and
-7.46 GB; batch 24 is speed-tied at much higher memory, and batch 32 is retired
-after memory-pressure timeout. Effective batch 32 uses two microbatches. This
-still does not pass the frozen Transformer-relative throughput gate: CUDA Graph
-and optimizer-inclusive measurement are next. Four failed Inductor attempts,
-their cache, and that backend remain deleted; no language-quality verdict exists.
+V64 terminally stops before language training. Its MARULHO-owned direct Triton
+recurrence passes checkpoint/replay backward, stacked-model, BF16-loss, and all-
+parameter parity. CUDA Graph then captures the complete two-microbatch fused-
+AdamW step in 0.51 seconds and reproduces eager loss, gradient norm, and all
+100,202,970 updated parameters exactly. The candidate nevertheless reaches only
+9.24k positions/s versus 21.03k for the fresh matched Transformer: 43.93% misses
+the frozen 50% preflight floor. Candidate peak allocation is 8.70 GB. Decision:
+`stop_v64_for_kernel_redesign_no_quality_verdict`. No language training or
+checkpoint started. Four failed Inductor attempts, their cache, and that backend
+remain deleted.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

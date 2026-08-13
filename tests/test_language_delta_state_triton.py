@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 import torch
 
@@ -189,3 +191,75 @@ def test_full_tiny_model_triton_matches_eager_loss_state_and_gradients() -> None
     cosine = dot / (direct_norm * eager_norm) ** 0.5
     assert cosine >= 0.999
     assert maximum_delta <= 0.01
+
+
+@pytest.mark.skipif(not delta_state_triton_available(), reason="requires CUDA Triton")
+def test_tiny_model_optimizer_step_replays_in_cuda_graph() -> None:
+    config = DeltaStateLanguageModelConfig(
+        vocab_size=97,
+        embedding_dim=32,
+        state_dim=32,
+        state_layers=4,
+        attention_heads=4,
+        transformer_context_length=24,
+        transformer_mlp_ratio=2.0,
+        local_attention_window=8,
+        delta_chunk_size=4,
+        delta_execution_backend="triton_replay",
+    )
+    torch.manual_seed(645)
+    model = MarulhoDeltaStateLanguageModel(config).cuda().train()
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=4.0e-4, weight_decay=0.1, fused=True, capturable=True
+    )
+    first_ids = torch.randint(0, config.vocab_size, (2, 13), device="cuda")
+    second_ids = torch.randint(0, config.vocab_size, (2, 13), device="cuda")
+
+    def loss(model: MarulhoDeltaStateLanguageModel, ids: torch.Tensor) -> torch.Tensor:
+        return model(ids, collect_telemetry=False)["logits"].float().square().mean()
+
+    warmup_stream = torch.cuda.Stream()
+    warmup_stream.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(warmup_stream):
+        optimizer.zero_grad(set_to_none=True)
+        warmup_loss = loss(model, first_ids)
+        warmup_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+    torch.cuda.current_stream().wait_stream(warmup_stream)
+    torch.cuda.synchronize()
+    del warmup_loss
+
+    optimizer.zero_grad(set_to_none=True)
+    before = model.token_embedding.weight.detach().clone()
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        first_loss = loss(model, first_ids) * 0.5
+        first_loss.backward()
+        second_loss = loss(model, second_ids) * 0.5
+        second_loss.backward()
+        captured_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+
+    eager = MarulhoDeltaStateLanguageModel(config).cuda().train()
+    eager.load_state_dict(model.state_dict(), strict=True)
+    eager_optimizer = torch.optim.AdamW(
+        eager.parameters(), lr=4.0e-4, weight_decay=0.1, fused=True, capturable=True
+    )
+    eager_optimizer.load_state_dict(copy.deepcopy(optimizer.state_dict()))
+    eager_optimizer.zero_grad(set_to_none=True)
+    (loss(eager, first_ids) * 0.5).backward()
+    (loss(eager, second_ids) * 0.5).backward()
+    eager_norm = torch.nn.utils.clip_grad_norm_(eager.parameters(), 1.0)
+    eager_optimizer.step()
+
+    graph.replay()
+    torch.cuda.synchronize()
+    assert bool(torch.isfinite(captured_norm).all())
+    torch.testing.assert_close(captured_norm, eager_norm, atol=1e-6, rtol=1e-6)
+    assert not torch.equal(model.token_embedding.weight, before)
+    for (actual_name, actual), (expected_name, expected) in zip(
+        model.named_parameters(), eager.named_parameters()
+    ):
+        assert actual_name == expected_name
+        torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)

@@ -17,6 +17,8 @@ $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $startInfo.FileName = $pythonExecutable
 $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
+$startInfo.RedirectStandardOutput = $true
+$startInfo.RedirectStandardError = $true
 foreach ($argument in $PythonArguments) {
     [void]$startInfo.ArgumentList.Add($argument)
 }
@@ -26,6 +28,8 @@ $process.StartInfo = $startInfo
 if (-not $process.Start()) {
     throw "Failed to start bounded Python process."
 }
+$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+$stderrTask = $process.StandardError.ReadToEndAsync()
 
 $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
 while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
@@ -41,10 +45,27 @@ if (-not $process.HasExited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
     $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($stdout) {
+        [Console]::Out.Write($stdout)
+    }
+    if ($stderr) {
+        [Console]::Error.Write($stderr)
+    }
     [Console]::Error.WriteLine(
         "MARULHO bounded process tree exceeded ${TimeoutSeconds}s and was terminated."
     )
     exit 124
 }
 
+$process.WaitForExit()
+$stdout = $stdoutTask.GetAwaiter().GetResult()
+$stderr = $stderrTask.GetAwaiter().GetResult()
+if ($stdout) {
+    [Console]::Out.Write($stdout)
+}
+if ($stderr) {
+    [Console]::Error.Write($stderr)
+}
 exit $process.ExitCode

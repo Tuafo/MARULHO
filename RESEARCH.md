@@ -2321,6 +2321,21 @@ quality run has started. Operator/model/sweep report SHA-256 values are
 `9c38cd4dcd4f03389d07cf22f107958d04a705a7562ca4f7174105605aa5177f`, and
 `ae5bed5540703e7e22e1ba9f339bcc49fb7bf6003a233e291717005004d59f0c`.
 
+The optimizer-inclusive CUDA Graph gate closes V64. Capture of the selected
+physical-16 by accumulation-2 step takes 0.51 seconds, peaks at 8.70 GB, and
+matches eager Triton exactly in scalar loss, clipped gradient norm, update-vector
+cosine, and every one of 100,202,970 updated parameters. Three replayed fused-
+AdamW steps reach 9.24k positions/s. The fresh 100,679,424-parameter Transformer
+at physical batch 32 reaches 21.03k positions/s, so the candidate achieves only
+43.93% of control and fails the frozen 50% admission floor. Decision:
+`stop_v64_for_kernel_redesign_no_quality_verdict`. This is an execution result,
+not a language-quality verdict: the 8,192-step curriculum never starts and no
+V64 checkpoint exists. Report SHA-256 is
+`c3648f55b49b1bc58b2e677c79059f661414092a2e9bb2a217234536daa5f4c1`.
+Another launch-capture layer cannot repair a compute path whose complete graph
+is already 2.28 times slower than control; the next architecture must change the
+parallel training computation rather than wrap this recurrence again.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
