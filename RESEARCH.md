@@ -3056,6 +3056,17 @@ that cannot rescue it. If admitted, reset and shuffled run; persistent must beat
 each by at least 0.02 under the same joint gates. A full pass advances only to
 checkpoint/generation and continual validation. It does not install a runtime.
 
+**V73 preflight: PASS.** The candidate has 101,932,035 parameters, 1.012442
+times the exact 100,679,424-parameter Transformer. Disabled logits are bit-exact
+with maximum error zero and the copied Transformer hash equals V72's retained
+initial hash. After two real three-segment optimizer updates, all base and all 18
+sidecar tensors have received finite nonzero gradients. The second update reaches
+20.63k positions/s versus the retained 16.43k one-step Transformer preflight;
+two-update aggregate is 17.25k. Peak CUDA allocation is 6.068 GB, and no
+compilation occurs. The persistent quality arm is admitted. Compact report
+`exact-cortex-sidecar-v73-preflight-20260813.json` owns the evidence (SHA-256
+`5f368b0c639986e75abbcc7b3446f9ff8d42fbf1c8ee182948071e720d3c4bf3`).
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token
