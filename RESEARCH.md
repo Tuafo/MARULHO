@@ -2599,6 +2599,47 @@ compact report `block-native-v68-stage-a-stop-20260813.json` owns the evidence
 (SHA-256
 `14cf9cc1dca10d2e049bb3f7d1ff3121d26df5434d8fc7b49ee652b8c72a85c5`).
 
+### V69 macro-conditioned full attention block: preregistration
+
+**Bet.** Preserve the causal completed-block hierarchy while deleting macro
+prefix tokens entirely. Both candidate and control own separate width-640 query,
+key/value, and output projections initialized bit-identically. Candidate hidden
+is a storage-aliasing `[B,block,64,width]` view of the same logical input. Its
+projected K/V values serve both four learned per-head summary queries and local
+attention. The summaries mix through the same short causal global stream and
+are averaged within each completed block. Block `j-1`'s macro vector is shifted
+to block `j`; block zero uses one learned per-head start vector.
+
+Two learned per-head elementwise scales inject that shifted macro vector without
+creating tokens: one adds it in place to local queries before length-64 causal
+attention, and one adds it in place to the attention output before the shared-
+shape output projection. Query conditioning can select local information while
+output conditioning carries macro content itself. No prefix concatenation,
+macro projection matrix, recurrence, dynamic boundary, MLP, normalization,
+checkpointing, custom kernel, or Inductor is present. This is one complete
+attention sublayer, not a raw post-projection operator.
+
+**Stage A frozen protocol.** At FP32 batch 2/context 320, require candidate
+outputs before a future-block perturbation to remain within 1e-6, require a
+completed block to change the immediately following block, require the folded
+candidate input to alias storage, and require finite nonzero gradients for
+hidden, Q/KV/output weights, summary queries, start vector, and both macro
+scales. At BF16 batch 32, width 640, ten heads, contexts 320/1,024, run two
+warmups and five measured forward/backward steps. Candidate loss is squared
+local output plus squared global summaries; control loss is squared output.
+Record all timing samples, medians, absolute/incremental peak CUDA allocation,
+parameter counts, exact common-parameter initialization hashes, and hardware.
+Every arm uses the process-tree watchdog.
+
+Admission remains deliberately unchanged: candidate throughput at least 0.70x
+control and incremental allocation below 2.0 GB at context 320; candidate
+throughput greater than control and absolute peak allocation strictly below
+control at context 1,024. The full-block comparison supersedes raw-core speed
+interpretation but does not relax any threshold. One exact measurement is
+allowed. A miss records compact evidence and deletes V69. A complete pass admits
+the approximately 100M parameter-matched Stage-B language comparison and all
+behavioral controls preregistered under V67.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

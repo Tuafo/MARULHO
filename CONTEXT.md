@@ -1031,13 +1031,13 @@ copies were therefore real overhead, but not the whole problem: candidate peak
 remains 561 MB versus 505 MB, and the frozen context-320 ratio is 0.691 versus
 the 0.70 floor. No model is built and all V68 implementation code is deleted.
 
-**Macro-conditioned local attention (next research direction)** — stop carrying
+**V69 macro-conditioned local attention (current bet)** — stop carrying
 the completed macro state as concatenated prefix tokens. Instead, let the
-previous block's global summaries add a learned low-dimensional condition to
-the next block's Q/K/V projections before one ordinary length-64 causal
-attention. This can remove the remaining prefix activation and make the macro
-path part of the full attention block rather than a post-projection side input.
-It requires a fresh full-block preregistration; it is not yet validated.
+previous block's global summaries condition the next block's query and attention
+output inside one ordinary length-64 causal attention block. The candidate and
+control now include matched Q/K/V/output projections, eliminating the remaining
+prefix activation and measuring where fusion is actually possible. V69 is
+preregistered but not yet validated.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
