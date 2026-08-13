@@ -1007,26 +1007,24 @@ exists; all live V65 code is deleted after the compact report is retained.
 Report SHA-256 is
 `dc141e7d6df1a25f1f238bfe68d37865556ef3c875e3523a84a67a77bddff755`.
 
-**V66 causal micro-macro exchange (current bet)** — V66 abandons matrix-state
-editing and keeps the GPU-friendly operation Transformers are best at: dense
-attention on much shorter sequences. All 64-token neighborhoods process in
-parallel. A few trailing summary tokens causally read each completed
-neighborhood; summaries then communicate globally on a sequence compressed by
-16--64x; only a completed earlier macro representation is shifted back as
-prefix context for the next neighborhood. Repeating local summary, global
-exchange, and shifted return across depth creates micro/macro organization
-without token-sequential training or future leakage.
+**V66 causal micro-macro exchange (stopped)** — V66 proves that compressed
+summary attention has a real long-context crossover but rejects its two-local-
+pass implementation before model construction. Causality is exact, completed
+blocks change later blocks, and every audited gradient is finite and nonzero.
+At context 1,024 it reaches 1.678M positions/s versus full attention's 1.574M,
+but uses 694 MB versus 505 MB peak allocation. At the active context 320 it
+reaches only 1.516M versus 2.729M positions/s, or 55.55% of control, below the
+frozen 70% floor. The implementation, runner, and tests are deleted; the compact
+report owns the result.
 
-MEGABYTE, Block Transformer, and H-Net constrain the claim: multiscale local/
-global language models and hierarchical chunking already exist and have strong
-evidence. MARULHO's question is narrower—whether repeated shifted summary return
-is an effective owned base cortex on one RTX 3060 and later supplies clean
-boundaries for continual memory and structural extension. Stage A first compares
-the complete forward/backward attention core with ordinary causal attention at
-matched width, batch, precision, and context 320/1,024. It must prove prefix
-causality by future-block perturbation, keep every gradient finite, beat control
-throughput at 1,024, and not fall below 70% at 320. Only then may a parameter-
-matched approximately 100M language model exist.
+**V67 queried-summary exchange (current bet)** — retain V66's causal completed-
+block organization while removing its measured waste. Four learned queries read
+each raw 64-token neighborhood with cheap cross-attention; the compressed
+summaries mix globally; the previous completed macro output prefixes one and
+only one local token-attention pass. This preserves parallel neighborhoods and
+the one-block causal shift while removing V66's first full local-token pass.
+Stage A must rerun the same frozen truth, context-320/context-1,024 throughput,
+and memory gates before any model is constructed.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

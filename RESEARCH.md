@@ -2483,6 +2483,25 @@ Dynamic boundaries, extra summary counts, sparse experts, persistent archives,
 and structural growth are later experiments. V66 fixes 64/4 so an attractive
 hierarchy cannot hide an unmeasured routing or segmentation effect.
 
+**Outcome.** V66 is mechanically correct but stops at Stage A. FP32 future
+perturbation changes earlier outputs by exactly zero, a completed block changes
+the following block by up to 0.4835, and all 414,720 audited input/summary/start
+gradient elements are finite and nonzero. At context 1,024 the candidate reaches
+1.678M positions/s versus 1.574M for full attention (1.066x), proving the
+compressed global path has a real crossover. It nevertheless uses 694 MB versus
+505 MB peak allocation. At context 320 it reaches 1.516M versus 2.729M
+positions/s (0.555x), failing the frozen 0.70 floor. No language model or
+checkpoint is built. The implementation, evaluator, partial artifacts, and
+tests are deleted; `micro-macro-v66-stage-a-stop-20260813.json` owns the durable
+evidence (SHA-256
+`ade21fd08089e576d2369f2a187e1081cc4ab6c3e3885974365f0375091843fd`).
+
+The next isolated variable is V67 queried-summary exchange. Four learned queries
+cross-attend to each completed raw 64-token block, the resulting summaries use
+the same global causal mixer, and the shifted macro prefix participates in only
+one local token-attention pass. This removes V66's first full local pass without
+changing neighborhood size, summary count, shift boundary, hardware, or gates.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

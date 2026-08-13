@@ -96,6 +96,14 @@ frozen 300k admission floor. CUDA Graph does not change speed. The V65 reference
 kernels, runner, and tests are deleted; only the compact report and research
 conclusion remain. No delta/editable-state runtime is installed.
 
+V66's causal micro-macro exchange is also stopped before model construction.
+Its two local attention passes plus compressed global summary pass are causal
+and fully differentiable. The core becomes 6.57% faster than full attention at
+context 1,024, but reaches only 55.55% of control throughput at context 320 and
+uses 37.55% more peak allocation at 1,024. The reference, evaluator, partial
+artifacts, and tests are deleted. V67 may test queried summary extraction with
+only one local token pass; no micro-macro model or checkpoint surface exists.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

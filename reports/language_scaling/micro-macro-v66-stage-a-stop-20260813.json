@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "marulho_micro_macro_stage_a",
+  "surface": "marulho_micro_macro_stage_a.v1",
+  "decision": "stop_v66_before_model_work",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "batch_size": 32,
+    "width": 640,
+    "heads": 10,
+    "head_dimension": 64,
+    "neighborhood_size": 64,
+    "summary_tokens": 4,
+    "dtype": "torch.bfloat16",
+    "warmup_steps": 2,
+    "timing_steps": 5,
+    "torch_compile_used": false
+  },
+  "validation": {
+    "precision": "torch.float32",
+    "future_maximum_delta": 0.0,
+    "future_tolerance": 1e-06,
+    "completed_block_later_maximum_delta": 0.4834660291671753,
+    "gradient_elements": {
+      "hidden": 409600,
+      "summary_tokens": 2560,
+      "start_prefix": 2560
+    },
+    "all_gradients_present_finite_nonzero": true
+  },
+  "context_320": {
+    "candidate": {
+      "positions_per_second": 1516142.1819665465,
+      "median_step_seconds": 0.006753983974456787,
+      "timing_step_seconds": [
+        0.006296576023101807,
+        0.006784992218017578,
+        0.006383359909057617,
+        0.006753983974456787,
+        0.00726035213470459
+      ],
+      "peak_cuda_bytes": 224988672,
+      "incremental_peak_cuda_bytes": 198753792
+    },
+    "control": {
+      "positions_per_second": 2729467.1937787756,
+      "median_step_seconds": 0.00375164794921875,
+      "timing_step_seconds": [
+        0.003378175973892212,
+        0.0034025919437408445,
+        0.003960063934326172,
+        0.00375164794921875,
+        0.003827615976333618
+      ],
+      "peak_cuda_bytes": 162950656,
+      "incremental_peak_cuda_bytes": 135677440
+    },
+    "candidate_to_control_throughput_ratio": 0.5554718464549644
+  },
+  "context_1024": {
+    "candidate": {
+      "positions_per_second": 1677932.1608229158,
+      "median_step_seconds": 0.019528799057006836,
+      "timing_step_seconds": [
+        0.019808256149291992,
+        0.01947177505493164,
+        0.02022777557373047,
+        0.019351007461547852,
+        0.019528799057006836
+      ],
+      "peak_cuda_bytes": 694119936,
+      "incremental_peak_cuda_bytes": 610213376
+    },
+    "control": {
+      "positions_per_second": 1574490.8168819328,
+      "median_step_seconds": 0.020811807632446288,
+      "timing_step_seconds": [
+        0.02306559944152832,
+        0.02209382438659668,
+        0.019879072189331055,
+        0.020811807632446288,
+        0.019910207748413088
+      ],
+      "peak_cuda_bytes": 504638976,
+      "incremental_peak_cuda_bytes": 420742656
+    },
+    "candidate_to_control_throughput_ratio": 1.0656982834271684,
+    "candidate_to_control_peak_memory_ratio": 1.375478250811923
+  },
+  "gates": {
+    "future_causality": true,
+    "completed_block_signal": true,
+    "complete_finite_gradients": true,
+    "context_320_minimum_0_70_control_throughput": false,
+    "context_1024_exceeds_control_throughput": true,
+    "context_320_below_2gb_incremental": true,
+    "context_1024_below_control_peak_memory": false,
+    "stage_a_passed": false
+  },
+  "interpretation": "Compressed global attention has a real long-context speed crossover, but two local passes cost too much at the active context and retain more activation memory than Flash SDPA at 1024. V66 is rejected before model construction. A successor must compute block summaries without a full first local-token pass and return macro context through only one local-token pass.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}
