@@ -2946,6 +2946,20 @@ loss, state-swap next-segment delta, complete gradients, exact data/model hashes
 training positions/s, and peak CUDA allocation. No optimizer, width, auxiliary,
 schedule, data-selection, or state rule changes are allowed after an arm result.
 
+**A2 full-step preflight: PASS.** On the RTX 3060, the
+100,769,281-parameter workspace candidate is 1.000893 times the
+100,679,424-parameter Transformer. Both complete a real batch-32, three-segment
+Muon/AdamW update with finite nonzero gradients for every parameter. Candidate/
+control peak CUDA allocation is 5.691/5.650 GB and one-step throughput is
+17.55k/16.43k positions/s (1.068 ratio). The exact long-document contract hash
+is `eb56d6828e9a89ec7a0a7092663694e5c27c4c1d29dc1104b15ad29d10739d27`;
+the tokenizer hash remains
+`faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`.
+No compilation is used. This admits the frozen quality arms and makes no
+language-quality claim. Compact report
+`persistent-workspace-v72-a2-preflight-20260813.json` owns the evidence
+(SHA-256 `aeccb9a6ce0f4eae2c40e7fa63633fc567d8c5b589ce9d1d8152b7f18299df40`).
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token
