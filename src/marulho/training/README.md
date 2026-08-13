@@ -75,80 +75,19 @@ meaningfully beat temporal-only despite higher state, compute, and memory cost.
 Its surprise selector also lost to random and recency under identical write and
 read budgets. No PMRM compatibility code remains.
 
-The editable delta-memory v1 model, falsification runner, generation audit, and
-tests are also deleted after durable falsification. Its 2/2 hybrid beat the
-Transformer at 1.06M and 4.20M tokens, then lost heldout loss, free relation
-recall, throughput, and unseen semantic generation at 16.78M. New work starts
-from the V64 base-substrate hypothesis in `RESEARCH.md`, not from a delta
-compatibility surface.
-
-V64 is preregistered as a clean, from-scratch replacement candidate. Its
-MARULHO-owned delta-state cortex will provide an owned sequential reference,
-chunk-32 training form, exact recurrent generation state, and a strict
-checkpoint surface. Nine full per-head matrix-state blocks with independent
-decay/erase/write alternate in a 3:1 pattern with three window-64 attention
-blocks. It faces a fresh 100.68M Transformer at matched parameters, tokenizer,
-context-320 schedule, optimizer, 83.89M positions, and evaluation. None of this
-machinery is installed or maintained until the joint quality/source-use gate
-passes; the old serial delta code remains deleted.
-
-`language_delta_state.py` now owns that uninstalled model. Its 100,202,970
-parameters are 99.527% of the 100,679,424-parameter control. FP64 compact-WY
-outputs, final state, and all gradients match the recurrent oracle; FP32 chunk
-composition and full-model token streaming also match. On the RTX 3060, the
-first actual batch-32/context-320 probe fits at 11.01 GB eager. An initial
-all-BF16 compilation probe was rejected because it did not preserve the frozen
-FP32-master recipe. The corrected FP32-master/BF16-autocast graph takes 587.20
-seconds once, keeps loss within 0.000150, then reaches 19.97k positions/s at
-7.36 GB versus the eager control's 24.30k. This admits optimizer-inclusive and
-gradient-parity preflight only; it is not a quality result or terminal
-throughput pass.
-
-V64's Inductor branch is deleted. Two weighted full-model attempts, one
-model-only attempt, and one shared-recurrence attempt each reached the
-1,204-second bound without an artifact; repeated compilation also destabilized
-the Windows host. The exact eager implementation reaches only 8.09k positions/s
-versus 24.30k for the control, below the frozen 50% preflight floor. V64 is
-therefore stopped for kernel redesign without a language-quality verdict. Only
-a bounded, directly owned CUDA/Triton operator may reopen the preflight; the
-live V64 module contains no `torch.compile` backend.
-
-**`language_delta_state_triton.py`** — owns the replacement direct-kernel
-experiment. Its first forward-only Triton operator maps one CUDA program to one
-value column of one batch/head matrix state and executes the exact recurrent
-decay/erase/write equation without compiling the model. Tiny CUDA forward and
-final-state parity pass in an isolated test whose disposable cache is deleted
-afterward. The admitted backward never inverts a decayed state: it loads an
-exact four-token boundary and replays at most three forward transitions before
-applying the reverse equations. Context-320 adversarial gradients, strided head
-views, every small-shape input/state gradient, and a complete stacked model pass
-against the sequential/eager oracle.
-
-At batch 32, context 320, ten heads, and width 64, the direct operator reaches
-1.020M forward positions/s versus compact-WY's 486.1k, and 182.2k complete
-forward/backward positions/s versus 121.9k: 2.10x and 1.49x respectively. Global
-gradient cosine is 0.999999991 and maximum element delta is 3.73e-9. Direct
-operator incremental peak allocation is 1.033 GB versus 0.544 GB because four-
-token state boundaries and reduction workspaces trade memory for speed.
-
-The integrated 100,202,970-parameter model passes BF16 loss and every-gradient
-parity at physical batches 2, 8, 16, and 24. Batch 16 is selected: it reaches
-9.16k positions/s at 7.46 GB versus the identical eager model's 4.75k, with
-0.000021 loss delta, 0.999976 global gradient cosine, and 0.000061 maximum
-element delta. Batch 24 reaches a statistically tied 9.18k while consuming
-10.84 GB; batch 32 enters memory-pressure thrashing and is rejected. Effective
-batch 32 therefore uses two physical-16 microbatches. This advances CUDA Graph
-and optimizer-inclusive preflight; it is not yet a Transformer-relative
-throughput pass or language-quality result.
-
-The complete optimizer-inclusive CUDA Graph preflight closes the branch. The
-captured physical-16 by accumulation-2 fused-AdamW step matches eager loss,
-gradient norm, and all 100,202,970 updated parameters exactly, but reaches only
-9.24k positions/s versus the fresh Transformer's 21.03k. Its 43.93% ratio misses
-the frozen 50% floor despite fitting at 8.70 GB. V64 therefore stops before the
-8,192-step curriculum with no language-quality verdict and no checkpoint. A
-successor must change the parallel training computation; another wrapper around
-this token-sequential recurrence is not admissible.
+The editable delta-memory v1 model and the later V64 delta-state cortex are both
+deleted after durable falsification. Delta v1 lost its early small-scale
+advantage by 16.78M tokens. V64 then tested a much stronger 100,202,970-parameter
+matrix-state/local-attention design with an exact MARULHO-owned Triton backward
+and complete CUDA Graph optimizer step. Its final graph matched eager loss,
+clipped gradient norm, and every updated parameter exactly, but reached only
+9.24k positions/s versus 21.03k for the fresh matched Transformer. The 43.93%
+ratio failed the frozen 50% admission floor at 8.70 GB, so terminal language
+training never started and no V64 checkpoint exists. Its model, kernels,
+one-shot evaluators, and tests are deleted; `RESEARCH.md` and the retained JSON
+reports own the evidence. A successor must change the parallel training
+computation, not preserve a delta compatibility surface or add another launch
+wrapper around token-sequential recurrence.
 
 **`language_model.py`** — the language model contract. It owns:
 
