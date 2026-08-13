@@ -2642,6 +2642,26 @@ allowed. A miss records compact evidence and deletes V69. A complete pass admits
 the approximately 100M parameter-matched Stage-B language comparison and all
 behavioral controls preregistered under V67.
 
+**Outcome.** V69 stops under its frozen memory gate and receives no quality
+verdict. Candidate/control common projection hashes match exactly. FP32 future
+perturbation changes earlier output by zero, completed-block perturbation changes
+the next block by up to 8.0925, and all 2,052,480 audited input/parameter gradient
+elements are finite and nonzero. At context 320, candidate/control throughput is
+1.075M/1.174M positions/s (0.915x). At 1,024 it is 1.198M/0.941M (1.273x), while
+peak allocation is 703/652 MB (1.078x). Both speed gates pass; below-control
+long-context memory does not. V69 is not retroactively promoted. Its code,
+runner, partials, and tests are deleted; compact report
+`macro-conditioned-v69-stage-a-stop-20260813.json` owns the evidence (SHA-256
+`96bfc6fd4f6b7e3b23af815dd6813fc4938bb437d7a46bf107dcb38e8c40d8aa`).
+
+Across V66--V69, FlashAttention's linear activation storage changes the systems
+interpretation: an additional learned macro path can reduce attention compute
+yet retain slightly more total state than a control with no macro pathway. The
+next experiment may transparently ask whether that state earns its cost at the
+full-model boundary, using the existing at-least-70% end-to-end throughput and
+at-most-11.5-GiB hardware gates. It must receive a new version and preregistration;
+V69's failed result remains immutable.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

@@ -68,6 +68,16 @@ completed macro representation to condition the next block's Q/K/V projection.
 That would preserve the causal micro/macro channel without materializing a
 second token sequence, but needs full-block evidence before it is trusted.
 
+V69 supplies that full-block evidence. With matched Q/KV/output projections,
+macro conditioning retains 91.53% of control speed at context 320 and becomes
+27.25% faster at 1,024. It uses 7.81% more peak activation memory, so it still
+fails the old admission contract and is deleted. The mechanism—not the version—
+now deserves a quality falsifier. FlashAttention already has linear activation
+memory; demanding that an added macro state use less total memory can reject
+useful organization by definition. A new model experiment may instead enforce
+the real 11.5 GiB device ceiling and require the state to earn its cost through
+language and source-learning gains.
+
 The first synthesis from this ledger has now been tested and refuted in its
 implemented form. V7 attached four fixed-stable rotating memory banks and a
 content write gate to a full-attention Transformer. At 16.79M matched tokens,

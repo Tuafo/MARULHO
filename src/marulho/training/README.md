@@ -117,6 +117,14 @@ and reaches only 69.13% of control at context 320. Its implementation, evaluator
 tests, and partial artifacts are deleted. No block-native language surface
 exists.
 
+V69 tests macro conditioning inside a complete projected attention block. It
+passes causality, common-weight hash, gradient, and both speed gates: 91.53% of
+control at context 320 and 127.25% at context 1,024. It stops only because 703 MB
+peak allocation remains 7.81% above the long-context FlashAttention control.
+Its implementation, evaluator, tests, and partial artifacts are deleted. The
+result justifies a separately preregistered model-level quality falsifier, not a
+V69 model or checkpoint surface.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

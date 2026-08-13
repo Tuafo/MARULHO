@@ -1031,13 +1031,22 @@ copies were therefore real overhead, but not the whole problem: candidate peak
 remains 561 MB versus 505 MB, and the frozen context-320 ratio is 0.691 versus
 the 0.70 floor. No model is built and all V68 implementation code is deleted.
 
-**V69 macro-conditioned local attention (current bet)** — stop carrying
-the completed macro state as concatenated prefix tokens. Instead, let the
-previous block's global summaries condition the next block's query and attention
-output inside one ordinary length-64 causal attention block. The candidate and
-control now include matched Q/K/V/output projections, eliminating the remaining
-prefix activation and measuring where fusion is actually possible. V69 is
-preregistered but not yet validated.
+**V69 macro-conditioned local attention (systems stop, useful mechanism)** —
+the completed macro state conditions the next block's query and attention output
+without prefix tokens. With hash-identical Q/KV/output weights, exact causality,
+and complete gradients, the full block reaches 91.53% of control throughput at
+context 320 and 127.25% at context 1,024. It fails only the old requirement to
+use less long-context peak memory: 703 MB versus 652 MB (1.078x). V69 is not
+retroactively promoted; its transient code is deleted and it has no language-
+quality verdict.
+
+**V70 parameter-matched macro cortex (next bet)** — V66--V69 show that the
+strict below-FlashAttention memory gate selects against carrying any additional
+macro state even when compute is faster. V70 must be freshly preregistered at
+the actual model boundary: approximately 100M parameters, at least 70% end-to-
+end Transformer throughput, below the RTX 3060's 11.5 GiB ceiling, and superior
+held-out/source behavior. This changes the scientific question transparently;
+it does not rewrite V69's failed gate.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "marulho_macro_conditioned_full_block_stage_a",
+  "surface": "marulho_macro_conditioned_full_block_stage_a.v1",
+  "decision": "stop_v69_old_memory_gate_no_quality_verdict",
+  "owned_by_marulho": true,
+  "external_llm_used": false,
+  "config": {
+    "batch_size": 32,
+    "width": 640,
+    "heads": 10,
+    "neighborhood_size": 64,
+    "summary_queries": 4,
+    "common_parameters": 1638400,
+    "candidate_parameters": 1642880,
+    "dtype": "torch.bfloat16",
+    "warmup_steps": 2,
+    "timing_steps": 5,
+    "torch_compile_used": false
+  },
+  "validation": {
+    "block_fold_aliases_input_storage": true,
+    "future_maximum_delta": 0.0,
+    "future_tolerance": 1e-06,
+    "completed_block_later_maximum_delta": 8.092520713806152,
+    "audited_gradient_elements": 2052480,
+    "all_gradients_present_finite_nonzero": true
+  },
+  "context_320": {
+    "common_parameter_hash": "7c1b1cd8cb04f061fd88c8ed678eaa26ee985612a675310f9d167e9508f3c4db",
+    "candidate": {
+      "positions_per_second": 1074922.0884531215,
+      "median_step_seconds": 0.00952627182006836,
+      "timing_step_seconds": [
+        0.00952627182006836,
+        0.009209471702575684,
+        0.009911552429199218,
+        0.009599967956542969,
+        0.008731776237487793
+      ],
+      "peak_cuda_bytes": 239856640,
+      "incremental_peak_cuda_bytes": 190029824
+    },
+    "control": {
+      "positions_per_second": 1174398.0736115582,
+      "median_step_seconds": 0.0087193603515625,
+      "timing_step_seconds": [
+        0.0087193603515625,
+        0.008880736351013184,
+        0.008332575798034668,
+        0.008494303703308106,
+        0.008802271842956544
+      ],
+      "peak_cuda_bytes": 223636480,
+      "incremental_peak_cuda_bytes": 172770816
+    },
+    "candidate_to_control_throughput_ratio": 0.9152961952223542
+  },
+  "context_1024": {
+    "common_parameter_hash": "7c1b1cd8cb04f061fd88c8ed678eaa26ee985612a675310f9d167e9508f3c4db",
+    "candidate": {
+      "positions_per_second": 1197589.4101060447,
+      "median_step_seconds": 0.027361631393432617,
+      "timing_step_seconds": [
+        0.028254207611083985,
+        0.027030559539794923,
+        0.02922332763671875,
+        0.027361631393432617,
+        0.027235488891601562
+      ],
+      "peak_cuda_bytes": 702639104,
+      "incremental_peak_cuda_bytes": 594157568
+    },
+    "control": {
+      "positions_per_second": 941100.3214008062,
+      "median_step_seconds": 0.034818817138671875,
+      "timing_step_seconds": [
+        0.03446783828735352,
+        0.03432940673828125,
+        0.03605145645141602,
+        0.034818817138671875,
+        0.034850719451904294
+      ],
+      "peak_cuda_bytes": 651766784,
+      "incremental_peak_cuda_bytes": 543294976
+    },
+    "candidate_to_control_throughput_ratio": 1.2725417076932461,
+    "candidate_to_control_peak_memory_ratio": 1.0780529496882123
+  },
+  "gates": {
+    "common_parameter_hash_match": true,
+    "future_causality": true,
+    "completed_block_signal": true,
+    "complete_finite_gradients": true,
+    "context_320_minimum_0_70_control_throughput": true,
+    "context_1024_exceeds_control_throughput": true,
+    "context_320_below_2gb_incremental": true,
+    "context_1024_below_control_peak_memory": false,
+    "stage_a_passed": false
+  },
+  "interpretation": "V69 is the first full attention-block hierarchy to clear both throughput gates with bit-identical common weights. It fails only the preregistered requirement to use less peak memory than FlashAttention, by 7.81%. V69 is not retroactively promoted and has no quality verdict. Across V66-V69, the repeated result suggests that below-control activation memory is structurally mismatched to an additional macro state when FlashAttention already stores linear rather than quadratic activations. A fresh model-level experiment may replace that gate with the existing 11.5 GiB hardware ceiling and 70% end-to-end throughput floor, but must preregister before reusing the mechanism.",
+  "hardware": {
+    "device": "NVIDIA GeForce RTX 3060",
+    "torch_version": "2.12.1+cu132",
+    "cuda_version": "13.2"
+  }
+}
