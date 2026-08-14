@@ -4078,6 +4078,20 @@ training advances through 13,344 after 409,927,680 new positions at about
 19.91k positions/s. This adds rollback evidence only; update 14,336 remains the
 next quality measurement.
 
+The seventh authoritative curve at update 14,336 covers 440,401,920 new
+positions, or 43.75% of the schedule. Overall later loss reaches 2.832335,
+improving by only 0.002415 since update 12,288 and by 0.150529 from the frozen
+start. That is 60.21% of the terminal target with 0.099471 unresolved.
+FineWeb-Edu, Cosmopedia, and DCLM reach 3.042442/2.354828/3.099735, total gains
+of 0.115158/0.083977/0.252453; every source still improves and DCLM reaches
+126.23% of its own requirement. The interval gain falls sharply from 0.008148.
+The remaining nine curve intervals must average about 0.011052 to pass, 4.58
+times this latest gain. This makes terminal success unlikely without authorizing
+an early decision: the frozen stable phase and cooldown remain the falsifier.
+The 428,214,677-byte optimizer snapshot strict-reloads at SHA-256
+`1c803629...214d5ad`, rotates update 12,288 away, retains exactly
+13,312/14,336, and training advances through 14,368 at about 19.92k positions/s.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
