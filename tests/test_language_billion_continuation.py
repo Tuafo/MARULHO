@@ -17,6 +17,7 @@ from marulho.evaluation.language_billion_continuation import (
     _prune_snapshots,
     _progress_payload,
     _quality_checks,
+    _retain_only_snapshot,
     _scheduled_documents,
     _snapshot_output_path,
 )
@@ -156,4 +157,21 @@ def test_v80_snapshot_pruning_retains_only_the_two_newest(tmp_path) -> None:
     assert deleted == [str(snapshots[0])]
     assert not snapshots[0].exists()
     assert snapshots[1].read_bytes() == b"\x01"
+    assert snapshots[2].read_bytes() == b"\x02"
+
+
+def test_v80_terminal_snapshot_retention_deletes_only_older_states(tmp_path) -> None:
+    prefix = tmp_path / "v80-training"
+    snapshots = [
+        _snapshot_output_path(prefix, completed_steps)
+        for completed_steps in (30_720, 31_744, 32_768)
+    ]
+    for index, snapshot in enumerate(snapshots):
+        snapshot.write_bytes(bytes([index]))
+
+    deleted = _retain_only_snapshot(prefix, snapshots[-1])
+
+    assert deleted == [str(snapshots[0]), str(snapshots[1])]
+    assert not snapshots[0].exists()
+    assert not snapshots[1].exists()
     assert snapshots[2].read_bytes() == b"\x02"

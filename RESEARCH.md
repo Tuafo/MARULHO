@@ -3947,7 +3947,12 @@ two survive. At the measured 17--20k positions/s this bounds lost work to roughl
 A real controlled stop at update 2 resumed through update 4 on the frozen
 schedule; a separate finalization smoke exercised evaluation, terminal snapshot,
 standard checkpoint conversion, exact reload, report writing, and successful
-snapshot deletion. All smoke artifacts were deleted.
+snapshot deletion. All smoke artifacts were deleted. The production finalization
+now retains the single terminal optimizer-bearing snapshot when quantitative
+qualification passes and deletes only older rollback points. The separate FP32
+checkpoint remains the generation/runtime artifact; the retained BF16 snapshot
+is the exact continual-training parent and may be deleted if visible generation
+later rejects V80.
 
 Production V80 launched from the exact V78 parent on 2026-08-14. Its first
 32-update live point sustained 19,629 positions/s, reported 4,260,120,064 bytes
@@ -4087,10 +4092,15 @@ staying within four oracle answers, or gains at least eight oracle answers while
 staying within 0.005 retained loss, against **both** ordinary and low-rate replay.
 Otherwise Reptile is retired. Any saved winner writes both a standard exact model
 checkpoint for generation/runtime and a training snapshot containing model,
-optimizer, RNG, completed schedule, tokenizer, and exact reload evidence. The
-standard checkpoint hash is the one later consumed by the same-checkpoint
-524,288-token sustained runner; the training snapshot owns rollback and further
-continual mutation. A result where no replay arm learns and retains decides
+optimizer, RNG, completed schedule, tokenizer, and exact reload evidence. V81's
+four arms likewise branch from V80's retained terminal training snapshot, prove
+that its BF16 model equals the admitted FP32 checkpoint after exact casting, and
+retain V80's Muon/Adam moment state while starting the frozen V81 learning-rate
+schedule. This follows genuine continual optimization rather than silently
+resetting the optimizer between domains. The standard checkpoint hash is the one
+later consumed by the same-checkpoint 524,288-token sustained runner; the
+training snapshot owns rollback and further continual mutation. A result where
+no replay arm learns and retains decides
 `redesign_v81_learning_objective`; a result that learns only by forgetting
 decides `advance_v81_to_stronger_retention_not_structural_growth`.
 

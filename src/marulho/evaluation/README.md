@@ -1112,6 +1112,12 @@ The next production transaction at update 3,072 writes and strict-reloads a
 428,213,141-byte snapshot (`13049e42...aeb3022`), deletes update 1,024, retains
 only updates 2,048/3,072, and continues training. This verifies live rolling
 retention without changing the quality interpretation.
+On terminal quantitative qualification, finalization retains exactly the last
+verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
+separate FP32 checkpoint remains the inference/generation artifact. The terminal
+snapshot is deliberately preserved as the only valid parent for a later
+optimizer-continuous V81 branch and is deleted if visible generation rejects the
+V80 state.
 
 **`language_billion_generation.py`** owns V80's post-training direct-language
 boundary. It cannot run unless the V80 terminal report passes quantitative and

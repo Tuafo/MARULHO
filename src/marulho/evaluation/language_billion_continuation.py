@@ -906,6 +906,19 @@ def _prune_snapshots(prefix: Path, *, keep: int = SNAPSHOTS_TO_KEEP) -> list[str
     return deleted
 
 
+def _retain_only_snapshot(prefix: Path, retained_path: Path) -> list[str]:
+    if not retained_path.exists():
+        raise RuntimeError("V80 terminal training snapshot was not retained")
+    retained = retained_path.resolve()
+    deleted: list[str] = []
+    for path in _snapshot_candidates(prefix):
+        if path.resolve() == retained:
+            continue
+        path.unlink()
+        deleted.append(str(path))
+    return deleted
+
+
 def _training_state(
     *,
     initial_evaluation: Mapping[str, Any],
@@ -1363,9 +1376,15 @@ def run_billion_continuation(
             checkpoint_record["saved"] = False
     passed = quality_passed and bool(checkpoint_record["fidelity"]["passed"])
     if passed:
-        for snapshot in _snapshot_candidates(snapshot_prefix):
-            snapshot.unlink()
-    terminal_snapshot["retained_after_decision"] = not passed
+        terminal_snapshot["deleted_older_snapshots_after_decision"] = (
+            _retain_only_snapshot(
+                snapshot_prefix,
+                Path(str(terminal_snapshot["path"])),
+            )
+        )
+    terminal_snapshot["retained_after_decision"] = Path(
+        str(terminal_snapshot["path"])
+    ).exists()
     report = {
         "surface": SURFACE,
         "artifact_kind": "marulho_language_billion_continuation",
@@ -1441,7 +1460,7 @@ def run_billion_continuation(
             run_peak_cuda_allocated_bytes=run_peak,
             curve=curve,
             last_step_result=last_step_result,
-            latest_snapshot=None if passed else terminal_snapshot,
+            latest_snapshot=terminal_snapshot,
             decision=report["decision"],
         ),
     )
