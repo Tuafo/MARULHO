@@ -887,7 +887,7 @@ def language_model_state_sha256(model: MarulhoLanguageModel) -> str:
         digest.update(name.encode("utf-8"))
         digest.update(str(tensor.dtype).encode("ascii"))
         digest.update(str(tuple(tensor.shape)).encode("ascii"))
-        digest.update(tensor.numpy().tobytes())
+        digest.update(tensor.view(torch.uint8).numpy().tobytes())
     return digest.hexdigest()
 
 

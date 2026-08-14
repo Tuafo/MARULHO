@@ -8,9 +8,20 @@ from marulho.training.language_model import (
     LanguageModelConfig,
     MarulhoLanguageModel,
     _apply_decode_controls,
+    language_model_state_sha256,
     load_language_model_checkpoint,
     save_language_model_checkpoint,
 )
+
+
+def test_language_model_state_hash_supports_bfloat16() -> None:
+    model = MarulhoLanguageModel(_config()).to(dtype=torch.bfloat16)
+
+    first = language_model_state_sha256(model)
+    second = language_model_state_sha256(model)
+
+    assert first == second
+    assert len(first) == 64
 from marulho.training.language_transformer import (
     MarulhoCausalTransformerStateBlock,
 )
