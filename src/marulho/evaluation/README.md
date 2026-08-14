@@ -1118,6 +1118,9 @@ gain is 42.29% of the terminal target and DCLM is 99.29% of its required gain.
 The 428,213,333-byte state strict-reloads at `7106aa33...ec7c96`, rotates update
 2,048 away, and successfully resumes past 4,128 under the current code at about
 19.74k positions/s. These remain intermediate curve and recovery facts.
+That reconstructed process writes its next 428,213,397-byte state at update
+5,120 (`33bc5d4a...ab88e36`), strict-reloads it, deletes only update 3,072, retains
+4,096/5,120, and continues past 5,152 at about 19.74k positions/s.
 On terminal quantitative qualification, finalization retains exactly the last
 verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
 separate FP32 checkpoint remains the inference/generation artifact. The terminal

@@ -3995,6 +3995,13 @@ resumes through update 4,128 under the terminal-snapshot-retention code at about
 19.74k positions/s. This is positive scaling and exact continuation evidence;
 it does not replace the final cooldown, checkpoint, or visible-generation gates.
 
+The reconstructed process then completes its first native rollback transaction:
+update 5,120 writes and strict-reloads a 428,213,397-byte optimizer snapshot at
+SHA-256 `33bc5d4a...ab88e36`, deletes update 3,072, and leaves exactly updates
+4,096/5,120. Training advances through 5,152 at about 19.74k positions/s. This
+confirms that the code revision retained production rotation and continuation;
+it supplies no additional heldout result before update 6,144.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution

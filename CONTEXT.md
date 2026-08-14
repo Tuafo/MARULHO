@@ -1275,6 +1275,13 @@ the terminal-retention code at about 19.74k positions/s. This strengthens the
 curve and optimizer-continuity evidence, not the still-unmet terminal or visible
 language claims.
 
+The first rollback transaction after that process reconstruction also passes.
+Update 5,120 writes and strict-reloads 428,213,397 bytes at SHA-256
+`33bc5d4a...ab88e36`, deletes only update 3,072, retains updates 4,096/5,120, and
+continues through 5,152 at about 19.74k positions/s. The patched process therefore
+preserves the same bounded rolling contract; this adds recovery evidence, not a
+new quality point.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed
