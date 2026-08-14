@@ -1,0 +1,377 @@
+{
+  "adaptive_accuracy": 0.4200439453125,
+  "adaptive_margins": {
+    "adaptive_shuffled": 0.35113525390625,
+    "discard_same_compute": 0.35076904296875,
+    "forced_open_own": 0.05816650390625,
+    "matched_constant_own": -0.0025634765625
+  },
+  "arms": [
+    {
+      "arm": "adaptive_own",
+      "evaluation": {
+        "documents_per_second": 1807.3464042384985,
+        "inner_rate": 0.06886378675699234,
+        "mean_accepted_gate_by_segment": [
+          0.27079060673713684,
+          0.2479480654001236,
+          0.036370761692523956
+        ],
+        "mean_gate_features_by_segment": [
+          [
+            0.3128983974456787,
+            1.9080135822296143,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.500856876373291,
+            0.3234279751777649,
+            -0.0012175370939075947,
+            0.10163591802120209
+          ],
+          [
+            1.3880956172943115,
+            3.3402259349823,
+            0.04028366133570671,
+            0.10181288421154022
+          ]
+        ],
+        "mean_raw_gate_by_segment": [
+          0.27079060673713684,
+          0.2479480654001236,
+          0.036370761692523956
+        ],
+        "mean_segment_losses": [
+          0.36740704253315926,
+          3.4855342507362366,
+          3.007282316684723
+        ],
+        "mean_update_norms": [
+          0.05778813187498599,
+          0.003865519232931547,
+          0.28195661772042513
+        ],
+        "prequery_raw_gate_quantiles": [
+          0.240433007478714,
+          0.2557353377342224,
+          0.2848369777202606
+        ],
+        "query_accuracy": 0.4200439453125,
+        "query_correct": 6882,
+        "query_total": 16384,
+        "seconds": 2.266305999997712
+      }
+    },
+    {
+      "arm": "forced_open_own",
+      "evaluation": {
+        "documents_per_second": 1778.1260713078184,
+        "inner_rate": 0.06886378675699234,
+        "mean_accepted_gate_by_segment": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "mean_gate_features_by_segment": [
+          [
+            0.3128983974456787,
+            1.9080135822296143,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.5008611679077148,
+            0.3234412670135498,
+            -0.0018434225348755717,
+            0.33366918563842773
+          ],
+          [
+            1.394653081893921,
+            2.418717384338379,
+            -0.08276785910129547,
+            0.3342815637588501
+          ]
+        ],
+        "mean_raw_gate_by_segment": [
+          0.27079060673713684,
+          0.2220735400915146,
+          0.05961751937866211
+        ],
+        "mean_segment_losses": [
+          0.36740704253315926,
+          3.4855534061789513,
+          3.0336563736200333
+        ],
+        "mean_update_norms": [
+          0.05778813187498599,
+          0.003865720114845317,
+          0.11044462746940553
+        ],
+        "prequery_raw_gate_quantiles": [
+          0.2145225554704666,
+          0.2384435534477234,
+          0.2848369777202606
+        ],
+        "query_accuracy": 0.36187744140625,
+        "query_correct": 5929,
+        "query_total": 16384,
+        "seconds": 2.3035487000015564
+      }
+    },
+    {
+      "arm": "matched_constant_own",
+      "evaluation": {
+        "documents_per_second": 1829.9608917325274,
+        "inner_rate": 0.06886378675699234,
+        "mean_accepted_gate_by_segment": [
+          0.2593693435192108,
+          0.2593693435192108,
+          0.2593693435192108
+        ],
+        "mean_gate_features_by_segment": [
+          [
+            0.3128983974456787,
+            1.9080135822296143,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.500856876373291,
+            0.32342803478240967,
+            -0.0012087388895452023,
+            0.09785574674606323
+          ],
+          [
+            1.3883496522903442,
+            3.3572707176208496,
+            0.05732124298810959,
+            0.09806054830551147
+          ]
+        ],
+        "mean_raw_gate_by_segment": [
+          0.27079060673713684,
+          0.24838580191135406,
+          0.0362018458545208
+        ],
+        "mean_segment_losses": [
+          0.36740704253315926,
+          3.4855341240763664,
+          3.008298732340336
+        ],
+        "mean_update_norms": [
+          0.05778813187498599,
+          0.003865520324325189,
+          0.2869927156716585
+        ],
+        "prequery_raw_gate_quantiles": [
+          0.24091240763664246,
+          0.2560460567474365,
+          0.2848369777202606
+        ],
+        "query_accuracy": 0.422607421875,
+        "query_correct": 6924,
+        "query_total": 16384,
+        "seconds": 2.238299200002075
+      }
+    },
+    {
+      "arm": "discard_same_compute",
+      "evaluation": {
+        "documents_per_second": 1845.1574167960312,
+        "inner_rate": 0.06886378675699234,
+        "mean_accepted_gate_by_segment": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "mean_gate_features_by_segment": [
+          [
+            0.3128983974456787,
+            1.9080135822296143,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.500855803489685,
+            0.32342058420181274,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.4391379356384277,
+            3.9922034740448,
+            0.0,
+            9.999496978707612e-05
+          ]
+        ],
+        "mean_raw_gate_by_segment": [
+          0.27079060673713684,
+          0.25991106033325195,
+          0.021940134465694427
+        ],
+        "mean_segment_losses": [
+          0.36740704253315926,
+          3.4855291694402695,
+          3.217190071940422
+        ],
+        "mean_update_norms": [
+          0.05778813187498599,
+          0.00386541013722308,
+          0.5347631555050611
+        ],
+        "prequery_raw_gate_quantiles": [
+          0.2511473298072815,
+          0.2636094093322754,
+          0.2848369777202606
+        ],
+        "query_accuracy": 0.06927490234375,
+        "query_correct": 1135,
+        "query_total": 16384,
+        "seconds": 2.2198647999975947
+      }
+    },
+    {
+      "arm": "adaptive_shuffled",
+      "evaluation": {
+        "documents_per_second": 1820.7266166089817,
+        "inner_rate": 0.06886378675699234,
+        "mean_accepted_gate_by_segment": [
+          0.27078425884246826,
+          0.24796359241008759,
+          0.03032311238348484
+        ],
+        "mean_gate_features_by_segment": [
+          [
+            0.3128983974456787,
+            1.9080137014389038,
+            0.0,
+            9.999496978707612e-05
+          ],
+          [
+            1.5008556842803955,
+            0.32342344522476196,
+            -0.0009875010000541806,
+            0.10164158046245575
+          ],
+          [
+            1.4655359983444214,
+            3.735438346862793,
+            0.588198721408844,
+            0.1018199697136879
+          ]
+        ],
+        "mean_raw_gate_by_segment": [
+          0.27078425884246826,
+          0.24796359241008759,
+          0.03032311238348484
+        ],
+        "mean_segment_losses": [
+          0.36740704253315926,
+          3.4855288714170456,
+          3.330300211906433
+        ],
+        "mean_update_norms": [
+          0.05778813187498599,
+          0.003865450904413592,
+          0.41612325608730316
+        ],
+        "prequery_raw_gate_quantiles": [
+          0.24052433669567108,
+          0.25580865144729614,
+          0.2844083905220032
+        ],
+        "query_accuracy": 0.06890869140625,
+        "query_correct": 1129,
+        "query_total": 16384,
+        "seconds": 2.2496513000005507
+      }
+    }
+  ],
+  "behavioral_pass": false,
+  "decision": "retire_v75_stage_a0_failure",
+  "environment": {
+    "cuda": "13.2",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.9",
+    "torch": "2.12.1+cu132"
+  },
+  "final_parameter_sha256": "243110a5a21ae559f19ea0c8eafb96a563f3d175abbb0e7c331ab7630ae78898",
+  "initial_parameter_sha256": "e25037c8cafac85a027927b7a9a721ad5e6e0d7cfc32ab57e8f950848747e134",
+  "matched_constant_gate": 0.2593693407252431,
+  "mechanical": {
+    "disabled_max_abs_error": 0.0,
+    "future_perturbation_earlier_feature_max_abs_error": 0.0,
+    "future_perturbation_earlier_gate_max_abs_error": 0.0,
+    "future_perturbation_earlier_loss_max_abs_error": 0.0,
+    "future_perturbation_earlier_update_max_abs_error": 0.0,
+    "passed": true
+  },
+  "parameter_count": 1063650,
+  "passed": false,
+  "recipe": {
+    "batch_size": 128,
+    "compiled": false,
+    "config": {
+      "attention_heads": 4,
+      "context_length": 64,
+      "distractor_count": 32,
+      "gate_width": 16,
+      "key_count": 16,
+      "layers": 4,
+      "mlp_width": 512,
+      "rank": 8,
+      "segments": 3,
+      "value_count": 16,
+      "width": 128
+    },
+    "evaluation_documents": 4096,
+    "gate_features": [
+      "log1p_loss",
+      "log_gradient_rms",
+      "state_alignment",
+      "log_state_rms"
+    ],
+    "gate_hidden_width": 16,
+    "gradient_clip": 1.0,
+    "initial_gate": 0.8807970285415649,
+    "meta_gradient": "first_order_straight_through",
+    "slow_learning_rate": 0.0003,
+    "slow_optimizer": "AdamW",
+    "train_steps": 800,
+    "weight_decay": 0.0
+  },
+  "schedule_sha256": "37e52e6b50832c500ca0fd442422bd928d4af421df37ae21c7ba4580476e0f44",
+  "seed": 7401,
+  "surface": "marulho_adaptive_ttt_v75.stage_a0_seed.v1",
+  "training": {
+    "complete_finite_gradients": true,
+    "documents": 102400,
+    "documents_per_second": 815.3047303303024,
+    "final": {
+      "inner_rate": 0.0688878521323204,
+      "loss": 2.2876381874084473,
+      "mean_gate_by_segment": [
+        0.2755514979362488,
+        0.25075042247772217,
+        0.04067443311214447
+      ],
+      "segment_losses": [
+        0.3679923415184021,
+        3.4853076934814453,
+        3.0096144676208496
+      ],
+      "update_norms": [
+        0.05661814287304878,
+        0.003826034488156438,
+        0.24894629418849945
+      ]
+    },
+    "missing_nonzero_gradient_names": [],
+    "nonfinite_gradient_names": [],
+    "peak_cuda_allocated_bytes": 1526546944,
+    "seconds": 125.59721069999796,
+    "steps": 800
+  }
+}
