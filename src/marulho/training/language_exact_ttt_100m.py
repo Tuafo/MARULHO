@@ -246,6 +246,7 @@ class V76ExactTTTLanguage(nn.Module):
         batch_size = int(documents.shape[0])
         fast_a, fast_b = self.initial_fast_weights(batch_size)
         losses: list[torch.Tensor] = []
+        per_document_losses: list[torch.Tensor] = []
         update_norms: list[torch.Tensor] = []
         for segment in range(segment_count):
             start = segment * segment_length
@@ -257,6 +258,7 @@ class V76ExactTTTLanguage(nn.Module):
             ).reshape(batch_size, segment_length)
             per_document = per_token.mean(dim=1)
             losses.append(per_document.mean())
+            per_document_losses.append(per_document.detach())
             if segment == segment_count - 1:
                 break
             gradients = torch.autograd.grad(
@@ -284,6 +286,9 @@ class V76ExactTTTLanguage(nn.Module):
         return {
             "loss": torch.stack(losses).mean(),
             "segment_losses": torch.stack([value.detach() for value in losses]),
+            "per_document_segment_losses": torch.stack(
+                per_document_losses, dim=1
+            ),
             "update_norms": torch.stack(update_norms),
             "final_fast_a": fast_a,
             "final_fast_b": fast_b,
@@ -298,6 +303,7 @@ class V76ExactTTTLanguage(nn.Module):
     ) -> dict[str, torch.Tensor]:
         fast_a, fast_b = self.initial_fast_weights(int(documents.shape[0]))
         losses: list[torch.Tensor] = []
+        per_document_losses: list[torch.Tensor] = []
         for segment in range(3):
             start = segment * int(segment_length)
             inputs = documents[:, start : start + int(segment_length)]
@@ -305,10 +311,18 @@ class V76ExactTTTLanguage(nn.Module):
             logits = self.forward_segment(
                 inputs, fast_a, fast_b, fast_enabled=False
             )
-            losses.append(
-                F.cross_entropy(logits.flatten(0, 1), targets.flatten())
+            per_token = F.cross_entropy(
+                logits.flatten(0, 1), targets.flatten(), reduction="none"
+            ).reshape(int(documents.shape[0]), int(segment_length))
+            per_document = per_token.mean(dim=1)
+            losses.append(per_document.mean())
+            per_document_losses.append(
+                per_document.detach()
             )
         return {
             "loss": torch.stack(losses).mean(),
             "segment_losses": torch.stack([value.detach() for value in losses]),
+            "per_document_segment_losses": torch.stack(
+                per_document_losses, dim=1
+            ),
         }
