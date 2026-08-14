@@ -1140,19 +1140,20 @@ neither a fixed update nor a four-statistic retention gate meets the frozen
 memory target. The next TTT experiment must test the missing exact meta-gradient,
 not tune another gate or inner rate.
 
-**V76 exact end-to-end TTT (current research bet)** — directly differentiate
-future next-token loss through earlier next-token gradient updates. V74 used a
-bounded first-order approximation; V76 tests whether the omitted gradient-of-
-gradient is what prevents the Transformer from learning how to write durable
-facts. Exact and first-order models start from identical tensors, consume the
-same frozen documents, use the same rank-8 fast weights and optimizer steps, and
-differ only in whether the inner gradient remains in the outer computation
-graph. Exact must reach 80% delayed recall and beat the matched first-order model
-by 10 points in every seed, while retaining causal discard and wrong-document
-separation. A CUDA safety ladder selects only a memory-safe physical batch; the
-effective batch remains 128. Mathematical SDPA is required because current
-FlashAttention does not support this second derivative. No 100M language run is
-admitted unless the exact gradient wins the small causal experiment.
+**V76 exact end-to-end TTT (Stage A0 passed; 100M language stage next)** —
+directly differentiating future next-token loss through earlier next-token
+gradient updates changes the result qualitatively. Across seeds 7601/7602/7603,
+exact meta-training answers 49,147/49,152 delayed queries (99.990%), versus
+66.557% mean for the matched first-order approximation and 6.923%/6.773% for
+discarded/wrong-document updates. Exact and first-order initial hashes, document
+schedules, and pre-training numerical updates match; only their outer gradients
+differ. Every mechanical and finite-gradient gate passes. Exact training sustains
+755.9 documents/s on average, 98.67% of first-order throughput, with 1.574 GB
+maximum allocated. This is strong synthetic evidence that meta-learning through
+the update—not another memory container—is the missing mechanism. It is not yet
+real-language evidence or a runtime promotion. V76 now advances to a bounded
+100M pretrained-Transformer safety ladder and matched long-document language
+screen using mathematical SDPA; the installed runtime remains the Transformer.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

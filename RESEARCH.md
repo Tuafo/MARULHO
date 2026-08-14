@@ -3311,6 +3311,40 @@ exact shuffled controls. Seed 7601 is terminal on any miss. No rank, rate,
 optimizer, step, batch, layer, or task sweep follows failure. Only a three-seed
 pass admits a 100M safety ladder and real long-document language comparison.
 
+### V76 Stage-A0 result: exact meta-learning passes all seeds
+
+The CUDA ladder passes physical batch 128 directly under mathematical SDPA: one
+complete exact outer forward/backward takes 0.193 seconds, peaks at
+1,564,919,808 bytes, and gives every parameter a finite nonzero second-order
+gradient. The full seed runs remain similarly bounded at 1,573,723,648 bytes.
+
+All three frozen seeds pass. Exact-own accuracy is 100.000%, 99.994%, and
+99.976%, totaling 49,147/49,152 queries (99.990%). Matched first-order-own is
+41.467%, 85.815%, and 72.388% (66.557% mean). Exact discard averages 6.923% and
+exact shuffled averages 6.773%, near the 6.25% chance rate. Exact beats
+first-order by 58.533, 14.178, and 27.588 points respectively, clearing the
+10-point gate in every seed. Initial parameter hashes and all 102,400-document
+training schedule hashes match within each exact/first-order pair. Before
+training, their logits and numerical fast updates are bit-identical, while their
+outer gradients differ and every parameter receives a finite nonzero gradient.
+
+Exact training averages 755.9 documents/s versus 766.2 for first-order, retaining
+98.67% throughput on this small contract. The result therefore supports the
+mechanistic claim: differentiating through ordinary next-token learning teaches
+the Transformer an initialization that writes and retrieves document-specific
+facts far better than the first-order approximation. It does not establish
+heldout language quality, long-context scaling, continual-domain retention, or
+runtime readiness.
+
+Decision: `advance_v76_to_100m_real_language`. The compact aggregate report is
+`exact-ttt-v76-stage-a0-decision-20260813.json`; its three seed reports and the
+preflight are content-addressed inside it. The next stage must start from the
+quality-qualified 100.679M Transformer, observe exact-gradient memory/time on a
+bounded batch ladder, and compare exact TTT, matched first-order TTT, discarded
+updates, shuffled updates, and the immutable Transformer on real heldout
+long-document next-token loss. No runtime or checkpoint format changes are
+admitted from the synthetic pass alone.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
