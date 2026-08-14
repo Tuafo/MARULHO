@@ -3806,6 +3806,25 @@ continuous schedule rather than another 31M-position replacement arm. Exact
 mix, corpus hashes, token budget, schedule, checkpoint cadence, and generation
 gates will be frozen after Stage 0 measures the real safe throughput.
 
+### V80 Stage 0 result: real packing gain, below admission
+
+All parent, DCLM tensor, initialization, gradient-completeness, finite-state,
+batch, eager-CUDA, and memory checks pass. Baseline and packed layouts reach
+20.489k and 22.228k positions/s with 4.253 GB and 4.441 GB peak allocation.
+Packing is therefore a real 1.084873x improvement, but it misses the frozen
+1.10x installation threshold. Its BF16 forward scalar also differs by 0.003906,
+above the 0.002 parity gate, even though maximum per-document/segment delta is
+0.015625, gradient cosine is 0.999938, gradient relative L2 error is 0.011133,
+post-update parameter relative L2 error is 0.000380, and disjoint post-update
+loss matches exactly.
+
+Decision: `retain_v80_sequential_segment_training`. The result does not justify
+a long-run numerical-path change for an 8.49% gain. The runner/tests are deleted
+and the report is retained at SHA-256
+`50344de01b6ac19ce6dca103eab6ee917b63346019e3d67fd2be84f80c585200`.
+V80 scale uses the known sequential layout, with first-step-only full-gradient
+auditing so later updates do not pay an unnecessary parameter scan.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

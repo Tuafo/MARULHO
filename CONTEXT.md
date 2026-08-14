@@ -1194,14 +1194,13 @@ failure. No candidate checkpoint exists and the failed runner is deleted. The
 content-addressed DCLM text/tensors remain reusable. This rejects substitution,
 not DCLM or a future curriculum that keeps all learned sources represented.
 
-**V80 active scale preparation** — first tests a mathematically equivalent
-training layout: pack each document's three independent 320-token segments into
-one larger batch call instead of three Transformer calls. Exact BF16 parent,
-loss, gradient, optimizer-update, heldout-loss, memory, and at least 1.10x
-throughput gates decide whether the layout survives. The subsequent capability
-run will retain FineWeb-Edu, Cosmopedia, and DCLM together on one materially
-larger continuous schedule with resume-exact training state. It is not another
-source-replacement sweep.
+**V80 active scale preparation** — packed segments gave a real 1.0849x speedup
+but missed the frozen 1.10x gate and its BF16 forward-loss delta missed parity;
+the temporary runner is deleted and sequential segment training remains. The
+capability run will retain FineWeb-Edu, Cosmopedia, and DCLM together on one
+materially larger continuous schedule with resume-exact training state. It is
+not another source-replacement sweep. Full gradient auditing is required on the
+first update, not redundantly on every later update.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
