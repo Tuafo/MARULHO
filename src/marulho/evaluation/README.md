@@ -1028,6 +1028,17 @@ selected holdout/train tensor hashes are `906f73b...f3c9c6` and
 content hashes. DCLM contributes text only: no external weight, embedding,
 tokenizer, logit, generator, or evaluator enters MARULHO.
 
+**`language_dclm_replacement.py`** owns V79's matched causal experiment. It
+reconstructs a shared 16,384-document FineWeb tensor and a 16,384-document
+Cosmopedia control, substitutes only the latter tensor with DCLM for the
+candidate, and gives both arms the exact same 32,768 source-slot schedule from
+the exact V78 state. The pair contract and schedule hashes are
+`e2f787fc...d9499a23` and `fb949816...3a360`. Each isolated arm runs 1,024
+Muon updates at physical batch 8/effective batch 32 and evaluates the same three
+512-document holdouts every 256 updates. The control is immutable evidence; only
+the candidate may save a checkpoint, and only after all frozen joint-loss,
+non-regression, DCLM-gain, throughput, and validity gates pass.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

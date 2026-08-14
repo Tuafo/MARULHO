@@ -3692,6 +3692,16 @@ intervention, not globally novel tokens. Source-slot order, FineWeb tensors,
 initial model tensors, tokenizer, optimizer, and all update positions must match
 between arms.
 
+The frozen shared FineWeb and control Cosmopedia training tensor SHA-256 values
+are `70cec149e29bae7b756087e3a105c7194b9da790749761a73daa31a79052ad70`
+and `b97544f1ad8e3eb7b128969614a7cf1402ced8c2b19ddd57c4a140f08efe0241`.
+The three holdout tensor hashes are `3235bc1...2defa4`,
+`325f9ca...bdc59c`, and `906f73b...f3c9c6`; the pair contract and shared
+32,768-slot schedule hashes are `e2f787fc...d9499a23` and
+`fb949816...3a360`. Reconstruction starts from V78 state hash
+`4ebf6ae3...b34b75e` and verifies the two 75k source-file hashes before an arm
+runs.
+
 Each arm receives 1,024 updates and 31,457,280 positions at effective batch 32,
 physical batch 8, four-way accumulation, fresh uncompiled Muon 3e-4, weight decay
 0.1, clipping 1.0, BF16 eager CUDA, and V78's 52-step warmup/cosine schedule. Run
