@@ -1108,6 +1108,10 @@ loss from 2.982864 to 2.904556; FineWeb-Edu/Cosmopedia/DCLM improve by
 0.045616/0.021927/0.167381 with no source regression. The corresponding
 428,213,141-byte snapshot strict-reloads at `6de0f377...cb156ad`. This is a
 positive early slope, not terminal quality or coherence evidence.
+The next production transaction at update 3,072 writes and strict-reloads a
+428,213,141-byte snapshot (`13049e42...aeb3022`), deletes update 1,024, retains
+only updates 2,048/3,072, and continues training. This verifies live rolling
+retention without changing the quality interpretation.
 
 **`language_billion_generation.py`** owns V80's post-training direct-language
 boundary. It cannot run unless the V80 terminal report passes quantitative and

@@ -1258,6 +1258,12 @@ schedule, without V79's old-source tradeoff. The update-2,048 optimizer snapshot
 also strict-reloads (`6de0f377...cb156ad`). These are early curve and recovery
 facts, not final checkpoint or coherent-generation claims.
 
+Production snapshot rotation is now observed rather than unit-tested only. The
+update-3,072 state strict-reloads at 428,213,141 bytes and SHA-256
+`13049e42...aeb3022`; update 1,024 is deleted while updates 2,048 and 3,072 remain,
+and training continues. This establishes the bounded two-rollback contract, not
+additional model quality.
+
 V80's post-training language audit is also frozen before a candidate exists. It
 will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
 cases, and add twelve generations over four DCLM holdout documents under greedy,

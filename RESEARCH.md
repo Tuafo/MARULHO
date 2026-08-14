@@ -3971,6 +3971,13 @@ does not prove the final cooldown, fidelity, or visible-language gates. The
 update-2,048 snapshot strict-reloads at 428,213,141 bytes and SHA-256
 `6de0f377...cb156ad`.
 
+The first live rolling-retention transaction also passes. Update 3,072 writes and
+strict-reloads a 428,213,141-byte snapshot with SHA-256
+`13049e42...aeb3022`, deletes only the update-1,024 rollback, and leaves exactly
+the update-2,048 and update-3,072 states on disk. Training continues through
+update 3,104 at about 19.86k positions/s. This proves the two-snapshot disk bound
+under production optimizer state; it adds no language-quality evidence.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
