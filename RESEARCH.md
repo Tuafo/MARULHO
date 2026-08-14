@@ -3557,6 +3557,13 @@ finite, and median complete-step throughput is at least 5% above batch 8.
 Otherwise retain V77's batch 8. No compile, projected-memory substitution, batch
 32 probe, or post-quality systems change is allowed.
 
+The optimizer-complete preflight selects physical batch 8. Batch 8 reaches
+19,887.7 positions/s at 4,252,648,960 allocated bytes; batch 16 reaches 20,832.7
+positions/s at 7,764,640,256 bytes. Both have complete finite gradients and state,
+but the 1.04751 throughput ratio misses the frozen 1.05 selection gate. The
+training batch is therefore 8 with four-way accumulation. Preflight SHA-256 is
+`5a80f2bdef2c8e107e2bc5150c6824d7097b112142ad0e4c578ada7a70fa6e9f`.
+
 **Training and curve.** Train every parameter for 1,024 fresh-Muon updates at
 effective batch 32, peak learning rate 3e-4, weight decay 0.1, 52-step linear
 warmup plus cosine decay to 3e-5, clipping 1.0, BF16 eager CUDA, and the selected
