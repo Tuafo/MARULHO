@@ -1085,8 +1085,8 @@ next slice must be bit-exact at the reload boundary. The following CUDA update
 must preserve exact losses and strict elementwise numerical bounds for gradients,
 optimizer state, and model state; exact post-compute hashes remain reported but
 are observations because parallel GPU reductions can differ in their final bits.
-The long-run entry point stays disabled until this fidelity gate and the 8 GiB
-CUDA peak gate both pass.
+The long-run entry point was disabled until this fidelity gate and the 8 GiB
+CUDA peak gate passed.
 The frozen fidelity report `a1ce9559...6c4dac` passes: reload-boundary state
 is exact, the canonical post-reload update is exact across 100,679,424 gradient,
 106,970,880 model-state, and 106,987,008 optimizer-state elements, peaks at
@@ -1095,6 +1095,11 @@ temporary snapshot. The gate also retains numerical tolerances because repeated
 CUDA execution exposed a one-element, `9.31e-10` gradient-order difference while
 leaving every final model element exact; this is reported rather than confused
 with checkpoint corruption.
+The admitted trainer writes atomic optimizer snapshots every 1,024 updates,
+retains only the newest two, evaluates all three holdouts every 2,048, and updates
+an atomic live-progress report every 32. A real controlled stop at update 2 and
+resume through update 4 reproduced initial loss within `3e-6`, sustained about
+17.0k positions/s, and peaked at 4.260 GB; all smoke artifacts were deleted.
 
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset

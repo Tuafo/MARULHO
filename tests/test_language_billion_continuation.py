@@ -14,7 +14,10 @@ from marulho.evaluation.language_billion_continuation import (
     WARMUP_STEPS,
     _learning_rate,
     _numerically_equivalent,
+    _progress_payload,
+    _quality_checks,
     _scheduled_documents,
+    _snapshot_output_path,
 )
 from marulho.evaluation.language_scale_schedule import TOTAL_POSITIONS
 
@@ -85,3 +88,54 @@ def test_v80_resume_numerical_tolerance_is_strict() -> None:
             maximum_absolute=1.0e-6,
             maximum_relative_l2=1.0e-7,
         )
+
+
+def test_v80_quality_gate_preserves_all_three_sources() -> None:
+    initial = {
+        "later_segment_loss": 2.9828618367513022,
+        "later_loss_by_source": {
+            "fineweb_edu": 3.1576766967773438,
+            "cosmopedia_v2": 2.438720703125,
+            "dclm_edu": 3.3521881103515625,
+        },
+    }
+    candidate = {
+        "later_segment_loss": 2.70,
+        "later_loss_by_source": {
+            "fineweb_edu": 3.17,
+            "cosmopedia_v2": 2.45,
+            "dclm_edu": 3.10,
+        },
+    }
+    checks = _quality_checks(
+        initial=initial,
+        candidate=candidate,
+        completed_steps=TRAIN_STEPS,
+        run_peak_cuda_allocated_bytes=4 * 1024**3,
+        gradient_audit={"passed": True},
+    )
+    assert all(checks.values())
+    candidate["later_loss_by_source"]["cosmopedia_v2"] = 2.47
+    assert not _quality_checks(
+        initial=initial,
+        candidate=candidate,
+        completed_steps=TRAIN_STEPS,
+        run_peak_cuda_allocated_bytes=4 * 1024**3,
+        gradient_audit={"passed": True},
+    )["cosmopedia_retained"]
+
+
+def test_v80_progress_and_snapshot_paths_preserve_resume_counters(tmp_path) -> None:
+    prefix = tmp_path / "v80-training"
+    assert _snapshot_output_path(prefix, 1024).name == "v80-training-step-01024.pt"
+    progress = _progress_payload(
+        completed_steps=2,
+        training_seconds=4.0,
+        run_peak_cuda_allocated_bytes=123,
+        curve=[],
+        last_step_result={"loss": 2.5},
+        latest_snapshot=None,
+        decision="training",
+    )
+    assert progress["processed_positions"] == 61_440
+    assert progress["positions_per_second"] == 15_360.0

@@ -17,6 +17,15 @@ and one narrow continual-learning result with bounded old-language loss. It does
 not support frontier capability, general continual learning, an admitted durable
 memory interface, or a superior scaling law.
 
+The active research bet no longer treats the Transformer as an architecture to
+replace on principle. It is MARULHO's qualified causal-compute substrate until a
+matched candidate beats it. Near-term novelty moves to a self-improving system
+around that substrate: curriculum choice, verified synthetic experience,
+temporary adaptation, durable continual learning, memory, and eventually
+self-proposed architecture changes. None of those mechanisms is admitted before
+the base model passes unseen-language quality, and every self-change remains
+checkpointed, reversible, and benchmarked against the unchanged substrate.
+
 ## Runtime Owners
 
 **MarulhoBrain** — owns the installed language model, tokenizer, generation,
@@ -1194,11 +1203,12 @@ failure. No candidate checkpoint exists and the failed runner is deleted. The
 content-addressed DCLM text/tensors remain reusable. This rejects substitution,
 not DCLM or a future curriculum that keeps all learned sources represented.
 
-**V80 active scale preparation** — packed segments gave a real 1.0849x speedup
+**V80 active scale run** — packed segments gave a real 1.0849x speedup
 but missed the frozen 1.10x gate and its BF16 forward-loss delta missed parity;
 the temporary runner is deleted and sequential segment training remains. The
-capability run will retain FineWeb-Edu, Cosmopedia, and DCLM together on one
-materially larger continuous schedule with resume-exact training state. It is
+capability run retains FineWeb-Edu, Cosmopedia, and DCLM together on one
+materially larger continuous schedule with exact reload-boundary training state
+and strict numerical post-reload fidelity. It is
 not another source-replacement sweep. Full gradient auditing is required on the
 first update, not redundantly on every later update.
 
@@ -1207,8 +1217,9 @@ V78: exact 40% FineWeb-Edu, 30% Cosmopedia, and 30% expanded DCLM, with all
 sources deduplicated against holdouts and the worst known templates/encoding
 failures removed. The sequential batch-8 layout uses a 256-step warmup, stable
 1.5e-4 phase, 20% cooldown, three-source curves every 2,048 updates, and
-resume-exact optimizer snapshots every 4,096. Quantitative loss gates only admit
-direct generation review; coherent unseen multi-sentence text remains mandatory
+optimizer snapshots every 1,024 updates, retaining only the latest two.
+Quantitative loss gates only admit direct generation review; coherent unseen
+multi-sentence text remains mandatory
 before continual learning reopens.
 
 The V80 corpus is materialized and independently audited: 58,999 FineWeb-Edu,
@@ -1224,6 +1235,16 @@ The exact million-document source/row schedule is also frozen at SHA-256
 FineWeb/Cosmopedia/DCLM slots and 1,006,632,960 predicted positions. Exposure
 histograms are balanced within one for every source, and the 5.25 MB artifact
 strict-reloads all IDs, bounds, counts, and first/last anchors.
+
+The V80 resume-fidelity gate is frozen at report SHA-256
+`a1ce9559...6c4dac`. Model, optimizer, RNG, counters, and schedule reload exactly;
+the canonical next update is exact across 100.679M gradients, 106.971M model
+values, and 106.987M optimizer values at 4.260 GB peak allocation. Repeated CUDA
+execution also exposed one harmless `9.31e-10` gradient-order difference while
+leaving the final model exact, so the maintained contract reports post-compute
+hashes but gates them with strict elementwise tolerances. A real stop/resume smoke
+then continued updates 2--4 at about 17.0k positions/s and reproduced the frozen
+initial three-source loss within `3e-6`; its 428 MB smoke snapshots were deleted.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

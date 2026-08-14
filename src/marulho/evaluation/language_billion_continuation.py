@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import gc
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -24,6 +24,7 @@ from marulho.evaluation.language_quality_continuation import (
     _atomic_json,
     _episode,
     _gradient_audit,
+    checkpoint_fidelity,
     file_sha256,
 )
 from marulho.evaluation.language_scale_corpus_materialization import (
@@ -43,6 +44,7 @@ from marulho.training.language_model import (
     language_model_state_sha256,
     load_language_model_checkpoint,
     load_language_model_state,
+    save_language_model_checkpoint,
 )
 from marulho.training.language_muon import build_language_muon
 from marulho.training.language_training_snapshot import (
@@ -64,6 +66,9 @@ PARENT = (
 )
 PARENT_SHA256 = "b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b"
 PARENT_STATE_SHA256 = "4ebf6ae3a500a0a77a256be80bb652a3439e47310eb008c002d14312bb34b75e"
+PARENT_BF16_STATE_SHA256 = (
+    "299ad6daf789748008f8a4460d447acd4bfaa9582590421d742100c2b4907703"
+)
 PARENT_CUMULATIVE_POSITIONS = 257_429_760
 TARGET_CUMULATIVE_POSITIONS = PARENT_CUMULATIVE_POSITIONS + TOTAL_POSITIONS
 SCHEDULE = (
@@ -125,6 +130,21 @@ INITIAL_LEARNING_RATE = 3.0e-5
 PHYSICAL_BATCH = 8
 ACCUMULATION_STEPS = EFFECTIVE_BATCH // PHYSICAL_BATCH
 MAXIMUM_PEAK_BYTES = 8 * 1024**3
+EVAL_BATCH = 8
+EVAL_DOCUMENTS_PER_SOURCE = 512
+EVAL_EVERY_STEPS = 2_048
+SNAPSHOT_EVERY_STEPS = 1_024
+PROGRESS_EVERY_STEPS = 32
+SNAPSHOTS_TO_KEEP = 2
+REFERENCE_INITIAL_LATER_LOSS = 2.9828618367513022
+REFERENCE_INITIAL_SOURCE_LOSSES = {
+    "fineweb_edu": 3.1576766967773438,
+    "cosmopedia_v2": 2.438720703125,
+    "dclm_edu": 3.3521881103515625,
+}
+MINIMUM_OVERALL_IMPROVEMENT = 0.25
+MAXIMUM_OLD_SOURCE_REGRESSION = 0.02
+MINIMUM_DCLM_IMPROVEMENT = 0.20
 MAXIMUM_DIFFERING_FRACTION = 1.0e-6
 MAXIMUM_GRADIENT_OR_OPTIMIZER_ABSOLUTE_DIFFERENCE = 1.0e-6
 MAXIMUM_GRADIENT_OR_OPTIMIZER_RELATIVE_L2 = 1.0e-7
@@ -799,25 +819,683 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
     return payload
 
 
+def _validate_resume_fidelity_report() -> dict[str, Any]:
+    actual_hash = file_sha256(RESUME_FIDELITY_REPORT)
+    if actual_hash != RESUME_FIDELITY_REPORT_SHA256:
+        raise RuntimeError(f"V80 resume-fidelity report changed: {actual_hash}")
+    payload = json.loads(RESUME_FIDELITY_REPORT.read_text(encoding="utf-8"))
+    checks = {
+        "surface_exact": payload.get("surface") == RESUME_PREFLIGHT_SURFACE,
+        "passed": payload.get("passed") is True,
+        "decision_exact": payload.get("decision")
+        == "admit_v80_billion_position_training",
+        "all_checks_pass": all(bool(value) for value in payload.get("checks", {}).values()),
+        "external_llm_absent": payload.get("external_llm_used") is False,
+    }
+    if not all(checks.values()):
+        raise RuntimeError(f"V80 resume-fidelity admission failed: {checks}")
+    return {
+        "path": str(RESUME_FIDELITY_REPORT),
+        "sha256": actual_hash,
+        "checks": checks,
+    }
+
+
+@torch.no_grad()
+def _evaluate_v80(
+    model: MarulhoLanguageModel,
+    data: Mapping[str, Any],
+    *,
+    device: torch.device,
+) -> dict[str, Any]:
+    documents: torch.Tensor = data["eval_tokens"]
+    expected_documents = len(SOURCE_NAMES) * EVAL_DOCUMENTS_PER_SOURCE
+    if tuple(documents.shape) != (expected_documents, DOCUMENT_TOKENS):
+        raise RuntimeError("V80 evaluation tensor changed")
+    was_training = model.training
+    model.eval()
+    collected: list[torch.Tensor] = []
+    torch.cuda.synchronize(device)
+    started = time.perf_counter()
+    for offset in range(0, expected_documents, EVAL_BATCH):
+        batch = documents[offset : offset + EVAL_BATCH].to(
+            device=device,
+            dtype=torch.long,
+        )
+        result = _episode(model, batch)
+        collected.append(result["per_document_segment_losses"].cpu().double())
+        del batch, result
+    torch.cuda.synchronize(device)
+    seconds = time.perf_counter() - started
+    losses = torch.cat(collected, dim=0)
+    segment_losses = losses.mean(0)
+    source_losses: dict[str, float] = {}
+    for index, name in enumerate(SOURCE_NAMES):
+        start = index * EVAL_DOCUMENTS_PER_SOURCE
+        stop = start + EVAL_DOCUMENTS_PER_SOURCE
+        source_losses[name] = float(losses[start:stop, 1:].mean().item())
+    positions = expected_documents * SEGMENTS * SEGMENT_LENGTH
+    model.train(was_training)
+    return {
+        "segment_losses": segment_losses.tolist(),
+        "first_segment_loss": float(segment_losses[0].item()),
+        "later_segment_loss": float(losses[:, 1:].mean().item()),
+        "later_loss_by_source": source_losses,
+        "documents": expected_documents,
+        "positions": positions,
+        "seconds": seconds,
+        "positions_per_second": positions / seconds,
+        "peak_cuda_allocated_bytes": int(torch.cuda.max_memory_allocated(device)),
+    }
+
+
+def _snapshot_output_path(prefix: Path, completed_steps: int) -> Path:
+    return prefix.parent / f"{prefix.name}-step-{completed_steps:05d}.pt"
+
+
+def _snapshot_candidates(prefix: Path) -> list[Path]:
+    return sorted(prefix.parent.glob(f"{prefix.name}-step-*.pt"))
+
+
+def _prune_snapshots(prefix: Path, *, keep: int = SNAPSHOTS_TO_KEEP) -> list[str]:
+    candidates = _snapshot_candidates(prefix)
+    deleted: list[str] = []
+    for path in candidates[: max(0, len(candidates) - int(keep))]:
+        path.unlink()
+        deleted.append(str(path))
+    return deleted
+
+
+def _training_state(
+    *,
+    initial_evaluation: Mapping[str, Any],
+    curve: list[dict[str, Any]],
+    training_seconds: float,
+    run_peak_cuda_allocated_bytes: int,
+    gradient_audit: Mapping[str, Any] | None,
+    parent_audit: Mapping[str, Any],
+    optimizer_report: Mapping[str, Any],
+    initial_bf16_state_sha256: str,
+    last_step_result: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "initial_evaluation": dict(initial_evaluation),
+        "curve": list(curve),
+        "training_seconds": float(training_seconds),
+        "run_peak_cuda_allocated_bytes": int(run_peak_cuda_allocated_bytes),
+        "gradient_audit": None if gradient_audit is None else dict(gradient_audit),
+        "parent_audit": dict(parent_audit),
+        "optimizer_report": dict(optimizer_report),
+        "initial_bf16_state_sha256": str(initial_bf16_state_sha256),
+        "last_step_result": (
+            None if last_step_result is None else dict(last_step_result)
+        ),
+    }
+
+
+def _save_run_snapshot(
+    *,
+    prefix: Path,
+    model: MarulhoLanguageModel,
+    tokenizer: Any,
+    optimizer: torch.optim.Optimizer,
+    completed_steps: int,
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    path = _snapshot_output_path(prefix, completed_steps)
+    if path.exists():
+        raise ValueError(f"V80 snapshot already exists: {path}")
+    saved = save_language_training_snapshot(
+        path,
+        model,
+        tokenizer,
+        optimizer,
+        completed_steps=completed_steps,
+        schedule_sha256=SCHEDULE_SHA256,
+        next_schedule_offset=completed_steps * EFFECTIVE_BATCH,
+        training_state=state,
+        metadata={
+            "architecture": "marulho_transformer_v80_billion_continuation",
+            "parent_checkpoint_sha256": PARENT_SHA256,
+            "parent_cumulative_processed_tokens": PARENT_CUMULATIVE_POSITIONS,
+            "phase_processed_tokens": TOTAL_POSITIONS,
+            "target_cumulative_processed_tokens": TARGET_CUMULATIVE_POSITIONS,
+            "resume_fidelity_report_sha256": RESUME_FIDELITY_REPORT_SHA256,
+        },
+    )
+    saved["sha256"] = file_sha256(path)
+    saved["deleted_older_snapshots"] = _prune_snapshots(prefix)
+    return saved
+
+
+def _progress_payload(
+    *,
+    completed_steps: int,
+    training_seconds: float,
+    run_peak_cuda_allocated_bytes: int,
+    curve: list[dict[str, Any]],
+    last_step_result: Mapping[str, Any] | None,
+    latest_snapshot: Mapping[str, Any] | None,
+    decision: str,
+) -> dict[str, Any]:
+    processed_positions = completed_steps * EFFECTIVE_BATCH * SEGMENTS * SEGMENT_LENGTH
+    return {
+        "surface": "marulho_language_billion_continuation.v80_live_progress",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "decision": decision,
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "completed_steps": completed_steps,
+        "train_steps": TRAIN_STEPS,
+        "completion_fraction": completed_steps / TRAIN_STEPS,
+        "processed_positions": processed_positions,
+        "target_positions": TOTAL_POSITIONS,
+        "training_seconds": training_seconds,
+        "positions_per_second": (
+            processed_positions / training_seconds if training_seconds > 0.0 else 0.0
+        ),
+        "run_peak_cuda_allocated_bytes": run_peak_cuda_allocated_bytes,
+        "last_step_result": None if last_step_result is None else dict(last_step_result),
+        "curve": list(curve),
+        "latest_snapshot": (
+            None if latest_snapshot is None else dict(latest_snapshot)
+        ),
+    }
+
+
+def _quality_checks(
+    *,
+    initial: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    completed_steps: int,
+    run_peak_cuda_allocated_bytes: int,
+    gradient_audit: Mapping[str, Any] | None,
+) -> dict[str, bool]:
+    initial_sources = initial["later_loss_by_source"]
+    candidate_sources = candidate["later_loss_by_source"]
+    return {
+        "completed_steps_exact": completed_steps == TRAIN_STEPS,
+        "processed_positions_exact": completed_steps
+        * EFFECTIVE_BATCH
+        * SEGMENTS
+        * SEGMENT_LENGTH
+        == TOTAL_POSITIONS,
+        "initial_overall_reproduced": abs(
+            float(initial["later_segment_loss"]) - REFERENCE_INITIAL_LATER_LOSS
+        )
+        <= 0.0005,
+        "initial_sources_reproduced": all(
+            abs(float(initial_sources[name]) - REFERENCE_INITIAL_SOURCE_LOSSES[name])
+            <= 0.0005
+            for name in SOURCE_NAMES
+        ),
+        "overall_improves_by_0_25": float(initial["later_segment_loss"])
+        - float(candidate["later_segment_loss"])
+        >= MINIMUM_OVERALL_IMPROVEMENT,
+        "fineweb_retained": float(candidate_sources["fineweb_edu"])
+        <= REFERENCE_INITIAL_SOURCE_LOSSES["fineweb_edu"]
+        + MAXIMUM_OLD_SOURCE_REGRESSION,
+        "cosmopedia_retained": float(candidate_sources["cosmopedia_v2"])
+        <= REFERENCE_INITIAL_SOURCE_LOSSES["cosmopedia_v2"]
+        + MAXIMUM_OLD_SOURCE_REGRESSION,
+        "dclm_improves_by_0_20": REFERENCE_INITIAL_SOURCE_LOSSES["dclm_edu"]
+        - float(candidate_sources["dclm_edu"])
+        >= MINIMUM_DCLM_IMPROVEMENT,
+        "gradients_complete": bool(gradient_audit and gradient_audit.get("passed")),
+        "peak_within_8_gib": run_peak_cuda_allocated_bytes <= MAXIMUM_PEAK_BYTES,
+    }
+
+
+def run_billion_continuation(
+    *,
+    report_path: Path,
+    checkpoint_path: Path,
+    progress_path: Path,
+    snapshot_prefix: Path,
+    resume_from: Path | None = None,
+    stop_after_completed_steps: int = TRAIN_STEPS,
+) -> dict[str, Any]:
+    if not torch.cuda.is_available():
+        raise RuntimeError("V80 billion continuation requires CUDA")
+    if report_path.exists() or checkpoint_path.exists():
+        raise ValueError("V80 final output already exists")
+    stop_after = int(stop_after_completed_steps)
+    if stop_after < 1 or stop_after > TRAIN_STEPS:
+        raise ValueError("V80 stop boundary is outside the frozen schedule")
+    fidelity_admission = _validate_resume_fidelity_report()
+    data = load_v80_data()
+    device = torch.device("cuda")
+    torch.cuda.reset_peak_memory_stats(device)
+    latest_snapshot: dict[str, Any] | None = None
+
+    if resume_from is None:
+        if progress_path.exists() or _snapshot_candidates(snapshot_prefix):
+            raise ValueError("V80 fresh run found existing progress or snapshots")
+        torch.manual_seed(MODEL_SEED)
+        torch.cuda.manual_seed_all(MODEL_SEED)
+        parent, tokenizer, parent_audit = _load_parent()
+        model = _clone_to_cuda(parent, device=device)
+        initial_bf16_state_sha256 = language_model_state_sha256(model)
+        if initial_bf16_state_sha256 != PARENT_BF16_STATE_SHA256:
+            raise RuntimeError("V80 BF16 parent state changed")
+        del parent
+        gc.collect()
+        optimizer, optimizer_report = _optimizer(model)
+        initial_evaluation = _evaluate_v80(model, data, device=device)
+        curve: list[dict[str, Any]] = [
+            {"completed_steps": 0, "evaluation": initial_evaluation}
+        ]
+        training_seconds = 0.0
+        run_peak = int(torch.cuda.max_memory_allocated(device))
+        gradient_audit: dict[str, Any] | None = None
+        last_step_result: dict[str, Any] | None = None
+        completed_steps = 0
+    else:
+        if not resume_from.exists():
+            raise ValueError(f"V80 resume snapshot is missing: {resume_from}")
+        model, tokenizer, optimizer, continuation, load_audit = (
+            load_language_training_snapshot(
+                resume_from,
+                optimizer_builder=_optimizer,
+                device=device,
+                expected_schedule_sha256=SCHEDULE_SHA256,
+                restore_rng=True,
+            )
+        )
+        if not load_audit["passed"]:
+            raise RuntimeError(f"V80 resume load failed: {load_audit}")
+        completed_steps = int(continuation["completed_steps"])
+        next_offset = int(continuation["next_schedule_offset"])
+        if next_offset != completed_steps * EFFECTIVE_BATCH:
+            raise RuntimeError("V80 resume schedule offset changed")
+        if completed_steps < 0 or completed_steps > TRAIN_STEPS:
+            raise RuntimeError("V80 resume step is outside the frozen schedule")
+        if completed_steps >= stop_after:
+            raise ValueError("V80 resume snapshot is already at the stop boundary")
+        state = continuation["training_state"]
+        initial_evaluation = dict(state["initial_evaluation"])
+        curve = list(state["curve"])
+        training_seconds = float(state["training_seconds"])
+        run_peak = max(
+            int(state["run_peak_cuda_allocated_bytes"]),
+            int(torch.cuda.max_memory_allocated(device)),
+        )
+        gradient_audit = (
+            None if state["gradient_audit"] is None else dict(state["gradient_audit"])
+        )
+        parent_audit = dict(state["parent_audit"])
+        optimizer_report = dict(state["optimizer_report"])
+        initial_bf16_state_sha256 = str(state["initial_bf16_state_sha256"])
+        last_step_result = (
+            None
+            if state["last_step_result"] is None
+            else dict(state["last_step_result"])
+        )
+        latest_snapshot = {
+            "path": str(resume_from),
+            "sha256": file_sha256(resume_from),
+            "completed_steps": completed_steps,
+        }
+        resume_state_checks = {
+            "parent_exact": parent_audit.get("sha256") == PARENT_SHA256,
+            "initial_bf16_state_exact": initial_bf16_state_sha256
+            == PARENT_BF16_STATE_SHA256,
+            "optimizer_exact": optimizer_report.get("kind")
+            == "marulho_muon_with_adamw_fallback",
+            "curve_starts_at_zero": bool(curve)
+            and int(curve[0].get("completed_steps", -1)) == 0,
+            "initial_evaluation_exact": bool(curve)
+            and curve[0].get("evaluation") == initial_evaluation,
+        }
+        if not all(resume_state_checks.values()):
+            raise RuntimeError(f"V80 resumed training state changed: {resume_state_checks}")
+
+    model.train()
+    block_started = time.perf_counter()
+    for step in range(completed_steps, stop_after):
+        learning_rate = _set_step_learning_rate(optimizer, step)
+        documents = _scheduled_documents(
+            data,
+            offset=step * EFFECTIVE_BATCH,
+            count=EFFECTIVE_BATCH,
+        )
+        last_step_result = _logical_step(
+            model,
+            optimizer,
+            documents=documents,
+            device=device,
+            audit_gradients=gradient_audit is None,
+        )
+        if gradient_audit is None:
+            gradient_audit = dict(last_step_result["gradient_audit"])
+            if not gradient_audit["passed"]:
+                raise RuntimeError(f"V80 incomplete gradients: {gradient_audit}")
+        last_step_result["learning_rate"] = learning_rate
+        completed_steps = step + 1
+        boundary = (
+            completed_steps % PROGRESS_EVERY_STEPS == 0
+            or completed_steps == stop_after
+        )
+        if boundary:
+            torch.cuda.synchronize(device)
+            training_seconds += time.perf_counter() - block_started
+            run_peak = max(run_peak, int(torch.cuda.max_memory_allocated(device)))
+            _atomic_json(
+                progress_path,
+                _progress_payload(
+                    completed_steps=completed_steps,
+                    training_seconds=training_seconds,
+                    run_peak_cuda_allocated_bytes=run_peak,
+                    curve=curve,
+                    last_step_result=last_step_result,
+                    latest_snapshot=latest_snapshot,
+                    decision="training",
+                ),
+            )
+            print(
+                f"V80 step={completed_steps}/{TRAIN_STEPS} "
+                f"loss={last_step_result['loss']:.6f} "
+                f"positions_per_second="
+                f"{completed_steps * EFFECTIVE_BATCH * SEGMENTS * SEGMENT_LENGTH / training_seconds:.1f}",
+                flush=True,
+            )
+            block_started = time.perf_counter()
+        if completed_steps % EVAL_EVERY_STEPS == 0:
+            evaluation = _evaluate_v80(model, data, device=device)
+            curve.append(
+                {"completed_steps": completed_steps, "evaluation": evaluation}
+            )
+            run_peak = max(run_peak, int(torch.cuda.max_memory_allocated(device)))
+            model.train()
+            block_started = time.perf_counter()
+        if completed_steps % SNAPSHOT_EVERY_STEPS == 0 and completed_steps < TRAIN_STEPS:
+            state = _training_state(
+                initial_evaluation=initial_evaluation,
+                curve=curve,
+                training_seconds=training_seconds,
+                run_peak_cuda_allocated_bytes=run_peak,
+                gradient_audit=gradient_audit,
+                parent_audit=parent_audit,
+                optimizer_report=optimizer_report,
+                initial_bf16_state_sha256=initial_bf16_state_sha256,
+                last_step_result=last_step_result,
+            )
+            latest_snapshot = _save_run_snapshot(
+                prefix=snapshot_prefix,
+                model=model,
+                tokenizer=tokenizer,
+                optimizer=optimizer,
+                completed_steps=completed_steps,
+                state=state,
+            )
+            _atomic_json(
+                progress_path,
+                _progress_payload(
+                    completed_steps=completed_steps,
+                    training_seconds=training_seconds,
+                    run_peak_cuda_allocated_bytes=run_peak,
+                    curve=curve,
+                    last_step_result=last_step_result,
+                    latest_snapshot=latest_snapshot,
+                    decision="training_snapshot_verified",
+                ),
+            )
+            block_started = time.perf_counter()
+
+    if completed_steps < TRAIN_STEPS:
+        if latest_snapshot is None or int(latest_snapshot["completed_steps"]) != completed_steps:
+            state = _training_state(
+                initial_evaluation=initial_evaluation,
+                curve=curve,
+                training_seconds=training_seconds,
+                run_peak_cuda_allocated_bytes=run_peak,
+                gradient_audit=gradient_audit,
+                parent_audit=parent_audit,
+                optimizer_report=optimizer_report,
+                initial_bf16_state_sha256=initial_bf16_state_sha256,
+                last_step_result=last_step_result,
+            )
+            latest_snapshot = _save_run_snapshot(
+                prefix=snapshot_prefix,
+                model=model,
+                tokenizer=tokenizer,
+                optimizer=optimizer,
+                completed_steps=completed_steps,
+                state=state,
+            )
+        payload = _progress_payload(
+            completed_steps=completed_steps,
+            training_seconds=training_seconds,
+            run_peak_cuda_allocated_bytes=run_peak,
+            curve=curve,
+            last_step_result=last_step_result,
+            latest_snapshot=latest_snapshot,
+            decision="paused_at_controlled_boundary",
+        )
+        _atomic_json(progress_path, payload)
+        return payload
+
+    final_evaluation = (
+        dict(curve[-1]["evaluation"])
+        if curve and int(curve[-1]["completed_steps"]) == TRAIN_STEPS
+        else _evaluate_v80(model, data, device=device)
+    )
+    candidate_bf16_state_sha256 = language_model_state_sha256(model)
+    run_peak = max(run_peak, int(torch.cuda.max_memory_allocated(device)))
+    checks = _quality_checks(
+        initial=initial_evaluation,
+        candidate=final_evaluation,
+        completed_steps=completed_steps,
+        run_peak_cuda_allocated_bytes=run_peak,
+        gradient_audit=gradient_audit,
+    )
+    quality_passed = all(checks.values())
+    terminal_state = _training_state(
+        initial_evaluation=initial_evaluation,
+        curve=curve,
+        training_seconds=training_seconds,
+        run_peak_cuda_allocated_bytes=run_peak,
+        gradient_audit=gradient_audit,
+        parent_audit=parent_audit,
+        optimizer_report=optimizer_report,
+        initial_bf16_state_sha256=initial_bf16_state_sha256,
+        last_step_result=last_step_result,
+    )
+    terminal_snapshot = _save_run_snapshot(
+        prefix=snapshot_prefix,
+        model=model,
+        tokenizer=tokenizer,
+        optimizer=optimizer,
+        completed_steps=completed_steps,
+        state=terminal_state,
+    )
+    checkpoint_record: dict[str, Any] = {
+        "path": None,
+        "sha256": None,
+        "saved": False,
+        "fidelity": {"performed": False, "passed": False},
+    }
+    if quality_passed:
+        model = model.to(device="cpu", dtype=torch.float32).eval()
+        gc.collect()
+        torch.cuda.empty_cache()
+        saved_fp32_state_sha256 = language_model_state_sha256(model)
+        save_language_model_checkpoint(
+            checkpoint_path,
+            model,
+            tokenizer,
+            metadata={
+                "architecture": "marulho_transformer_v80_three_source_billion",
+                "decision": "save_v80_billion_checkpoint_for_unseen_generation",
+                "parent_checkpoint_sha256": PARENT_SHA256,
+                "parent_cumulative_processed_tokens": PARENT_CUMULATIVE_POSITIONS,
+                "phase_processed_tokens": TOTAL_POSITIONS,
+                "cumulative_processed_tokens": TARGET_CUMULATIVE_POSITIONS,
+                "heldout_later_segment_loss": float(
+                    final_evaluation["later_segment_loss"]
+                ),
+                "optimizer": dict(optimizer_report),
+                "optimizer_state_saved": False,
+                "schedule_sha256": SCHEDULE_SHA256,
+                "resume_fidelity_report_sha256": RESUME_FIDELITY_REPORT_SHA256,
+                "external_llm_used": False,
+            },
+        )
+        checkpoint_hash = file_sha256(checkpoint_path)
+        fidelity = checkpoint_fidelity(
+            model,
+            checkpoint_path,
+            tokenizer_hash=tokenizer.vocabulary_hash(),
+            sample_input_ids=data["eval_tokens"],
+            expected_decision="save_v80_billion_checkpoint_for_unseen_generation",
+            expected_cumulative_tokens=TARGET_CUMULATIVE_POSITIONS,
+        )
+        fidelity["performed"] = True
+        checkpoint_record = {
+            "path": str(checkpoint_path),
+            "sha256": checkpoint_hash,
+            "saved": checkpoint_path.exists(),
+            "saved_fp32_state_sha256": saved_fp32_state_sha256,
+            "fidelity": fidelity,
+        }
+        if not fidelity["passed"]:
+            checkpoint_path.unlink(missing_ok=True)
+            checkpoint_record["saved"] = False
+    passed = quality_passed and bool(checkpoint_record["fidelity"]["passed"])
+    if passed:
+        for snapshot in _snapshot_candidates(snapshot_prefix):
+            snapshot.unlink()
+    terminal_snapshot["retained_after_decision"] = not passed
+    report = {
+        "surface": SURFACE,
+        "artifact_kind": "marulho_language_billion_continuation",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "passed": passed,
+        "decision": (
+            "admit_v80_checkpoint_to_unseen_generation"
+            if passed
+            else "stop_v80_billion_continuation_quality_gate"
+        ),
+        "parent": parent_audit,
+        "resume_fidelity_admission": fidelity_admission,
+        "data": data["audits"],
+        "configuration": {
+            "model_seed": MODEL_SEED,
+            "train_steps": TRAIN_STEPS,
+            "effective_batch": EFFECTIVE_BATCH,
+            "physical_batch": PHYSICAL_BATCH,
+            "gradient_accumulation_steps": ACCUMULATION_STEPS,
+            "segments": SEGMENTS,
+            "segment_length": SEGMENT_LENGTH,
+            "phase_processed_positions": TOTAL_POSITIONS,
+            "target_cumulative_processed_positions": TARGET_CUMULATIVE_POSITIONS,
+            "warmup_steps": WARMUP_STEPS,
+            "cooldown_steps": COOLDOWN_STEPS,
+            "peak_learning_rate": PEAK_LEARNING_RATE,
+            "minimum_learning_rate": MINIMUM_LEARNING_RATE,
+            "evaluation_every_steps": EVAL_EVERY_STEPS,
+            "snapshot_every_steps": SNAPSHOT_EVERY_STEPS,
+            "snapshots_to_keep": SNAPSHOTS_TO_KEEP,
+            "dtype": "torch.bfloat16",
+            "compiled": False,
+        },
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "initial_bf16_state_sha256": initial_bf16_state_sha256,
+        "candidate_bf16_state_sha256": candidate_bf16_state_sha256,
+        "initial_evaluation": initial_evaluation,
+        "curve": curve,
+        "final_evaluation": final_evaluation,
+        "training": {
+            "seconds": training_seconds,
+            "positions": TOTAL_POSITIONS,
+            "positions_per_second": TOTAL_POSITIONS / training_seconds,
+            "peak_cuda_allocated_bytes": run_peak,
+            "gradient_audit": gradient_audit,
+            "optimizer": optimizer_report,
+            "final": last_step_result,
+        },
+        "quality_checks": checks,
+        "checkpoint": checkpoint_record,
+        "terminal_training_snapshot": terminal_snapshot,
+        "promotion_boundary": {
+            "unseen_generation_admitted": passed,
+            "coherent_generation_claimed": False,
+            "continual_learning_admitted": False,
+            "runtime_install_allowed": False,
+        },
+        "environment": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "torch": torch.__version__,
+            "cuda": torch.version.cuda,
+            "gpu": torch.cuda.get_device_name(device),
+        },
+    }
+    _atomic_json(report_path, report)
+    _atomic_json(
+        progress_path,
+        _progress_payload(
+            completed_steps=completed_steps,
+            training_seconds=training_seconds,
+            run_peak_cuda_allocated_bytes=run_peak,
+            curve=curve,
+            last_step_result=last_step_result,
+            latest_snapshot=None if passed else terminal_snapshot,
+            decision=report["decision"],
+        ),
+    )
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume-preflight", type=Path)
     parser.add_argument("--preflight-snapshot", type=Path)
-    args = parser.parse_args()
-    if args.resume_preflight is None or args.preflight_snapshot is None:
-        parser.error("V80 currently requires --resume-preflight and --preflight-snapshot")
-    result = run_resume_preflight(
-        output_path=args.resume_preflight,
-        snapshot_path=args.preflight_snapshot,
+    parser.add_argument("--train-report", type=Path)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--progress", type=Path)
+    parser.add_argument("--snapshot-prefix", type=Path)
+    parser.add_argument("--resume-from", type=Path)
+    parser.add_argument(
+        "--stop-after-completed-steps",
+        type=int,
+        default=TRAIN_STEPS,
     )
+    args = parser.parse_args()
+    preflight_requested = args.resume_preflight is not None
+    training_requested = args.train_report is not None
+    if preflight_requested == training_requested:
+        parser.error("choose exactly one of --resume-preflight or --train-report")
+    if preflight_requested:
+        if args.preflight_snapshot is None:
+            parser.error("--resume-preflight requires --preflight-snapshot")
+        result = run_resume_preflight(
+            output_path=args.resume_preflight,
+            snapshot_path=args.preflight_snapshot,
+        )
+    else:
+        if any(
+            value is None
+            for value in (args.checkpoint, args.progress, args.snapshot_prefix)
+        ):
+            parser.error(
+                "--train-report requires --checkpoint, --progress, and --snapshot-prefix"
+            )
+        result = run_billion_continuation(
+            report_path=args.train_report,
+            checkpoint_path=args.checkpoint,
+            progress_path=args.progress,
+            snapshot_prefix=args.snapshot_prefix,
+            resume_from=args.resume_from,
+            stop_after_completed_steps=args.stop_after_completed_steps,
+        )
     print(
         json.dumps(
             {
                 "decision": result["decision"],
-                "passed": result["passed"],
-                "second_step_loss_exact": result["checks"][
-                    "second_step_loss_exact"
-                ],
+                "passed": result.get("passed"),
+                "completed_steps": result.get("completed_steps"),
             },
             sort_keys=True,
         ),

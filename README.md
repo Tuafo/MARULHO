@@ -23,6 +23,16 @@ joint three-source result. This rules out naive source substitution. It supports
 the next direction—train longer on a curriculum that keeps all useful sources—
 without claiming that data alone has solved coherence.
 
+V80 therefore keeps the Transformer and scales the strongest checkpoint on a
+deduplicated 40/30/30 FineWeb-Edu, Cosmopedia, and DCLM curriculum for 1.007B
+new positions. Its crash-safe trainer reloads model, optimizer, RNG, and schedule
+state exactly, stays near 4.26 GB peak allocation on the RTX 3060, and retains
+only two rolling snapshots. This reflects the current research bet: the
+Transformer is MARULHO's proven causal-compute substrate, while the new work is
+to make the surrounding system choose, verify, remember, and learn from better
+experience. A different core earns adoption only by beating that substrate in a
+matched experiment.
+
 ## Current architecture
 
 There are nine different levels of truth:
