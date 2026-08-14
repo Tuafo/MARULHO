@@ -1047,6 +1047,15 @@ sound but not valuable enough to change the long-run numerical path. Decision:
 `retain_v80_sequential_segment_training`; report `50344de0...c585200` preserves
 the evidence, and the runner/tests are deleted.
 
+**`language_scale_corpus_materialization.py`** owns V80's billion-position data
+boundary. It verifies every local source and all three DCLM parquets before
+selection, excludes all normalized eval hashes, removes exact duplicates in
+FineWeb-Edu/DCLM/Cosmopedia priority, rejects broken encoding and the frozen
+template phrases, and requires 961 tokenizer tokens. Separate source tensors and
+one three-source holdout artifact are content-addressed and strict-reloaded.
+DCLM is external text only; the model, tokenizer, schedule, optimizer,
+generation, and evaluation remain MARULHO-owned.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
