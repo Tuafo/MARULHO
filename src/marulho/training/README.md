@@ -165,14 +165,13 @@ control shows that reduced update magnitude—not learned selection—explains t
 behavior. No V75 model, evaluator, test, checkpoint, loader, or runtime path
 remains.
 
-`language_exact_ttt.py` is V76's temporary exact-gradient falsifier, not an
-installed runtime. Its four-layer Stage-A0 model keeps V74's ordinary next-token
-fast update but can either preserve the full gradient-of-gradient graph or apply
-the matched first-order approximation. Exact meta-training passed all three
-frozen synthetic seeds at 49,147/49,152 delayed queries versus 66.557% mean for
-first-order and chance-level causal controls. The implementation remains only to
-support the admitted 100M real-language safety and quality screen; it owns no
-checkpoint, loader, service option, or compatibility surface yet.
+V76 exact-gradient TTT is retired and deleted. Although it reached 99.990% on
+the frozen synthetic delayed-binding task, its 100M exact-own later language loss
+was 2.90876 versus 2.90234 for ordinary continuation, with only 0.00100/0.00130
+discard/shuffle causal deltas and 36.18% of immutable evaluation throughput. No
+V76 model, data helper, evaluator, test, checkpoint, loader, runtime option, or
+compatibility path remains. Compact reports preserve both the synthetic positive
+and the decisive real-language negative.
 
 **`language_model.py`** — the language model contract. It owns:
 

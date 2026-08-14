@@ -1140,20 +1140,20 @@ neither a fixed update nor a four-statistic retention gate meets the frozen
 memory target. The next TTT experiment must test the missing exact meta-gradient,
 not tune another gate or inner rate.
 
-**V76 exact end-to-end TTT (Stage A0 passed; 100M language stage next)** —
-directly differentiating future next-token loss through earlier next-token
-gradient updates changes the result qualitatively. Across seeds 7601/7602/7603,
-exact meta-training answers 49,147/49,152 delayed queries (99.990%), versus
-66.557% mean for the matched first-order approximation and 6.923%/6.773% for
-discarded/wrong-document updates. Exact and first-order initial hashes, document
-schedules, and pre-training numerical updates match; only their outer gradients
-differ. Every mechanical and finite-gradient gate passes. Exact training sustains
-755.9 documents/s on average, 98.67% of first-order throughput, with 1.574 GB
-maximum allocated. This is strong synthetic evidence that meta-learning through
-the update—not another memory container—is the missing mechanism. It is not yet
-real-language evidence or a runtime promotion. V76 now advances to a bounded
-100M pretrained-Transformer safety ladder and matched long-document language
-screen using mathematical SDPA; the installed runtime remains the Transformer.
+**V76 exact end-to-end TTT (retired after real-language falsification)** — exact
+meta-gradients nearly solve the synthetic delayed-binding task at 49,147/49,152,
+but that result does not transfer to the 100.679M V39 Transformer on disjoint
+FineWeb-Edu/Cosmopedia documents. Same-data ordinary continuation improves later
+loss from immutable 3.96320 to 2.90234. First-order TTT reaches 2.90913 and exact
+TTT 2.90876; exact is 0.00643 worse than static and only 0.00037 better than
+first-order. Discarding or shuffling exact updates worsens loss by only 0.00100/
+0.00130, far below the causal 0.02 gate. Exact test-time throughput is 36.18% of
+the immutable Transformer, also below its 50% Stage-A1 gate. Hashes, schedules,
+parent tensors, gradients, BF16 state, and CUDA evidence all pass, so this is a
+mechanism failure rather than a broken run. V76 is deleted with no checkpoint or
+runtime surface. The result warns that structured synthetic gradient memory can
+be a false positive for natural language. The strongest live direction is now
+the ordinary Transformer continuation that achieved the best real heldout loss.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

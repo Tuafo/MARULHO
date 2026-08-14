@@ -3407,6 +3407,41 @@ Transformer positions/s in Stage A1; the final runtime promotion gate remains
 optimizer, data, or step sweep. A pass admits strict checkpoint/generation,
 sequential-domain retention, and the 524,288-token sustained contract.
 
+### V76 Stage-A1 result: synthetic exact TTT does not transfer
+
+The optimizer-complete safety ladder selects physical batch 8 with four-way
+accumulation. Exact Muon training peaks at 6,830,257,664 allocated bytes, every
+100.77M candidate parameter receives a finite nonzero gradient, and exact and
+first-order initial hashes plus 8,192-document schedule hashes match. A static
+batch-32 launch was proactively terminated at 12,001/12,288 MiB device use before
+producing a result; its corrected batch-8/accumulation-4 run peaks at 4.253 GB.
+All scientific arms complete safely and no candidate checkpoint is written.
+
+The immutable V39 later-segment loss is 3.96320. Same-data static continuation
+improves it to 2.90234 at 19.99k training positions/s. Matched first-order TTT
+reaches 2.90913 at 12.42k positions/s. Exact TTT reaches 2.90876 at 10.69k
+positions/s: only 0.00037 better than first-order and 0.00643 worse than static.
+Exact discard is 2.90977 and exact shuffled is 2.91007, worsening own updates by
+only 0.00100 and 0.00130 rather than the required 0.02. Both FineWeb-Edu and
+Cosmopedia remain within the non-regression bound, but no memory-utility gate
+passes. Exact-own evaluation sustains 27.22k positions/s versus immutable
+75.24k, a 36.18% ratio below the 50% Stage-A1 floor.
+
+Decision: `retire_v76_exact_ttt_100m_language_failure`. This rejects the frozen
+rank-8, last-three-MLP, two-update exact-TTT formulation at 100M. It does not
+deny the published large-scale TTT-E2E result, but MARULHO will not use a 99.990%
+synthetic score to justify a natural-language architecture that loses to ordinary
+continuation. No rate, rank, layer, optimizer, or data sweep follows. All V76
+model, runner, data, preflight, and test code is deleted; compact reports remain.
+The terminal decision report is `exact-ttt-v76-100m-decision-20260813.json`
+(SHA-256 `f5ceb5179c106133fe5eafb5be945bd03723542a5b8ff4c6d64326b18e616a8e`).
+
+The positive real-language result is the control: ordinary Transformer
+continuation improves later loss by 1.06087 on disjoint documents while retaining
+the fastest training and evaluation. The next branch must checkpoint and audit
+that improved Transformer, test unseen generation and strict reload, then use it
+as the base for continual learning rather than preserving failed TTT machinery.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
