@@ -3089,6 +3089,74 @@ The terminal report is `exact-cortex-sidecar-v73-stop-20260813.json` (SHA-256
 `0f787ab8d7ec9674b19ff4764c7957f5469e51a9a48361ef7e76680a5ff3c157`). The next
 admissible branch must meta-train the update on future loss.
 
+### V74 preregistration: end-to-end fast-MLP test-time learning
+
+The official TTT-E2E derivation identifies the decisive difference from V73:
+the inner test-time objective is the same next-token loss as the outer task, and
+the initialization is optimized for performance *after* those updates. Its final
+large-model design updates regular MLPs in the last quarter of the Transformer,
+because preparing upstream gradients makes many small fast layers less efficient
+than fewer large ones. The paper also reports that exact gradient-of-gradient
+training remains 3.4 times slower than full attention at context 8K and cannot
+use cuDNN FlashAttention. MARULHO cannot silently claim that implementation on a
+3060. A newer [ICML 2026 analysis](https://arxiv.org/abs/2602.21204) further
+shows that broad KV-binding TTT layers reduce to learned linear attention. V74
+therefore does not rename another key/value or reconstruction memory as TTT.
+
+**Owned consumer formulation.** A complete causal Transformer remains the slow
+model. Only the down projection of each last-quarter SwiGLU block receives a
+temporary rank-8 LoRA delta. Each document begins from shared meta-parameters
+`A0` (normal standard deviation 0.02) and `B0` (zero). For a completed segment,
+ordinary full-vocabulary next-token cross-entropy produces an independent
+per-document gradient for those fast parameters. A learned positive per-layer
+inner rate, initialized to 0.1, applies one SGD update. The following segment is
+predicted with the updated weights. The slow Transformer, `A0`, `B0`, and rates
+are optimized from losses observed with the evolving fast weights.
+
+To bound memory and avoid unsupported second derivatives, Stage A uses an
+explicit first-order meta-gradient: inner gradients are detached, while a
+straight-through identity connects each updated fast value to the shared
+initialization and rate for the following segment. This is a FOMAML-style
+approximation of TTT-E2E, not the paper's exact gradient-of-gradient algorithm.
+It retains the essential falsifier—future next-token loss trains an
+initialization for earlier next-token updates—without carrying Transformer
+activation graphs through time. Disabled LoRA must be bit-exact to the ordinary
+Transformer. Fast weights reset at document boundaries and never persist across
+batch members. No reconstruction target, future token, query answer, label,
+retrieval index, external model, compilation, or custom kernel enters an inner
+update.
+
+**Stage A0 — gradient-memory truth.** Freeze seeds `7401`, `7402`, and `7403`;
+width 128, four Transformer layers, four attention heads, context 64, SwiGLU
+width 512, and rank-8 fast LoRA only in the fourth block. Each batch contains
+128 independent three-segment documents drawn online from 16 keys, 16 values,
+and 32 distractors. Segment zero repeatedly exposes four random key/value pairs;
+one complete middle segment is distractors; segment two repeatedly queries all
+four keys, so 16 ordinary next-token targets depend on the old evidence. Train
+800 slow AdamW updates at 3e-4, no weight decay, clip 1.0. Every completed
+segment computes the identical inner gradient in all arms. `persistent_update`
+applies its own gradient, `no_update_same_compute` discards it, and
+`shuffled_update` applies another batch member's gradient. All arms share exact
+initial tensors and document batches. Evaluate 4,096 fresh documents per seed.
+
+Mechanical admission requires disabled bit parity, future perturbation leaving
+earlier logits/updates exact, document-reset exactness, finite fast weights and
+inner rates, and finite nonzero gradients for every slow and fast-initialization
+parameter by update two. Behavioral admission requires persistent query accuracy
+at least 80% and at least 20 percentage points above both controls in all three
+seeds. Any miss deletes V74 before full language. No rank, layer, rate, step,
+loss-weight, or dataset sweep follows a failed result.
+
+**Stage A1 only after A0 passes.** Insert rank-8 fast deltas in the final three
+MLPs of the exact 100.679M Transformer, retain the V72 long-document contract,
+and first measure a two-update batch-8/16/32 safety ladder. Advance only if a
+safe physical batch sustains at least 50% of the Transformer throughput and
+projects below a one-hour three-arm screen. Quality then compares persistent,
+no-update, shuffled-update, and the immutable Transformer on later-segment loss,
+with the same 0.02 language and state-update counterfactual gates. Exact
+second-order TTT remains a later systems experiment only if the first-order
+mechanism establishes future utility.
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token

@@ -1116,8 +1116,12 @@ next-token learning on one completed segment is optimized for loss on the next.
 This is qualitatively different from V59's post-hoc full fine-tune and V60--V63's
 frozen-parent adapters: the slow Transformer and update initialization learn
 together from scratch. V74 must first find a consumer-GPU formulation whose
-disabled path is exact and whose meta-gradient is bounded; no quality run begins
-from a memory sidecar renamed as TTT.
+disabled path is exact and whose meta-gradient is bounded. Its frozen first test
+uses per-document rank-8 fast weights in the last-quarter MLP, ordinary
+next-token inner updates, and a first-order meta-gradient trained on future
+next-token loss. Persistent, discarded-update, and wrong-document-update arms
+must separate across three seeds before any 100M run. No quality run begins from
+a memory sidecar renamed as TTT.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
