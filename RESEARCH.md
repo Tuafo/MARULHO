@@ -3855,6 +3855,23 @@ per-source int32 tensors, normalized hashes, selection/rejection counts, source
 hashes, tokenizer hash, and strict reload evidence; delete the recreatable DCLM
 parquets afterward.
 
+**Materialization result.** All three source artifacts and the 1,536-document
+holdout strict-reload. FineWeb-Edu retains 58,999 documents, DCLM 150,910, and
+Cosmopedia 62,298, for 272,207 unique training documents or 261.3M unique
+predicted positions before scheduled repeats. Their tensor SHA-256 values are
+`203750d238058d93426db243d0e3ee02b466a719d2392ce72464ce5b70017e8f`,
+`71730172e0d74d277efac157a8062cb21074c75a943282ed444d4d00bed6971f`,
+and `a13f2d07d9a284dd4332fdd9066f156ffa723da3151d294746341cf834fd5573`.
+Artifact SHA-256 values are `dc182d9d...cbce73b`,
+`72cbb6ba...6a07a99`, and `24d000c8...6ed3871`; holdout artifact SHA-256 is
+`4a7afb30...859bd89`. Independent reload finds zero duplicates within any hash
+list, zero pairwise train-source intersections, and zero train/eval intersections.
+The selected DCLM text contains exactly 150,910 markers and has SHA-256
+`2e69783278e8063a34682f081035d4c7f7dcd99dfe36bc3e9d6425a98bed0690`.
+The materialization report SHA-256 is
+`be39081e870b314a0f9b3fc3177ca35647ca065b1dd5d1f33902512bad426b49`.
+All three recreatable parquets are deleted after verification, recovering 4.24 GB.
+
 **Frozen mix and schedule.** The 1,048,576 document slots contain exactly
 419,430 FineWeb-Edu, 314,573 Cosmopedia, and 314,573 DCLM documents, producing
 the 40/30/30 mix and 960 predicted positions per slot. For each source,

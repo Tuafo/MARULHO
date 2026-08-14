@@ -1056,6 +1056,13 @@ one three-source holdout artifact are content-addressed and strict-reloaded.
 DCLM is external text only; the model, tokenizer, schedule, optimizer,
 generation, and evaluation remain MARULHO-owned.
 
+The frozen result contains 58,999 FineWeb-Edu, 150,910 DCLM, and 62,298
+Cosmopedia training documents plus 512 holdouts per source. Tensor hashes are
+`203750d2...17e8f`, `71730172...d6971f`, and `a13f2d07...fd5573`;
+independent reload proves zero within-source, cross-source, or train/eval exact
+hash intersections. Report `be39081e...d426b49` links every artifact. The raw
+DCLM parquets are deleted only after this verification; selected text remains.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

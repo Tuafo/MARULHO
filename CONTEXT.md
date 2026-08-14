@@ -1211,6 +1211,14 @@ resume-exact optimizer snapshots every 4,096. Quantitative loss gates only admit
 direct generation review; coherent unseen multi-sentence text remains mandatory
 before continual learning reopens.
 
+The V80 corpus is materialized and independently audited: 58,999 FineWeb-Edu,
+150,910 DCLM, and 62,298 Cosmopedia long documents, 272,207 total. Per-source
+and holdout tensors strict-reload; exact hash sets have zero within-source,
+cross-source, or train/eval collisions. This is 261.3M unique predicted
+positions, so the 1.007B schedule averages 3.85 balanced-within-source epochs.
+The 4.24 GB recreatable raw parquets are deleted; content-addressed tensors and
+selected DCLM text remain.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
