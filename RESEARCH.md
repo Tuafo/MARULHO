@@ -3959,6 +3959,18 @@ RNG, completed-step, next-schedule, and ownership state, and training continued
 past update 1,056 at about 19.94k positions/s. This proves crash recovery is
 working in the real run; it is still not terminal quality evidence.
 
+The first authoritative curve point at update 2,048 covers all 1,536 frozen
+holdout documents after 62,914,560 training positions, or 6.25% of the schedule.
+Mean later loss improves from 2.982864 to 2.904556. FineWeb-Edu,
+Cosmopedia, and DCLM all improve independently: 3.157600 to 3.111984,
+2.438805 to 2.416878, and 3.352188 to 3.184807. The overall gain 0.078308 is
+31.32% of the terminal 0.25 requirement, while DCLM's 0.167381 gain is already
+83.69% of its 0.20 requirement. Unlike V79 substitution, no old source is being
+traded away at this point. Training continues because an early positive slope
+does not prove the final cooldown, fidelity, or visible-language gates. The
+update-2,048 snapshot strict-reloads at 428,213,141 bytes and SHA-256
+`6de0f377...cb156ad`.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution

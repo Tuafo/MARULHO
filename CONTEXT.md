@@ -1250,6 +1250,14 @@ SHA-256 `6f6d11b8...976017`; immediate reload verifies exact model, optimizer,
 RNG, counters, schedule offset, and ownership before training continues. This
 confirms real recovery behavior but says nothing yet about final language quality.
 
+The first full production curve at update 2,048 is positive on every source.
+Overall later loss improves 2.982864 to 2.904556; FineWeb-Edu, Cosmopedia, and
+DCLM improve by 0.045616, 0.021927, and 0.167381. This reaches 31.32% of the
+required overall gain and 83.69% of the DCLM gain after only 6.25% of the
+schedule, without V79's old-source tradeoff. The update-2,048 optimizer snapshot
+also strict-reloads (`6de0f377...cb156ad`). These are early curve and recovery
+facts, not final checkpoint or coherent-generation claims.
+
 V80's post-training language audit is also frozen before a candidate exists. It
 will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
 cases, and add eight generations over four DCLM holdout documents under greedy

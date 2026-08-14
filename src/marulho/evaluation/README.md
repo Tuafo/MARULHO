@@ -1103,6 +1103,11 @@ resume through update 4 reproduced initial loss within `3e-6`, sustained about
 Production then wrote and strict-reloaded its first 428,212,885-byte rollback
 point at update 1,024 (`6f6d11b8...976017`) before continuing. This verifies the
 snapshot path under the real optimizer/data schedule, not only the smoke.
+At update 2,048, the first complete three-source curve improves overall later
+loss from 2.982864 to 2.904556; FineWeb-Edu/Cosmopedia/DCLM improve by
+0.045616/0.021927/0.167381 with no source regression. The corresponding
+428,213,141-byte snapshot strict-reloads at `6de0f377...cb156ad`. This is a
+positive early slope, not terminal quality or coherence evidence.
 
 **`language_billion_generation.py`** owns V80's post-training direct-language
 boundary. It cannot run unless the V80 terminal report passes quantitative and

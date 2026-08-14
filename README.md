@@ -35,6 +35,11 @@ matched experiment. If V80 passes its loss gates, its frozen review reruns the
 old unseen prompts and adds DCLM holdouts; only visibly coherent, topic-stable
 multi-sentence text can reopen continual learning.
 
+V80's first heldout curve point is encouraging but nonterminal: after 6.25% of
+the schedule, overall loss improves from 2.98286 to 2.90456 and FineWeb-Edu,
+Cosmopedia, and DCLM all improve. The full run, cooldown, strict checkpoint, and
+visible generation review still decide whether this becomes a qualified base.
+
 ## Current architecture
 
 There are nine different levels of truth:
