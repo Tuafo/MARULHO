@@ -7,6 +7,67 @@ into an operation, prediction, control, and kill condition before implementation
 
 ## Current synthesis
 
+### Current post-V80 bet: grounded self-challenge
+
+Do not train MARULHO indiscriminately on its own prose. Recursive synthetic-data
+training can erase distribution tails and amplify errors even when generations
+look fluent; preserving real data reduces but does not eliminate that risk
+([Shumailov et al.](https://www.nature.com/articles/s41586-024-07566-y)).
+Self-rewarding and SEAL-style self-edits are interesting, but both let a capable
+model influence the signal that changes itself. MARULHO is not yet capable
+enough to treat its own preference or prose as truth
+([Self-Rewarding Language Models](https://arxiv.org/abs/2401.10020),
+[SEAL](https://arxiv.org/abs/2506.10943)).
+
+The strongest current connection is **grounded self-challenge**. SPICE gives one
+model asymmetric roles: a Challenger reads a real document and proposes a
+question plus document-grounded answer; a Reasoner sees only the question; an
+exact verifier scores the answer; and tasks near 50% solve rate define an
+automatic learning frontier ([SPICE](https://arxiv.org/abs/2510.24684)). This
+supplies information the model did not invent while still letting the model
+choose what it is ready to learn. Absolute Zero applies the same deeper principle
+inside code—self-proposed tasks work because execution supplies unambiguous
+feedback—not because introspection is intrinsically reliable
+([Absolute Zero](https://arxiv.org/abs/2505.03335)).
+
+SPICE's published evidence starts at 3B--8B models, 20,000 documents, group size
+8, and distributed actor/learner infrastructure. It is inspiration, not evidence
+that MARULHO's 100.679M base can generate valid challenges. The first local gate
+therefore spends no training:
+
+1. After V80 passes quantitative and visible coherence gates, sample 256 new
+   corpus documents excluded from training and evaluation.
+2. Let the unchanged checkpoint generate four structured question/answer
+   attempts per document. The answer must be an exact span or typed value in the
+   document, absent from the question, parsable without repair, and unique under
+   normalized hashing.
+3. Give each valid question to eight independent Reasoner samples without the
+   document. Measure exact correctness, question diversity, and difficulty.
+4. Compare the learned Challenger with deterministic extractive cloze tasks and
+   an ungrounded self-question control. At least 40% of attempts must be valid,
+   at least 90% of admitted answers must verify against the source, duplicate
+   rate must stay below 10%, and at least 30% of admitted tasks must fall in the
+   20%--80% Reasoner pass band. Any miss stops before training.
+
+If that gate passes, run one matched branch experiment: ordinary real-corpus
+continuation, deterministic grounded tasks, and model-chosen grounded tasks get
+the same update-token budget and at least 75% immutable real-text replay. The
+self-challenge arm survives only if it beats both controls by at least ten strict
+points on disjoint fixed grounding/reasoning tests while keeping general-language
+loss within 0.02 and unseen prose coherent. The proposer never evaluates its own
+promotion. Every branch begins from one checkpoint, saves optimizer/RNG state,
+and can be rolled back.
+
+This is the first credible step from a static Transformer to a self-improving
+MARULHO. Later, successful task selection may expand into SEAL-like update
+directives or Darwin-Godel-style code proposals. The
+[Darwin Godel Machine](https://arxiv.org/abs/2505.22954) demonstrates empirical
+selection of self-authored agent variants, but it relies on an external
+foundation model and coding benchmarks; copying that now would violate
+MARULHO-owned cognition and outrun the language competence evidence. Structural
+self-modification remains downstream of grounded self-challenge and independent
+promotion.
+
 V64 now adds a decisive systems result to the ledger. Its 100,202,970-parameter
 delta-state/local-attention cortex was mathematically correct, its owned Triton
 backward passed full-model parity, and CUDA Graph reproduced an eager fused-

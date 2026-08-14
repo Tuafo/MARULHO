@@ -3924,6 +3924,36 @@ text triggers objective/tokenizer redesign; a loss and text pass advances to
 sequential-domain learning. A numerical failure retains V78 and forces a base
 architecture/objective decision rather than another mix-ratio sweep.
 
+### V80 execution amendment and launch
+
+The preregistered optimizer-snapshot format now exists and the admission test is
+stronger and more precise than “same next hash” alone. Frozen report SHA-256
+`a1ce9559d252deb4ee4cf1aa8d38704b9019278a87feb72cc1b3d82b886c4dac`
+proves bit-exact model, optimizer, RNG, counters, and schedule at the reload
+boundary. Its canonical next update is also exact across 100,679,424 gradient,
+106,970,880 model-state, and 106,987,008 optimizer-state elements at
+4,259,726,848 bytes peak allocation. Repeated CUDA execution exposed one
+`9.31e-10` gradient difference out of 100,679,424 values while the final model
+remained exact. Post-compute exact hashes are therefore retained as observations;
+admission requires exact boundary state, exact loss/segments, and strict
+elementwise fraction/absolute/relative-L2 bounds rather than mistaking parallel
+reduction order for checkpoint corruption.
+
+The user's prior machine freeze changes only crash recovery, not model, data,
+schedule, optimizer, learning rate, evaluation, or quality gates. Verified
+snapshots are written every 1,024 rather than 4,096 updates and only the newest
+two survive. At the measured 17--20k positions/s this bounds lost work to roughly
+25--31 minutes instead of nearly two hours, for about 428 MB written per interval.
+A real controlled stop at update 2 resumed through update 4 on the frozen
+schedule; a separate finalization smoke exercised evaluation, terminal snapshot,
+standard checkpoint conversion, exact reload, report writing, and successful
+snapshot deletion. All smoke artifacts were deleted.
+
+Production V80 launched from the exact V78 parent on 2026-08-14. Its first
+32-update live point sustained 19,629 positions/s, reported 4,260,120,064 bytes
+run-wide peak allocation, and kept the physical batch at 8. The live progress
+artifact updates every 32 steps; it is operational state, not terminal evidence.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
