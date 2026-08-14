@@ -1307,6 +1307,14 @@ training continues through 8,224 at about 19.88k positions/s. The latest
 2,048-update interval adds 0.011285 overall gain; the declining but positive
 slope still requires the full frozen schedule and cooldown.
 
+Update 9,216 writes and strict-reloads a 428,214,037-byte optimizer state at
+SHA-256 `6988ca36...3abadc`. Model, optimizer, RNG, raw tensors, completed-step
+counter, and next schedule offset all verify exactly; external LLM use remains
+absent. Rotation deletes only update 7,168, retains updates 8,192/9,216, and
+training continues at about 19.90k positions/s after 283,115,520 new positions.
+This is another durable rollback point, not a new quality observation; the next
+authoritative heldout curve remains update 10,240.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed

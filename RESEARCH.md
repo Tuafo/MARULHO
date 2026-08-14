@@ -4030,6 +4030,14 @@ strict-reloads at SHA-256 `72281077...c6ac6cb`, rotates update 6,144 away, retai
 The interval slope continues to diminish but remains positive; no projection
 substitutes for the remaining stable phase and cooldown.
 
+Update 9,216 then writes and strict-reloads a 428,214,037-byte optimizer
+snapshot at SHA-256 `6988ca36...3abadc`. Exact verification covers model,
+optimizer, RNG, raw tensors, completed-step counter, next schedule offset, and
+absent external LLM use. Rotation deletes only update 7,168, retains exactly
+8,192/9,216, and training continues after 283,115,520 new positions at about
+19.90k positions/s. This adds a durable rollback boundary only; update 10,240
+remains the next authoritative quality measurement.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
