@@ -1169,6 +1169,14 @@ quantitative base, not an installed runtime or coherence claim. TTT remains
 absent. Continual learning and structural plasticity remain closed until a base
 checkpoint passes visible unseen-language review.
 
+**V78 active branch** — tests whether V77 is primarily undertrained by continuing
+on 32,768 new 961-token FineWeb-Edu/Cosmopedia documents, four times V77's phase
+budget. It changes no model architecture and cannot reopen continual learning from
+loss alone. A bounded batch-8/batch-16 optimizer-complete preflight may select the
+faster safe batch; batch 32 remains forbidden. The final checkpoint survives only
+after a 0.08 general-loss gain, per-source gains, strict reload, and the unchanged
+unseen-language panels.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

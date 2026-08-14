@@ -3523,6 +3523,57 @@ material base-language scale/data-efficiency change and face the same panels.
 Composite decision-report SHA-256 is
 `e40d8f2a000ba0c3895b9b165ef9507b67e0156bd171ef62df07779004072276`.
 
+### V78 preregistration: four-times-larger unique-document continuation
+
+**Question.** V77 has only 225.97M cumulative positions for 100.679M parameters,
+and its 7.86M-position phase materially improves long-document loss without making
+unseen text stable. V78 tests the simplest unresolved explanation before another
+architecture branch: the MARULHO Transformer is still severely undertrained. It
+must learn from materially more real text, not repeat V77 documents or add a
+memory mechanism that can hide a weak base.
+
+**Frozen parent and new data.** Strict-load only V77 checkpoint SHA-256
+`3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074`,
+requiring 100,679,424 parameters, context 320, active path
+`marulho_transformer`, and tokenizer hash
+`faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`.
+In each V77 training source, skip the first 4,096 eligible 961-token documents
+and take the next 16,384 in file order. This yields 32,768 unique documents and
+31,457,280 causal positions, exactly four V77 phases, shuffled once with data seed
+78121. The 512+512 disjoint evaluation documents and three 320-token segment
+losses remain unchanged. Selection tensors, schedule, parent, tokenizer, and
+evaluation hashes must be frozen in a committed preflight before training.
+
+**Safe throughput choice.** Batch 32 is forbidden. Before counted training, test
+physical batch 8/accumulation 4 and physical batch 16/accumulation 2 from the same
+parent state and first 128 scheduled documents. Each candidate executes complete
+forward, backward, clip, and uncompiled Muon steps. Batch 16 is selected only if
+peak allocated CUDA memory stays at or below 8 GiB, all gradients/state remain
+finite, and median complete-step throughput is at least 5% above batch 8.
+Otherwise retain V77's batch 8. No compile, projected-memory substitution, batch
+32 probe, or post-quality systems change is allowed.
+
+**Training and curve.** Train every parameter for 1,024 fresh-Muon updates at
+effective batch 32, peak learning rate 3e-4, weight decay 0.1, 52-step linear
+warmup plus cosine decay to 3e-5, clipping 1.0, BF16 eager CUDA, and the selected
+safe physical batch. Evaluate the exact frozen 1,024-document holdout before
+training and after updates 256, 512, 768, and 1,024. Optimizer state is fresh
+because V77 explicitly saved none; no claim of exact optimizer continuation is
+allowed. The final cumulative processed-position count is 257,429,760.
+
+**Decision.** Mechanical validity requires exact parent/data/schedule/tokenizer
+contracts, complete first-update gradients, finite state, observed CUDA memory
+within the selected preflight gate, all 1,024 updates, MARULHO ownership, and
+strict tensor/configuration/tokenizer/tied-weight/metadata/logit reload. Final
+later-segment loss must improve V77 by at least 0.08, and each FineWeb-Edu and
+Cosmopedia loss must improve by at least 0.03. A pass saves one checkpoint and
+reruns the exact V46/V77 twelve-case panels. Visible coherent multi-sentence topic
+stability advances to continual learning. A loss pass without coherence decides
+`redesign_base_data_or_objective_after_v78_scale_only_failure`; a loss-gate miss
+decides `stop_v78_unique_document_scaling_diminishing_return` and deletes the V78
+candidate. No memory, TTT, adapter, or structural-plasticity experiment may start
+from a V78 checkpoint that fails unseen-language review.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
