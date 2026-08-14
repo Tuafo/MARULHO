@@ -411,6 +411,7 @@ def _train(
     gradient_audit: dict[str, Any] | None = None
     curve: list[dict[str, Any]] = []
     final: dict[str, Any] = {}
+    run_peak_cuda_allocated_bytes = 0
     model.train()
     torch.cuda.reset_peak_memory_stats(device)
     torch.cuda.synchronize(device)
@@ -441,6 +442,10 @@ def _train(
                 flush=True,
             )
         if (step + 1) % 256 == 0:
+            run_peak_cuda_allocated_bytes = max(
+                run_peak_cuda_allocated_bytes,
+                int(torch.cuda.max_memory_allocated(device)),
+            )
             evaluation = evaluate_continuation(model, data=data, device=device)
             curve.append({"step": step + 1, "evaluation": evaluation})
             model.train()
@@ -462,7 +467,8 @@ def _train(
         "schedule_sha256": schedule_sha256,
         "gradient_audit": gradient_audit,
         "model_state_finite": _model_finite(model),
-        "peak_cuda_allocated_bytes": int(torch.cuda.max_memory_allocated(device)),
+        "peak_cuda_allocated_bytes": run_peak_cuda_allocated_bytes,
+        "curve_evaluations_reset_interval_peak_stats": True,
         "optimizer": optimizer_report,
         "final": {
             "segment_losses": final["segment_losses"],
