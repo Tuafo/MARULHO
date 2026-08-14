@@ -1133,16 +1133,14 @@ than a base-grounding claim. Manifest/report SHA-256 are
 `9b3392f137a2ca467bc329815810581a98169da170f74f50e8ccb41cb06e12d6`
 and `5a4d36afec1f20f8bf777e7f5eaef35e171e07c2e238bbd7001e028113477b71`.
 
-**`language_source_grounding_continual.py`** — owns V48's matched continual
-grounding screen. It freezes the V39 checkpoint, V47 validation manifest, SQuAD
-training corpus, replay sources, schedule, optimizer, seeds, and token budget;
-ordinary and 4x answer-weighted loss are the only arm difference. Real batch-8
-gradient accumulation keeps effective batch 224 without CUDA paging. At
-4,193,280 tokens, ordinary/weighted intact accuracy is 14.06%/21.88%, but
-relation recall falls from 89.06% to 40.62%/43.75% and general loss regresses
-by 0.1045/0.1023. Decision: `retire_v48_objective_only_grounding_repair`.
-Atomic arm states are deleted after the terminal report; no candidate checkpoint
-survives. Report SHA-256 is
+V48's matched continual-grounding screen is retired and deleted. It froze the
+V39 checkpoint, V47 validation manifest, SQuAD training corpus, replay sources,
+schedule, optimizer, seeds, and token budget; ordinary and 4x answer-weighted
+loss were the only arm difference. At 4,193,280 tokens, ordinary/weighted intact
+accuracy reached 14.06%/21.88%, but relation recall fell from 89.06% to
+40.62%/43.75% and general loss regressed by 0.1045/0.1023. Decision:
+`retire_v48_objective_only_grounding_repair`. No model, runner, tests, candidate
+checkpoint, loader, or compatibility path survives. Report SHA-256 is
 `834e1bce825675f0c18cac77c39e30b8403fcb5368e3937b9c91a46b5b9fb968`.
 
 V49's frozen-base final-sidecar falsifier is retired and deleted. The 4.13M-
