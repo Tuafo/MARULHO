@@ -3628,6 +3628,75 @@ open continual learning. Blindly repeating this same two-source, same-objective
 phase is no longer the next experiment. The composite unseen-decision SHA-256 is
 `f9741642955eef8bce63cbaeaaa4339a3dae2be3f7c604b951ecf62668e1a79d`.
 
+### V79 preregistration: replace formulaic synthetic textbooks with diverse web text
+
+**Evidence and hypothesis.** V78's generated failures resemble its corpus. Across
+75,000 documents, the Cosmopedia replay shard contains 4,930 occurrences of
+“will delve into,” 3,806 of “this chapter will,” 1,528 of “this course unit
+will,” and 11,850 of “in conclusion.” The matched FineWeb-Edu shard contains
+82, 24, zero, and 743. The model then emits chapter-introduction templates,
+generic Internet prose, and repeated conclusions. This does not prove source
+causality, but it makes another unchanged mix scientifically weak.
+
+The [SmolLM2 report](https://arxiv.org/abs/2502.02737) finds complementary small-
+model gains from FineWeb-Edu and DCLM, uses a stable-phase schedule, and treats
+data mixing as a first-class intervention. The 135M/360M DCLM-Edu release reports
+better knowledge/reasoning ablations than its unfiltered parent. A recent
+[auditable single-GPU 135M study](https://arxiv.org/abs/2606.22189) still requires
+13B tokens plus cross-source and segment deduplication—evidence that MARULHO's
+257M positions are far from a credible small-model saturation point. V79 does
+not pretend a 31M-position screen reaches that scale. It asks a narrower causal
+question: does replacing the formula-heavy half improve quality per position
+enough to justify a billion-token MARULHO run?
+
+**External-data boundary.** Text is data only; no external model weight, logit,
+embedding, tokenizer, generator, or evaluator is loaded. Materialize from only
+`HuggingFaceTB/dclm-edu` config `default`, split `train`, parquet `0000.parquet`,
+whose Dataset Viewer URL and downloaded SHA-256 must be recorded. The source is
+CC-BY-4.0. Retain rows only when `language == "en"`, language score is at least
+0.90, educational integer score is at least 3, text is 2,000--100,000 characters,
+and no MARULHO document marker occurs. Reject exact normalized-text duplicates
+and the high-frequency synthetic phrases “this chapter will,” “this course unit
+will,” and “will delve into.” With the V78 tokenizer, take the first 512 remaining
+documents reaching 961 tokens as a DCLM-only holdout and the next 16,384 as
+training. Persist selected row IDs, tensor hashes, rejection counts, phrase counts,
+source URL/hash, and tokenizer hash. Delete the downloaded parquet after the
+content-addressed selected corpus is verified; it is recreatable and not a model
+artifact.
+
+**Matched arms.** Strict-load only V78 checkpoint SHA-256
+`b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b`.
+Both arms use the same first 16,384 eligible documents from
+`fineweb-edu-train-75k-shard0-20260710.txt`. The control's other 16,384 documents
+come from `cosmopedia-v2-train-75k-shard3-20260710.txt`; the candidate replaces
+only those source slots with the filtered DCLM-Edu training tensor. These local
+shards may overlap pre-V77 training ranges, so V79 claims an exact matched source
+intervention, not globally novel tokens. Source-slot order, FineWeb tensors,
+initial model tensors, tokenizer, optimizer, and all update positions must match
+between arms.
+
+Each arm receives 1,024 updates and 31,457,280 positions at effective batch 32,
+physical batch 8, four-way accumulation, fresh uncompiled Muon 3e-4, weight decay
+0.1, clipping 1.0, BF16 eager CUDA, and V78's 52-step warmup/cosine schedule. Run
+the formulaic control first and save no checkpoint. Run the DCLM replacement from
+the original V78 state, never from the control. Evaluate at updates 0/256/512/
+768/1024 on the unchanged 512+512 FineWeb-Edu/Cosmopedia holdout plus the 512
+DCLM holdout. Batch 32 remains forbidden and the 8-GiB preflight ceiling remains.
+
+**Decision.** Validity requires exact parent, source, selected-tensor, shared-
+FineWeb, source-slot schedule, tokenizer, gradient, finite-state, CUDA, and
+position contracts. Candidate/control complete-step throughput must stay within
+5%. Candidate final mean later loss across all three sources must beat control by
+at least 0.03, its unchanged FineWeb+Cosmopedia mean must be no worse than control
+by 0.02, and its DCLM loss must beat control by at least 0.08. A numerical pass
+admits one strict candidate checkpoint and matched generation review on the
+existing twelve cases plus a frozen longer-prefix DCLM panel. It advances to a
+substantially larger stable-schedule run only if direct text also reduces template
+repetition and improves topic stability. Otherwise decide
+`retire_v79_dclm_replacement_no_joint_language_gain`, delete both transient arm
+states and the failed runner, and retain V78. No architecture, TTT, memory,
+continual-learning, or instruction-tuning claim follows from this data screen.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

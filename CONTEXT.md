@@ -1184,6 +1184,14 @@ evaluation resets. The correction retracts that exact value; the selected-path
 optimizer-complete preflight proves 4.253 GB under the 8-GiB gate, and future runs
 preserve interval maxima.
 
+**V79 active data branch** — keeps the exact V78 Transformer and tests one source
+replacement: shared FineWeb-Edu plus formulaic Cosmopedia versus the same
+FineWeb-Edu plus filtered, deduplicated DCLM-Edu. Both matched arms receive 31.46M
+positions from the same parent and source-slot schedule. DCLM text is external
+data only; all model weights, tokenization, training, generation, and evaluation
+remain MARULHO-owned. Only a joint three-source loss win plus visibly less
+templated, more topic-stable generation can justify a billion-token scale phase.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
