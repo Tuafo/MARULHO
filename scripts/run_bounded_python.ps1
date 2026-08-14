@@ -28,6 +28,10 @@ $process.StartInfo = $startInfo
 if (-not $process.Start()) {
     throw "Failed to start bounded Python process."
 }
+# Keep long GPU experiments from competing with the interactive desktop for CPU
+# scheduling time. This does not change CUDA work, model state, or experiment
+# ordering, and the child still receives all otherwise-idle CPU capacity.
+$process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
 $stdoutTask = $process.StandardOutput.ReadToEndAsync()
 $stderrTask = $process.StandardError.ReadToEndAsync()
 
