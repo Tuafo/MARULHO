@@ -4038,6 +4038,18 @@ absent external LLM use. Rotation deletes only update 7,168, retains exactly
 19.90k positions/s. This adds a durable rollback boundary only; update 10,240
 remains the next authoritative quality measurement.
 
+The fifth authoritative curve at update 10,240 covers 314,572,800 new
+positions, or 31.25% of the schedule. Overall later loss is 2.842898, improving
+by 0.007451 since update 8,192 and by 0.139966 from the frozen start. That is
+55.99% of the final target with 0.110034 still unresolved. FineWeb-Edu,
+Cosmopedia, and DCLM reach 3.051575/2.363457/3.113663, total gains of
+0.106026/0.075348/0.238525. DCLM reaches 119.26% of its own requirement while
+both retained sources improve again. The interval slope is smaller than the
+prior 0.011285 and remains insufficient for a projection-based decision. The
+428,214,229-byte optimizer snapshot strict-reloads at SHA-256
+`e4260d33...2044fba8`, rotates update 8,192 away, retains exactly
+9,216/10,240, and training advances through 10,272 at about 19.90k positions/s.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
