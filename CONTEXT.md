@@ -1184,18 +1184,15 @@ evaluation resets. The correction retracts that exact value; the selected-path
 optimizer-complete preflight proves 4.253 GB under the 8-GiB gate, and future runs
 preserve interval maxima.
 
-**V79 active data branch** — keeps the exact V78 Transformer and tests one source
-replacement: shared FineWeb-Edu plus formulaic Cosmopedia versus the same
-FineWeb-Edu plus filtered, deduplicated DCLM-Edu. Both matched arms receive 31.46M
-positions from the same parent and source-slot schedule. DCLM text is external
-data only; all model weights, tokenization, training, generation, and evaluation
-remain MARULHO-owned. The frozen materialization selected 512 holdout plus 16,384
-training documents; its holdout/train token hashes are `906f73b...f3c9c6` and
-`fa4dc5...d530a`, and strict artifact reload passes. The matched Cosmopedia
-control completes at 2.951530 three-source loss, 19.264k positions/s, and 4.24 GB
-peak allocation with no checkpoint. The DCLM candidate remains pending. Only a
-joint three-source loss win plus visibly less templated, more topic-stable
-generation can justify a billion-token scale phase.
+**V79 DCLM replacement (retired)** — exact 50% source replacement learns DCLM
+but forgets the removed Cosmopedia distribution. Candidate versus control DCLM
+loss improves by 0.156170 and FineWeb improves slightly, but Cosmopedia regresses
+by 0.297005; old-source mean worsens 0.138523 and joint loss is 2.991823 versus
+2.951530. All validity checks pass, throughput matches within 1.25%, and both
+runs peak at 4.24 GB, so this is a scientific failure rather than an execution
+failure. No candidate checkpoint exists and the failed runner is deleted. The
+content-addressed DCLM text/tensors remain reusable. This rejects substitution,
+not DCLM or a future curriculum that keeps all learned sources represented.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -17,6 +17,12 @@ unique-document continuation. Continual learning, structural
 plasticity, memory, and runtime installation remain closed until the base model
 demonstrates coherent unseen generation.
 
+The latest V79 data intervention is also negative: replacing Cosmopedia with
+DCLM improves DCLM loss but causes a larger Cosmopedia regression, worsening the
+joint three-source result. This rules out naive source substitution. It supports
+the next direction—train longer on a curriculum that keeps all useful sources—
+without claiming that data alone has solved coherence.
+
 ## Current architecture
 
 There are nine different levels of truth:

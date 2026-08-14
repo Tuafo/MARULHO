@@ -3734,6 +3734,32 @@ repetition and improves topic stability. Otherwise decide
 states and the failed runner, and retain V78. No architecture, TTT, memory,
 continual-learning, or instruction-tuning claim follows from this data screen.
 
+### V79 terminal result: source substitution learns DCLM but forgets Cosmopedia
+
+Both arms complete the exact 31,457,280-position schedule from bit-identical
+V78 BF16 state. Every parent, source, tensor, tokenizer, schedule, gradient,
+finite-state, CUDA, physical-batch, and position check passes. Control/candidate
+throughput is 19.264k/19.023k positions/s including the same four evaluations, a
+0.9875 ratio inside the 5% gate; both peak at 4,241,245,696 allocated bytes.
+
+The candidate does learn its new source: DCLM later loss is 3.168705 versus the
+control's 3.324875, a 0.156170 gain, and FineWeb-Edu is slightly better at
+3.110008 versus 3.129967. But Cosmopedia loss regresses from 2.399750 to
+2.696754. Consequently the old-source mean worsens by 0.138523 and the joint
+three-source mean is 2.991823 versus control 2.951530, a 0.040292 loss rather
+than the required 0.03 gain. The DCLM and throughput gates pass; joint gain and
+old-source retention fail decisively.
+
+Decision: `retire_v79_dclm_replacement_no_joint_language_gain`. No candidate
+checkpoint or generation panel exists. This rejects 50% source replacement at
+this budget; it does not reject DCLM or a mixture that retains every learned
+source. The control and terminal candidate report SHA-256 values are
+`49cf1e640025980e05db4e7cf228dea42a34b2496b68f4a1a8ab2361f8691531`
+and `3f48e7acda4eb37980dacc181fab602e237c503e94785ac8e2ba09356db593c1`.
+Both transient model states and the failed V79 runner/tests are deleted. V78
+remains the strongest strict checkpoint; the filtered DCLM corpus remains as a
+content-addressed input for a future all-source curriculum.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

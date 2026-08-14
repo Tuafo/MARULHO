@@ -1028,22 +1028,15 @@ selected holdout/train tensor hashes are `906f73b...f3c9c6` and
 content hashes. DCLM contributes text only: no external weight, embedding,
 tokenizer, logit, generator, or evaluator enters MARULHO.
 
-**`language_dclm_replacement.py`** owns V79's matched causal experiment. It
-reconstructs a shared 16,384-document FineWeb tensor and a 16,384-document
-Cosmopedia control, substitutes only the latter tensor with DCLM for the
-candidate, and gives both arms the exact same 32,768 source-slot schedule from
-the exact V78 state. The pair contract and schedule hashes are
-`e2f787fc...d9499a23` and `fb949816...3a360`. Each isolated arm runs 1,024
-Muon updates at physical batch 8/effective batch 32 and evaluates the same three
-512-document holdouts every 256 updates. The control is immutable evidence; only
-the candidate may save a checkpoint, and only after all frozen joint-loss,
-non-regression, DCLM-gain, throughput, and validity gates pass.
-
-The frozen control completes every validity check at 19.264k positions/s and
-4.24 GB peak allocation. Its three-source loss improves 2.982862 to 2.951530;
-final FineWeb-Edu/Cosmopedia/DCLM losses are 3.129967/2.399750/3.324875. It saves
-no checkpoint. The exact control report hash is `49cf1e64...f8691531`, which the
-candidate must verify before training from the original V78 tensors.
+V79's deleted matched runner tested replacing Cosmopedia with DCLM while keeping
+FineWeb, parent, schedule, optimizer, and budget exact. Both arms pass every
+validity check at 19.264k/19.023k positions/s and 4.24 GB peak allocation. DCLM
+loss improves 0.156170 and FineWeb improves slightly, but Cosmopedia regresses
+0.297005; old-source mean worsens 0.138523 and joint loss is 2.991823 versus
+control 2.951530. Decision:
+`retire_v79_dclm_replacement_no_joint_language_gain`. No checkpoint or generation
+panel exists. Reports `49cf1e64...f8691531` and `3f48e7ac...db593c1` retain the
+experiment; only the reusable materialized DCLM corpus remains in live machinery.
 
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
