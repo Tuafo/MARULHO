@@ -3954,6 +3954,43 @@ Production V80 launched from the exact V78 parent on 2026-08-14. Its first
 run-wide peak allocation, and kept the physical batch at 8. The live progress
 artifact updates every 32 steps; it is operational state, not terminal evidence.
 
+### V80 Stage 3 preregistration: direct unseen-language decision
+
+**Admission before generation.** The generation runner must refuse execution
+unless the terminal V80 training report passes every quantitative quality check,
+admits its checkpoint to unseen generation, and proves strict checkpoint
+fidelity. The checkpoint file hash, MARULHO ownership, absent external LLM,
+Tokenizer SHA-256 `faca1e26...f660715`, active `marulho_transformer` path, and
+1,264,062,720 cumulative positions must agree between the report, checkpoint,
+and fresh load. Automatic continuation-prefix scores remain diagnostics; they
+cannot promote visible language without direct review.
+
+**Frozen panels.** Rerun V78's exact four FineWeb-Edu greedy prompts, four
+Cosmopedia greedy prompts, and four Cosmopedia controlled prompts. The source
+files remain frozen at SHA-256 `a4e00212...cda64a` and
+`e0a86c60...c97491`; the three V78 report baselines remain frozen at
+`ea8ca865...b594928`, `3ef5aa4d...ffe91e29`, and
+`0c01a4a4...664930`. Controlled decoding is exactly repetition penalty 1.1
+plus no-repeat trigram; greedy decoding applies neither. Add greedy and
+controlled DCLM panels using holdout rows 0, 2, 4, and 6 with prompts
+“Numerous industries utilize,” “Summer in the,” “Prevent Direct Execution,”
+and “In just one.” Their retained raw source is frozen at SHA-256
+`22f89f16...ca0d7`, and each raw document must re-encode exactly to its row in
+the frozen V80 evaluation tensor `ce57f5b3...7b679`. All five panels contain
+four 64-token continuations from the same qualified checkpoint.
+
+**Human boundary and decisions.** A generated review sheet must show every
+prompt, complete generated text, and source continuation. A coherent verdict
+requires visible multi-sentence language, stable prompt topic, and no template
+or repetition collapse; at least one concrete observation is mandatory. A
+valid coherent result decides
+`advance_v80_to_continual_and_grounded_self_challenge_validation`. Valid but
+incoherent text decides `redesign_v80_objective_or_tokenizer_after_scale_failure`
+rather than spending another blind scale run. Any provenance, prompt, source,
+decode, ownership, or checkpoint mismatch decides
+`reject_v80_unseen_generation_invalid_evidence`. Continual learning and grounded
+self-challenge remain closed until this direct-text decision passes.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

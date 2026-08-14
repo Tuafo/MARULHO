@@ -1246,6 +1246,15 @@ hashes but gates them with strict elementwise tolerances. A real stop/resume smo
 then continued updates 2--4 at about 17.0k positions/s and reproduced the frozen
 initial three-source loss within `3e-6`; its 428 MB smoke snapshots were deleted.
 
+V80's post-training language audit is also frozen before a candidate exists. It
+will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
+cases, and add eight generations over four DCLM holdout documents under greedy
+and controlled decoding. Those raw DCLM documents must encode exactly to their
+frozen evaluation rows. A readable direct-review sheet and explicit observation
+are mandatory; automatic prefix scores cannot claim coherence. Coherent text
+opens continual and grounded self-challenge validation, incoherent text forces
+an objective/tokenizer redesign, and invalid provenance rejects the evidence.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

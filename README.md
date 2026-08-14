@@ -31,7 +31,9 @@ only two rolling snapshots. This reflects the current research bet: the
 Transformer is MARULHO's proven causal-compute substrate, while the new work is
 to make the surrounding system choose, verify, remember, and learn from better
 experience. A different core earns adoption only by beating that substrate in a
-matched experiment.
+matched experiment. If V80 passes its loss gates, its frozen review reruns the
+old unseen prompts and adds DCLM holdouts; only visibly coherent, topic-stable
+multi-sentence text can reopen continual learning.
 
 ## Current architecture
 

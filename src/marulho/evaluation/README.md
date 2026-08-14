@@ -1101,6 +1101,17 @@ an atomic live-progress report every 32. A real controlled stop at update 2 and
 resume through update 4 reproduced initial loss within `3e-6`, sustained about
 17.0k positions/s, and peaked at 4.260 GB; all smoke artifacts were deleted.
 
+**`language_billion_generation.py`** owns V80's post-training direct-language
+boundary. It cannot run unless the V80 terminal report passes quantitative and
+checkpoint-fidelity admission. It reruns the exact V78 FineWeb-Edu and
+Cosmopedia prompts, adds four raw DCLM holdout documents that must re-encode
+exactly to frozen evaluation rows, and records separate greedy and
+repetition-controlled panels. It emits one readable sheet containing generated
+text beside source continuations. Automatic prefix/diversity measurements are
+diagnostic only: aggregation requires an explicit human coherence verdict and a
+concrete observation. Coherent, incoherent, and invalid evidence lead to three
+different frozen decisions; no panel can install a runtime directly.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
