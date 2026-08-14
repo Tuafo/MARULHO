@@ -1038,6 +1038,14 @@ control 2.951530. Decision:
 panel exists. Reports `49cf1e64...f8691531` and `3f48e7ac...db593c1` retain the
 experiment; only the reusable materialized DCLM corpus remains in live machinery.
 
+**`language_segment_packing_preflight.py`** owns V80 Stage 0. It compares the
+historical three-call episode with one batch-packed call over the same three
+independent 320-token segments. The preflight compares exact BF16 initialization,
+per-document losses, every gradient, one Muon update, disjoint post-update loss,
+eight-step throughput, and CUDA peak allocation. Packed training is admitted
+only at near-identical math, at least 1.10x complete-step throughput, and no more
+than 8 GiB allocation. Compilation and physical batch 32 remain forbidden.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
