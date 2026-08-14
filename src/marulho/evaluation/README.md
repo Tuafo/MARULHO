@@ -1063,6 +1063,13 @@ independent reload proves zero within-source, cross-source, or train/eval exact
 hash intersections. Report `be39081e...d426b49` links every artifact. The raw
 DCLM parquets are deleted only after this verification; selected text remains.
 
+**`language_scale_schedule.py`** owns V80's exact 1,048,576-document schedule.
+It globally shuffles the fixed 40/30/30 source slots, constructs independent
+full-permutation cycles within each source, pairs source and row IDs, and records
+per-document exposure histograms. Every document is exposed evenly within one
+repeat; source tensors, full schedule, and first/last 1,024 slots are hash-bound
+before the trainer can start.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
