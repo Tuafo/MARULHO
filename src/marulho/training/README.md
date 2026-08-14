@@ -158,6 +158,13 @@ test, checkpoint, loader, or runtime option remains installed. Its compact
 report preserves the result; a future test may investigate adaptive retention
 as a distinct mechanism rather than tune V74's rank, rate, or step count.
 
+V75's adaptive-retention follow-up is also retired and deleted. A tiny gate saw
+only causal loss, gradient, alignment, and state statistics, but reached 42.004%
+versus 42.261% for a fixed gate matched to its mean acceptance. The matched
+control shows that reduced update magnitude—not learned selection—explains the
+behavior. No V75 model, evaluator, test, checkpoint, loader, or runtime path
+remains.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

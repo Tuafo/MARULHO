@@ -1126,20 +1126,19 @@ update formulation, not test-time learning. The next admissible experiment must
 test whether a learned retention/overwrite rule can preserve useful updates
 through interference without changing the Transformer runtime by default.
 
-**V75 adaptive gradient retention (current research bet)** — keep V74's
-ordinary next-token inner objective and unchanged causal Transformer, but replace
-its blind update rule with a tiny meta-learned gate. For each document, the gate
-sees only detached statistics already available at the completed segment:
-current loss, gradient RMS, alignment with accumulated fast state, and fast-state
-RMS. It decides how much of the current gradient to accept; it receives no token
-identity, segment number, future information, answer label, or external memory.
-The same trained model is evaluated with its learned gate, the gate forced open,
-a fixed gate matched to the learned gate's mean acceptance, updates discarded,
-and gradients shuffled across documents. The matched constant prevents a second
-global learning-rate knob from masquerading as selectivity. V75 must clear 80%
-recall in every frozen seed, beat both fixed-gate controls by 10 points, and beat
-discard/shuffle by 20 points before a 100M language test. A miss deletes the
-branch without tuning rank, learning rate, step count, or the task.
+**V75 adaptive gradient retention (retired)** — causal gradient statistics do
+not learn useful selectivity on the V74 mechanism. Adaptive updates reach
+42.004% delayed recall, while a fixed acceptance matched to their mean reaches
+42.261%; forcing the gate open reaches 36.188%, and discard/wrong-document
+controls remain near chance at 6.927%/6.891%. The gate varies only narrowly
+across the two pre-query updates (5th--95th percentile 0.240--0.285) and its mean
+0.259 acceptance explains the benefit. Mechanics pass exactly, every gradient
+is complete and finite, the run peaks at 1.526 GB, and the matched control rules
+out hidden selectivity. Seeds 7402/7403 are not spent. All V75 machinery is
+deleted. Together V74--V75 show that first-order TTT gradients carry facts, but
+neither a fixed update nor a four-statistic retention gate meets the frozen
+memory target. The next TTT experiment must test the missing exact meta-gradient,
+not tune another gate or inner rate.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

@@ -3236,6 +3236,33 @@ failure. Passing all seeds admits only a bounded 100M long-document safety
 ladder and matched language screen; it does not install a runtime. Failure
 retains a compact report and deletes all V75 code and tests.
 
+### V75 terminal result: retention gate reduces to step size
+
+Seed 7401 passes every mechanical check with exact zeros: disabled fast weights,
+future perturbation of earlier loss, update norm, gate, and gate feature. All
+1,063,650 parameters receive finite nonzero gradients, training sustains 815.3
+documents/s, and peak CUDA allocation is 1,526,546,944 bytes. The evidence is
+safe and interpretable.
+
+`adaptive_own` reaches 6,882/16,384 queries, or 42.004%. Its gate's mean
+acceptance over the two pre-query updates is 0.259. Holding acceptance fixed at
+that exact mean reaches 42.261%, 0.256 points better than adaptive selection;
+forcing it to one reaches 36.188%. Discarded and wrong-document updates reach
+6.927% and 6.891%. Thus gradients remain causally useful, but the learned gate
+does not select useful documents or segments. Its pre-query 5th--95th percentile
+is only 0.240--0.285, consistent with a nearly global rate reduction.
+
+The 80% accuracy and 10-point matched-control gates fail, so seeds 7402/7403 and
+all 100M work stop. Decision: `retire_v75_stage_a0_failure`. The result closes
+four-statistic first-order retention gating under this contract; no gate feature,
+threshold, rate, or width sweep is allowed. The report is
+`adaptive-ttt-v75-seed7401-20260813.json` (SHA-256
+`1f30112c2f31b8a6d926d149d596e1650d0b72e2d526bde7ca90f819d205136a`).
+All model, runner, and tests are deleted. The scientifically distinct unresolved
+TTT question is whether exact differentiation through the inner next-token
+gradient can meta-shape the Transformer into a better learner than V74's
+first-order approximation.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
