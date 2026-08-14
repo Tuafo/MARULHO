@@ -1413,6 +1413,20 @@ advances through 19,552 after 600,637,440 new positions at about 20.00k
 positions/s. This is rollback evidence only; update 20,480 remains the next
 quality measurement.
 
+At update 20,480, after 629,145,600 new positions or 62.5% of the schedule,
+overall later loss reverses slightly from 2.822520 to 2.823212. Total gain from
+the frozen start falls to 0.159653, 63.86% of the terminal target, with 0.090347
+unresolved. FineWeb-Edu and Cosmopedia worsen by 0.001274/0.002365 over the
+latest interval while DCLM improves by only 0.001564. Their absolute losses are
+3.033249/2.346184/3.090202 and total gains remain
+0.124352/0.092621/0.261986. This is the first measured old-source tradeoff in
+V80 and makes a pass very unlikely: the remaining six intervals must average
+0.015058 overall improvement. The frozen cooldown remains unspent, so the run
+continues rather than converting that projection into an early decision. The
+428,215,317-byte snapshot strict-reloads at SHA-256
+`d659778e...7596c7e`, rotates update 18,432 away, retains updates
+19,456/20,480, and training advances through 20,576 at about 20.01k positions/s.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed

@@ -4140,6 +4140,19 @@ training advances through 19,552 after 600,637,440 new positions at about
 20.00k positions/s. This adds rollback evidence only; update 20,480 remains the
 next quality measurement.
 
+The tenth authoritative curve at update 20,480 covers 629,145,600 new
+positions, or 62.5% of the schedule. Overall later loss reverses from 2.822520
+to 2.823212, an interval regression of 0.000692. Total gain from the frozen start
+falls to 0.159653, 63.86% of the terminal target, with 0.090347 unresolved.
+FineWeb-Edu and Cosmopedia worsen by 0.001274/0.002365 while DCLM improves by
+only 0.001564. Their losses are 3.033249/2.346184/3.090202 and total gains remain
+0.124352/0.092621/0.261986. This is V80's first old-source tradeoff; the
+remaining six intervals must average 0.015058 overall improvement to pass. The
+frozen cooldown remains unspent, so this trajectory warning does not authorize
+an early decision. The 428,215,317-byte optimizer snapshot strict-reloads at
+SHA-256 `d659778e...7596c7e`, rotates update 18,432 away, retains exactly
+19,456/20,480, and training advances through 20,576 at about 20.01k positions/s.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
