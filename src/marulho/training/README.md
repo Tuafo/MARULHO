@@ -151,6 +151,15 @@ Its nonzero gates, complete gradients, 91.91% throughput, and safe memory rule
 out mechanical death. No V73 model, runner, tests, loader, checkpoint, runtime
 option, or compatibility path remains.
 
+`language_end_to_end_ttt.py` is V74's temporary Stage-A0 falsifier. Its small
+four-layer Transformer owns per-document rank-8 fast LoRA weights in the final
+SwiGLU down projection. Ordinary next-token loss updates those weights after
+each segment; future next-token loss trains their shared initialization and
+learned rate through an explicit first-order meta-gradient. Persistent,
+discarded-update, and wrong-document-update arms compute identical inner
+gradients. This is an uninstalled mechanism test, not an exact reproduction of
+the second-order TTT-E2E paper or a runtime/checkpoint surface.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;
