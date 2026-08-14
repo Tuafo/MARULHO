@@ -145,6 +145,19 @@ model at context 32K, and channel sparsity is not automatically fast on an RTX
 substantial inference slowdown
 ([Doubov et al.](https://arxiv.org/abs/2411.08968)).
 
+A method-level audit further narrows what MARULHO may borrow from predictor-gated
+upcycling. The paper's reported GPU implementation still materializes the dense
+gate and up projections before masking channels; its 4x sparsity is a functional
+routing result, not an observed 4x compute reduction. At MARULHO's width 768 and
+hidden width 3,072, the analogous 64-channel banks would select 768 hidden
+channels per token. A rank-96 predictor would add 368,640 weights per layer, or
+3,686,400 across ten layers, while a naive PyTorch mask would still pay for both
+dense 768-to-3,072 projections plus the predictor. Therefore zero activations,
+analytic selected-channel counts, or paper terminology cannot satisfy MARULHO's
+active-compute gate. A later channel-sparse comparison is admissible only with a
+kernel or grouped gather that demonstrably skips unselected projection weights
+and wins measured wall-clock throughput under matched quality.
+
 MARULHO's first structural experiment after a V81 continual pass should therefore
 be **conflict-grown cloned experts**, not a large MoE conversion. On frozen
 incoming and replay minibatches, measure the cosine between their gradients at
