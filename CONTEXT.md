@@ -1140,6 +1140,20 @@ neither a fixed update nor a four-statistic retention gate meets the frozen
 memory target. The next TTT experiment must test the missing exact meta-gradient,
 not tune another gate or inner rate.
 
+**V76 exact end-to-end TTT (current research bet)** — directly differentiate
+future next-token loss through earlier next-token gradient updates. V74 used a
+bounded first-order approximation; V76 tests whether the omitted gradient-of-
+gradient is what prevents the Transformer from learning how to write durable
+facts. Exact and first-order models start from identical tensors, consume the
+same frozen documents, use the same rank-8 fast weights and optimizer steps, and
+differ only in whether the inner gradient remains in the outer computation
+graph. Exact must reach 80% delayed recall and beat the matched first-order model
+by 10 points in every seed, while retaining causal discard and wrong-document
+separation. A CUDA safety ladder selects only a memory-safe physical batch; the
+effective batch remains 128. Mathematical SDPA is required because current
+FlashAttention does not support this second derivative. No 100M language run is
+admitted unless the exact gradient wins the small causal experiment.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

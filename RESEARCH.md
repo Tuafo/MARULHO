@@ -3263,6 +3263,54 @@ TTT question is whether exact differentiation through the inner next-token
 gradient can meta-shape the Transformer into a better learner than V74's
 first-order approximation.
 
+### V76 preregistration: exact gradient-of-gradient TTT
+
+The [TTT-E2E derivation](https://arxiv.org/abs/2512.23675) optimizes the model's
+initialization through its inner next-token gradient. V74 deliberately removed
+that second derivative to fit a conservative consumer-GPU screen. Its 68.695%
+causal result makes the approximation worth replacing rather than declaring the
+published mechanism tested. The paper also reports that gradient-of-gradient
+training cannot use cuDNN FlashAttention and is 3.4 times slower than full
+attention at 8K, so V76 treats feasibility as an observed gate rather than an
+assumption.
+
+**Frozen mechanism and comparison.** Recreate V74's four-layer width-128 causal
+Transformer, final-block rank-8 fast LoRA, three 64-token segments, ordinary
+full-vocabulary next-token inner loss, learned scalar inner rate, and exact data
+distribution. In `exact_meta`, `torch.autograd.grad(..., create_graph=True)`
+keeps each fast update differentiable, and all future losses backpropagate
+through the update into the shared initialization, rate, and slow Transformer.
+In `first_order_meta`, inner gradients are detached and the V74 straight-through
+approximation is used. The final segment performs no unused update in either arm.
+Only mathematical scaled-dot-product attention is allowed; compilation and
+custom-kernel claims remain false.
+
+Freeze seeds 7601/7602/7603, 800 AdamW outer updates at 3e-4, no weight decay,
+clip 1.0, effective batch 128, and 4,096 fresh evaluation documents. Exact and
+first-order models must have identical initial hashes and batch-schedule hashes.
+Evaluate own, discarded, and shuffled updates on the exact model and own updates
+on the first-order model. All use identical evaluation documents and numerical
+inner updates; exact versus first-order differs only in the training-time outer
+derivative.
+
+**Safety ladder.** Before training seed 7601, execute one complete exact outer
+forward/backward at physical batches 8, 16, 32, 64, and 128 in order, stopping
+before any rung projected or observed above 10.0 GiB or a nonfinite gradient.
+Choose the largest safe rung and accumulate gradients to effective batch 128.
+If no divisor of 128 is safe, or projected seed time exceeds 45 minutes, decide
+`v76_exact_meta_not_consumer_feasible` without a behavioral verdict. Every GPU
+process remains bounded and uncompiled.
+
+**Admission.** Mechanical checks require disabled bit parity, future
+perturbation exactness for all earlier logits/updates, exact document reset,
+finite fast state/rate, complete finite exact second-order gradients by outer
+update two, identical initialization and schedules, and observed CUDA accounting.
+Every seed must give exact-own accuracy at least 80%, at least 10 points above
+matched first-order-own, and at least 20 points above both exact discard and
+exact shuffled controls. Seed 7601 is terminal on any miss. No rank, rate,
+optimizer, step, batch, layer, or task sweep follows failure. Only a three-seed
+pass admits a 100M safety ladder and real long-document language comparison.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
