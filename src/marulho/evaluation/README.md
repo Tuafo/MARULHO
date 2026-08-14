@@ -1076,6 +1076,14 @@ per document, Cosmopedia 5--6, and DCLM 2--3. All counts, row bounds, full IDs,
 first/last anchors, and within-one exposure balance strict-reload; report
 `d73810d0...a4ed527` records the immutable result.
 
+**`language_billion_continuation.py`** owns V80's exact parent/data/schedule
+loading, 256-step warmup, stable learning rate, 20% cooldown, mixed-source batch
+gather, and GPU training. Its first gate runs two updates uninterrupted versus
+one update, an atomic optimizer-bearing snapshot, a reconstructed process, and
+the same second update. Model tensors, optimizer tree, RNG, losses, schedule
+offset, next slice, gradients, and CUDA peak must all match before the long-run
+entry point is enabled.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
