@@ -4100,6 +4100,18 @@ training advances through 15,424 after 473,825,280 new positions at about
 19.92k positions/s. This adds rollback evidence only; update 16,384 remains the
 halfway quality measurement.
 
+The eighth authoritative curve at update 16,384 covers 503,316,480 new
+positions, exactly half of the schedule. Overall later loss reaches 2.827531,
+improving by 0.004804 since update 14,336 and by 0.155333 from the frozen start.
+That is 62.13% of the terminal target with 0.094667 unresolved. FineWeb-Edu,
+Cosmopedia, and DCLM reach 3.037338/2.348572/3.096684, total gains of
+0.120262/0.090233/0.255505; every source improves and DCLM reaches 127.75% of
+its own requirement. The interval gain rebounds from 0.002415 but the remaining
+eight intervals must average 0.011833 to pass, 2.46 times the latest result.
+The 428,214,869-byte optimizer snapshot strict-reloads at SHA-256
+`027de19d...033d62e`, rotates update 14,336 away, retains exactly
+15,360/16,384, and training advances through 16,480 at about 19.94k positions/s.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
