@@ -1367,6 +1367,14 @@ The 428,214,677-byte snapshot strict-reloads at SHA-256
 `1c803629...214d5ad`, rotates update 12,288 away, retains updates
 13,312/14,336, and training advances through 14,368 at about 19.92k positions/s.
 
+Update 15,360 writes and strict-reloads a 428,214,677-byte optimizer state at
+SHA-256 `455b653e...19e4e2c`. Model, optimizer, RNG, raw tensors, counters,
+schedule offset, ownership, and absent external LLM use all verify exactly.
+Rotation deletes only update 13,312, retains updates 14,336/15,360, and training
+advances through 15,424 after 473,825,280 new positions at about 19.92k
+positions/s. This is rollback evidence only; update 16,384 remains the halfway
+quality measurement.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed
