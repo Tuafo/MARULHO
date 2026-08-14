@@ -107,6 +107,27 @@ forgetting by updating selectively activated slots
 architecture MARULHO does not currently own, so it is evidence for a later
 structural branch, not justification to add slots before replay is measured.
 
+### Tokenizer redesign boundary after V80
+
+Do not blame weak visible language on tokenizer fragmentation without measuring
+it. A CPU-only diagnostic loaded V80's exact checkpoint-owned 8,192-entry BPE
+(`faca1e26...f660715`) and encoded the first 512 marked documents from each real
+source without BOS/EOS. FineWeb-Edu uses 690,584 tokens for 2,637,367 characters
+(3.819 characters/token), Cosmopedia-v2 uses 420,830 for 1,853,846 (4.405), and
+DCLM uses 1,482,139 for 5,403,155 (3.646). The corresponding UTF-8 byte rates are
+3.842, 4.410, and 3.669 bytes/token. This is not catastrophic byte-like
+fragmentation, so tokenizer replacement is not the default explanation for V80
+quality and must not interrupt the billion-position run.
+
+If V80 passes loss but fails visible generation, tokenizer size remains one
+matched redesign arm rather than an assumption: train a balanced three-source
+16K or 32K MARULHO BPE, hold model parameters and processed source bytes as
+closely matched as possible, and compare loss in bits per UTF-8 byte as well as
+ordinary token loss, throughput, and direct prose. It survives only if the
+source-byte-normalized quality gain repays the larger embedding/output compute.
+If V80 is coherent, retain the exact tokenizer so continual-learning evidence
+starts from the qualified state instead of resetting 1.264B positions.
+
 V64 now adds a decisive systems result to the ledger. Its 100,202,970-parameter
 delta-state/local-attention cortex was mathematically correct, its owned Triton
 backward passed full-model parity, and CUDA Graph reproduced an eager fused-
