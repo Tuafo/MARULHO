@@ -128,6 +128,9 @@ V80_PANEL_REPORTS = {
     "dclm_controlled": (
         ROOT / "reports/language_scaling/v80-unseen-dclm-controlled-20260814.json"
     ),
+    "dclm_sampled": (
+        ROOT / "reports/language_scaling/v80-unseen-dclm-sampled-20260814.json"
+    ),
 }
 REVIEW_PATH = (
     ROOT / "reports/language_scaling/v80-unseen-generation-review-20260814.md"
@@ -146,6 +149,9 @@ class PanelSpec:
     dclm_rows: tuple[int, ...] = ()
     repetition_penalty: float = 1.0
     no_repeat_ngram_size: int = 0
+    temperature: float = 0.0
+    top_p: float = 1.0
+    seed: int | None = None
 
 
 PANEL_SPECS = (
@@ -184,6 +190,17 @@ PANEL_SPECS = (
         dclm_rows=tuple(row for row, _ in DCLM_ROWS_AND_PROMPTS),
         repetition_penalty=1.1,
         no_repeat_ngram_size=3,
+    ),
+    PanelSpec(
+        name="dclm_sampled",
+        source_path=DCLM_SOURCE,
+        source_sha256=DCLM_SOURCE_SHA256,
+        prompts=tuple(prompt for _, prompt in DCLM_ROWS_AND_PROMPTS),
+        dclm_rows=tuple(row for row, _ in DCLM_ROWS_AND_PROMPTS),
+        repetition_penalty=1.05,
+        temperature=0.8,
+        top_p=0.9,
+        seed=80080,
     ),
 )
 
@@ -424,6 +441,9 @@ def run_v80_generation_panels(
             source_path=spec.source_path,
             generation_repetition_penalty=spec.repetition_penalty,
             generation_no_repeat_ngram_size=spec.no_repeat_ngram_size,
+            generation_temperature=spec.temperature,
+            generation_top_p=spec.top_p,
+            generation_seed=spec.seed,
         )
         reports[spec.name]["v80_generation_contract"] = {
             "surface": SURFACE,
@@ -453,12 +473,21 @@ def run_v80_generation_panels(
 
 def _expected_decode_controls(spec: PanelSpec) -> dict[str, Any]:
     return {
+        "decode_strategy": (
+            "nucleus_sampling" if spec.temperature > 0.0 else "greedy_argmax"
+        ),
         "repetition_penalty": float(spec.repetition_penalty),
         "repetition_penalty_applied": spec.repetition_penalty > 1.0,
         "no_repeat_ngram_size": int(spec.no_repeat_ngram_size),
         "no_repeat_ngram_applied": spec.no_repeat_ngram_size > 0,
+        "temperature": float(spec.temperature),
+        "top_p": float(spec.top_p),
+        "sampling_seed": spec.seed,
+        "top_p_applied": spec.temperature > 0.0 and spec.top_p < 1.0,
         "decode_controls_requested": (
-            spec.repetition_penalty > 1.0 or spec.no_repeat_ngram_size > 0
+            spec.repetition_penalty > 1.0
+            or spec.no_repeat_ngram_size > 0
+            or spec.temperature > 0.0
         ),
     }
 

@@ -25,7 +25,7 @@ from marulho.evaluation.language_quality_continuation import file_sha256
 
 
 def test_v80_generation_panels_freeze_old_and_new_prompts() -> None:
-    assert len(PANEL_SPECS) == 5
+    assert len(PANEL_SPECS) == 6
     assert FINEWEB_PROMPTS == (
         "The Heilwood Company",
         "Heilwood Company store",
@@ -93,12 +93,30 @@ def test_decode_controls_and_human_decision_are_explicit() -> None:
     controlled = next(
         spec for spec in PANEL_SPECS if spec.name == "dclm_controlled"
     )
+    sampled = next(spec for spec in PANEL_SPECS if spec.name == "dclm_sampled")
     assert _expected_decode_controls(greedy)["decode_controls_requested"] is False
     assert _expected_decode_controls(controlled) == {
+        "decode_strategy": "greedy_argmax",
         "repetition_penalty": 1.1,
         "repetition_penalty_applied": True,
         "no_repeat_ngram_size": 3,
         "no_repeat_ngram_applied": True,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "sampling_seed": None,
+        "top_p_applied": False,
+        "decode_controls_requested": True,
+    }
+    assert _expected_decode_controls(sampled) == {
+        "decode_strategy": "nucleus_sampling",
+        "repetition_penalty": 1.05,
+        "repetition_penalty_applied": True,
+        "no_repeat_ngram_size": 0,
+        "no_repeat_ngram_applied": False,
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "sampling_seed": 80080,
+        "top_p_applied": True,
         "decode_controls_requested": True,
     }
     assert generation_decision(validity_passed=False, human_review_coherent=True) == (

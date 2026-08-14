@@ -1113,9 +1113,10 @@ positive early slope, not terminal quality or coherence evidence.
 boundary. It cannot run unless the V80 terminal report passes quantitative and
 checkpoint-fidelity admission. It reruns the exact V78 FineWeb-Edu and
 Cosmopedia prompts, adds four raw DCLM holdout documents that must re-encode
-exactly to frozen evaluation rows, and records separate greedy and
-repetition-controlled panels. It emits one readable sheet containing generated
-text beside source continuations. Automatic prefix/diversity measurements are
+exactly to frozen evaluation rows, and records separate greedy,
+repetition-controlled, and seeded temperature-0.8/top-p-0.9 DCLM panels. It emits
+one readable sheet containing generated text beside source continuations.
+Automatic prefix/diversity measurements are
 diagnostic only: aggregation requires an explicit human coherence verdict and a
 concrete observation. Coherent, incoherent, and invalid evidence lead to three
 different frozen decisions; no panel can install a runtime directly.

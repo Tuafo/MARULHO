@@ -1260,9 +1260,11 @@ facts, not final checkpoint or coherent-generation claims.
 
 V80's post-training language audit is also frozen before a candidate exists. It
 will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
-cases, and add eight generations over four DCLM holdout documents under greedy
-and controlled decoding. Those raw DCLM documents must encode exactly to their
-frozen evaluation rows. A readable direct-review sheet and explicit observation
+cases, and add twelve generations over four DCLM holdout documents under greedy,
+repetition-controlled, and seeded nucleus decoding. The sampled panel freezes
+temperature 0.8, top-p 0.9, repetition penalty 1.05, and seed 80080. Those raw
+DCLM documents must encode exactly to their frozen evaluation rows. A readable
+direct-review sheet and explicit observation
 are mandatory; automatic prefix scores cannot claim coherence. Coherent text
 opens continual and grounded self-challenge validation, incoherent text forces
 an objective/tokenizer redesign, and invalid provenance rejects the evidence.

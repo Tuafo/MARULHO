@@ -6,6 +6,7 @@ import argparse
 from dataclasses import dataclass
 import hashlib
 import io
+import math
 from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
@@ -428,6 +429,9 @@ def _decoded_generation_case(
     *,
     generation_repetition_penalty: float = 1.0,
     generation_no_repeat_ngram_size: int = 0,
+    generation_temperature: float = 0.0,
+    generation_top_p: float = 1.0,
+    generation_seed: int | None = None,
     prepared_generation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     repetition_penalty = max(1.0, float(generation_repetition_penalty))
@@ -445,6 +449,9 @@ def _decoded_generation_case(
             eos_id=tokenizer.eos_id,
             repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
+            temperature=float(generation_temperature),
+            top_p=float(generation_top_p),
+            seed=generation_seed,
         )
     )
     generated_ids = generation["generated_ids"]
@@ -575,6 +582,9 @@ def _batched_generation_results(
     *,
     generation_repetition_penalty: float,
     generation_no_repeat_ngram_size: int,
+    generation_temperature: float,
+    generation_top_p: float,
+    generation_seed: int | None,
 ) -> list[dict[str, Any]]:
     encoded = [
         tokenizer.encode(case.prompt_text, add_eos=False) for case in cases
@@ -595,6 +605,9 @@ def _batched_generation_results(
             eos_id=tokenizer.eos_id,
             repetition_penalty=max(1.0, float(generation_repetition_penalty)),
             no_repeat_ngram_size=max(0, int(generation_no_repeat_ngram_size)),
+            temperature=float(generation_temperature),
+            top_p=float(generation_top_p),
+            seed=generation_seed,
         )
         generated_ids = generation["generated_ids"]
         if not isinstance(generated_ids, torch.Tensor):
@@ -691,18 +704,31 @@ def run_language_generation_coherence_report(
     output_path: str | Path | None = None,
     generation_repetition_penalty: float = 1.0,
     generation_no_repeat_ngram_size: int = 0,
+    generation_temperature: float = 0.0,
+    generation_top_p: float = 1.0,
+    generation_seed: int | None = None,
 ) -> dict[str, Any]:
     cases = tuple(prompt_cases or default_generation_coherence_prompt_cases())
     if not cases:
         raise ValueError("At least one generation coherence prompt case is required")
     repetition_penalty = max(1.0, float(generation_repetition_penalty))
     no_repeat_ngram_size = max(0, int(generation_no_repeat_ngram_size))
+    temperature = float(generation_temperature)
+    top_p = float(generation_top_p)
+    if not math.isfinite(temperature) or temperature < 0.0:
+        raise ValueError("generation_temperature must be finite and non-negative")
+    if not math.isfinite(top_p) or not 0.0 < top_p <= 1.0:
+        raise ValueError("generation_top_p must be finite and in (0, 1]")
+    sampling_seed = None if generation_seed is None else int(generation_seed)
     prepared_generations = _batched_generation_results(
         model,
         tokenizer,
         cases,
         generation_repetition_penalty=repetition_penalty,
         generation_no_repeat_ngram_size=no_repeat_ngram_size,
+        generation_temperature=temperature,
+        generation_top_p=top_p,
+        generation_seed=sampling_seed,
     )
     case_reports = [
         _decoded_generation_case(
@@ -711,6 +737,9 @@ def run_language_generation_coherence_report(
             case,
             generation_repetition_penalty=repetition_penalty,
             generation_no_repeat_ngram_size=no_repeat_ngram_size,
+            generation_temperature=temperature,
+            generation_top_p=top_p,
+            generation_seed=sampling_seed,
             prepared_generation=prepared_generation,
         )
         for case, prepared_generation in zip(cases, prepared_generations)
@@ -788,12 +817,21 @@ def run_language_generation_coherence_report(
             "min_case_pass_rate": float(min_case_pass_rate),
             "review_kind": "automated_grounded_prompt_suite_not_human_review",
             "generation_decode_controls": {
+                "decode_strategy": (
+                    "nucleus_sampling" if temperature > 0.0 else "greedy_argmax"
+                ),
                 "repetition_penalty": float(repetition_penalty),
                 "repetition_penalty_applied": bool(repetition_penalty > 1.0),
                 "no_repeat_ngram_size": int(no_repeat_ngram_size),
                 "no_repeat_ngram_applied": bool(no_repeat_ngram_size > 0),
+                "temperature": temperature,
+                "top_p": top_p,
+                "sampling_seed": sampling_seed,
+                "top_p_applied": bool(temperature > 0.0 and top_p < 1.0),
                 "decode_controls_requested": bool(
-                    repetition_penalty > 1.0 or no_repeat_ngram_size > 0
+                    repetition_penalty > 1.0
+                    or no_repeat_ngram_size > 0
+                    or temperature > 0.0
                 ),
             },
             "prompt_cases": [prompt_case_metadata(case) for case in cases],
@@ -865,6 +903,9 @@ def main() -> int:
     parser.add_argument("--min-case-pass-rate", type=float, default=1.0)
     parser.add_argument("--generation-repetition-penalty", type=float, default=1.0)
     parser.add_argument("--generation-no-repeat-ngram-size", type=int, default=0)
+    parser.add_argument("--generation-temperature", type=float, default=0.0)
+    parser.add_argument("--generation-top-p", type=float, default=1.0)
+    parser.add_argument("--generation-seed", type=int)
     args = parser.parse_args()
     source_text = (
         args.source.read_text(encoding="utf-8") if args.source is not None else DEFAULT_CORPUS
@@ -908,6 +949,9 @@ def main() -> int:
             0,
             int(args.generation_no_repeat_ngram_size),
         ),
+        generation_temperature=float(args.generation_temperature),
+        generation_top_p=float(args.generation_top_p),
+        generation_seed=args.generation_seed,
     )
     return 0 if report["promotion_gate"]["generation_coherence_available"] else 1
 

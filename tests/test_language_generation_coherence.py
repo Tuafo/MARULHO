@@ -45,6 +45,9 @@ class _FakeGenerationModel:
         eos_id: int | None = None,
         repetition_penalty: float = 1.0,
         no_repeat_ngram_size: int = 0,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        seed: int | None = None,
     ) -> dict[str, object]:
         del eos_id
         self.generate_calls += 1
@@ -65,11 +68,17 @@ class _FakeGenerationModel:
             "loads_external_checkpoint": False,
             "generation_decode": {
                 "surface": "marulho_language_generation_decode_policy.v1",
-                "decode_strategy": "greedy_argmax",
+                "decode_strategy": (
+                    "nucleus_sampling" if float(temperature) > 0.0 else "greedy_argmax"
+                ),
                 "repetition_penalty": float(repetition_penalty),
                 "repetition_penalty_applied": bool(float(repetition_penalty) > 1.0),
                 "no_repeat_ngram_size": int(no_repeat_ngram_size),
                 "no_repeat_ngram_applied": bool(int(no_repeat_ngram_size) > 0),
+                "temperature": float(temperature),
+                "top_p": float(top_p),
+                "sampling_seed": seed,
+                "top_p_applied": bool(float(temperature) > 0.0 and float(top_p) < 1.0),
                 "decode_controls_backend": "torch_device_tensor",
                 "decode_controls_cpu_token_copy": False,
             },
@@ -156,6 +165,50 @@ def test_language_generation_coherence_report_records_decode_controls() -> None:
     assert decode["no_repeat_ngram_size"] == 2
     assert decode["decode_controls_backend"] == "torch_device_tensor"
     assert decode["decode_controls_cpu_token_copy"] is False
+
+
+def test_language_generation_coherence_report_records_seeded_nucleus_sampling() -> None:
+    tokenizer = ByteLevelLanguageTokenizer()
+    source_text = "MARULHO learns runtime evidence from local source windows."
+
+    report = run_language_generation_coherence_report(
+        _FakeGenerationModel(tokenizer, continuation_text=" learns runtime evidence"),
+        tokenizer,
+        prompt_cases=(
+            LanguageGenerationPromptCase(
+                prompt_text="MARULHO",
+                source_text=source_text,
+                max_new_tokens=32,
+                min_new_tokens=8,
+                min_prefix_match_chars=8,
+                min_prefix_match_fraction=0.20,
+            ),
+        ),
+        generation_repetition_penalty=1.05,
+        generation_temperature=0.8,
+        generation_top_p=0.9,
+        generation_seed=80080,
+    )
+
+    controls = report["prompt_suite"]["generation_decode_controls"]
+    decode = report["cases"][0]["generation_decode"]
+    expected = {
+        "decode_strategy": "nucleus_sampling",
+        "repetition_penalty": 1.05,
+        "repetition_penalty_applied": True,
+        "no_repeat_ngram_size": 0,
+        "no_repeat_ngram_applied": False,
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "sampling_seed": 80080,
+        "top_p_applied": True,
+        "decode_controls_requested": True,
+    }
+    assert controls == expected
+    assert decode["decode_strategy"] == "nucleus_sampling"
+    assert decode["temperature"] == 0.8
+    assert decode["top_p"] == 0.9
+    assert decode["sampling_seed"] == 80080
 
 
 def test_language_generation_coherence_accepts_owned_candidate_path() -> None:

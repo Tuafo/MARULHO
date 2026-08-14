@@ -3993,8 +3993,12 @@ controlled DCLM panels using holdout rows 0, 2, 4, and 6 with prompts
 `Numerous industries utilize`, `Summer in the`, `Prevent Direct Execution`,
 and `In just one`. Their retained raw source is frozen at SHA-256
 `22f89f16...ca0d7`, and each raw document must re-encode exactly to its row in
-the frozen V80 evaluation tensor `ce57f5b3...7b679`. All five panels contain
-four 64-token continuations from the same qualified checkpoint.
+the frozen V80 evaluation tensor `ce57f5b3...7b679`. DCLM also gets a seeded
+nucleus-sampling panel with temperature 0.8, top-p 0.9, repetition penalty 1.05,
+no hard no-repeat rule, and seed 80080. This distinguishes model quality from
+argmax/repetition-policy failure without replacing the comparable greedy panels.
+All six panels contain four 64-token continuations from the same qualified
+checkpoint.
 
 **Human boundary and decisions.** A generated review sheet must show every
 prompt, complete generated text, and source continuation. A coherent verdict
@@ -4057,7 +4061,7 @@ low-rate comparison remains informative but cannot support a strong
 
 **Capability and retention.** Evaluate the untouched V80 state and every arm on
 all 256 oracle-short/native/control cases, the exact 1,536-document V80 heldout,
-the inherited relation panel, and the frozen 20-case unseen-generation review.
+the inherited relation panel, and the frozen 24-case unseen-generation review.
 A promotable continual checkpoint requires oracle-short exact generation at
 least 128/256 and at least 20 cases above its own V80 baseline; overall general
 later loss may regress by at most 0.02, no individual source by more than 0.03,
