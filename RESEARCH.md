@@ -3825,6 +3825,78 @@ and the report is retained at SHA-256
 V80 scale uses the known sequential layout, with first-step-only full-gradient
 auditing so later updates do not pay an unnecessary parameter scan.
 
+### V80 Stage 1--2 preregistration: all-source one-billion-position continuation
+
+**Capability hypothesis.** V78 still improves heldout loss at 257M cumulative
+positions, while V79 proves the model can acquire DCLM but forgets an omitted
+source. The strongest explanation is not that the Transformer has saturated; it
+is undertrained on a narrow, uneven curriculum. V80 therefore stops running
+31M-position substitutions and executes one 1,006,632,960-position continuation
+(32,768 updates) from the exact V78 checkpoint. The resulting cumulative count
+is 1,264,062,720 positions. This is 32 times a V79 arm and 3.91 times all prior
+V78 training, large enough to move the base-quality question materially while
+remaining a bounded single-3060 experiment.
+
+**Owned corpus materialization.** Training text comes only from the existing
+FineWeb-Edu train/replay shards 0 and 2, Cosmopedia train/replay shards 1, 3,
+and 4, and all three Dataset Viewer parquets for `HuggingFaceTB/dclm-edu`.
+DCLM parquet sizes are 1,330,073,247, 1,323,725,638, and 1,590,129,712 bytes;
+URLs and downloaded hashes must be frozen before selection. The existing
+FineWeb-Edu/Cosmopedia evaluation shards and the first 512 eligible DCLM rows
+remain holdout-only. Normalize whitespace and case for exact SHA-256
+deduplication, reject any training document whose normalized hash occurs in a
+holdout, and deduplicate across sources in FineWeb-Edu, DCLM, Cosmopedia
+priority. All sources require at least 961 tokenizer tokens. Reject documents
+containing the MARULHO marker, any Unicode replacement-character ratio above
+0.001, or the known formula phrases “this chapter will,” “this course unit
+will,” and “will delve into.” DCLM additionally retains V79's language,
+language-score, education-score, and 2,000--100,000-character filters. Persist
+per-source int32 tensors, normalized hashes, selection/rejection counts, source
+hashes, tokenizer hash, and strict reload evidence; delete the recreatable DCLM
+parquets afterward.
+
+**Frozen mix and schedule.** The 1,048,576 document slots contain exactly
+419,430 FineWeb-Edu, 314,573 Cosmopedia, and 314,573 DCLM documents, producing
+the 40/30/30 mix and 960 predicted positions per slot. For each source,
+deterministically concatenate independent full permutations until its slot count
+is filled, so every retained document receives balanced exposure before repeats.
+Independently shuffle source slots, then pair each with its source-local row.
+Freeze source tensors, exposure histograms, complete source/row schedule, and
+first/last 1,024 slots by SHA-256 before training. No prompt, answer, evaluation
+text, external weight, embedding, tokenizer, logit, generator, or judge enters
+training; `external_llm_used=false` remains exact.
+
+**Continuous optimization and resume.** Keep the V78 100.679M decoder-only
+Transformer, 320-token context, historical three-call episode, physical batch 8,
+effective batch 32, BF16 eager CUDA, uncompiled Muon, weight decay 0.1, and clip
+1.0. A fresh optimizer warms from 3e-5 to 1.5e-4 over 256 updates, stays at
+1.5e-4 through update 26,214, then cosine-cools over the final 6,554 updates to
+1.5e-5. This follows the stable-plus-20%-cooldown lesson from
+[SmolLM](https://huggingface.co/blog/smollm) without importing its model. Before
+the long run, an interruption test must show an optimizer-bearing BF16 snapshot
+restores model tensors, Muon/Adam moments, step, next schedule slice, RNG state,
+and the next complete update exactly versus uninterrupted execution. During the
+real run, write a new snapshot every 4,096 updates and delete only the older of
+two verified rollback points after the new snapshot reloads exactly. Curve
+evaluation occurs every 2,048 updates on the same three 512-document holdouts.
+Full-gradient completeness is checked at update one; every update checks finite
+loss, and every curve/snapshot checks finite model state and run-wide CUDA peak.
+
+**Admission and next boundary.** Validity requires exact parent/data/schedule,
+resume parity, 32,768 completed updates, 1,006,632,960 positions, all first-step
+gradients, finite state, peak at most 8 GiB, observed eager CUDA, and a strict
+final checkpoint restoring tensors, tokenizer, configuration, tied weights,
+metadata, and sample logits. Final three-source later loss must improve V78's
+2.982862 mean by at least 0.25; FineWeb-Edu and Cosmopedia must each be no worse
+than V78's 3.157677/2.438721 by 0.02; DCLM must improve from 3.352188 by at least
+0.20. These quantitative gates admit direct generation review, not continual
+learning. The frozen old panels plus new long DCLM prompts must show coherent,
+topic-stable multi-sentence text with materially less template repetition before
+the checkpoint can become the continual-learning base. A loss pass with failed
+text triggers objective/tokenizer redesign; a loss and text pass advances to
+sequential-domain learning. A numerical failure retains V78 and forces a base
+architecture/objective decision rather than another mix-ratio sweep.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

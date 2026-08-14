@@ -1202,6 +1202,15 @@ materially larger continuous schedule with resume-exact training state. It is
 not another source-replacement sweep. Full gradient auditing is required on the
 first update, not redundantly on every later update.
 
+V80's frozen capability target is now a 1,006,632,960-position continuation from
+V78: exact 40% FineWeb-Edu, 30% Cosmopedia, and 30% expanded DCLM, with all
+sources deduplicated against holdouts and the worst known templates/encoding
+failures removed. The sequential batch-8 layout uses a 256-step warmup, stable
+1.5e-4 phase, 20% cooldown, three-source curves every 2,048 updates, and
+resume-exact optimizer snapshots every 4,096. Quantitative loss gates only admit
+direct generation review; coherent unseen multi-sentence text remains mandatory
+before continual learning reopens.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
