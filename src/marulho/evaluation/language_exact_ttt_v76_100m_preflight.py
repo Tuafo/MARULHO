@@ -24,6 +24,7 @@ from marulho.training.language_exact_ttt_100m import (
     V76ExactTTTLanguage,
     load_v76_language_parent,
 )
+from marulho.training.language_muon import build_language_muon
 
 
 PARENT = ROOT / "reports/language_scaling/v39-answer-objective-qualified-100m-218m-20260810.pt"
@@ -170,11 +171,68 @@ def run(output: Path) -> dict[str, Any]:
     exact_effective_step = (
         float(safe_rows[-1]["seconds"]) * accumulation if safe_rows else float("inf")
     )
+    optimizer_step: dict[str, Any] | None = None
+    if selected and EFFECTIVE_BATCH % selected == 0:
+        optimizer, optimizer_report = build_language_muon(
+            model,
+            learning_rate=3.0e-4,
+            weight_decay=0.1,
+            compile_orthogonalizer=False,
+            per_head_attention_qkv=False,
+        )
+        optimizer.zero_grad(set_to_none=True)
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.synchronize(device)
+        started = time.perf_counter()
+        for micro in range(accumulation):
+            start = micro * selected
+            indices = data["schedule"][start : start + selected]
+            documents = select_document_batch(
+                data["train_documents"], indices, device=device
+            )
+            with sdpa_kernel(backends=[SDPBackend.MATH]):
+                result = model.episode_documents(
+                    documents, meta_gradient="exact", update_mode="own"
+                )
+                (result["loss"] / accumulation).backward()
+            del documents, result
+        gradient_audit = _gradient_audit(model)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        torch.cuda.synchronize(device)
+        optimizer_seconds = time.perf_counter() - started
+        optimizer_peak = int(torch.cuda.max_memory_allocated(device))
+        model_finite = all(
+            bool(torch.isfinite(parameter).all().item())
+            for parameter in model.parameters()
+        )
+        optimizer_step = {
+            "status": (
+                "safe"
+                if optimizer_peak <= MEMORY_LIMIT_BYTES
+                and bool(gradient_audit["passed"])
+                and model_finite
+                else "failed"
+            ),
+            "physical_batch": selected,
+            "gradient_accumulation_steps": accumulation,
+            "effective_batch": EFFECTIVE_BATCH,
+            "seconds": optimizer_seconds,
+            "peak_cuda_allocated_bytes": optimizer_peak,
+            "gradient_audit": gradient_audit,
+            "model_finite_after_step": model_finite,
+            "optimizer": optimizer_report,
+        }
+        exact_effective_step = optimizer_seconds
     projected_total_seconds = exact_effective_step * 256 * 2.5 + 600.0
     feasible = bool(
         disabled_error == 0.0
         and selected
         and EFFECTIVE_BATCH % selected == 0
+        and optimizer_step is not None
+        and optimizer_step["status"] == "safe"
         and projected_total_seconds <= PROJECTED_TOTAL_LIMIT_SECONDS
     )
     payload = {
@@ -200,6 +258,7 @@ def run(output: Path) -> dict[str, Any]:
         "projected_total_limit_seconds": PROJECTED_TOTAL_LIMIT_SECONDS,
         "projected_exact_effective_step_seconds": exact_effective_step,
         "projected_three_arm_total_seconds": projected_total_seconds,
+        "optimizer_step": optimizer_step,
         "rungs": rows,
         "environment": {
             "python": platform.python_version(),
