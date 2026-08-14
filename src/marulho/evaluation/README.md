@@ -992,6 +992,20 @@ heldout evidence with question-only and corrupted-source controls. Composite
 report SHA-256 is
 `9df4477f806f99f46892ca828e3e1b058588f2a8e6501e5d94ae15d6f43914e2`.
 
+V77 qualifies V76's winning ordinary continuation as the current strict
+quantitative base. Later-segment loss reproduces at 2.902100; training sustains
+20.36k positions/s at 4.24 GB peak allocation, and checkpoint tensors, tokenizer,
+configuration, tied weights, metadata, and sample logits reload bit-exactly. The
+frozen V46 panels remain 0/12. FineWeb continuation loss improves 3.64029 to
+3.57670, while Cosmopedia changes 2.64983 to 2.66830. Human review finds locally
+grammatical paragraphs but generic templates, clause repetition, and semantic
+topic drift. Decision: `continue_base_language_training_before_continual_learning`.
+The checkpoint is retained but not installed; continual-learning and memory work
+remain gated on a coherent unseen-language result. Qualification and decision
+report SHA-256 values are
+`3067b950eb82e417156d082e0e616db1f3fdcb476d5bcf5cca0733654b802f9e`
+and `e40d8f2a000ba0c3895b9b165ef9507b67e0156bd171ef62df07779004072276`.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

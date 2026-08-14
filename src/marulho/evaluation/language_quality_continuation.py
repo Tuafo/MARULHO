@@ -66,6 +66,29 @@ REFERENCE_STATIC_SOURCE_LOSSES = {
     "fineweb_edu": 3.2500152587890625,
     "cosmopedia_v2": 2.554656982421875,
 }
+BASELINE_GENERATION_REPORTS = {
+    "fineweb_greedy": (
+        ROOT / "reports/language_scaling/v46-v39-unseen-fineweb-greedy-20260811.json",
+        "cf6e292b1d9dc6d347ff5b99c8a4267cdf2b00cdae6364f1c0d89c7335fd17de",
+    ),
+    "cosmopedia_greedy": (
+        ROOT / "reports/language_scaling/v46-v39-unseen-cosmopedia-greedy-20260811.json",
+        "415802c58629e85636c3262a6fbe3ec688ecc285c16e8fbdad5222058364267a",
+    ),
+    "cosmopedia_controlled": (
+        ROOT / "reports/language_scaling/v46-v39-unseen-cosmopedia-controlled-20260811.json",
+        "7b3f4238043c75b1ffb0e8a2648351718a7b61a49fb9a9ad437dcdb4ec1cae1e",
+    ),
+}
+CANDIDATE_GENERATION_REPORTS = {
+    "fineweb_greedy": ROOT
+    / "reports/language_scaling/v77-unseen-fineweb-greedy-20260813.json",
+    "cosmopedia_greedy": ROOT
+    / "reports/language_scaling/v77-unseen-cosmopedia-greedy-20260813.json",
+    "cosmopedia_controlled": ROOT
+    / "reports/language_scaling/v77-unseen-cosmopedia-controlled-20260813.json",
+}
+V77_CHECKPOINT_SHA256 = "3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074"
 
 
 def file_sha256(path: str | Path) -> str:
@@ -530,6 +553,140 @@ def checkpoint_fidelity(
     return report
 
 
+def unseen_generation_decision(
+    *,
+    validity_passed: bool,
+    human_review_coherent: bool,
+) -> str:
+    if not validity_passed:
+        return "reject_v77_unseen_generation_invalid_evidence"
+    if human_review_coherent:
+        return "advance_v77_to_continual_learning_validation"
+    return "continue_base_language_training_before_continual_learning"
+
+
+def aggregate_unseen_generation(
+    *,
+    output_path: Path,
+    human_review_coherent: bool,
+) -> dict[str, Any]:
+    if output_path.exists():
+        raise ValueError(f"V77 generation decision already exists: {output_path}")
+    panels: dict[str, Any] = {}
+    checks: dict[str, bool] = {}
+    total_passed = 0
+    total_cases = 0
+    for name, (baseline_path, expected_hash) in BASELINE_GENERATION_REPORTS.items():
+        candidate_path = CANDIDATE_GENERATION_REPORTS[name]
+        if file_sha256(baseline_path) != expected_hash:
+            raise RuntimeError(f"V77 frozen baseline report changed: {baseline_path}")
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+        baseline_prompts = [
+            row["prompt_text"] for row in baseline["prompt_suite"]["prompt_cases"]
+        ]
+        candidate_prompts = [
+            row["prompt_text"] for row in candidate["prompt_suite"]["prompt_cases"]
+        ]
+        panel_checks = {
+            "prompt_texts_exact": baseline_prompts == candidate_prompts,
+            "prompt_thresholds_exact": [
+                {key: value for key, value in row.items() if key.startswith("min_") or key.startswith("max_")}
+                for row in baseline["prompt_suite"]["prompt_cases"]
+            ]
+            == [
+                {key: value for key, value in row.items() if key.startswith("min_") or key.startswith("max_")}
+                for row in candidate["prompt_suite"]["prompt_cases"]
+            ],
+            "decode_controls_exact": baseline["prompt_suite"][
+                "generation_decode_controls"
+            ]
+            == candidate["prompt_suite"]["generation_decode_controls"],
+            "source_sha256_exact": baseline["source"]["sha256"]
+            == candidate["source"]["sha256"],
+            "checkpoint_sha256_exact": candidate["checkpoint"]["sha256"]
+            == V77_CHECKPOINT_SHA256,
+            "tokenizer_sha256_exact": candidate["checkpoint"]["tokenizer_hash"]
+            == TOKENIZER_SHA256,
+            "marulho_owned": candidate.get("owned_by_marulho") is True,
+            "external_llm_absent": candidate.get("external_llm_used") is False,
+            "four_cases_complete": len(candidate["cases"]) == 4,
+        }
+        for check_name, value in panel_checks.items():
+            checks[f"{name}_{check_name}"] = bool(value)
+        baseline_summary = baseline["summary"]
+        candidate_summary = candidate["summary"]
+        total_passed += int(candidate_summary["passed_case_count"])
+        total_cases += int(candidate_summary["case_count"])
+        panels[name] = {
+            "baseline_report": {
+                "path": str(baseline_path),
+                "sha256": expected_hash,
+            },
+            "candidate_report": {
+                "path": str(candidate_path),
+                "sha256": file_sha256(candidate_path),
+            },
+            "checks": panel_checks,
+            "baseline_summary": baseline_summary,
+            "candidate_summary": candidate_summary,
+            "deltas_candidate_minus_v39": {
+                "mean_source_continuation_loss": float(
+                    candidate_summary["mean_source_continuation_loss"]
+                )
+                - float(baseline_summary["mean_source_continuation_loss"]),
+                "mean_prefix_match_chars": float(
+                    candidate_summary["mean_prefix_match_chars"]
+                )
+                - float(baseline_summary["mean_prefix_match_chars"]),
+                "mean_distinct_bigram_fraction": float(
+                    candidate_summary["mean_distinct_bigram_fraction"]
+                )
+                - float(baseline_summary["mean_distinct_bigram_fraction"]),
+            },
+        }
+    validity_passed = all(checks.values())
+    decision = unseen_generation_decision(
+        validity_passed=validity_passed,
+        human_review_coherent=human_review_coherent,
+    )
+    payload = {
+        "surface": "marulho_language_quality_continuation.v77_unseen_decision",
+        "artifact_kind": "marulho_language_unseen_generation_decision",
+        "owned_by_marulho": True,
+        "external_llm_used": False,
+        "validity_passed": validity_passed,
+        "checks": checks,
+        "panels": panels,
+        "aggregate": {
+            "passed_cases": total_passed,
+            "case_count": total_cases,
+            "case_pass_rate": total_passed / total_cases,
+        },
+        "human_review": {
+            "coherent_multi_sentence_generation": human_review_coherent,
+            "grammatical_multi_sentence_fragments_present": True,
+            "semantic_topic_stability": False,
+            "repetition_or_template_collapse_present": True,
+            "observations": [
+                "FineWeb generations substitute generic historical or commercial templates and repeat clauses.",
+                "Cosmopedia generations are locally grammatical but drift to social media, the Internet, or unrelated language topics.",
+                "Controlled decoding improves diversity but does not restore source meaning or topic stability.",
+            ],
+        },
+        "decision": decision,
+        "checkpoint_boundary": {
+            "retained_as_strongest_quantitative_base": validity_passed,
+            "coherent_generation_claimed": human_review_coherent,
+            "continual_learning_admitted": decision
+            == "advance_v77_to_continual_learning_validation",
+            "runtime_install_allowed": False,
+        },
+    }
+    _atomic_json(output_path, payload)
+    return payload
+
+
 def run_qualification(
     *,
     parent_path: Path,
@@ -686,7 +843,31 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--validate-contract-only", action="store_true")
+    parser.add_argument("--aggregate-generation-decision", type=Path)
+    parser.add_argument(
+        "--human-review-verdict",
+        choices=("coherent", "not_coherent"),
+    )
     args = parser.parse_args()
+    if args.aggregate_generation_decision is not None:
+        if args.human_review_verdict is None:
+            parser.error("--human-review-verdict is required for generation aggregation")
+        result = aggregate_unseen_generation(
+            output_path=args.aggregate_generation_decision,
+            human_review_coherent=args.human_review_verdict == "coherent",
+        )
+        print(
+            json.dumps(
+                {
+                    "decision": result["decision"],
+                    "validity_passed": result["validity_passed"],
+                    "passed_cases": result["aggregate"]["passed_cases"],
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        return
     if args.validate_contract_only:
         model, tokenizer, parent_audit = load_parent(args.parent)
         data = prepare_long_document_data(tokenizer)

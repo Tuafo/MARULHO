@@ -13,6 +13,7 @@ from marulho.evaluation.language_quality_continuation import (
     TRAIN_STEPS,
     _learning_rate,
     qualification_checks,
+    unseen_generation_decision,
 )
 
 
@@ -79,3 +80,15 @@ def test_v77_qualification_rejects_loss_only_result_with_bad_fidelity_inputs() -
     assert not checks["data_contract_exact"]
     assert not checks["tokenizer_exact"]
     assert not checks["all_gradients_complete"]
+
+
+def test_v77_unseen_decision_keeps_continual_learning_behind_coherence() -> None:
+    assert unseen_generation_decision(
+        validity_passed=True, human_review_coherent=False
+    ) == "continue_base_language_training_before_continual_learning"
+    assert unseen_generation_decision(
+        validity_passed=True, human_review_coherent=True
+    ) == "advance_v77_to_continual_learning_validation"
+    assert unseen_generation_decision(
+        validity_passed=False, human_review_coherent=True
+    ) == "reject_v77_unseen_generation_invalid_evidence"

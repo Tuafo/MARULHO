@@ -1154,12 +1154,20 @@ mechanism failure rather than a broken run. V76 is deleted with no checkpoint or
 runtime surface. The result warns that structured synthetic gradient memory can
 be a false positive for natural language. The strongest live direction is now
 the ordinary Transformer continuation that achieved the best real heldout loss.
-V77 is the active qualification branch: it must reproduce that exact safe-batch
-continuation, save it only after disjoint-loss gates pass, prove strict tensor,
-tokenizer, configuration, tied-weight, metadata, and logit reload, then face the
-frozen unseen FineWeb-Edu/Cosmopedia generation panels. It contains no TTT or
-alternate runtime path. Passing loss and reload creates a quantitative base, not
-a coherence claim; continual-learning work remains gated on visible unseen text.
+
+**V77 quantitative base (strict, uninstalled)** — the exact safe-batch ordinary
+continuation reproduces V76: later-segment loss improves from 3.963203 to 2.902100
+after 7,864,320 positions at 20.36k positions/s and 4.24 GB peak allocation. Its
+100.679M tensors, tokenizer, configuration, tied weights, metadata, and sample
+logits reload bit-exactly from the 402,982,569-byte checkpoint with SHA-256
+`3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074`.
+The frozen V46 unseen panels remain 0/12: FineWeb continuation loss improves by
+0.06360, Cosmopedia worsens by 0.01847, and visible text is grammatical but
+generic, repetitive, and topic-unstable. Decision:
+`continue_base_language_training_before_continual_learning`. V77 is the strongest
+quantitative base, not an installed runtime or coherence claim. TTT remains
+absent. Continual learning and structural plasticity remain closed until a base
+checkpoint passes visible unseen-language review.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

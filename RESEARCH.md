@@ -3490,6 +3490,39 @@ coherent multi-sentence unseen behavior admits sequential-domain retention and
 structural-plasticity work. No architecture claim is inferred from reproducing an
 ordinary Transformer control.
 
+### V77 result: strict quantitative base, still below the coherence gate
+
+The exact safe-batch continuation reproduces. Immutable later-segment loss is
+3.963203, bit-identical to V76; after 7,864,320 positions the candidate reaches
+2.902100 versus V76's 2.902336. FineWeb-Edu/Cosmopedia later loss is
+3.249710/2.554489. All twelve frozen qualification checks pass. Counted training
+takes 386.21 seconds at 20,362.8 positions/s and peaks at 4,236,206,080 allocated
+bytes. The candidate is atomically converted to the checkpoint's FP32 storage
+contract and a fresh load restores bit-equal tensors, state hash, configuration,
+tied embedding/head storage, tokenizer, metadata, and sample logits. The strict
+402,982,569-byte checkpoint SHA-256 is
+`3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074`;
+the qualification-report SHA-256 is
+`3067b950eb82e417156d082e0e616db1f3fdcb476d5bcf5cca0733654b802f9e`.
+
+The frozen V46 prompts and decode controls also reproduce exactly. V77 improves
+FineWeb mean source-continuation loss from 3.64029 to 3.57670, while Cosmopedia
+worsens slightly from 2.64983 to 2.66830. Prefix agreement changes from 0.50 to
+1.25 characters on FineWeb and 2.75 to 3.00 on Cosmopedia. Every one of the
+twelve exact-continuation cases still fails. Direct review finds grammatical
+multi-sentence fragments, but FineWeb substitutes generic historical/commercial
+templates and repeats clauses; Cosmopedia drifts to social media, the Internet,
+or unrelated language topics. Repetition controls raise diversity without
+restoring source meaning. This is a better predictor, not yet a coherent or
+grounded continual model.
+
+Decision: `continue_base_language_training_before_continual_learning`. Retain
+V77 as the strongest strict quantitative base, but do not install it or reopen
+continual learning, structural plasticity, or memory. The next branch must make a
+material base-language scale/data-efficiency change and face the same panels.
+Composite decision-report SHA-256 is
+`e40d8f2a000ba0c3895b9b165ef9507b67e0156bd171ef62df07779004072276`.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

@@ -1,239 +1,157 @@
-# Marulho Exact Token Kv Falsification
+# Marulho Language Generation Coherence Report
 
 ## Summary
 
 | Field | Value |
 |-------|-------|
-| Artifact Kind | marulho_exact_token_kv_falsification |
-| Surface | marulho_exact_token_kv_falsification.v1 |
+| Artifact Kind | marulho_language_generation_coherence_report |
+| Surface | marulho_language_generation_coherence_report.v1 |
 | Owned By Marulho | true |
 | External Llm Used | false |
-| Decision | retire_v39_protected_memory_adaptation |
-| Experiment Contract Sha256 | 23d8cce93478509c546a7f6d6002a879d11ec2a008de107b237daf6217cd8398 |
-
-## Configuration
-
-| Field | Value |
-|-------|-------|
-| Context Length | 320 |
-| Batch Size | 32 |
-| Epochs | 8 |
-| Optimizer Steps | 2048 |
-| Padded Position Budget | 20971520 |
-| Correction Scale | 0.25 |
-| Learning Rate | 0.0003 |
-| Minimum Learning Rate Fraction | 0.1 |
-| Warmup Fraction | 0.05 |
-| Weight Decay | 0.1 |
-| Gradient Clip | 1 |
-| Generation Tokens | 16 |
-| Repetition Penalty | 1.1 |
-| No Repeat Ngram Size | 3 |
-| Minimum True Exact Answers | 64 |
-| Minimum True Source Gain | 0.2 |
-| Maximum Shuffled Exact Answers | 16 |
-| Minimum Oracle Exact Answers | 128 |
-| Maximum True Oracle Gap | 64 |
-| Maximum Parameter Fraction | 0.0125 |
-| Maximum Training Seconds | 1800 |
-| Maximum Total Setup Training Seconds | 2400 |
-| Data Seed | 63121 |
-| Model Seed | 63131 |
-| Precision | bfloat16_parent_fp32_controller |
-| Execution Backend | pytorch_eager_sdpa |
-
-## Data
-
-| Field | Value |
-|-------|-------|
-| Train Manifest Path | reports\language_curriculum\squad-v57-native-train-8192-20260812.json |
-| Train Manifest Sha256 | aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133 |
-| Train Manifest Contract Sha256 | fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7 |
-| Validation Manifest Path | reports\language_curriculum\squad-v57-native-validation-256-20260812.json |
-| Validation Manifest Sha256 | b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80 |
-| Validation Manifest Contract Sha256 | 9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c |
-| Train Case Count | 8192 |
-| Validation Case Count | 256 |
-| Train Title Count | 171 |
-| Validation Title Count | 22 |
-| Title Intersection Count | 0 |
-| Prepared Tensor Sha256 | 7a77a0a7fd88ea5326c12e2d28cceb89cfdc0290c7f163908f2ca1f4a8638062 |
-| Schedule Sha256 | 286027e5783e93f276e918f2f1b71bc4392cfd26a8bc764c7b667debc5548518 |
-| Cache Policy | online_exact_token_kv_no_persistent_hidden_cache |
-| Persistent Cache Bytes | 0 |
-| Source Mask Excludes Answer | true |
-| Source Mask Excludes Question | true |
-| Source Mask Excludes Labels | true |
-| Source Mask Uses Answer Span | false |
-
-## Architecture
-
-| Field | Value |
-|-------|-------|
-| Controller Parameter Count | 983040 |
-| Parent Parameter Count | 100679424 |
-| Controller Parameter Fraction | 0.00976406 |
-| Correction Matrix Count | 240 |
-| Head Dim | 64 |
-| Initial Controller State Sha256 | 3e87cecb41a9707df70b846e178ebdafebea69a8a967f76dc69b627bd9f10e6b |
-| Initial Controller Zero | true |
-| Bounded Scale | 0.03125 |
-| Adapted State | exact_source_token_keys_and_values |
-| Parent Update | none_frozen |
-
-## Setup
-
-| Field | Value |
-|-------|-------|
-| Seconds | 29.8655 |
-| Persistent Cache Bytes | 0 |
-
-## Training
-
-| Field | Value |
-|-------|-------|
-| Optimizer Steps | 2048 |
-| Padded Positions | 20971520 |
-| Answer Target Positions | 470952 |
-| Final Training Loss | 3.23131 |
-| Training Seconds | 751.066 |
-| Positions Per Second | 27922.3 |
-| Peak Cuda Bytes | 4315288576 |
-| Controller Finite | true |
-| Maximum Bounded Coefficient | 0.0097761 |
-
-## Parent
-
-| Field | Value |
-|-------|-------|
-| Path | reports\language_scaling\v39-answer-objective-qualified-100m-218m-20260810.pt |
-| Checkpoint Sha256 Before | 6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d |
-| Checkpoint Sha256 After | 6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d |
-| State Sha256 Before | 76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082 |
-| State Sha256 After | 76b195a6c0706928927c0d2517e119ca30574c9917f5cbba8be048a5b1672082 |
-| Tokenizer Hash Before | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
-| Tokenizer Hash After | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
+| Loads External Checkpoint | false |
+| Active Language Path | marulho_transformer |
+| Checkpoint Path | reports\language_scaling\v77-static-long-document-qualified-100m-225m-20260813.pt |
+| Output Path | reports\language_scaling\v77-unseen-cosmopedia-controlled-20260813.json |
 
 ## Checkpoint
 
 | Field | Value |
 |-------|-------|
-| Saved | false |
-| Path | - |
-| Sha256 | - |
-| Strict Tensor Reload | false |
-| Strict Logit Reload | false |
+| Path | reports\language_scaling\v77-static-long-document-qualified-100m-225m-20260813.pt |
+| Sha256 | 3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074 |
+| Kind | transformer |
+| Model Surface | marulho_transformer_language_model.v2 |
+| Tokenizer Hash | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
 
-## Runtime
+## Source
 
 | Field | Value |
 |-------|-------|
-| Total Setup Training Seconds | 780.932 |
-| Total Wall Seconds | 1073.49 |
-| Peak Cuda Bytes | 4315288576 |
+| Path | reports\language_curriculum\cosmopedia-v2-eval-10k-shard2-20260710.txt |
+| Sha256 | e0a86c6014f701b5fa91578cf2e9079e9351c61778ac3917acacc3f166c97491 |
+| Size Bytes | 37553596 |
+| Role | generation_prompt_and_continuation_holdout |
+| Raw Source Text Retained | false |
+
+## Prompt Suite
+
+| Field | Value |
+|-------|-------|
+| Surface | marulho_language_generation_coherence_prompt_suite.v1 |
+| Case Count | 4 |
+| Min Case Pass Rate | 1 |
+| Review Kind | automated_grounded_prompt_suite_not_human_review |
+
+## Summary
+
+| Field | Value |
+|-------|-------|
+| Surface | marulho_language_generation_coherence_summary.v1 |
+| Case Count | 4 |
+| Passed Case Count | 0 |
+| Case Pass Rate | 0 |
+| Mean Prefix Match Chars | 3 |
+| Mean Prefix Match Fraction | 0.00979792 |
+| Mean Printable Fraction | 1 |
+| Mean Distinct Bigram Fraction | 0.97619 |
+| Max Token Run Length | 1 |
+| Next Character Match Rate | 1 |
+| Source Continuation Loss Available | true |
+| Source Continuation Loss Case Count | 4 |
+| Mean Source Continuation Loss | 2.6683 |
+| Mean Source Continuation Perplexity | 16.7325 |
+| Source Continuation Loss Token Count | 256 |
+
+## Promotion Gate
+
+| Field | Value |
+|-------|-------|
+| Status | blocked_generation_coherence |
+| Generation Coherence Available | false |
+| Grounded Prompt Suite Available | false |
+| Human Review Available | false |
+| Promotes Prompt Suite Coherence Claim | false |
+| Promotes Generation Quality Claim | false |
+| Promotes Runtime Claim | false |
+| Requires Long Run Pairing | true |
 
 ## JSON Preview
 
 ```json
 {
-  "architecture": {
-    "adapted_state": "exact_source_token_keys_and_values",
-    "bounded_scale": 0.03125,
-    "controller_dtypes": [
-      "torch.float32"
-    ],
-    "controller_parameter_count": 983040,
-    "controller_parameter_fraction": 0.009764060628713966,
-    "correction_matrix_count": 240,
-    "head_dim": 64,
-    "initial_controller_state_sha256": "3e87cecb41a9707df70b846e178ebdafebea69a8a967f76dc69b627bd9f10e6b",
-    "initial_controller_zero": true,
-    "parent_parameter_count": 100679424,
-    "parent_update": "none_frozen"
-  },
-  "artifact_kind": "marulho_exact_token_kv_falsification",
-  "checkpoint": {
-    "path": null,
-    "saved": false,
-    "sha256": null,
-    "strict_logit_reload": false,
-    "strict_tensor_reload": false
-  },
-  "configuration": {
-    "batch_size": 32,
-    "context_length": 320,
-    "correction_scale": 0.25,
-    "data_seed": 63121,
-    "epochs": 8,
-    "execution_backend": "pytorch_eager_sdpa",
-    "generation_tokens": 16,
-    "gradient_clip": 1.0,
-    "learning_rate": 0.0003,
-    "maximum_parameter_fraction": 0.0125,
-    "maximum_shuffled_exact_answers": 16,
-    "maximum_total_setup_training_seconds": 2400.0,
-    "maximum_training_seconds": 1800.0,
-    "maximum_true_oracle_gap": 64,
-    "minimum_learning_rate_fraction": 0.1,
-    "minimum_oracle_exact_answers": 128,
-    "minimum_true_exact_answers": 64,
-    "minimum_true_source_gain": 0.2,
-    "model_seed": 63131,
-    "no_repeat_ngram_size": 3,
-    "optimizer_steps": 2048,
-    "padded_position_budget": 20971520,
-    "precision": "bfloat16_parent_fp32_controller",
-    "repetition_penalty": 1.1,
-    "warmup_fraction": 0.05,
-    "weight_decay": 0.1
-  },
-  "data": {
-    "boundary_audit": {
-      "all_delimiter_normalized_suffixes_exact": true,
-      "all_token_boundaries_exact": true,
-      "crossing_token_count": 0,
-      "expected_record_view_count": 25344,
-      "maximum_source_token_count": 280,
-      "minimum_source_token_count": 5,
-      "record_view_count": 25344,
-      "sha256": "cf1caa523a37d343937de364cf432497c54a8ced61de584d37f6b1b81a4e6919"
-    },
-    "cache_policy": "online_exact_token_kv_no_persistent_hidden_cache",
-    "persistent_cache_bytes": 0,
-    "prepared_tensor_sha256": "7a77a0a7fd88ea5326c12e2d28cceb89cfdc0290c7f163908f2ca1f4a8638062",
-    "schedule_sha256": "286027e5783e93f276e918f2f1b71bc4392cfd26a8bc764c7b667debc5548518",
-    "source_mask_excludes_answer": true,
-    "source_mask_excludes_labels": true,
-    "source_mask_excludes_question": true,
-    "source_mask_uses_answer_span": false,
-    "title_intersection_count": 0,
-    "train_case_count": 8192,
-    "train_manifest_contract_sha256": "fef030f0c5a66381d9088cc72d38a284fd711a0a663f0e5f0d9b5376509760f7",
-    "train_manifest_path": "reports\\language_curriculum\\squad-v57-native-train-8192-20260812.json",
-    "train_manifest_sha256": "aae376dcf95ab887aeb67abc135b9f9f8dd1f19699935053efa8b66e5ffc9133",
-    "train_title_count": 171,
-    "validation_case_count": 256,
-    "validation_manifest_contract_sha256": "9a6922f4ca6bd3fac5d099ba53ef33f63b66fd59b41e639785d936ca78ece15c",
-    "validation_manifest_path": "reports\\language_curriculum\\squad-v57-native-validation-256-20260812.json",
-    "validation_manifest_sha256": "b85f1da5d7d5c3b8bd1e9f1339ab1235028c8c8f1fb8db3b3042e3c99b3c0f80",
-    "validation_title_count": 22
-  },
-  "decision": "retire_v39_protected_memory_adaptation",
-  "experiment_contract_sha256": "23d8cce93478509c546a7f6d6002a879d11ec2a008de107b237daf6217cd8398",
-  "external_llm_used": false,
-  "gate": {
-    "behavioral_checks": {
-      "maximum_shuffled_exact_answers": true,
-      "maximum_true_oracle_gap": true,
-      "minimum_oracle_exact_answers": false,
-      "minimum_true_exact_answers": false,
-      "minimum_true_source_gain": false
-    },
-    "behavioral_passed": false,
-    "checkpoint_passed": false,
-    "mechanical_checks": {
-      "active_zero_hidden_exact": true,
-      "active_zero_logits_exact": true,
-      "active_zero_state_exact": true,
-      "al
+  "active_language_path": "marulho_transformer",
+  "artifact_kind": "marulho_language_generation_coherence_report",
+  "cases": [
+    {
+      "active_language_path": "marulho_transformer",
+      "active_language_path_matches_model": true,
+      "batched_decode_group_size": 1,
+      "continuation_sequence_hash": "311aa052f661e6d647b65e327a5ba3dc917325ecd9b7020bc5c34213537aff98",
+      "continuation_text": " age, businesses are constantly seeking ways to reach their customers and expand their reach. One such approach that has gained significant traction is the use of social media platforms like Instagram, Twitter, and TikTok. This course unit will delve into the concept of social networks, exploring how they can be",
+      "continuation_token_count": 64,
+      "distinct_bigram_fraction": 0.9841269841269841,
+      "expected_active_language_path": "marulho_transformer",
+      "expected_source_continuation": " age, computers have become an essential part of our daily lives, enabling us to perform various tasks efficiently. One critical aspect of using a computer is ensuring that its hardware components are functioning optimally. This requires keeping the device drivers updated, especially when transitioning to a newe",
+      "external_llm_used": false,
+      "failure_reasons": [
+        "source_prefix_match_below_threshold"
+      ],
+      "generated_text": "In today's digital age, businesses are constantly seeking ways to reach their customers and expand their reach. One such approach that has gained significant traction is the use of social media platforms like Instagram, Twitter, and TikTok. This course unit will delve into the concept of social networks, exploring how they can be",
+      "generated_token_count": 69,
+      "generation_decode": {
+        "decode_control_scope": "generated_continuation_only",
+        "decode_control_window": 320,
+        "decode_strategy": "greedy_argmax",
+        "external_llm_used": false,
+        "full_model_vocab_logits_materialized": true,
+        "generation_vocab_size": 8192,
+        "kv_cache": "bounded_per_layer",
+        "model_vocab_size": 8192,
+        "no_repeat_ngram_size": 3,
+        "prompt_tokens_eligible_for_penalty": false,
+        "repetition_penalty": 1.1,
+        "sampling_seed": null,
+        "surface": "marulho_transformer_decode_policy.v4",
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_p_applied": false
+      },
+      "generation_surface": "marulho_transformer_generation.v3",
+      "max_token_run_length": 1,
+      "new_token_count": 64,
+      "next_character_matches_source": true,
+      "owned_by_marulho": true,
+      "passed": false,
+      "prefix_match_chars": 6,
+      "prefix_match_fraction": 0.019169329073482427,
+      "printable_fraction": 1.0,
+      "prompt_text": "In today's digital",
+      "prompt_token_count": 5,
+      "sequence_hash": "c869db60de625a6c1c49819e3781c6c1dd14f04dd34f637c683dbbcd0ac889ee",
+      "source_continuation_loss": {
+        "continuation_add_bos": false,
+        "continuation_clipped_to_context": false,
+        "continuation_source_characters_scanned": 2048,
+        "continuation_target_start_index": 4,
+        "decode_vocab_only": true,
+        "enabled": true,
+        "evaluated_token_count": 64,
+        "full_model_vocab_logits_materialized": true,
+        "generation_vocab_size": 8192,
+        "loss": 2.0215673446655273,
+        "model_context_length": 320,
+        "model_vocab_size": 8192,
+        "perplexity": 7.550149917602539,
+        "perplexity_capped": false,
+        "prompt_token_count": 5,
+        "reason": null,
+        "source_continuation_token_count": 64,
+        "surface": "marulho_language_generation_source_continuation_loss.v2"
+      },
+      "source_prompt_found": true,
+      "source_text_hash": "c52c8c2b50cef14bdc707c7d1a9908b92555a1d96e0bd76235bfb360fb99e1c6",
+      "surface": "marulho_language_generation_coherence_case.v1",
+      "thresholds": {
+        "max_token_run_length": 8,
+        "min_distinct_
 ```

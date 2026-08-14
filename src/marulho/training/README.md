@@ -173,6 +173,18 @@ V76 model, data helper, evaluator, test, checkpoint, loader, runtime option, or
 compatibility path remains. Compact reports preserve both the synthetic positive
 and the decisive real-language negative.
 
+**`language_quality_continuation.py`** owns the current V77 base qualification.
+It strictly reconstructs V76's winning ordinary-Transformer control from V39,
+checks the immutable parent, tokenizer, selected documents, full schedule, first
+gradient, CUDA allocation, heldout loss, and per-source loss before saving. Its
+fresh checkpoint load must restore bit-equal tensors, state hash, configuration,
+tied weights, tokenizer, metadata, and sample logits. V77 passes that contract at
+2.902100 later-segment loss and 20.36k positions/s. The same runner content-addresses
+the frozen unseen panels and records the human-review boundary; because all twelve
+cases fail and text remains generic/topic-unstable, it retains the checkpoint only
+as an uninstalled quantitative base. No TTT or alternate language surface is
+restored.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

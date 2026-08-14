@@ -6,14 +6,15 @@ evaluation are owned by this repository. The research target is a model that can
 learn from an ongoing stream, recall useful past experience under bounded active
 compute, and remain rollbackable while it changes.
 
-MARULHO is not currently an AGI or a frontier model. Its strongest research
-checkpoint produces coherent multi-sentence English and has passed one narrow
-continual-learning test: it learned held-out synthetic relations while retaining
-its general-language loss. A corrected generated-only decode policy reveals
-88.67% strict free accuracy on that narrow benchmark, but container remains
-60.94%, open text is still semantically unreliable, and no general grounding
-claim follows. There is still no admitted long-term memory read interface or
-generally capable continual model.
+MARULHO is not currently an AGI or a frontier model. Its strongest current
+research checkpoint is a 100.679M-parameter decoder-only Transformer trained for
+225.97M cumulative positions. It reaches 2.9021 loss on a disjoint long-document
+continuation contract and reloads every tensor, tokenizer field, configuration,
+tied weight, metadata field, and sample logit exactly. On genuinely unseen prose,
+however, it remains grammatical but generic, repetitive, and topic-unstable,
+passing 0/12 frozen exact-continuation cases. Continual learning, structural
+plasticity, memory, and runtime installation remain closed until the base model
+demonstrates coherent unseen generation.
 
 ## Current architecture
 
