@@ -68,6 +68,41 @@ MARULHO-owned cognition and outrun the language competence evidence. Structural
 self-modification remains downstream of grounded self-challenge and independent
 promotion.
 
+### Continual-learning mechanism after a coherent V80
+
+The strongest immediate continual baseline is still **real replay**, not a new
+memory metaphor. A 2025 continual-pretraining study is unusually relevant to
+MARULHO because it includes a 99M Transformer and finds that 25% replay plus
+Reptile-style meta-experience replay improves stability across sequential
+language distributions with negligible reported update overhead
+([Abbes et al.](https://arxiv.org/abs/2508.01908)). Every `k` updates it retains
+the block's starting weights, takes ordinary mixed replay updates, then
+interpolates the block trajectory. This is a candidate learning rule around the
+Transformer, not imported cognition.
+
+MARULHO must test a stricter null than the paper: block interpolation may act
+mostly like a smaller effective learning rate at this scale. The first admissible
+comparison therefore uses identical incoming/replay documents and incoming-token
+exposure for three exact-reset arms: ordinary 25% replay, replay plus blockwise
+Reptile, and replay at a learning rate matched to Reptile's cumulative movement.
+Reptile survives only if it improves the learned-loss/retained-loss Pareto point
+beyond both controls, not merely by moving the weights less. A no-replay arm is
+diagnostic for raw plasticity and forgetting, not a promotion candidate.
+
+Two later mechanisms remain distinct follow-ups rather than ingredients in the
+same first experiment. GeRe preserves coarse positive/neutral/negative final
+activation states on a fixed general replay set with a threshold-margin loss
+([Zhang et al.](https://arxiv.org/abs/2508.04676)); it is worth testing only if
+ordinary replay learns the new domain but cannot retain V80. SuRe selects
+high-negative-log-likelihood replay and combines fast/slow adapters
+([Hazard et al.](https://arxiv.org/abs/2511.22367)); surprise-based selection
+should be compared with uniform replay under the same buffer and token budget
+before any dual-learner machinery. Sparse memory finetuning reports much lower
+forgetting by updating selectively activated slots
+([Lin et al.](https://arxiv.org/abs/2510.15103)), but it assumes a memory-layer
+architecture MARULHO does not currently own, so it is evidence for a later
+structural branch, not justification to add slots before replay is measured.
+
 V64 now adds a decisive systems result to the ledger. Its 100,202,970-parameter
 delta-state/local-attention cortex was mathematically correct, its owned Triton
 backward passed full-model parity, and CUDA Graph reproduced an eager fused-
