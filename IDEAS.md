@@ -154,6 +154,25 @@ expert and all existing V81 tensors remain frozen; only the two new experts and
 small causal routers learn. A router chooses one expert per document chunk from
 pre-MLP hidden state, with no task ID or service-side decision at inference.
 
+The V80/V81 dimensions make this consumer-feasible rather than rhetorical. One
+width-768/hidden-3,072 SwiGLU owns 7,077,888 weights; two clones add 14,155,776,
+or 14.06% over the 100,679,424-parameter parent. Two bias-free width-to-one
+routers add only 1,536 weights. The expanded topology therefore owns 114,836,736
+parameters while a hard old-or-new route executes about 100,680,960, or 87.67%
+of total parameters. The FP32 inference checkpoint grows by about 56.6 decimal
+MB (54.0 MiB) before serialization overhead. These are dimensional projections,
+not speed evidence.
+
+Hard routing needs an honest learning path. During continual training, the
+already-known curriculum role teacher-routes incoming examples through the new
+clone and replay examples through the old clone while training the hidden-state
+router with binary cross-entropy. Language gradients train only the actually
+selected expert. At validation and runtime, curriculum labels are absent and the
+learned router alone chooses; router accuracy, per-domain confusion, and fallback
+to the old route are recorded. This is supervised structural specialization, not
+an autonomous task-boundary claim. A later task-free trigger is inadmissible
+until this simpler mechanism works.
+
 The causal controls are ordinary V81 replay with no growth, identical experts in
 two seeded random layers, and conflict-selected experts whose route is shuffled
 across documents. All receive the same incoming examples, replay documents,
