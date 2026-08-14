@@ -1,0 +1,74 @@
+{
+  "compiled": false,
+  "decision": "admit_v76_seed7601",
+  "effective_batch": 128,
+  "environment": {
+    "cuda": "13.2",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.9",
+    "torch": "2.12.1+cu132"
+  },
+  "gradient_accumulation_steps": 1,
+  "math_sdpa": true,
+  "memory_limit_bytes": 10737418240,
+  "passed": true,
+  "projected_exact_outer_step_seconds": 0.19311300000117626,
+  "projected_full_seed_seconds": 454.490400000941,
+  "projected_seed_limit_seconds": 2700,
+  "rungs": [
+    {
+      "batch_size": 8,
+      "missing_gradient_names": [],
+      "nonfinite_gradient_names": [],
+      "peak_cuda_allocated_bytes": 118239744,
+      "projected_peak_cuda_allocated_bytes": null,
+      "seconds": 0.5187998000001244,
+      "status": "safe",
+      "zero_gradient_names": []
+    },
+    {
+      "batch_size": 16,
+      "missing_gradient_names": [],
+      "nonfinite_gradient_names": [],
+      "peak_cuda_allocated_bytes": 215077888,
+      "projected_peak_cuda_allocated_bytes": 236479488,
+      "seconds": 0.16438190000189934,
+      "status": "safe",
+      "zero_gradient_names": []
+    },
+    {
+      "batch_size": 32,
+      "missing_gradient_names": [],
+      "nonfinite_gradient_names": [],
+      "peak_cuda_allocated_bytes": 411638784,
+      "projected_peak_cuda_allocated_bytes": 430155776,
+      "seconds": 0.18297220000022207,
+      "status": "safe",
+      "zero_gradient_names": []
+    },
+    {
+      "batch_size": 64,
+      "missing_gradient_names": [],
+      "nonfinite_gradient_names": [],
+      "peak_cuda_allocated_bytes": 797478400,
+      "projected_peak_cuda_allocated_bytes": 823277568,
+      "seconds": 0.18919139999707113,
+      "status": "safe",
+      "zero_gradient_names": []
+    },
+    {
+      "batch_size": 128,
+      "missing_gradient_names": [],
+      "nonfinite_gradient_names": [],
+      "peak_cuda_allocated_bytes": 1564919808,
+      "projected_peak_cuda_allocated_bytes": 1594956800,
+      "seconds": 0.19311300000117626,
+      "status": "safe",
+      "zero_gradient_names": []
+    }
+  ],
+  "seed": 7601,
+  "selected_physical_batch": 128,
+  "surface": "marulho_exact_ttt_v76.cuda_preflight.v1"
+}
