@@ -4056,9 +4056,17 @@ updates and 15,728,640 padded positions per replay arm. Each 512-update block
 contains one complete 8,192-case incoming epoch and 8,192 replay documents:
 exactly 3,276 FineWeb-Edu, 2,458 Cosmopedia, and 2,458 DCLM, keeping V80's
 approximately 40/30/30 mixture inside every block rather than creating
-source-homogeneous runs. Incoming order and replay documents are identical
-across arms. Learning rate warms for 64 updates from `1e-5` to `1e-4`, then
-cosines to `1e-5`. The four exact-reset arms are:
+source-homogeneous runs. Replay selection is without replacement across all
+three blocks: source-local permutations use seeds 81,121/81,122/81,123 and take
+exactly 9,828/7,374/7,374 rows from the immutable V80 tensors. Per-block replay
+orders use seeds 81,131--81,133; the three incoming-manifest permutations use
+81,141--81,143. The no-replay arm combines each adjacent pair of 16-document
+incoming slices into one batch 32, so it sees the exact same incoming order and
+examples. Freeze the complete replay-arm schedule and no-replay incoming schedule
+as separate hashes before the first arm; incoming order and replay documents are
+identical across all replay arms. Learning rate warms
+for 64 updates from `1e-5` to `1e-4`, then cosines to `1e-5`. The four
+exact-reset arms are:
 
 1. `ordinary_replay50`, the candidate baseline;
 2. `reptile_replay50`, which after each 512-update block replaces every trained
