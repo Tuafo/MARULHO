@@ -1039,6 +1039,12 @@ Muon updates at physical batch 8/effective batch 32 and evaluates the same three
 the candidate may save a checkpoint, and only after all frozen joint-loss,
 non-regression, DCLM-gain, throughput, and validity gates pass.
 
+The frozen control completes every validity check at 19.264k positions/s and
+4.24 GB peak allocation. Its three-source loss improves 2.982862 to 2.951530;
+final FineWeb-Edu/Cosmopedia/DCLM losses are 3.129967/2.399750/3.324875. It saves
+no checkpoint. The exact control report hash is `49cf1e64...f8691531`, which the
+candidate must verify before training from the original V78 tensors.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

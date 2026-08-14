@@ -3710,6 +3710,16 @@ the original V78 state, never from the control. Evaluate at updates 0/256/512/
 768/1024 on the unchanged 512+512 FineWeb-Edu/Cosmopedia holdout plus the 512
 DCLM holdout. Batch 32 remains forbidden and the 8-GiB preflight ceiling remains.
 
+**Control result.** The immutable Cosmopedia control completes all 1,024 updates
+and 31,457,280 positions with every validity check true, 4,241,245,696 bytes
+peak CUDA allocation, and 19.264k positions/s including four three-source
+evaluations. Three-source later loss moves from 2.982862 to 2.951530; final
+FineWeb-Edu, Cosmopedia, and DCLM losses are 3.129967, 2.399750, and 3.324875.
+No checkpoint is saved. The control report SHA-256 is
+`49cf1e640025980e05db4e7cf228dea42a34b2496b68f4a1a8ab2361f8691531`;
+the candidate must load this exact report while independently reconstructing the
+original V78 state.
+
 **Decision.** Validity requires exact parent, source, selected-tensor, shared-
 FineWeb, source-slot schedule, tokenizer, gradient, finite-state, CUDA, and
 position contracts. Candidate/control complete-step throughput must stay within

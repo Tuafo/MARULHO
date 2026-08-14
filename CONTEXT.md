@@ -1191,9 +1191,11 @@ positions from the same parent and source-slot schedule. DCLM text is external
 data only; all model weights, tokenization, training, generation, and evaluation
 remain MARULHO-owned. The frozen materialization selected 512 holdout plus 16,384
 training documents; its holdout/train token hashes are `906f73b...f3c9c6` and
-`fa4dc5...d530a`, and strict artifact reload passes. Only a joint three-source
-loss win plus visibly less templated, more topic-stable generation can justify a
-billion-token scale phase.
+`fa4dc5...d530a`, and strict artifact reload passes. The matched Cosmopedia
+control completes at 2.951530 three-source loss, 19.264k positions/s, and 4.24 GB
+peak allocation with no checkpoint. The DCLM candidate remains pending. Only a
+joint three-source loss win plus visibly less templated, more topic-stable
+generation can justify a billion-token scale phase.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
