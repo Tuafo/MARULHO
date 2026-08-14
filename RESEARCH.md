@@ -4019,6 +4019,17 @@ at SHA-256 `d1d3cfd6...ef30a0d`, rotates update 5,120 away, retains exactly
 6,144/7,168, and continues through 7,200 at about 19.84k positions/s. This is
 recovery evidence only; the next quality observation remains update 8,192.
 
+The fourth authoritative curve at update 8,192 covers 251,658,240 new positions,
+exactly 25% of the schedule. Overall later loss is 2.850349, improving by 0.011285
+since update 6,144 and by 0.132515 from the frozen start, or 53.01% of the final
+target. FineWeb-Edu/Cosmopedia/DCLM are 3.058319/2.371162/3.121567, total gains
+of 0.099281/0.067642/0.230621. DCLM reaches 115.31% of its terminal requirement
+while both old sources improve again. The 428,214,037-byte optimizer snapshot
+strict-reloads at SHA-256 `72281077...c6ac6cb`, rotates update 6,144 away, retains
+7,168/8,192, and training advances through 8,224 at about 19.88k positions/s.
+The interval slope continues to diminish but remains positive; no projection
+substitutes for the remaining stable phase and cooldown.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution

@@ -1297,6 +1297,16 @@ at SHA-256 `d1d3cfd6...ef30a0d`, deletes only update 5,120, retains updates
 6,144/7,168, and continues through 7,200 at about 19.84k positions/s. Rolling
 recovery therefore remains healthy between authoritative curve points.
 
+At update 8,192, after 251,658,240 new positions or 25% of the schedule, overall
+later loss reaches 2.850349. The 0.132515 total gain is 53.01% of the terminal
+target. FineWeb-Edu/Cosmopedia/DCLM reach 3.058319/2.371162/3.121567, improving
+their initial values by 0.099281/0.067642/0.230621. All sources improve again and
+DCLM reaches 115.31% of its terminal requirement. The 428,214,037-byte snapshot
+strict-reloads at SHA-256 `72281077...c6ac6cb`, rotates update 6,144 away, and
+training continues through 8,224 at about 19.88k positions/s. The latest
+2,048-update interval adds 0.011285 overall gain; the declining but positive
+slope still requires the full frozen schedule and cooldown.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed

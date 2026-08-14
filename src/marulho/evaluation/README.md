@@ -1130,6 +1130,11 @@ past 6,176 at about 19.80k positions/s.
 Snapshot 7,168 then strict-reloads at 428,213,845 bytes
 (`d1d3cfd6...ef30a0d`), deletes only update 5,120, retains 6,144/7,168, and
 continues past 7,200 at about 19.84k positions/s.
+At update 8,192, overall later loss reaches 2.850349, 53.01% of the terminal
+gain. FineWeb-Edu/Cosmopedia/DCLM are 3.058319/2.371162/3.121567; every source
+improves and DCLM reaches 115.31% of its required gain. The 428,214,037-byte
+snapshot strict-reloads (`72281077...c6ac6cb`), rotates update 6,144 away, and
+training continues past 8,224 at about 19.88k positions/s.
 On terminal quantitative qualification, finalization retains exactly the last
 verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
 separate FP32 checkpoint remains the inference/generation artifact. The terminal
