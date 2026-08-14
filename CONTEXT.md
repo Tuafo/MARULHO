@@ -1264,6 +1264,13 @@ update-3,072 state strict-reloads at 428,213,141 bytes and SHA-256
 and training continues. This establishes the bounded two-rollback contract, not
 additional model quality.
 
+Terminal ownership is split deliberately. If V80 passes its quantitative gate,
+the FP32 checkpoint owns generation/runtime while exactly one verified BF16
+training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed
+schedule for rollback and genuine optimizer-continuous learning. Older snapshots
+are deleted. That terminal state cannot start V81 unless the direct language
+review also passes, and it is deletable if visible generation rejects V80.
+
 V80's post-training language audit is also frozen before a candidate exists. It
 will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
 cases, and add twelve generations over four DCLM holdout documents under greedy,
