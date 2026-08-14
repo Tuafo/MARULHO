@@ -3664,6 +3664,23 @@ source URL/hash, and tokenizer hash. Delete the downloaded parquet after the
 content-addressed selected corpus is verified; it is recreatable and not a model
 artifact.
 
+**Materialization result.** The bounded reader scanned 126,429 source rows and
+selected exactly 512 holdout plus 16,384 training documents. The selected
+holdout/train token SHA-256 values are
+`906f73b29c8496f098986153fe1c01a97a47db9c7cec8317d04155b401f3c9c6` and
+`fa4dc5151406c23e19c8fe28dd12872b2a5b179e078c43609ec65ab48abd530a`.
+The combined tensor artifact is 69,493,733 bytes with SHA-256
+`04812812d5f2a319a9e88132d1cd01867b98600fc45ba03f3fe78b86bf9eeea0`;
+the retained selected text is 167,719,479 bytes with SHA-256
+`22f89f163967c7ef957b419410ea9e77402b9e7670350a3886ca40706c7ca0d7`.
+Reloaded tensors, tokenizer identity, surface, and text hash all pass. The
+materialization report SHA-256 is
+`33af35a32c1ff8ace76e462e560539d10639182cf96274f5786b422909c58cf6`.
+The three explicitly rejected template phrases occur zero times in the retained
+text; “in conclusion” remains at 166 occurrences, versus 11,850 in the matched
+Cosmopedia audit. This is a bounded source intervention, not a claim that DCLM
+is clean or globally deduplicated.
+
 **Matched arms.** Strict-load only V78 checkpoint SHA-256
 `b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b`.
 Both arms use the same first 16,384 eligible documents from

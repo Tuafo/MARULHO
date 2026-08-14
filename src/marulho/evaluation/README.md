@@ -1018,6 +1018,16 @@ memory-field amendment, and unseen-decision SHA-256 values are
 `f037c543d8f3e87c1ce3aae736f0a0853eae56be4ef6633c8461d139cac95854`,
 and `f9741642955eef8bce63cbaeaaa4339a3dae2be3f7c604b951ecf62668e1a79d`.
 
+**`language_dclm_materialization.py`** owns V79's external-text boundary. It
+verifies one immutable DCLM-Edu parquet, the exact V78 checkpoint/tokenizer,
+language and education thresholds, length bounds, normalized exact
+deduplication, template-phrase rejection, and 961-token eligibility before
+selecting 512 holdout plus 16,384 training documents in source row order. The
+selected holdout/train tensor hashes are `906f73b...f3c9c6` and
+`fa4dc5...d530a`; tensor and selected-text artifacts reload against their
+content hashes. DCLM contributes text only: no external weight, embedding,
+tokenizer, logit, generator, or evaluator enters MARULHO.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,
