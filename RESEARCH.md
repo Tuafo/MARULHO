@@ -3973,8 +3973,8 @@ files remain frozen at SHA-256 `a4e00212...cda64a` and
 `0c01a4a4...664930`. Controlled decoding is exactly repetition penalty 1.1
 plus no-repeat trigram; greedy decoding applies neither. Add greedy and
 controlled DCLM panels using holdout rows 0, 2, 4, and 6 with prompts
-“Numerous industries utilize,” “Summer in the,” “Prevent Direct Execution,”
-and “In just one.” Their retained raw source is frozen at SHA-256
+`Numerous industries utilize`, `Summer in the`, `Prevent Direct Execution`,
+and `In just one`. Their retained raw source is frozen at SHA-256
 `22f89f16...ca0d7`, and each raw document must re-encode exactly to its row in
 the frozen V80 evaluation tensor `ce57f5b3...7b679`. All five panels contain
 four 64-token continuations from the same qualified checkpoint.

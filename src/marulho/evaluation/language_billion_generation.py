@@ -201,7 +201,7 @@ def _read_marked_documents(path: Path, rows: Sequence[int]) -> dict[int, str]:
     current: list[str] | None = None
     with path.open("r", encoding="utf-8") as stream:
         for line in stream:
-            stripped = line.rstrip("\n")
+            stripped = line.rstrip("\r\n")
             if stripped == DOCUMENT_MARKER:
                 if current is not None and document_index in requested:
                     documents[document_index] = "\n".join(current).strip()
