@@ -1110,18 +1110,21 @@ admission gates and are not run. All V73 machinery is deleted. This closes
 locally reconstructed latent sidecars, not jointly meta-trained test-time
 learning.
 
-**V74 end-to-end test-time learning (next research bet)** — use a standard full
-Transformer and meta-train a bounded temporary parameter update so ordinary
-next-token learning on one completed segment is optimized for loss on the next.
-This is qualitatively different from V59's post-hoc full fine-tune and V60--V63's
-frozen-parent adapters: the slow Transformer and update initialization learn
-together from scratch. V74 must first find a consumer-GPU formulation whose
-disabled path is exact and whose meta-gradient is bounded. Its frozen first test
-uses per-document rank-8 fast weights in the last-quarter MLP, ordinary
-next-token inner updates, and a first-order meta-gradient trained on future
-next-token loss. Persistent, discarded-update, and wrong-document-update arms
-must separate across three seeds before any 100M run. No quality run begins from
-a memory sidecar renamed as TTT.
+**V74 end-to-end test-time learning (retired with a positive mechanism
+signal)** — a standard causal Transformer was meta-trained with a bounded
+first-order temporary update to rank-8 weights in its final MLP. Ordinary
+next-token gradients from earlier segments produced 68.695% delayed recall,
+versus 6.293% when the same gradients were discarded and 6.342% when another
+document's gradients were applied. Disabled output is bit-exact, future-token
+perturbation leaves earlier losses and updates exact, all required gradients are
+finite and nonzero, and the safe run peaked at 1.53 GB allocated. The mechanism
+is therefore real and document-specific, but seed 7401 misses the frozen 80%
+accuracy gate by 11.305 points. Because every seed had to pass, seeds 7402/7403
+and the 100M language stage are not spent. The V74 model, evaluator, and tests
+are deleted; only the compact report remains. This rejects the fixed always-
+update formulation, not test-time learning. The next admissible experiment must
+test whether a learned retention/overwrite rule can preserve useful updates
+through interference without changing the Transformer runtime by default.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

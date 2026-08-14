@@ -3165,6 +3165,27 @@ worse than Transformer, a material long-context/source gain, at least 70%
 throughput, bounded state, and every prior terminal safety gate. Stage A cannot
 install a model.
 
+### V74 terminal result: useful gradients, insufficient retention
+
+Seed 7401 mechanically passes: disabled LoRA has zero output error, perturbing a
+future segment changes no earlier loss or update, initial tensors and schedules
+match, and all required gradients are finite and nonzero. Persistent updates
+reach 11,255/16,384 delayed queries, or 68.695%. Discarding the identically
+computed updates reaches 6.293%; applying another document's updates reaches
+6.342%, both effectively the 6.25% chance rate. The 62-point causal separation
+shows that ordinary next-token gradients can write document-specific facts into
+temporary Transformer parameters. It is not a renamed key/value store.
+
+The frozen gate nevertheless requires at least 80% in every seed. Seed 7401
+misses it by 11.305 points, so the preregistered terminal condition fires before
+seeds 7402/7403 or the 100M language stage. Decision:
+`retire_v74_stage_a0_failure`. The most plausible next falsifier is not a rate,
+rank, layer, or step sweep. It is an adaptive retention rule that can learn when
+a new local gradient should overwrite accumulated fast state, with fixed-update
+V74 and wrong-document updates retained as matched controls. The full report is
+`end-to-end-ttt-v74-seed7401-20260813.json` (SHA-256
+`e5573feb65e594dcf2840a5add5f6516e63dfcf56d0e0ee4aa48b48a0a25e7a8`).
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

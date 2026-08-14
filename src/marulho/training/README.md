@@ -151,14 +151,12 @@ Its nonzero gates, complete gradients, 91.91% throughput, and safe memory rule
 out mechanical death. No V73 model, runner, tests, loader, checkpoint, runtime
 option, or compatibility path remains.
 
-`language_end_to_end_ttt.py` is V74's temporary Stage-A0 falsifier. Its small
-four-layer Transformer owns per-document rank-8 fast LoRA weights in the final
-SwiGLU down projection. Ordinary next-token loss updates those weights after
-each segment; future next-token loss trains their shared initialization and
-learned rate through an explicit first-order meta-gradient. Persistent,
-discarded-update, and wrong-document-update arms compute identical inner
-gradients. This is an uninstalled mechanism test, not an exact reproduction of
-the second-order TTT-E2E paper or a runtime/checkpoint surface.
+V74's first-order end-to-end TTT falsifier is retired and deleted. It established
+a real causal signal—68.695% delayed recall versus chance-level discarded and
+wrong-document controls—but failed its frozen 80% gate. No TTT model, runner,
+test, checkpoint, loader, or runtime option remains installed. Its compact
+report preserves the result; a future test may investigate adaptive retention
+as a distinct mechanism rather than tune V74's rank, rate, or step count.
 
 **`language_model.py`** — the language model contract. It owns:
 
