@@ -1126,6 +1126,21 @@ update formulation, not test-time learning. The next admissible experiment must
 test whether a learned retention/overwrite rule can preserve useful updates
 through interference without changing the Transformer runtime by default.
 
+**V75 adaptive gradient retention (current research bet)** — keep V74's
+ordinary next-token inner objective and unchanged causal Transformer, but replace
+its blind update rule with a tiny meta-learned gate. For each document, the gate
+sees only detached statistics already available at the completed segment:
+current loss, gradient RMS, alignment with accumulated fast state, and fast-state
+RMS. It decides how much of the current gradient to accept; it receives no token
+identity, segment number, future information, answer label, or external memory.
+The same trained model is evaluated with its learned gate, the gate forced open,
+updates discarded, and gradients shuffled across documents. This directly tests
+whether selective retention explains an improvement rather than more capacity
+or a renamed lookup table. V75 must clear 80% recall in every frozen seed, beat
+forced-open updates by 10 points, and beat discard/shuffle by 20 points before a
+100M language test. A miss deletes the branch without tuning rank, learning
+rate, step count, or the task.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to

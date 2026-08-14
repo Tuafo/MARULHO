@@ -3186,6 +3186,52 @@ V74 and wrong-document updates retained as matched controls. The full report is
 `end-to-end-ttt-v74-seed7401-20260813.json` (SHA-256
 `e5573feb65e594dcf2840a5add5f6516e63dfcf56d0e0ee4aa48b48a0a25e7a8`).
 
+### V75 preregistration: adaptive gradient retention
+
+**Hypothesis.** V74's ordinary next-token gradients contain usable facts, but a
+single fixed-rate update cannot distinguish evidence worth retaining from later
+interference. V75 asks whether the Transformer can meta-learn that decision from
+causal local statistics. This borrows the general idea of learned forgetting and
+surprise from [Titans](https://arxiv.org/abs/2501.00663), while retaining V74's
+standard Transformer, next-token objective, bounded first-order training, and
+MARULHO-owned implementation. It is not Titans, an exact reproduction of
+[TTT-E2E](https://arxiv.org/abs/2512.23675), or the unrelated classifier method
+also named adaptive retention.
+
+**Mechanism.** Restore V74's four-layer width-128 causal Transformer only inside
+the temporary falsifier. Its final SwiGLU down projection again owns per-document
+rank-8 fast weights. After each completed segment, compute the same independent
+ordinary next-token gradient as V74. A shared two-layer gate maps four detached
+per-document scalars—`log1p(loss)`, log gradient RMS, cosine alignment between
+the candidate update and accumulated accepted update, and fast-state RMS—to one
+sigmoid acceptance value. The accepted update is `fast <- fast - gate * rate *
+gradient`. Gate parameters, shared fast initialization, rate, and the slow model
+learn only from future next-token loss through the same explicit first-order
+straight-through path. The gate cannot inspect token IDs, explicit segment
+position, a query answer, future text, document identity, or a retrieval index.
+It is initialized close to open, so V74 is the starting behavior rather than a
+privileged hand-coded skip rule.
+
+**Frozen Stage A0.** Reuse seeds 7401/7402/7403, exact online data distribution,
+model dimensions, rank, batch 128, 800 AdamW updates at 3e-4, clipping, and 4,096
+fresh evaluation documents from V74. Train one adaptive model per seed, then
+evaluate four interventions on its exact slow weights and documents:
+`adaptive_own`, `forced_open_own`, `discard_same_compute`, and
+`adaptive_shuffled`. All compute the identical per-document gradients. Report
+accuracy, segment losses, gate distributions, update norms, throughput, peak
+CUDA allocation, complete gradients, schedule/data hashes, and final parameter
+hashes. Disabled fast weights must remain bit-exact; future-token perturbation
+must leave all earlier outputs, statistics, gates, and updates exact; state must
+reset exactly at document boundaries.
+
+**Decision.** Every seed must achieve at least 80% with `adaptive_own`, at least
+10 percentage points above `forced_open_own`, and at least 20 points above both
+discarded and shuffled controls. Seed 7401 is an early terminal: any miss stops
+the remaining seeds. No rate, rank, depth, width, step, feature, threshold, or
+dataset sweep follows failure. Passing all seeds admits only a bounded 100M
+long-document safety ladder and matched language screen; it does not install a
+runtime. Failure retains a compact report and deletes all V75 code and tests.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
