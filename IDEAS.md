@@ -79,6 +79,10 @@ language distributions with negligible reported update overhead
 the block's starting weights, takes ordinary mixed replay updates, then
 interpolates the block trajectory. This is a candidate learning rule around the
 Transformer, not imported cognition.
+At the paper's 99M scale, final three-domain mean retained loss moves from 2.86
+to 2.80 when Reptile is added to 25% replay and from 2.65 to 2.47 when added to
+50% replay. The signal is relevant but modest enough that MARULHO must reproduce
+it rather than treating the paper as proof.
 
 MARULHO must test a stricter null than the paper: block interpolation may act
 mostly like a smaller effective learning rate at this scale. The first admissible
