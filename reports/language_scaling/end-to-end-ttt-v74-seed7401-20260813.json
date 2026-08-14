@@ -1,0 +1,199 @@
+{
+  "arms": [
+    {
+      "arm": "persistent_update",
+      "evaluation": {
+        "inner_rate": 0.06740757822990417,
+        "mean_segment_losses": [
+          0.3685640525072813,
+          3.484941691160202,
+          2.958412580192089
+        ],
+        "mean_update_norms": [
+          0.030165074102114886,
+          0.004713502348749898,
+          0.14904823992401361
+        ],
+        "query_accuracy": 0.68695068359375,
+        "query_correct": 11255,
+        "query_total": 16384
+      },
+      "final_parameter_sha256": "e5a7035d425e7ed93ddc9f5bd4ed79ab6b2999f98f6251e88da1557714f60897",
+      "initial_parameter_sha256": "3e4fd1084a2c2fca3ea4d446eed6178ad2f8e553a13bf16053f4e501c24f6397",
+      "parameter_count": 1063553,
+      "schedule_sha256": "37e52e6b50832c500ca0fd442422bd928d4af421df37ae21c7ba4580476e0f44",
+      "seed": 7401,
+      "training": {
+        "complete_finite_gradients": true,
+        "documents": 102400,
+        "documents_per_second": 826.7352746928735,
+        "final": {
+          "inner_rate": 0.06743918359279633,
+          "loss": 2.2709593772888184,
+          "segment_losses": [
+            0.3694900572299957,
+            3.485048532485962,
+            2.958339214324951
+          ],
+          "update_norms": [
+            0.030149102210998535,
+            0.004706718027591705,
+            0.14851872622966766
+          ]
+        },
+        "missing_nonzero_gradient_names": [],
+        "nonfinite_gradient_names": [],
+        "peak_cuda_allocated_bytes": 1530935808,
+        "seconds": 123.86068809999779,
+        "steps": 800
+      }
+    },
+    {
+      "arm": "no_update_same_compute",
+      "evaluation": {
+        "inner_rate": 0.10000000149011612,
+        "mean_segment_losses": [
+          0.37284836545586586,
+          3.485023573040962,
+          3.182829014956951
+        ],
+        "mean_update_norms": [
+          0.003172973018081393,
+          0.003334037319291383,
+          0.004165235994150862
+        ],
+        "query_accuracy": 0.06292724609375,
+        "query_correct": 1031,
+        "query_total": 16384
+      },
+      "final_parameter_sha256": "ffda766bd4b3ef58c7f4e1115fdc0f9b565b0f486a4fd0fd9863c38bd6177754",
+      "initial_parameter_sha256": "3e4fd1084a2c2fca3ea4d446eed6178ad2f8e553a13bf16053f4e501c24f6397",
+      "parameter_count": 1063553,
+      "schedule_sha256": "37e52e6b50832c500ca0fd442422bd928d4af421df37ae21c7ba4580476e0f44",
+      "seed": 7401,
+      "training": {
+        "complete_finite_gradients": false,
+        "documents": 102400,
+        "documents_per_second": 851.0657756665103,
+        "final": {
+          "inner_rate": 0.10000000149011612,
+          "loss": 2.346907138824463,
+          "segment_losses": [
+            0.37280261516571045,
+            3.4848082065582275,
+            3.183109760284424
+          ],
+          "update_norms": [
+            0.003186524147167802,
+            0.00329592009074986,
+            0.0042090886272490025
+          ]
+        },
+        "missing_nonzero_gradient_names": [
+          "inner_log_rate"
+        ],
+        "nonfinite_gradient_names": [],
+        "peak_cuda_allocated_bytes": 1525691392,
+        "seconds": 120.31972490000044,
+        "steps": 800
+      }
+    },
+    {
+      "arm": "shuffled_update",
+      "evaluation": {
+        "inner_rate": 0.0740123987197876,
+        "mean_segment_losses": [
+          0.3723531886935234,
+          3.4865762814879417,
+          3.182769574224949
+        ],
+        "mean_update_norms": [
+          0.0023245426564244553,
+          0.0030120914525468834,
+          0.003577651790692471
+        ],
+        "query_accuracy": 0.06341552734375,
+        "query_correct": 1039,
+        "query_total": 16384
+      },
+      "final_parameter_sha256": "3f99d5f58b6f636055374ca34da4430dcf7db19926e3586ede695628c14e8008",
+      "initial_parameter_sha256": "3e4fd1084a2c2fca3ea4d446eed6178ad2f8e553a13bf16053f4e501c24f6397",
+      "parameter_count": 1063553,
+      "schedule_sha256": "37e52e6b50832c500ca0fd442422bd928d4af421df37ae21c7ba4580476e0f44",
+      "seed": 7401,
+      "training": {
+        "complete_finite_gradients": true,
+        "documents": 102400,
+        "documents_per_second": 828.9012802147143,
+        "final": {
+          "inner_rate": 0.07403774559497833,
+          "loss": 2.347219228744507,
+          "segment_losses": [
+            0.3724842071533203,
+            3.486165761947632,
+            3.1830074787139893
+          ],
+          "update_norms": [
+            0.0023283795453608036,
+            0.002978028729557991,
+            0.0036206638906151056
+          ]
+        },
+        "missing_nonzero_gradient_names": [],
+        "nonfinite_gradient_names": [],
+        "peak_cuda_allocated_bytes": 1533557248,
+        "seconds": 123.53702720000001,
+        "steps": 800
+      }
+    }
+  ],
+  "behavioral_pass": false,
+  "decision": "retire_v74_stage_a0_failure",
+  "environment": {
+    "cuda": "13.2",
+    "gpu": "NVIDIA GeForce RTX 3060",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.9",
+    "torch": "2.12.1+cu132"
+  },
+  "initial_identity_matches": true,
+  "mechanical": {
+    "disabled_max_abs_error": 0.0,
+    "future_perturbation_earlier_loss_max_abs_error": 0.0,
+    "future_perturbation_earlier_update_max_abs_error": 0.0,
+    "passed": true
+  },
+  "passed": false,
+  "persistent_accuracy": 0.68695068359375,
+  "persistent_complete_finite_gradients": true,
+  "persistent_margins": {
+    "no_update_same_compute": 0.6240234375,
+    "shuffled_update": 0.62353515625
+  },
+  "recipe": {
+    "batch_size": 128,
+    "compiled": false,
+    "config": {
+      "attention_heads": 4,
+      "context_length": 64,
+      "distractor_count": 32,
+      "key_count": 16,
+      "layers": 4,
+      "mlp_width": 512,
+      "rank": 8,
+      "segments": 3,
+      "value_count": 16,
+      "width": 128
+    },
+    "evaluation_documents": 4096,
+    "gradient_clip": 1.0,
+    "meta_gradient": "first_order_straight_through",
+    "slow_learning_rate": 0.0003,
+    "slow_optimizer": "AdamW",
+    "train_steps": 800,
+    "weight_decay": 0.0
+  },
+  "schedule_matches": true,
+  "seed": 7401,
+  "surface": "marulho_end_to_end_ttt_v74.stage_a0_seed.v1"
+}
