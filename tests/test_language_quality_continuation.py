@@ -92,3 +92,12 @@ def test_v77_unseen_decision_keeps_continual_learning_behind_coherence() -> None
     assert unseen_generation_decision(
         validity_passed=False, human_review_coherent=True
     ) == "reject_v77_unseen_generation_invalid_evidence"
+
+
+def test_v77_document_selection_rejects_negative_skip() -> None:
+    from pathlib import Path
+
+    from marulho.evaluation.language_quality_continuation import _select_documents
+
+    with pytest.raises(ValueError, match="nonnegative"):
+        _select_documents(Path("unused"), count=1, tokenizer=object(), skip_eligible=-1)

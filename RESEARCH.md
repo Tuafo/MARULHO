@@ -3543,6 +3543,10 @@ and take the next 16,384 in file order. This yields 32,768 unique documents and
 78121. The 512+512 disjoint evaluation documents and three 320-token segment
 losses remain unchanged. Selection tensors, schedule, parent, tokenizer, and
 evaluation hashes must be frozen in a committed preflight before training.
+The materialized parent-state, data-contract, and schedule SHA-256 values are
+`1862aa585bd67a937ee1ea76f5ed74d6f6ee40a8f1ad335599b8021804848e57`,
+`67e5dc4a58ba27c0ea16b9611ff92c84e1b542863018856152dee097d1742bf8`,
+and `cac405ffdeaa7863eef53e3086800929e47835771a48a21ef776e8d505facc91`.
 
 **Safe throughput choice.** Batch 32 is forbidden. Before counted training, test
 physical batch 8/accumulation 4 and physical batch 16/accumulation 2 from the same

@@ -135,7 +135,10 @@ def _select_documents(
     *,
     count: int,
     tokenizer: Any,
+    skip_eligible: int = 0,
 ) -> tuple[torch.Tensor, dict[str, Any]]:
+    if skip_eligible < 0:
+        raise ValueError("skip_eligible must be nonnegative")
     selected: list[list[int]] = []
     pending: list[str] = []
     parsed = 0
@@ -150,6 +153,8 @@ def _select_documents(
             if len(token_ids) < DOCUMENT_TOKENS:
                 continue
             eligible += 1
+            if eligible <= skip_eligible:
+                continue
             selected.append(token_ids[:DOCUMENT_TOKENS])
             if len(selected) >= count:
                 break
@@ -171,6 +176,7 @@ def _select_documents(
     return tensor, {
         "path": str(path),
         "requested": count,
+        "skipped_eligible": skip_eligible,
         "parsed_before_completion": parsed,
         "eligible_before_completion": eligible,
         "selected_token_sha256": hashlib.sha256(tensor.numpy().tobytes()).hexdigest(),
@@ -499,6 +505,8 @@ def checkpoint_fidelity(
     *,
     tokenizer_hash: str,
     sample_input_ids: torch.Tensor,
+    expected_decision: str = "save_v77_static_checkpoint_for_unseen_generation",
+    expected_cumulative_tokens: int = TARGET_CUMULATIVE_TOKENS,
 ) -> dict[str, Any]:
     restored_model, restored_tokenizer, metadata = load_language_model_checkpoint(
         checkpoint_path, map_location="cpu"
@@ -530,10 +538,9 @@ def checkpoint_fidelity(
         == restored_model.lm_head.weight.data_ptr(),
         "maximum_logit_absolute_delta": maximum_logit_delta,
         "logits_bit_equal": maximum_logit_delta == 0.0,
-        "metadata_exact": metadata.get("decision")
-        == "save_v77_static_checkpoint_for_unseen_generation"
+        "metadata_exact": metadata.get("decision") == expected_decision
         and int(metadata.get("cumulative_processed_tokens", -1))
-        == TARGET_CUMULATIVE_TOKENS
+        == expected_cumulative_tokens
         and metadata.get("external_llm_used") is False
         and metadata.get("optimizer_state_saved") is False,
     }
