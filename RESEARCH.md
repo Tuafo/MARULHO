@@ -4041,24 +4041,29 @@ used to select training examples.
 
 **One decisive schedule.** Use physical batch 8 with four-way accumulation,
 effective batch 32, context 320, BF16 eager execution, clipped MARULHO
-Muon/AdamW, and answer/EOS weight 4. Three exact incoming epochs give 768 SQuAD
-updates. Each replay arm interleaves exactly 768 real general updates for 1,536
-total updates and 15,728,640 padded positions. Each 512-update block contains 256
-incoming updates--one complete 8,192-case epoch--and 256 mixed replay updates.
-Its 8,192 replay documents are exactly 3,276 FineWeb-Edu, 2,458 Cosmopedia, and
-2,458 DCLM, keeping V80's approximately 40/30/30 mixture inside every block
-rather than creating source-homogeneous runs. Incoming order and replay documents
-are identical across arms. Learning
-rate warms for 64 updates from `1e-5` to `1e-4`, then cosines to `1e-5`. The four
-exact-reset arms are:
+Muon/AdamW, and answer/EOS weight 4. Every replay optimizer update accumulates
+exactly 16 incoming SQuAD documents and 16 real general-replay documents before
+stepping; it is one mixed 50/50 gradient, not two source-specific updates. Two
+incoming and two replay physical microbatches may execute sequentially, but
+gradients are zeroed only before the four-microbatch group and the optimizer
+steps only after it. Three exact incoming epochs therefore give 1,536 mixed
+updates and 15,728,640 padded positions per replay arm. Each 512-update block
+contains one complete 8,192-case incoming epoch and 8,192 replay documents:
+exactly 3,276 FineWeb-Edu, 2,458 Cosmopedia, and 2,458 DCLM, keeping V80's
+approximately 40/30/30 mixture inside every block rather than creating
+source-homogeneous runs. Incoming order and replay documents are identical
+across arms. Learning rate warms for 64 updates from `1e-5` to `1e-4`, then
+cosines to `1e-5`. The four exact-reset arms are:
 
 1. `ordinary_replay50`, the candidate baseline;
 2. `reptile_replay50`, which after each 512-update block replaces every trained
    tensor by `block_start + 0.1 * (block_end - block_start)` while retaining the
-   ordinary optimizer state, matching the published mechanism;
+   ordinary optimizer state. This preserves the published update equation and
+   mixed-batch construction, while deliberately using the one-epoch local block
+   of 512 rather than the paper's large-scale `k=500`;
 3. `low_lr_replay50`, with the whole learning-rate schedule multiplied by 0.1;
-4. `no_replay`, which receives the same 768 incoming updates and exists only to
-   measure raw acquisition and forgetting.
+4. `no_replay`, which receives the same 24,576 incoming documents as 768
+   batch-32 updates and exists only to measure raw acquisition and forgetting.
 
 No replay ratio, epsilon, block length, layer subset, optimizer, or learning-rate
 sweep follows the result. Report full-model displacement norms after every block:

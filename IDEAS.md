@@ -90,11 +90,12 @@ local replay-ratio boundary: only 25% of its updates were general replay, and
 general loss still regressed by about 0.21. The first admissible comparison
 therefore uses 50% real general replay, the stronger setting in the 99M study,
 and identical incoming/replay documents and incoming-token exposure for three
-exact-reset arms: ordinary replay, replay plus blockwise Reptile, and replay at
-0.1x learning rate to match Reptile's interpolation scale. Reptile survives only
-if it improves the learned-loss/retained-loss Pareto point beyond both controls,
-not merely by moving the weights less. A no-replay arm is diagnostic for raw
-plasticity and forgetting, not a promotion candidate.
+exact-reset arms. Every effective replay batch contains 16 incoming and 16 replay
+documents in one accumulated gradient: ordinary replay, replay plus blockwise
+Reptile, and replay at 0.1x learning rate to match Reptile's interpolation scale.
+Reptile survives only if it improves the learned-loss/retained-loss Pareto point
+beyond both controls, not merely by moving the weights less. A no-replay arm is
+diagnostic for raw plasticity and forgetting, not a promotion candidate.
 
 Two later mechanisms remain distinct follow-ups rather than ingredients in the
 same first experiment. GeRe preserves coarse positive/neutral/negative final
