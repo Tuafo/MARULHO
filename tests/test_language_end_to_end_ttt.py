@@ -33,6 +33,16 @@ def test_v74_disabled_fast_path_is_exact() -> None:
     assert torch.equal(enabled, disabled)
 
 
+def test_v74_query_targets_are_exact_next_vocabulary_tokens() -> None:
+    model = V74EndToEndTTT(
+        V74Config(width=32, attention_heads=4, mlp_width=64, rank=4)
+    )
+    batch = _batch(model)
+    actual = batch.tokens[:, 2].index_select(1, batch.query_positions + 1)
+    assert torch.equal(actual, batch.query_values)
+    assert bool((batch.query_values >= model.config.value_start).all())
+
+
 def test_v74_future_perturbation_cannot_change_earlier_logits_or_update() -> None:
     torch.manual_seed(13)
     model = V74EndToEndTTT(
@@ -88,4 +98,3 @@ def test_v74_two_updates_reach_all_meta_parameters() -> None:
                 seen.add(name)
         optimizer.step()
     assert seen == set(dict(model.named_parameters()))
-

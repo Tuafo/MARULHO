@@ -92,7 +92,7 @@ def make_v74_batch(
     return V74Batch(
         tokens=tokens.to(device),
         query_positions=torch.tensor(query_positions, device=device),
-        query_values=values.to(device),
+        query_values=(config.value_start + values).to(device),
     )
 
 
@@ -250,4 +250,3 @@ class V74EndToEndTTT(nn.Module):
             "final_fast_b": fast_b,
             "inner_rate": F.softplus(self.inner_log_rate),
         }
-
