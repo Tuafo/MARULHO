@@ -131,6 +131,48 @@ source-byte-normalized quality gain repays the larger embedding/output compute.
 If V80 is coherent, retain the exact tokenizer so continual-learning evidence
 starts from the qualified state instead of resetting 1.264B positions.
 
+### Post-continual structural bet: conflict-grown cloned experts
+
+Structural plasticity should preserve sunk language training, not restart a new
+architecture. [Sparse Upcycling](https://arxiv.org/abs/2212.05055) shows that
+dense checkpoints can initialize sparsely selected experts. More directly,
+[Continual LLM Upcycling](https://arxiv.org/abs/2606.10722) trains low-rank
+predictors and bank-wise top-k SwiGLU channels during continued training. These
+are useful existence proofs, not local results: the latter starts from an 8B
+model at context 32K, and channel sparsity is not automatically fast on an RTX
+3060. A matched sparse-upcycling study reports quality gains accompanied by
+substantial inference slowdown
+([Doubov et al.](https://arxiv.org/abs/2411.08968)).
+
+MARULHO's first structural experiment after a V81 continual pass should therefore
+be **conflict-grown cloned experts**, not a large MoE conversion. On frozen
+incoming and replay minibatches, measure the cosine between their gradients at
+each SwiGLU block. Grow one cloned MLP expert only in the two layers with the most
+negative conflict. Because each new expert begins as an exact copy and the router
+begins on the old branch, creation must preserve every logit bit-exactly. The old
+expert and all existing V81 tensors remain frozen; only the two new experts and
+small causal routers learn. A router chooses one expert per document chunk from
+pre-MLP hidden state, with no task ID or service-side decision at inference.
+
+The causal controls are ordinary V81 replay with no growth, identical experts in
+two seeded random layers, and conflict-selected experts whose route is shuffled
+across documents. All receive the same incoming examples, replay documents,
+optimizer-update budget, and active expert count. Promotion requires the grown
+model to learn the next admitted domain at least as well as ordinary replay,
+retain old general loss within 0.01 of its parent, and beat both growth controls.
+It must also strict-reload its topology, router, tensors, optimizer, RNG, and
+growth receipt. Runtime evidence must count total versus executed parameters,
+expert selections, dispatch overhead, peak memory, and wall-clock throughput;
+one selected expert per grown layer is a structural-sparsity fact only if the
+unselected expert truly does not execute. A claimed efficiency win additionally
+requires at least 90% of the dense parent's measured generation throughput.
+
+This mechanism does not assume that many small units are inherently better. It
+asks a narrower question: when shared weights face a measured new/old gradient
+conflict, can MARULHO add two isolated pieces of capacity without rewriting what
+already works? Failure retires conflict-triggered expert growth; it does not get
+rescued by more experts, router sweeps, or an analytic FLOP claim.
+
 V64 now adds a decisive systems result to the ledger. Its 100,202,970-parameter
 delta-state/local-attention cortex was mathematically correct, its owned Triton
 backward passed full-model parity, and CUDA Graph reproduced an eager fused-
