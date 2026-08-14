@@ -4008,6 +4008,73 @@ decode, ownership, or checkpoint mismatch decides
 `reject_v80_unseen_generation_invalid_evidence`. Continual learning and grounded
 self-challenge remain closed until this direct-text decision passes.
 
+### V81 conditional preregistration: real replay before exotic memory
+
+**Admission.** V81 cannot construct or train an arm unless V80's terminal report
+passes, its checkpoint strict-reloads, and the direct unseen-generation decision
+is `advance_v80_to_continual_and_grounded_self_challenge_validation`. Every arm
+starts from that exact checkpoint and its checkpoint-owned tokenizer. V81 is a
+sequential-domain experiment around the qualified Transformer, not permission to
+train the current unqualified state or to restore a retired memory module.
+
+**Incoming task.** Reuse the immutable V57 title-disjoint SQuAD boundary, but
+train on its answer-localized `oracle_short` view first. This is deliberate: V57
+showed that full-source localization and answer learning fail together, while
+oracle-short reached 122/256. The localized view asks the continual experiment a
+clean question--can a mature V80 acquire a grounded new skill without erasing its
+language--before adding retrieval as another variable. The frozen 8,192-case
+train and 256-case validation manifests retain file SHA-256 values
+`aae376dc...ffc9133` and `b85f1da5...3c0f80`. Native-full, question-only, and
+mismatched-source validation remain transfer and causal controls; they are not
+used to select training examples.
+
+**One decisive schedule.** Use physical batch 8 with four-way accumulation,
+effective batch 32, context 320, BF16 eager execution, clipped MARULHO
+Muon/AdamW, and answer/EOS weight 4. Three exact incoming epochs give 768 SQuAD
+updates. Each replay arm interleaves exactly 768 real general updates for 1,536
+total updates and 15,728,640 padded positions. Each 512-update block contains 256
+incoming updates--one complete 8,192-case epoch--and 256 mixed replay updates.
+Its 8,192 replay documents are exactly 3,276 FineWeb-Edu, 2,458 Cosmopedia, and
+2,458 DCLM, keeping V80's approximately 40/30/30 mixture inside every block
+rather than creating source-homogeneous runs. Incoming order and replay documents
+are identical across arms. Learning
+rate warms for 64 updates from `1e-5` to `1e-4`, then cosines to `1e-5`. The four
+exact-reset arms are:
+
+1. `ordinary_replay50`, the candidate baseline;
+2. `reptile_replay50`, which after each 512-update block replaces every trained
+   tensor by `block_start + 0.1 * (block_end - block_start)` while retaining the
+   ordinary optimizer state, matching the published mechanism;
+3. `low_lr_replay50`, with the whole learning-rate schedule multiplied by 0.1;
+4. `no_replay`, which receives the same 768 incoming updates and exists only to
+   measure raw acquisition and forgetting.
+
+No replay ratio, epsilon, block length, layer subset, optimizer, or learning-rate
+sweep follows the result. Report full-model displacement norms after every block:
+if Reptile is not within 20% of the low-rate arm's terminal displacement, the
+low-rate comparison remains informative but cannot support a strong
+"beyond damping" mechanism claim.
+
+**Capability and retention.** Evaluate the untouched V80 state and every arm on
+all 256 oracle-short/native/control cases, the exact 1,536-document V80 heldout,
+the inherited relation panel, and the frozen 20-case unseen-generation review.
+A promotable continual checkpoint requires oracle-short exact generation at
+least 128/256 and at least 20 cases above its own V80 baseline; overall general
+later loss may regress by at most 0.02, no individual source by more than 0.03,
+and visible prose must remain coherent. Relation retention is reported and must
+not be called preserved if its exact score falls by more than five points.
+
+Ordinary replay becomes the continual checkpoint if it passes these absolute
+boundaries and no mechanism arm validly improves it. Reptile replaces it only if
+it also passes and either lowers retained general loss by at least 0.01 while
+staying within four oracle answers, or gains at least eight oracle answers while
+staying within 0.005 retained loss, against **both** ordinary and low-rate replay.
+Otherwise Reptile is retired. Any saved winner includes model, optimizer, RNG,
+completed schedule, tokenizer, and exact reload evidence so the mutation is
+durable and rollbackable. A result where no replay arm learns and retains decides
+`redesign_v81_learning_objective`; a result that learns only by forgetting
+decides `advance_v81_to_stronger_retention_not_structural_growth`.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
