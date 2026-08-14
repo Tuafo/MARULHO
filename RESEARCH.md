@@ -3067,6 +3067,28 @@ compilation occurs. The persistent quality arm is admitted. Compact report
 `exact-cortex-sidecar-v73-preflight-20260813.json` owns the evidence (SHA-256
 `5f368b0c639986e75abbcc7b3446f9ff8d42fbf1c8ee182948071e720d3c4bf3`).
 
+**V73 terminal result: STOP.** Preserving the Transformer repairs V72's deficit
+but the document state contributes no measurable causal utility. Persistent/
+Transformer later-segment loss is 5.85078125/5.851171875, a gain of only
+0.000390625 against the required 0.02. FineWeb-Edu and Cosmopedia losses are
+each numerically identical to the retained control. More decisively, rotating
+the incoming state across documents changes later loss by exactly 0.0. Read
+gates do train to 0.02319 and 0.01819, the mean content gate is 0.51170, all
+parameters receive finite nonzero gradients, and disabled parity remains exact;
+this is learned but document-insensitive residual behavior, not dead machinery.
+
+Candidate throughput is 20.41k versus 22.20k positions/s (91.91%), peak CUDA
+allocation is 6.068 GB, and parameter ratio is 1.012442. Systems gates pass.
+Because persistent already misses both Transformer improvement and state-swap
+admission, reset and shuffled cannot rescue the branch and are not run. Decision:
+`retire_v73_no_document_state_utility`. All model, runner, and tests are deleted;
+compact preflight, persistent, and stop reports retain the evidence. V72--V73
+together establish that local reconstruction can make state causal on synthetic
+data or harmless on real text, but does not optimize state for future language.
+The terminal report is `exact-cortex-sidecar-v73-stop-20260813.json` (SHA-256
+`0f787ab8d7ec9674b19ff4764c7957f5469e51a9a48361ef7e76680a5ff3c157`). The next
+admissible branch must meta-train the update on future loss.
+
 **Stage B only after both passes.** Add strict state/checkpoint reload and owned
 incremental generation, then test sequential-domain learning, source grounding,
 state retention, shuffled/zero state, unseen long prose, and the 524,288-token

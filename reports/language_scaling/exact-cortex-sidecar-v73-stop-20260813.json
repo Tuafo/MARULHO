@@ -1,0 +1,47 @@
+{
+  "surface": "marulho_exact_cortex_sidecar_v73.stop.v1",
+  "decision": "retire_v73_no_document_state_utility",
+  "passed": false,
+  "terminal_gates": [
+    "persistent_later_loss_improvement_at_least_0_02",
+    "state_swap_worsens_loss_at_least_0_02",
+    "both_corpus_specific_losses_improve"
+  ],
+  "completed_arms": [
+    "retained_transformer",
+    "persistent"
+  ],
+  "unrun_arms": [
+    "reset",
+    "shuffled"
+  ],
+  "early_stop_reason": "Persistent already misses the immutable Transformer and state-swap admission gates. Reset and shuffled cannot rescue admission and are omitted.",
+  "metrics": {
+    "transformer_later_loss": 5.851171875,
+    "persistent_later_loss": 5.85078125,
+    "persistent_improvement": 0.000390625,
+    "fineweb_improvement": 0.0,
+    "cosmopedia_improvement": 0.0,
+    "state_swap_wrong_minus_correct": 0.0,
+    "persistent_throughput_ratio": 0.9190546508902162,
+    "persistent_peak_cuda_allocated_bytes": 6067850752,
+    "parameter_ratio": 1.0124415789267924,
+    "read_gates": [
+      0.023193359375,
+      0.0181884765625
+    ],
+    "mean_content_gate": 0.5116984049479166
+  },
+  "checks": {
+    "disabled_transformer_bit_exact": true,
+    "complete_finite_gradients": true,
+    "parameter_ratio_at_most_1_02": true,
+    "throughput_at_least_70_percent": true,
+    "peak_below_11_5_gib": true,
+    "persistent_improvement_at_least_0_02": false,
+    "state_swap_delta_at_least_0_02": false,
+    "both_sources_improve": false
+  },
+  "persistent_report_sha256": "ebc54c3f54d9f3009919282747762865c7a1ec4a6309a21ece3609b44d8fd4a0",
+  "claim_boundary": "V73 preserves the Transformer and avoids V72 regression, but locally reconstructed document state adds no causal real-language utility."
+}

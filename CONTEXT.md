@@ -1098,16 +1098,26 @@ state by narrowing the base model. The next experiment must therefore keep
 Transformer capacity exact and make any adaptation conditional or temporary,
 with a zero-action path that is bit-exact and equal to the base model.
 
-**V73 exact-cortex adaptive sidecar (current experiment)** — preserve every
-100,679,424 Transformer parameter and its complete width-768, ten-layer path.
-Add a shared low-rank document-state sidecar only after the exact Transformer
-blocks; it may improve later segments but cannot take capacity away from the
-base. V72's immutable Transformer report is reused because V73 freezes the same
-tokenizer, documents, seed, order, optimizer, and 7,864,320-position recipe.
-Persistent and reset sidecars have identical parameters and compute, so extra
-capacity cannot masquerade as durable memory. Persistent runs first and must
-beat both the Transformer and, if admitted, reset by at least 0.02. A miss
-deletes V73 without a width, gate, or auxiliary sweep.
+**V73 exact-cortex adaptive sidecar (retired)** — preserving all Transformer
+capacity removes V72's language regression but does not make locally trained
+state useful. Disabled V73 is bit-exact to the Transformer; all 101.932M
+parameters train, sustained throughput is 20.41k versus 22.20k positions/s, and
+peak allocation is 6.068 GB. Persistent/Transformer later loss is
+5.85078/5.85117, only 0.00039 better instead of 0.02. FineWeb-Edu and Cosmopedia
+losses are exactly unchanged, and swapping document states changes loss by
+exactly zero despite nonzero read gates. Reset/shuffled cannot rescue the failed
+admission gates and are not run. All V73 machinery is deleted. This closes
+locally reconstructed latent sidecars, not jointly meta-trained test-time
+learning.
+
+**V74 end-to-end test-time learning (next research bet)** — use a standard full
+Transformer and meta-train a bounded temporary parameter update so ordinary
+next-token learning on one completed segment is optimized for loss on the next.
+This is qualitatively different from V59's post-hoc full fine-tune and V60--V63's
+frozen-parent adapters: the slow Transformer and update initialization learn
+together from scratch. V74 must first find a consumer-GPU formulation whose
+disabled path is exact and whose meta-gradient is bounded; no quality run begins
+from a memory sidecar renamed as TTT.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
