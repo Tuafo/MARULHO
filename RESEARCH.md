@@ -3883,6 +3883,16 @@ first/last 1,024 slots by SHA-256 before training. No prompt, answer, evaluation
 text, external weight, embedding, tokenizer, logit, generator, or judge enters
 training; `external_llm_used=false` remains exact.
 
+**Schedule result.** The 5,245,669-byte artifact has SHA-256
+`2785aa0a96ce7c26d139d88298f05bde99626f25a0c67fe3223a9d29c15ea460`;
+its source+row schedule SHA-256 is
+`a886ef762ef32f077d688f9701269ebe5a293c37661ba091c4dd73cfffb449fa`.
+First/last 1,024-slot hashes are `bee3248e...a80c29` and
+`3dc68713...8cebc`. FineWeb-Edu documents receive 7--8 exposures,
+Cosmopedia 5--6, and DCLM 2--3; every source is balanced within one and all row
+bounds/source counts strict-reload. The schedule report SHA-256 is
+`d73810d08f5c662063269fbd1c38d1cc2c0e1ca8fdf67170bc21a6647a4ed527`.
+
 **Continuous optimization and resume.** Keep the V78 100.679M decoder-only
 Transformer, 320-token context, historical three-call episode, physical batch 8,
 effective batch 32, BF16 eager CUDA, uncompiled Muon, weight decay 0.1, and clip

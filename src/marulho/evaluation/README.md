@@ -1070,6 +1070,12 @@ per-document exposure histograms. Every document is exposed evenly within one
 repeat; source tensors, full schedule, and first/last 1,024 slots are hash-bound
 before the trainer can start.
 
+The frozen artifact is 5,245,669 bytes with SHA-256 `2785aa0a...15ea460`;
+source+row schedule hash is `a886ef76...fb449fa`. FineWeb-Edu exposure is 7--8
+per document, Cosmopedia 5--6, and DCLM 2--3. All counts, row bounds, full IDs,
+first/last anchors, and within-one exposure balance strict-reload; report
+`d73810d0...a4ed527` records the immutable result.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

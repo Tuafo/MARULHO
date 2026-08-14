@@ -1219,6 +1219,12 @@ positions, so the 1.007B schedule averages 3.85 balanced-within-source epochs.
 The 4.24 GB recreatable raw parquets are deleted; content-addressed tensors and
 selected DCLM text remain.
 
+The exact million-document source/row schedule is also frozen at SHA-256
+`a886ef76...fb449fa`. It contains the preregistered 419,430/314,573/314,573
+FineWeb/Cosmopedia/DCLM slots and 1,006,632,960 predicted positions. Exposure
+histograms are balanced within one for every source, and the 5.25 MB artifact
+strict-reloads all IDs, bounds, counts, and first/last anchors.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
