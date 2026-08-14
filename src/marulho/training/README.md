@@ -627,6 +627,14 @@ The scaling experiment stores optional training-continuation metadata inside
 this atomic payload: optimizer/scaler state, cumulative token/step counts, RNG
 state, and batch position. Inference loading does not depend on those fields.
 
+**`language_training_snapshot.py`** owns that continuation metadata. It requires
+BF16 model tensors, stores a complete CPU-cloned optimizer tree, CPU/all-device
+CUDA RNG state, completed step, next schedule offset, and caller-owned curve or
+progress state inside the normal Transformer checkpoint. Canonical tree hashes
+cover optimizer and RNG state. Loading reconstructs the model and optimizer on
+the requested device, verifies all hashes, and restores RNG only after model and
+optimizer construction, so construction cannot consume the resumed stream.
+
 The tokenizer vocabulary must exactly match the model vocabulary. Legacy
 recurrent, routed, spiking, sampled-vocabulary, and padded-vocabulary
 checkpoints are rejected rather than upgraded through compatibility code.
