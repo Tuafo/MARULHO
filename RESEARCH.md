@@ -4014,6 +4014,11 @@ training advances through 6,176 at about 19.80k positions/s. The slope is still
 positive but diminishing; only the full frozen schedule and cooldown can decide
 the remaining 0.128770 overall requirement.
 
+Update 7,168 then writes and strict-reloads a 428,213,845-byte optimizer snapshot
+at SHA-256 `d1d3cfd6...ef30a0d`, rotates update 5,120 away, retains exactly
+6,144/7,168, and continues through 7,200 at about 19.84k positions/s. This is
+recovery evidence only; the next quality observation remains update 8,192.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution

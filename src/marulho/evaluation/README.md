@@ -1127,6 +1127,9 @@ gain reaches 48.49% of its target; DCLM reaches 108.61% of its own target while
 both retained sources improve. Snapshot 6,144 strict-reloads at 428,213,845
 bytes (`21495160...c68eac7`), rotates update 4,096 away, and training continues
 past 6,176 at about 19.80k positions/s.
+Snapshot 7,168 then strict-reloads at 428,213,845 bytes
+(`d1d3cfd6...ef30a0d`), deletes only update 5,120, retains 6,144/7,168, and
+continues past 7,200 at about 19.84k positions/s.
 On terminal quantitative qualification, finalization retains exactly the last
 verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
 separate FP32 checkpoint remains the inference/generation artifact. The terminal

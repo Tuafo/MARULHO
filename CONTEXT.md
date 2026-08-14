@@ -1292,6 +1292,11 @@ SHA-256 `21495160...c68eac7`, rotates update 4,096 away, and training advances
 through 6,176 at about 19.80k positions/s. The overall gate and visible language
 review remain unresolved.
 
+Update 7,168 writes and strict-reloads another 428,213,845-byte optimizer state
+at SHA-256 `d1d3cfd6...ef30a0d`, deletes only update 5,120, retains updates
+6,144/7,168, and continues through 7,200 at about 19.84k positions/s. Rolling
+recovery therefore remains healthy between authoritative curve points.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed
