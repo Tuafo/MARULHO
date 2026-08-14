@@ -3377,6 +3377,14 @@ continuation receives the same segment losses without fast parameters. Exact
 and first-order use mathematical SDPA for numerical identity; static additionally
 reports default-SDPA throughput. No arm may load another arm's state.
 
+**Pre-result systems amendment.** The first static launch at physical batch 32
+was terminated before its first result when device telemetry reached 12,001 MiB
+of 12,288 MiB. No report, metric, or checkpoint was produced. Static training is
+therefore constrained to the already validated physical batch 8 with four-way
+gradient accumulation, preserving effective batch 32, document order, optimizer
+updates, and the default-SDPA comparison while restoring desktop safety. This is
+a systems correction made before any arm outcome, not a quality-dependent tune.
+
 **Safety before training.** Execute one exact outer forward/backward at physical
 batches 1, 2, 4, 8, 16, and 32 in order. Stop before a projected or observed
 10.0-GiB allocation, any nonfinite/zero required gradient, or desktop telemetry

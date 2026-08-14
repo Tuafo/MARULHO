@@ -1,0 +1,14 @@
+{
+  "arm": "static",
+  "decision": "abort_static_batch32_memory_pressure_use_validated_batch8_accum4",
+  "effective_batch": 32,
+  "gpu": "NVIDIA GeForce RTX 3060",
+  "observed_device_memory_total_mib": 12288,
+  "observed_device_memory_used_mib": 12001,
+  "output_report_created": false,
+  "physical_batch": 32,
+  "quality_result_available": false,
+  "replacement_gradient_accumulation_steps": 4,
+  "replacement_physical_batch": 8,
+  "surface": "marulho_exact_ttt_v76.stage_a1_static_safety_abort.v1"
+}

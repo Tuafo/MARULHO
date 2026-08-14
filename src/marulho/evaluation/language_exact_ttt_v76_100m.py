@@ -242,12 +242,16 @@ def _train_static(
         for group in optimizer.param_groups:
             group["lr"] = _learning_rate(step)
         optimizer.zero_grad(set_to_none=True)
-        offset = step * EFFECTIVE_BATCH
-        indices = schedule[offset : offset + EFFECTIVE_BATCH]
-        digest.update(indices.numpy().tobytes())
-        batch = select_document_batch(documents, indices, device=device)
-        result = _static_episode(model, batch)
-        result["loss"].backward()
+        final_segment_losses = torch.zeros(3, dtype=torch.float64)
+        for micro in range(ACCUMULATION_STEPS):
+            offset = step * EFFECTIVE_BATCH + micro * PHYSICAL_BATCH
+            indices = schedule[offset : offset + PHYSICAL_BATCH]
+            digest.update(indices.numpy().tobytes())
+            batch = select_document_batch(documents, indices, device=device)
+            result = _static_episode(model, batch)
+            (result["loss"] / ACCUMULATION_STEPS).backward()
+            final_segment_losses += result["segment_losses"].cpu().double()
+            del batch, result
         if gradient_audit is None:
             gradient_audit = _gradient_audit(model)
             if not gradient_audit["passed"]:
@@ -255,10 +259,9 @@ def _train_static(
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         final = {
-            "segment_losses": result["segment_losses"].tolist(),
+            "segment_losses": (final_segment_losses / ACCUMULATION_STEPS).tolist(),
             "learning_rate": _learning_rate(step),
         }
-        del batch, result
         if (step + 1) % 32 == 0:
             print(f"V76 100M static step={step + 1}/{TRAIN_STEPS}", flush=True)
     torch.cuda.synchronize(device)
@@ -270,9 +273,9 @@ def _train_static(
         "positions": TRAIN_STEPS * EFFECTIVE_BATCH * 3 * SEGMENT_LENGTH,
         "seconds": seconds,
         "positions_per_second": TRAIN_STEPS * EFFECTIVE_BATCH * 3 * SEGMENT_LENGTH / seconds,
-        "physical_batch": EFFECTIVE_BATCH,
+        "physical_batch": PHYSICAL_BATCH,
         "effective_batch": EFFECTIVE_BATCH,
-        "gradient_accumulation_steps": 1,
+        "gradient_accumulation_steps": ACCUMULATION_STEPS,
         "schedule_sha256": digest.hexdigest(),
         "gradient_audit": gradient_audit,
         "peak_cuda_allocated_bytes": int(torch.cuda.max_memory_allocated(device)),
@@ -431,7 +434,7 @@ def run_arm(arm: Arm, output: Path) -> dict[str, Any]:
             "train_steps": 0 if arm == "immutable" else TRAIN_STEPS,
             "effective_batch": EFFECTIVE_BATCH,
             "physical_batch": (
-                PHYSICAL_BATCH if arm in {"exact", "first_order"} else EFFECTIVE_BATCH
+                PHYSICAL_BATCH if arm != "immutable" else EFFECTIVE_BATCH
             ),
             "segments": 3,
             "segment_length": SEGMENT_LENGTH,
