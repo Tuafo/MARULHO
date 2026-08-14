@@ -1134,12 +1134,12 @@ current loss, gradient RMS, alignment with accumulated fast state, and fast-stat
 RMS. It decides how much of the current gradient to accept; it receives no token
 identity, segment number, future information, answer label, or external memory.
 The same trained model is evaluated with its learned gate, the gate forced open,
-updates discarded, and gradients shuffled across documents. This directly tests
-whether selective retention explains an improvement rather than more capacity
-or a renamed lookup table. V75 must clear 80% recall in every frozen seed, beat
-forced-open updates by 10 points, and beat discard/shuffle by 20 points before a
-100M language test. A miss deletes the branch without tuning rank, learning
-rate, step count, or the task.
+a fixed gate matched to the learned gate's mean acceptance, updates discarded,
+and gradients shuffled across documents. The matched constant prevents a second
+global learning-rate knob from masquerading as selectivity. V75 must clear 80%
+recall in every frozen seed, beat both fixed-gate controls by 10 points, and beat
+discard/shuffle by 20 points before a 100M language test. A miss deletes the
+branch without tuning rank, learning rate, step count, or the task.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

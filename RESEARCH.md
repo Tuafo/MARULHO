@@ -3215,9 +3215,12 @@ privileged hand-coded skip rule.
 **Frozen Stage A0.** Reuse seeds 7401/7402/7403, exact online data distribution,
 model dimensions, rank, batch 128, 800 AdamW updates at 3e-4, clipping, and 4,096
 fresh evaluation documents from V74. Train one adaptive model per seed, then
-evaluate four interventions on its exact slow weights and documents:
-`adaptive_own`, `forced_open_own`, `discard_same_compute`, and
-`adaptive_shuffled`. All compute the identical per-document gradients. Report
+evaluate five interventions on its exact slow weights and documents:
+`adaptive_own`, `forced_open_own`, `matched_constant_own`,
+`discard_same_compute`, and `adaptive_shuffled`. The matched constant is the
+mean of adaptive gates over the two pre-query updates on the frozen evaluation
+documents; it matches average update strength without per-segment or per-document
+selection and does not inspect labels. All arms compute identical per-document gradients. Report
 accuracy, segment losses, gate distributions, update norms, throughput, peak
 CUDA allocation, complete gradients, schedule/data hashes, and final parameter
 hashes. Disabled fast weights must remain bit-exact; future-token perturbation
@@ -3225,12 +3228,13 @@ must leave all earlier outputs, statistics, gates, and updates exact; state must
 reset exactly at document boundaries.
 
 **Decision.** Every seed must achieve at least 80% with `adaptive_own`, at least
-10 percentage points above `forced_open_own`, and at least 20 points above both
-discarded and shuffled controls. Seed 7401 is an early terminal: any miss stops
-the remaining seeds. No rate, rank, depth, width, step, feature, threshold, or
-dataset sweep follows failure. Passing all seeds admits only a bounded 100M
-long-document safety ladder and matched language screen; it does not install a
-runtime. Failure retains a compact report and deletes all V75 code and tests.
+10 percentage points above both `forced_open_own` and
+`matched_constant_own`, and at least 20 points above both discarded and shuffled
+controls. Seed 7401 is an early terminal: any miss stops the remaining seeds. No
+rate, rank, depth, width, step, feature, threshold, or dataset sweep follows
+failure. Passing all seeds admits only a bounded 100M long-document safety
+ladder and matched language screen; it does not install a runtime. Failure
+retains a compact report and deletes all V75 code and tests.
 
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,

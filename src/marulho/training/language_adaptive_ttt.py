@@ -15,6 +15,7 @@ from .language_transformer import MarulhoTransformerBlock, TransformerRMSNorm
 RetentionMode = Literal[
     "adaptive_own",
     "forced_open_own",
+    "matched_constant_own",
     "discard_same_compute",
     "adaptive_shuffled",
 ]
@@ -227,10 +228,16 @@ class V75AdaptiveTTT(nn.Module):
         per_document_loss: torch.Tensor,
         *,
         mode: RetentionMode,
+        matched_gate: float | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if mode == "adaptive_shuffled":
             candidate_a, candidate_b = grad_a.roll(1, 0), grad_b.roll(1, 0)
-        elif mode in {"adaptive_own", "forced_open_own", "discard_same_compute"}:
+        elif mode in {
+            "adaptive_own",
+            "forced_open_own",
+            "matched_constant_own",
+            "discard_same_compute",
+        }:
             candidate_a, candidate_b = grad_a, grad_b
         else:
             raise ValueError(f"Unsupported V75 mode: {mode}")
@@ -240,6 +247,10 @@ class V75AdaptiveTTT(nn.Module):
         raw_gate = torch.sigmoid(self.retention_gate(features).squeeze(-1))
         if mode == "forced_open_own":
             accepted_gate = torch.ones_like(raw_gate)
+        elif mode == "matched_constant_own":
+            if matched_gate is None:
+                raise ValueError("matched_constant_own requires matched_gate")
+            accepted_gate = torch.full_like(raw_gate, float(matched_gate))
         elif mode == "discard_same_compute":
             accepted_gate = torch.zeros_like(raw_gate)
         else:
@@ -276,12 +287,14 @@ class V75AdaptiveTTT(nn.Module):
         batch: V75Batch,
         *,
         mode: RetentionMode,
+        matched_gate: float | None = None,
     ) -> dict[str, torch.Tensor]:
         batch_size = int(batch.tokens.shape[0])
         fast_a, fast_b = self.initial_fast_weights(batch_size)
         losses: list[torch.Tensor] = []
         update_norms: list[torch.Tensor] = []
         gates: list[torch.Tensor] = []
+        accepted_gates: list[torch.Tensor] = []
         gate_features: list[torch.Tensor] = []
         query_logits: torch.Tensor | None = None
         for segment in range(self.config.segments):
@@ -314,8 +327,18 @@ class V75AdaptiveTTT(nn.Module):
                 grad_b,
                 per_document,
                 mode=mode,
+                matched_gate=matched_gate,
             )
             gates.append(raw_gate)
+            if mode == "forced_open_own":
+                accepted_gates.append(torch.ones_like(raw_gate))
+            elif mode == "matched_constant_own":
+                assert matched_gate is not None
+                accepted_gates.append(torch.full_like(raw_gate, float(matched_gate)))
+            elif mode == "discard_same_compute":
+                accepted_gates.append(torch.zeros_like(raw_gate))
+            else:
+                accepted_gates.append(raw_gate)
             gate_features.append(features)
         assert query_logits is not None
         return {
@@ -324,6 +347,7 @@ class V75AdaptiveTTT(nn.Module):
             "query_logits": query_logits,
             "update_norms": torch.stack(update_norms),
             "gates": torch.stack(gates, dim=1),
+            "accepted_gates": torch.stack(accepted_gates, dim=1),
             "gate_features": torch.stack(gate_features, dim=1),
             "final_fast_a": fast_a,
             "final_fast_b": fast_b,
