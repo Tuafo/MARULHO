@@ -4132,6 +4132,14 @@ snapshot strict-reloads at SHA-256 `15ad169d...613ae9b`, rotates update 16,384
 away, retains exactly 17,408/18,432, and training advances through 18,528 at
 about 19.98k positions/s.
 
+Update 19,456 writes and strict-reloads a 428,215,061-byte optimizer snapshot
+at SHA-256 `fc81c485...259ce10`. Exact verification covers model, optimizer,
+RNG, raw tensors, counters, schedule offset, ownership, and absent external LLM
+use. Rotation deletes only update 17,408, retains exactly 18,432/19,456, and
+training advances through 19,552 after 600,637,440 new positions at about
+20.00k positions/s. This adds rollback evidence only; update 20,480 remains the
+next quality measurement.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
