@@ -3760,6 +3760,52 @@ Both transient model states and the failed V79 runner/tests are deleted. V78
 remains the strongest strict checkpoint; the filtered DCLM corpus remains as a
 content-addressed input for a future all-source curriculum.
 
+### V80 Stage 0 preregistration: pack independent segments before scale
+
+**Why this precedes the long run.** V77--V79 call the same Transformer three
+times for each physical batch: once for each independent 320-token segment.
+Those three graphs remain live until one averaged backward pass, so the layout
+pays three launch sequences without gaining cross-segment context or reducing
+the intended activation lifetime. V80 tests a systems-equivalent layout before
+spending the next large curriculum: reshape physical batch 8 x three segments
+into one batch of 24 independent 320-token sequences, execute one model call,
+and reshape the per-token loss back to document x segment. Attention masks,
+targets, document boundaries, loss weights, effective batch, optimizer, and
+processed positions remain unchanged. This is batching, not compilation or a
+new model.
+
+**Immutable preflight.** Strict-load the V78 checkpoint and the frozen V79 DCLM
+artifact, using its first 32 training documents only as input. Baseline and
+packed arms begin from the exact same BF16 state and run eager SDPA, physical
+document batch 8, effective document batch 32, four-way accumulation, and fresh
+uncompiled Muon with the same learning rate, decay, and clipping. First compare
+one forward/backward/update and a disjoint post-update batch. Then time one
+warmup plus eight complete optimizer updates per layout. Run baseline first and
+destroy its CUDA optimizer before packed allocation. Batch 32 remains forbidden;
+the process remains bounded and the peak ceiling is 8 GiB.
+
+**Admission.** Both layouts must give all parameters finite nonzero gradients.
+Packed versus baseline requires scalar loss delta at most 0.002, maximum
+per-document/segment loss delta at most 0.02, global gradient cosine at least
+0.9999, gradient relative L2 error at most 0.02, post-update parameter relative
+L2 error at most 0.002, and disjoint post-update loss delta at most 0.002. Peak
+allocation must remain at most 8 GiB and packed median complete-step throughput
+must be at least 1.10 times baseline. A pass installs packed-segment training in
+the V80 long-run runner; a miss deletes the preflight runner and keeps the known
+baseline layout without changing the scientific curriculum. No quality or
+architecture claim follows from a systems pass.
+
+**Scale direction after Stage 0.** V79 demonstrates distribution acquisition
+and distribution forgetting in the same valid run. Current small-model evidence
+also uses mixtures rather than winner-take-all corpora: SmolLM2 combines
+[FineWeb-Edu and DCLM](https://arxiv.org/abs/2502.02737), while the auditable
+[L20-Edu 135M study](https://arxiv.org/abs/2606.22189) still spends 13B tokens.
+V80 therefore keeps FineWeb-Edu, Cosmopedia, and DCLM represented, uses a
+resume-exact optimizer-bearing training state, and targets a materially larger
+continuous schedule rather than another 31M-position replacement arm. Exact
+mix, corpus hashes, token budget, schedule, checkpoint cadence, and generation
+gates will be frozen after Stage 0 measures the real safe throughput.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

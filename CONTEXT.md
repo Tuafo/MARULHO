@@ -1194,6 +1194,15 @@ failure. No candidate checkpoint exists and the failed runner is deleted. The
 content-addressed DCLM text/tensors remain reusable. This rejects substitution,
 not DCLM or a future curriculum that keeps all learned sources represented.
 
+**V80 active scale preparation** — first tests a mathematically equivalent
+training layout: pack each document's three independent 320-token segments into
+one larger batch call instead of three Transformer calls. Exact BF16 parent,
+loss, gradient, optimizer-update, heldout-loss, memory, and at least 1.10x
+throughput gates decide whether the layout survives. The subsequent capability
+run will retain FineWeb-Edu, Cosmopedia, and DCLM together on one materially
+larger continuous schedule with resume-exact training state. It is not another
+source-replacement sweep.
+
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
 match token pipelines under controlled compute. H-Net is especially relevant to
