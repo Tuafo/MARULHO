@@ -1121,6 +1121,12 @@ The 428,213,333-byte state strict-reloads at `7106aa33...ec7c96`, rotates update
 That reconstructed process writes its next 428,213,397-byte state at update
 5,120 (`33bc5d4a...ab88e36`), strict-reloads it, deletes only update 3,072, retains
 4,096/5,120, and continues past 5,152 at about 19.74k positions/s.
+At update 6,144, overall later loss is 2.861635 and
+FineWeb-Edu/Cosmopedia/DCLM are 3.069839/2.380089/3.134975. The total overall
+gain reaches 48.49% of its target; DCLM reaches 108.61% of its own target while
+both retained sources improve. Snapshot 6,144 strict-reloads at 428,213,845
+bytes (`21495160...c68eac7`), rotates update 4,096 away, and training continues
+past 6,176 at about 19.80k positions/s.
 On terminal quantitative qualification, finalization retains exactly the last
 verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
 separate FP32 checkpoint remains the inference/generation artifact. The terminal

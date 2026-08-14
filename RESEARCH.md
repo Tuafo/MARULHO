@@ -4002,6 +4002,18 @@ SHA-256 `33bc5d4a...ab88e36`, deletes update 3,072, and leaves exactly updates
 confirms that the code revision retained production rotation and continuation;
 it supplies no additional heldout result before update 6,144.
 
+The third authoritative curve at update 6,144 covers 188,743,680 new positions,
+18.75% of the schedule. Overall later loss reaches 2.861635, another 0.015495
+improvement since update 4,096 and a 0.121230 total gain, or 48.49% of the final
+0.25 requirement. FineWeb-Edu, Cosmopedia, and DCLM independently reach
+3.069839/2.380089/3.134975, improving their initial values by
+0.087761/0.058716/0.217213. DCLM now clears its terminal 0.20 gain at 108.61%
+without an old-source tradeoff. The 428,213,845-byte snapshot strict-reloads at
+SHA-256 `21495160...c68eac7`, deletes update 4,096, retains 5,120/6,144, and
+training advances through 6,176 at about 19.80k positions/s. The slope is still
+positive but diminishing; only the full frozen schedule and cooldown can decide
+the remaining 0.128770 overall requirement.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
