@@ -1100,6 +1100,9 @@ retains only the newest two, evaluates all three holdouts every 2,048, and updat
 an atomic live-progress report every 32. A real controlled stop at update 2 and
 resume through update 4 reproduced initial loss within `3e-6`, sustained about
 17.0k positions/s, and peaked at 4.260 GB; all smoke artifacts were deleted.
+Production then wrote and strict-reloaded its first 428,212,885-byte rollback
+point at update 1,024 (`6f6d11b8...976017`) before continuing. This verifies the
+snapshot path under the real optimizer/data schedule, not only the smoke.
 
 **`language_billion_generation.py`** owns V80's post-training direct-language
 boundary. It cannot run unless the V80 terminal report passes quantitative and

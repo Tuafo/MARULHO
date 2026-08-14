@@ -3953,6 +3953,11 @@ Production V80 launched from the exact V78 parent on 2026-08-14. Its first
 32-update live point sustained 19,629 positions/s, reported 4,260,120,064 bytes
 run-wide peak allocation, and kept the physical batch at 8. The live progress
 artifact updates every 32 steps; it is operational state, not terminal evidence.
+The first production rollback point at update 1,024 is 428,212,885 bytes with
+SHA-256 `6f6d11b8...976017`. Its immediate reload verifies exact model, optimizer,
+RNG, completed-step, next-schedule, and ownership state, and training continued
+past update 1,056 at about 19.94k positions/s. This proves crash recovery is
+working in the real run; it is still not terminal quality evidence.
 
 ### V80 Stage 3 preregistration: direct unseen-language decision
 

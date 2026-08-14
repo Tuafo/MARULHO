@@ -1245,6 +1245,10 @@ leaving the final model exact, so the maintained contract reports post-compute
 hashes but gates them with strict elementwise tolerances. A real stop/resume smoke
 then continued updates 2--4 at about 17.0k positions/s and reproduced the frozen
 initial three-source loss within `3e-6`; its 428 MB smoke snapshots were deleted.
+The production run's first snapshot at update 1,024 is 428,212,885 bytes with
+SHA-256 `6f6d11b8...976017`; immediate reload verifies exact model, optimizer,
+RNG, counters, schedule offset, and ownership before training continues. This
+confirms real recovery behavior but says nothing yet about final language quality.
 
 V80's post-training language audit is also frozen before a candidate exists. It
 will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
