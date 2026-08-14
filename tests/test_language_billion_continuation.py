@@ -14,6 +14,7 @@ from marulho.evaluation.language_billion_continuation import (
     WARMUP_STEPS,
     _learning_rate,
     _numerically_equivalent,
+    _prune_snapshots,
     _progress_payload,
     _quality_checks,
     _scheduled_documents,
@@ -139,3 +140,20 @@ def test_v80_progress_and_snapshot_paths_preserve_resume_counters(tmp_path) -> N
     )
     assert progress["processed_positions"] == 61_440
     assert progress["positions_per_second"] == 15_360.0
+
+
+def test_v80_snapshot_pruning_retains_only_the_two_newest(tmp_path) -> None:
+    prefix = tmp_path / "v80-training"
+    snapshots = [
+        _snapshot_output_path(prefix, completed_steps)
+        for completed_steps in (1024, 2048, 3072)
+    ]
+    for index, snapshot in enumerate(snapshots):
+        snapshot.write_bytes(bytes([index]))
+
+    deleted = _prune_snapshots(prefix)
+
+    assert deleted == [str(snapshots[0])]
+    assert not snapshots[0].exists()
+    assert snapshots[1].read_bytes() == b"\x01"
+    assert snapshots[2].read_bytes() == b"\x02"
