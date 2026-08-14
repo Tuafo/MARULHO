@@ -54,7 +54,9 @@ from marulho.training.language_training_snapshot import (
 
 
 SURFACE = "marulho_language_billion_continuation.v80"
-RESUME_PREFLIGHT_SURFACE = "marulho_language_billion_continuation.v80_resume_preflight"
+RESUME_PREFLIGHT_SURFACE = (
+    "marulho_language_billion_continuation.v80_resume_fidelity_preflight"
+)
 PARENT = (
     ROOT
     / "reports/language_scaling/"
@@ -71,6 +73,14 @@ SCHEDULE = (
 )
 SCHEDULE_ARTIFACT_SHA256 = "2785aa0a96ce7c26d139d88298f05bde99626f25a0c67fe3223a9d29c15ea460"
 SCHEDULE_SHA256 = "a886ef762ef32f077d688f9701269ebe5a293c37661ba091c4dd73cfffb449fa"
+RESUME_FIDELITY_REPORT = (
+    ROOT
+    / "reports/language_scaling/"
+    "v80-resume-fidelity-preflight-20260814.json"
+)
+RESUME_FIDELITY_REPORT_SHA256 = (
+    "a1ce9559d252deb4ee4cf1aa8d38704b9019278a87feb72cc1b3d82b886c4dac"
+)
 EVAL_ARTIFACT = (
     ROOT
     / "reports/language_curriculum/"
@@ -115,6 +125,11 @@ INITIAL_LEARNING_RATE = 3.0e-5
 PHYSICAL_BATCH = 8
 ACCUMULATION_STEPS = EFFECTIVE_BATCH // PHYSICAL_BATCH
 MAXIMUM_PEAK_BYTES = 8 * 1024**3
+MAXIMUM_DIFFERING_FRACTION = 1.0e-6
+MAXIMUM_GRADIENT_OR_OPTIMIZER_ABSOLUTE_DIFFERENCE = 1.0e-6
+MAXIMUM_GRADIENT_OR_OPTIMIZER_RELATIVE_L2 = 1.0e-7
+MAXIMUM_MODEL_ABSOLUTE_DIFFERENCE = 5.0e-4
+MAXIMUM_MODEL_RELATIVE_L2 = 1.0e-8
 
 
 def _learning_rate(step: int) -> float:
@@ -300,6 +315,86 @@ def _clone_to_cuda(parent: MarulhoLanguageModel, *, device: torch.device) -> Mar
     return model.to(device=device, dtype=torch.bfloat16)
 
 
+def _comparison_state(
+    model: MarulhoLanguageModel,
+    optimizer: torch.optim.Optimizer,
+) -> dict[str, Any]:
+    optimizer_tensors: dict[str, torch.Tensor] = {}
+    optimizer_state = optimizer.state_dict()["state"]
+    for parameter_id, state in optimizer_state.items():
+        for key, value in state.items():
+            if isinstance(value, torch.Tensor):
+                optimizer_tensors[f"{parameter_id}.{key}"] = (
+                    value.detach().cpu().clone()
+                )
+    return {
+        "model": {
+            name: value.detach().cpu().clone()
+            for name, value in model.state_dict().items()
+        },
+        "gradients": {
+            name: parameter.grad.detach().cpu().clone()
+            for name, parameter in model.named_parameters()
+            if parameter.grad is not None
+        },
+        "optimizer": optimizer_tensors,
+    }
+
+
+def _tensor_mapping_difference(
+    reference: Mapping[str, torch.Tensor],
+    candidate: Mapping[str, torch.Tensor],
+) -> dict[str, Any]:
+    if tuple(reference) != tuple(candidate):
+        raise RuntimeError("V80 comparison tensor names changed")
+    element_count = 0
+    differing_element_count = 0
+    absolute_sum = 0.0
+    squared_sum = 0.0
+    reference_squared_sum = 0.0
+    maximum_absolute = 0.0
+    maximum_tensor = None
+    for name in reference:
+        left = reference[name]
+        right = candidate[name]
+        if left.dtype != right.dtype or tuple(left.shape) != tuple(right.shape):
+            raise RuntimeError(f"V80 comparison tensor metadata changed: {name}")
+        difference = left.float().sub(right.float())
+        tensor_maximum = float(difference.abs().max().item())
+        if tensor_maximum > maximum_absolute:
+            maximum_absolute = tensor_maximum
+            maximum_tensor = name
+        element_count += int(left.numel())
+        differing_element_count += int(torch.count_nonzero(difference).item())
+        absolute_sum += float(difference.double().abs().sum().item())
+        squared_sum += float(difference.double().square().sum().item())
+        reference_squared_sum += float(left.double().square().sum().item())
+        del difference
+    return {
+        "tensor_count": len(reference),
+        "element_count": element_count,
+        "differing_element_count": differing_element_count,
+        "differing_fraction": differing_element_count / max(1, element_count),
+        "mean_absolute": absolute_sum / max(1, element_count),
+        "maximum_absolute": maximum_absolute,
+        "maximum_absolute_tensor": maximum_tensor,
+        "relative_l2": math.sqrt(squared_sum / max(reference_squared_sum, 1.0e-30)),
+    }
+
+
+def _numerically_equivalent(
+    difference: Mapping[str, Any],
+    *,
+    maximum_absolute: float,
+    maximum_relative_l2: float,
+) -> bool:
+    return bool(
+        float(difference["differing_fraction"]) <= MAXIMUM_DIFFERING_FRACTION
+        and float(difference["maximum_absolute"]) <= maximum_absolute
+        and float(difference["relative_l2"]) <= maximum_relative_l2
+    )
+
+
 def _logical_step(
     model: MarulhoLanguageModel,
     optimizer: torch.optim.Optimizer,
@@ -358,7 +453,7 @@ def _run_two_step_reference(
     data: Mapping[str, Any],
     *,
     device: torch.device,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     torch.manual_seed(MODEL_SEED)
     torch.cuda.manual_seed_all(MODEL_SEED)
     model = _clone_to_cuda(parent, device=device)
@@ -380,8 +475,12 @@ def _run_two_step_reference(
                 optimizer,
                 documents=documents,
                 device=device,
-                audit_gradients=step == 0,
+                audit_gradients=True,
             )
+        )
+        results[-1]["post_model_state_sha256"] = language_model_state_sha256(model)
+        results[-1]["post_optimizer_state_sha256"] = tree_sha256(
+            optimizer.state_dict()
         )
         peak = max(peak, int(torch.cuda.max_memory_allocated(device)))
     state = {
@@ -399,10 +498,11 @@ def _run_two_step_reference(
         "peak_cuda_allocated_bytes": peak,
         "optimizer": optimizer_report,
     }
+    comparison_state = _comparison_state(model, optimizer)
     del optimizer, model
     gc.collect()
     torch.cuda.empty_cache()
-    return state, results[0]["gradient_audit"]
+    return state, results[0]["gradient_audit"], comparison_state
 
 
 def _run_interrupted_path(
@@ -412,7 +512,7 @@ def _run_interrupted_path(
     *,
     snapshot_path: Path,
     device: torch.device,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     torch.manual_seed(MODEL_SEED)
     torch.cuda.manual_seed_all(MODEL_SEED)
     torch.cuda.reset_peak_memory_stats(device)
@@ -428,6 +528,8 @@ def _run_interrupted_path(
         device=device,
         audit_gradients=True,
     )
+    first["post_model_state_sha256"] = language_model_state_sha256(model)
+    first["post_optimizer_state_sha256"] = tree_sha256(optimizer.state_dict())
     if first["gradient_audit"] is None or not first["gradient_audit"]["passed"]:
         raise RuntimeError(f"V80 interrupted first gradients failed: {first}")
     snapshot = save_language_training_snapshot(
@@ -468,6 +570,8 @@ def _run_interrupted_path(
     )
     if restored_tokenizer.vocabulary_hash() != TOKENIZER_SHA256:
         raise RuntimeError("V80 resumed tokenizer changed")
+    restored_pre_step_model_hash = language_model_state_sha256(restored_model)
+    restored_pre_step_optimizer_hash = tree_sha256(restored_optimizer.state_dict())
     completed_steps = int(continuation["completed_steps"])
     next_offset = int(continuation["next_schedule_offset"])
     _set_step_learning_rate(restored_optimizer, completed_steps)
@@ -481,7 +585,11 @@ def _run_interrupted_path(
         restored_optimizer,
         documents=second_documents,
         device=device,
-        audit_gradients=False,
+        audit_gradients=True,
+    )
+    second["post_model_state_sha256"] = language_model_state_sha256(restored_model)
+    second["post_optimizer_state_sha256"] = tree_sha256(
+        restored_optimizer.state_dict()
     )
     result = {
         "initial_model_state_sha256": initial_hash,
@@ -491,6 +599,8 @@ def _run_interrupted_path(
         "step_results": [first, second],
         "resumed_completed_steps": completed_steps,
         "resumed_next_schedule_offset": next_offset,
+        "restored_pre_step_model_state_sha256": restored_pre_step_model_hash,
+        "restored_pre_step_optimizer_state_sha256": restored_pre_step_optimizer_hash,
         "next_schedule_offset": next_offset + EFFECTIVE_BATCH,
         "next_schedule_slice_sha256": _schedule_slice_sha256(
             data,
@@ -509,10 +619,11 @@ def _run_interrupted_path(
         ),
     }
     gradient_audit = first["gradient_audit"]
+    comparison_state = _comparison_state(restored_model, restored_optimizer)
     del restored_optimizer, restored_model
     gc.collect()
     torch.cuda.empty_cache()
-    return result, gradient_audit
+    return result, gradient_audit, comparison_state
 
 
 def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str, Any]:
@@ -525,18 +636,47 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
     device = torch.device("cuda")
     torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
-    reference, reference_gradients = _run_two_step_reference(
+    reference, reference_gradients, reference_comparison = _run_two_step_reference(
         parent,
         data,
         device=device,
     )
-    interrupted, interrupted_gradients = _run_interrupted_path(
+    interrupted, interrupted_gradients, interrupted_comparison = _run_interrupted_path(
         parent,
         tokenizer,
         data,
         snapshot_path=snapshot_path,
         device=device,
     )
+    numerical_difference = {
+        name: _tensor_mapping_difference(
+            reference_comparison[name], interrupted_comparison[name]
+        )
+        for name in ("model", "gradients", "optimizer")
+    }
+    del reference_comparison, interrupted_comparison
+    exactness_observations = {
+        "first_step_gradients_exact": reference["step_results"][0][
+            "gradient_state_sha256"
+        ]
+        == interrupted["step_results"][0]["gradient_state_sha256"],
+        "first_step_model_state_exact": reference["step_results"][0][
+            "post_model_state_sha256"
+        ]
+        == interrupted["step_results"][0]["post_model_state_sha256"],
+        "first_step_optimizer_state_exact": reference["step_results"][0][
+            "post_optimizer_state_sha256"
+        ]
+        == interrupted["step_results"][0]["post_optimizer_state_sha256"],
+        "second_step_gradients_exact": reference["step_results"][1][
+            "gradient_state_sha256"
+        ]
+        == interrupted["step_results"][1]["gradient_state_sha256"],
+        "final_model_state_exact": reference["final_model_state_sha256"]
+        == interrupted["final_model_state_sha256"],
+        "final_optimizer_state_exact": reference["optimizer_state_sha256"]
+        == interrupted["optimizer_state_sha256"],
+    }
     checks = {
         "initial_model_state_exact": reference["initial_model_state_sha256"]
         == interrupted["initial_model_state_sha256"],
@@ -546,14 +686,29 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
         == interrupted["step_results"][1]["loss"],
         "second_step_segments_exact": reference["step_results"][1]["segment_losses"]
         == interrupted["step_results"][1]["segment_losses"],
-        "first_step_gradients_exact": reference["step_results"][0][
-            "gradient_state_sha256"
+        "restored_model_state_exact": reference["step_results"][0][
+            "post_model_state_sha256"
         ]
-        == interrupted["step_results"][0]["gradient_state_sha256"],
-        "final_model_state_exact": reference["final_model_state_sha256"]
-        == interrupted["final_model_state_sha256"],
-        "final_optimizer_state_exact": reference["optimizer_state_sha256"]
-        == interrupted["optimizer_state_sha256"],
+        == interrupted["restored_pre_step_model_state_sha256"],
+        "restored_optimizer_state_exact": reference["step_results"][0][
+            "post_optimizer_state_sha256"
+        ]
+        == interrupted["restored_pre_step_optimizer_state_sha256"],
+        "post_step_model_numerically_equivalent": _numerically_equivalent(
+            numerical_difference["model"],
+            maximum_absolute=MAXIMUM_MODEL_ABSOLUTE_DIFFERENCE,
+            maximum_relative_l2=MAXIMUM_MODEL_RELATIVE_L2,
+        ),
+        "post_step_gradients_numerically_equivalent": _numerically_equivalent(
+            numerical_difference["gradients"],
+            maximum_absolute=MAXIMUM_GRADIENT_OR_OPTIMIZER_ABSOLUTE_DIFFERENCE,
+            maximum_relative_l2=MAXIMUM_GRADIENT_OR_OPTIMIZER_RELATIVE_L2,
+        ),
+        "post_step_optimizer_numerically_equivalent": _numerically_equivalent(
+            numerical_difference["optimizer"],
+            maximum_absolute=MAXIMUM_GRADIENT_OR_OPTIMIZER_ABSOLUTE_DIFFERENCE,
+            maximum_relative_l2=MAXIMUM_GRADIENT_OR_OPTIMIZER_RELATIVE_L2,
+        ),
         "final_rng_state_exact": reference["rng_state_sha256"]
         == interrupted["rng_state_sha256"],
         "resumed_step_exact": interrupted["resumed_completed_steps"] == 1,
@@ -566,6 +721,12 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
         == interrupted["next_schedule_slice_sha256"],
         "reference_gradients_complete": bool(reference_gradients["passed"]),
         "interrupted_gradients_complete": bool(interrupted_gradients["passed"]),
+        "reference_second_gradients_complete": bool(
+            reference["step_results"][1]["gradient_audit"]["passed"]
+        ),
+        "interrupted_second_gradients_complete": bool(
+            interrupted["step_results"][1]["gradient_audit"]["passed"]
+        ),
         "snapshot_save_verified": bool(
             interrupted["snapshot"]["verification"]["passed"]
         ),
@@ -588,14 +749,14 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
     interrupted["snapshot"] = snapshot_record
     payload = {
         "surface": RESUME_PREFLIGHT_SURFACE,
-        "artifact_kind": "marulho_language_resume_exact_preflight",
+        "artifact_kind": "marulho_language_resume_fidelity_preflight",
         "owned_by_marulho": True,
         "external_llm_used": False,
         "passed": passed,
         "decision": (
             "admit_v80_billion_position_training"
             if passed
-            else "stop_v80_resume_not_exact"
+            else "stop_v80_resume_fidelity_failed"
         ),
         "parent": parent_audit,
         "data": data["audits"],
@@ -608,9 +769,22 @@ def run_resume_preflight(*, output_path: Path, snapshot_path: Path) -> dict[str,
             "compiled": False,
             "dtype": "torch.bfloat16",
             "schedule_sha256": SCHEDULE_SHA256,
+            "resume_numerical_tolerances": {
+                "maximum_differing_fraction": MAXIMUM_DIFFERING_FRACTION,
+                "gradient_or_optimizer_maximum_absolute": (
+                    MAXIMUM_GRADIENT_OR_OPTIMIZER_ABSOLUTE_DIFFERENCE
+                ),
+                "gradient_or_optimizer_maximum_relative_l2": (
+                    MAXIMUM_GRADIENT_OR_OPTIMIZER_RELATIVE_L2
+                ),
+                "model_maximum_absolute": MAXIMUM_MODEL_ABSOLUTE_DIFFERENCE,
+                "model_maximum_relative_l2": MAXIMUM_MODEL_RELATIVE_L2,
+            },
         },
         "reference": reference,
         "interrupted": interrupted,
+        "numerical_difference": numerical_difference,
+        "exactness_observations": exactness_observations,
         "checks": checks,
         "seconds": time.perf_counter() - started,
         "environment": {

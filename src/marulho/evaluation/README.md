@@ -1080,9 +1080,21 @@ first/last anchors, and within-one exposure balance strict-reload; report
 loading, 256-step warmup, stable learning rate, 20% cooldown, mixed-source batch
 gather, and GPU training. Its first gate runs two updates uninterrupted versus
 one update, an atomic optimizer-bearing snapshot, a reconstructed process, and
-the same second update. Model tensors, optimizer tree, RNG, losses, schedule
-offset, next slice, gradients, and CUDA peak must all match before the long-run
-entry point is enabled.
+the same second update. Model tensors, optimizer tree, RNG, schedule offset, and
+next slice must be bit-exact at the reload boundary. The following CUDA update
+must preserve exact losses and strict elementwise numerical bounds for gradients,
+optimizer state, and model state; exact post-compute hashes remain reported but
+are observations because parallel GPU reductions can differ in their final bits.
+The long-run entry point stays disabled until this fidelity gate and the 8 GiB
+CUDA peak gate both pass.
+The frozen fidelity report `a1ce9559...6c4dac` passes: reload-boundary state
+is exact, the canonical post-reload update is exact across 100,679,424 gradient,
+106,970,880 model-state, and 106,987,008 optimizer-state elements, peaks at
+4,259,726,848 bytes, verifies its 428,207,189-byte snapshot, and deletes that
+temporary snapshot. The gate also retains numerical tolerances because repeated
+CUDA execution exposed a one-element, `9.31e-10` gradient-order difference while
+leaving every final model element exact; this is reported rather than confused
+with checkpoint corruption.
 
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
