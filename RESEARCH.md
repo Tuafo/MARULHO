@@ -4050,6 +4050,14 @@ prior 0.011285 and remains insufficient for a projection-based decision. The
 `e4260d33...2044fba8`, rotates update 8,192 away, retains exactly
 9,216/10,240, and training advances through 10,272 at about 19.90k positions/s.
 
+Update 11,264 writes and strict-reloads a 428,214,229-byte optimizer snapshot
+at SHA-256 `0bdfc777...4895145`. Exact verification covers model, optimizer,
+RNG, raw tensors, completed-step counter, next schedule offset, ownership, and
+absent external LLM use. Rotation deletes only update 9,216, retains exactly
+10,240/11,264, and training advances through 11,296 after 347,013,120 new
+positions at about 19.91k positions/s. This is recovery evidence only; the next
+quality measurement remains update 12,288.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
