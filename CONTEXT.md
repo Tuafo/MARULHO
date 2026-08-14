@@ -1154,6 +1154,12 @@ mechanism failure rather than a broken run. V76 is deleted with no checkpoint or
 runtime surface. The result warns that structured synthetic gradient memory can
 be a false positive for natural language. The strongest live direction is now
 the ordinary Transformer continuation that achieved the best real heldout loss.
+V77 is the active qualification branch: it must reproduce that exact safe-batch
+continuation, save it only after disjoint-loss gates pass, prove strict tensor,
+tokenizer, configuration, tied-weight, metadata, and logit reload, then face the
+frozen unseen FineWeb-Edu/Cosmopedia generation panels. It contains no TTT or
+alternate runtime path. Passing loss and reload creates a quantitative base, not
+a coherence claim; continual-learning work remains gated on visible unseen text.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

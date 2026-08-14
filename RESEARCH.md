@@ -3442,7 +3442,55 @@ the fastest training and evaluation. The next branch must checkpoint and audit
 that improved Transformer, test unseen generation and strict reload, then use it
 as the base for continual learning rather than preserving failed TTT machinery.
 
-**Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
+### V77 preregistration: qualify the winning Transformer continuation
+
+**Question.** V76's strongest real-language result exists only as a report because
+the matched comparison correctly wrote no candidate checkpoints. V77 asks whether
+that ordinary continuation result is reproducible as a strict MARULHO-owned base
+checkpoint, and whether its large heldout-loss gain produces a visible improvement
+on genuinely unseen prose. This is not a new architecture arm and contains no TTT,
+fast-weight, retrieval, external-model, or synthetic-data path.
+
+**Frozen parent and training contract.** Start only from the V39 checkpoint with
+SHA-256 `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`
+and tokenizer hash
+`faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`.
+Extend only its shape-independent rotary context from 72 to 320 and require exact
+tensor parity. Reconstruct V76's first-eligible document contract exactly: 4,096
+FineWeb-Edu plus 4,096 Cosmopedia training documents, 512+512 disjoint evaluation
+documents, 961 tokens per document, three causal 320-token segments, and data seed
+72121. Train all 100,679,424 parameters for 256 Muon updates at effective batch 32,
+physical batch 8 with four-way accumulation, peak rate 3e-4, weight decay 0.1,
+13-step warmup/cosine, clipping 1.0, BF16 eager CUDA, and no compiled optimizer.
+The schedule must reproduce SHA-256
+`74b714f5f1798309dd4b78743d183a01e2dd9c000e4a19df661d913537a261ca`.
+
+**Qualification and fidelity gates.** The before-training evaluation must reproduce
+the immutable V76 later-segment loss within 0.0005. The candidate must reproduce
+V76 static continuation within 0.02: later-segment loss at most 2.92234, FineWeb-Edu
+at most 3.27002, and Cosmopedia at most 2.57466, while improving the immutable parent
+by at least 0.50. Every parameter must receive a finite nonzero first-update
+gradient, peak allocation must remain below 10 GiB, and observed training speed
+must be recorded rather than projected. Only a candidate passing all those gates
+may be atomically saved. A fresh CPU load must restore bit-equal state tensors,
+tokenizer hash, model configuration, tied embedding/head storage, metadata, and
+sample logits. The checkpoint records 225,972,480 cumulative processed tokens,
+`external_llm_used=false`, and no optimizer-state claim.
+
+**Unseen-language decision.** After strict reload, rerun the frozen V46 four-case
+FineWeb-Edu greedy, four-case Cosmopedia greedy, and four-case controlled
+Cosmopedia panels from their original disjoint source files. Compare case-level
+continuation loss, prefix agreement, diversity, repetition, and generated text
+against V39. Automated exact-prefix passes are diagnostic rather than sufficient.
+If the checkpoint fails the static/fidelity contract, delete it and decide
+`reject_v77_static_reproduction`. If it passes but unseen prose remains obviously
+generic, unstable, or collapsed, retain it only as the strongest quantitative
+base and decide `continue_base_language_training_before_continual_learning`. Only
+coherent multi-sentence unseen behavior admits sequential-domain retention and
+structural-plasticity work. No architecture claim is inferred from reproducing an
+ordinary Transformer control.
+
+**V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
 observed CUDA accounting. Behavioral promotion requires all of:
