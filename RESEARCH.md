@@ -3345,6 +3345,60 @@ updates, shuffled updates, and the immutable Transformer on real heldout
 long-document next-token loss. No runtime or checkpoint format changes are
 admitted from the synthetic pass alone.
 
+### V76 Stage A1 preregistration: pretrained 100M long-document language
+
+**Immutable parent and data.** Load only
+`v39-answer-objective-qualified-100m-218m-20260810.pt`, requiring checkpoint
+SHA-256 `6caf97be17d49cd3fc70501b50cadd39897fd85000b121e107f13a5417a1068d`,
+100,679,424 parameters, tokenizer hash
+`faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715`,
+and strict tensor reload. Reconstruct the same weights with context 320, then
+reuse V72's immutable first-eligible document selection: 4,096 FineWeb-Edu plus
+4,096 Cosmopedia training documents, 512+512 disjoint evaluation documents,
+961 tokens each, three causal 320-token segments, data seed 72121. No tokenizer
+training, future token, answer label, retrieval index, external model, or
+synthetic binding token enters Stage A1.
+
+**Candidate.** Keep every V39 parameter. Add rank-8 fast LoRA state only to the
+down projections of blocks 7, 8, and 9 (the last quarter rounded to three
+blocks), with normal `A0`, zero `B0`, and one learned positive rate per block
+initialized to 0.1. Completed-segment full-vocabulary next-token loss updates
+these temporary weights independently per document. `exact_meta` differentiates
+through both pre-query updates; `first_order_meta` has identical numerical
+updates but detaches their inner gradients. Fast state resets at each document.
+All V39 parameters and shared fast initialization/rates are outer-trained; no
+base capacity is removed. The final segment performs no unused update.
+
+**Matched training arms.** Exact, first-order, and static continuation start
+from bit-identical V39 tensors and receive the exact same 8,192-document order.
+Run 256 outer updates at effective batch 32 (7,864,320 positions), Muon 3e-4,
+weight decay 0.1, V72's 13-step warmup/cosine schedule, and clipping 1.0. Static
+continuation receives the same segment losses without fast parameters. Exact
+and first-order use mathematical SDPA for numerical identity; static additionally
+reports default-SDPA throughput. No arm may load another arm's state.
+
+**Safety before training.** Execute one exact outer forward/backward at physical
+batches 1, 2, 4, 8, 16, and 32 in order. Stop before a projected or observed
+10.0-GiB allocation, any nonfinite/zero required gradient, or desktop telemetry
+outside the bounded launcher. Choose the largest safe divisor of 32 and use
+gradient accumulation without changing effective batch or document order. If
+no divisor is safe or the projected three-training-arm plus evaluation time
+exceeds 90 minutes, decide `v76_stage_a1_not_consumer_feasible` and retain the
+valid Stage-A0 result without a language verdict.
+
+**Evaluation and decision.** On the exact same 1,024 disjoint documents, report
+all segment and per-source losses for immutable V39, same-data static
+continuation, first-order-own, exact-own, exact-discard, and exact-shuffled.
+Exact-own must improve later-segment loss by at least 0.02 against each of
+immutable, static, and first-order; discard and shuffled must each worsen exact
+loss by at least 0.02; exact first-segment and each source loss must be no worse
+than static by 0.02; all hashes, gradients, BF16 state, and CUDA accounting must
+pass. Test-time exact-own processing must retain at least 50% of immutable
+Transformer positions/s in Stage A1; the final runtime promotion gate remains
+70%. Any quality miss retires the 100M V76 branch without a rank, rate, block,
+optimizer, data, or step sweep. A pass admits strict checkpoint/generation,
+sequential-domain retention, and the 524,288-token sustained contract.
+
 **Terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and
