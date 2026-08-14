@@ -10,15 +10,15 @@
 | External Llm Used | false |
 | Loads External Checkpoint | false |
 | Active Language Path | marulho_transformer |
-| Checkpoint Path | reports\language_scaling\v77-static-long-document-qualified-100m-225m-20260813.pt |
-| Output Path | reports\language_scaling\v77-unseen-cosmopedia-controlled-20260813.json |
+| Checkpoint Path | reports\language_scaling\v78-unique-document-qualified-100m-257m-20260814.pt |
+| Output Path | reports\language_scaling\v78-unseen-cosmopedia-controlled-20260814.json |
 
 ## Checkpoint
 
 | Field | Value |
 |-------|-------|
-| Path | reports\language_scaling\v77-static-long-document-qualified-100m-225m-20260813.pt |
-| Sha256 | 3755bfb683b77bbf74811d58b9d3db404cdca4143b82e1f6f427077ea4487074 |
+| Path | reports\language_scaling\v78-unique-document-qualified-100m-257m-20260814.pt |
+| Sha256 | b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b |
 | Kind | transformer |
 | Model Surface | marulho_transformer_language_model.v2 |
 | Tokenizer Hash | faca1e26aa29e897bef4e4335a0300f90e3996723d556a681b4495240f660715 |
@@ -51,15 +51,15 @@
 | Passed Case Count | 0 |
 | Case Pass Rate | 0 |
 | Mean Prefix Match Chars | 3 |
-| Mean Prefix Match Fraction | 0.00979792 |
+| Mean Prefix Match Fraction | 0.00968341 |
 | Mean Printable Fraction | 1 |
-| Mean Distinct Bigram Fraction | 0.97619 |
+| Mean Distinct Bigram Fraction | 0.948413 |
 | Max Token Run Length | 1 |
 | Next Character Match Rate | 1 |
 | Source Continuation Loss Available | true |
 | Source Continuation Loss Case Count | 4 |
-| Mean Source Continuation Loss | 2.6683 |
-| Mean Source Continuation Perplexity | 16.7325 |
+| Mean Source Continuation Loss | 2.57468 |
+| Mean Source Continuation Perplexity | 15.2443 |
 | Source Continuation Loss Token Count | 256 |
 
 ## Promotion Gate
@@ -86,17 +86,17 @@
       "active_language_path": "marulho_transformer",
       "active_language_path_matches_model": true,
       "batched_decode_group_size": 1,
-      "continuation_sequence_hash": "311aa052f661e6d647b65e327a5ba3dc917325ecd9b7020bc5c34213537aff98",
-      "continuation_text": " age, businesses are constantly seeking ways to reach their customers and expand their reach. One such approach that has gained significant traction is the use of social media platforms like Instagram, Twitter, and TikTok. This course unit will delve into the concept of social networks, exploring how they can be",
+      "continuation_sequence_hash": "fcc350c7a7c7f5b2e732645169663cce0f23471ee1339c6f489fe13b59516492",
+      "continuation_text": " age, businesses are constantly seeking ways to reach their customers and increase their customer base. One such solution is the use of augmented reality (AR) technology, which has revolutionized the way businesses operate and interact with their customers. This chapter will delve into the concept of AR technology, its applications, benefits,",
       "continuation_token_count": 64,
-      "distinct_bigram_fraction": 0.9841269841269841,
+      "distinct_bigram_fraction": 0.9682539682539683,
       "expected_active_language_path": "marulho_transformer",
-      "expected_source_continuation": " age, computers have become an essential part of our daily lives, enabling us to perform various tasks efficiently. One critical aspect of using a computer is ensuring that its hardware components are functioning optimally. This requires keeping the device drivers updated, especially when transitioning to a newe",
+      "expected_source_continuation": " age, computers have become an essential part of our daily lives, enabling us to perform various tasks efficiently. One critical aspect of using a computer is ensuring that its hardware components are functioning optimally. This requires keeping the device drivers updated, especially when transitioning to a newer operating system like Windows",
       "external_llm_used": false,
       "failure_reasons": [
         "source_prefix_match_below_threshold"
       ],
-      "generated_text": "In today's digital age, businesses are constantly seeking ways to reach their customers and expand their reach. One such approach that has gained significant traction is the use of social media platforms like Instagram, Twitter, and TikTok. This course unit will delve into the concept of social networks, exploring how they can be",
+      "generated_text": "In today's digital age, businesses are constantly seeking ways to reach their customers and increase their customer base. One such solution is the use of augmented reality (AR) technology, which has revolutionized the way businesses operate and interact with their customers. This chapter will delve into the concept of AR technology, its applications, benefits,",
       "generated_token_count": 69,
       "generation_decode": {
         "decode_control_scope": "generated_continuation_only",
@@ -123,11 +123,11 @@
       "owned_by_marulho": true,
       "passed": false,
       "prefix_match_chars": 6,
-      "prefix_match_fraction": 0.019169329073482427,
+      "prefix_match_fraction": 0.01744186046511628,
       "printable_fraction": 1.0,
       "prompt_text": "In today's digital",
       "prompt_token_count": 5,
-      "sequence_hash": "c869db60de625a6c1c49819e3781c6c1dd14f04dd34f637c683dbbcd0ac889ee",
+      "sequence_hash": "7112f7d828c1c88e504996c7dc1670dc64136b0293292936a236b5d7a0c46104",
       "source_continuation_loss": {
         "continuation_add_bos": false,
         "continuation_clipped_to_context": false,
@@ -138,10 +138,10 @@
         "evaluated_token_count": 64,
         "full_model_vocab_logits_materialized": true,
         "generation_vocab_size": 8192,
-        "loss": 2.0215673446655273,
+        "loss": 1.9123963117599487,
         "model_context_length": 320,
         "model_vocab_size": 8192,
-        "perplexity": 7.550149917602539,
+        "perplexity": 6.769290924072266,
         "perplexity_capped": false,
         "prompt_token_count": 5,
         "reason": null,
@@ -150,8 +150,5 @@
       },
       "source_prompt_found": true,
       "source_text_hash": "c52c8c2b50cef14bdc707c7d1a9908b92555a1d96e0bd76235bfb360fb99e1c6",
-      "surface": "marulho_language_generation_coherence_case.v1",
-      "thresholds": {
-        "max_token_run_length": 8,
-        "min_distinct_
+      "surface": "marulho_language_generation_coheren
 ```

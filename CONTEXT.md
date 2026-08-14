@@ -1169,13 +1169,20 @@ quantitative base, not an installed runtime or coherence claim. TTT remains
 absent. Continual learning and structural plasticity remain closed until a base
 checkpoint passes visible unseen-language review.
 
-**V78 active branch** — tests whether V77 is primarily undertrained by continuing
-on 32,768 new 961-token FineWeb-Edu/Cosmopedia documents, four times V77's phase
-budget. It changes no model architecture and cannot reopen continual learning from
-loss alone. A bounded batch-8/batch-16 optimizer-complete preflight may select the
-faster safe batch; batch 32 remains forbidden. The final checkpoint survives only
-after a 0.08 general-loss gain, per-source gains, strict reload, and the unchanged
-unseen-language panels.
+**V78 quantitative base (strict, uninstalled)** — four-times-larger continuation
+on 32,768 new long documents improves V77 later loss 2.902100 to 2.798199 and
+FineWeb-Edu/Cosmopedia to 3.157677/2.438721. The 100.679M checkpoint at 257,429,760
+cumulative positions reloads bit-exactly; SHA-256 is
+`b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b`.
+The frozen panels nevertheless remain 0/12 with unchanged prefix agreement and
+visible template repetition/topic substitution. Decision:
+`redesign_base_data_or_objective_after_v78_scale_only_failure`. V78 is retained
+as the strongest quantitative base, not installed. More of the same two-source
+objective is no longer the active answer; continual learning remains closed.
+The original training report's peak-memory field was interval-censored by curve
+evaluation resets. The correction retracts that exact value; the selected-path
+optimizer-complete preflight proves 4.253 GB under the 8-GiB gate, and future runs
+preserve interval maxima.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or

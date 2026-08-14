@@ -185,6 +185,19 @@ cases fail and text remains generic/topic-unstable, it retains the checkpoint on
 as an uninstalled quantitative base. No TTT or alternate language surface is
 restored.
 
+**`language_base_scale_continuation.py`** owns V78's larger continuation from the
+strict V77 base. It skips every V77 training document, selects 16,384 subsequent
+eligible documents from each source, freezes the host tensor and one-pass schedule,
+and records a four-point heldout curve over 31,457,280 positions. Batch 16 is safe
+but only 4.75% faster while using 7.76 GB, so the frozen 5% gate keeps batch 8 at
+4.25 GB preflight peak. V78 reaches 2.798199 loss and strict-reloads its checkpoint,
+but unchanged unseen panels remain 0/12 and direct text remains templated or
+topic-unstable. The checkpoint is an uninstalled quantitative base; the runner
+does not admit repeated same-data scaling, continual learning, or runtime install.
+Curve evaluations reset CUDA peak counters internally, so the runner explicitly
+accumulates the maximum before every reset; V78's original interval-only field is
+corrected by a separate immutable amendment backed by the exact preflight.
+
 **`language_model.py`** — the language model contract. It owns:
 
 - `LanguageModelConfig`;

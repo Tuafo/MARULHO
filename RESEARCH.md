@@ -3585,6 +3585,49 @@ decides `stop_v78_unique_document_scaling_diminishing_return` and deletes the V7
 candidate. No memory, TTT, adapter, or structural-plasticity experiment may start
 from a V78 checkpoint that fails unseen-language review.
 
+### V78 result: scale still pays in loss, but not yet in visible stability
+
+All frozen mechanical and quality gates pass. The exact V77 parent evaluates at
+2.902100 later-segment loss. V78 then consumes all 32,768 new documents and
+31,457,280 positions. Its curve is 2.875118, 2.828571, 2.803265, and 2.798199 at
+updates 256/512/768/1024. Final FineWeb-Edu/Cosmopedia loss is
+3.157677/2.438721, improving V77 by 0.09203/0.11577 and clearing both 0.03 source
+gates. The full loop including four holdout evaluations takes 1,670.61 seconds,
+or 18,829.8 training positions/s. Every parameter receives a finite nonzero
+first-update gradient, state remains finite, and the full schedule hash matches.
+
+The original qualification report's `training.peak_cuda_allocated_bytes` is not
+a run-wide peak: each curve evaluation reset PyTorch's peak counter, leaving the
+last interval's 1,758,205,440-byte value. This exact claim is retracted rather
+than silently replaced. The optimizer-complete selected-path preflight remains
+the valid memory evidence at 4,252,648,960 bytes under the 8-GiB gate, and the
+runner now accumulates interval peaks for future runs. The immutable amendment
+SHA-256 is
+`f037c543d8f3e87c1ce3aae736f0a0853eae56be4ef6633c8461d139cac95854`.
+No data, loss, checkpoint, or quality decision changes.
+
+The 402,982,697-byte checkpoint fresh-loads bit-equal tensors, state hash,
+configuration, tied embedding/head storage, tokenizer, metadata, and sample
+logits. Its SHA-256 is
+`b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b`;
+the original qualification-report SHA-256 is
+`689016e37c6eddef2918d5c130b5845a3884605c219d77c210815f434bf37f18`.
+
+The unchanged twelve-case panel is still 0/12. Relative to V77, FineWeb mean
+source-continuation loss improves 3.57670 to 3.46935 and Cosmopedia improves
+2.66830 to 2.57468, but mean prefix characters remain exactly 1.25/3.00.
+FineWeb generations hallucinate generic company history and repeat location or
+colony clauses. Cosmopedia generations remain locally grammatical but substitute
+augmented reality, generic Internet prose, or unrelated brain topics; controlled
+decoding reduces some repetition without restoring meaning. More unique data
+made a better probability model, but did not cross the visible coherence gate.
+
+Decision: `redesign_base_data_or_objective_after_v78_scale_only_failure`.
+Retain V78 as the strongest strict quantitative base, but do not install it or
+open continual learning. Blindly repeating this same two-source, same-objective
+phase is no longer the next experiment. The composite unseen-decision SHA-256 is
+`f9741642955eef8bce63cbaeaaa4339a3dae2be3f7c604b951ecf62668e1a79d`.
+
 **V67 terminal gates.** Mechanical validity requires schedule/tokenizer hashes,
 parameter ratio 0.99--1.01, exact no-leakage contracts, complete gradients,
 finite state, owned generation, checkpoint tensor/logit/state reload, and

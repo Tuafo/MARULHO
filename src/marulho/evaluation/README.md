@@ -1006,6 +1006,18 @@ report SHA-256 values are
 `3067b950eb82e417156d082e0e616db1f3fdcb476d5bcf5cca0733654b802f9e`
 and `e40d8f2a000ba0c3895b9b165ef9507b67e0156bd171ef62df07779004072276`.
 
+V78 continues the strict V77 base on 32,768 new long documents. Its four-point
+curve reaches 2.798199 final later loss; FineWeb-Edu/Cosmopedia improve to
+3.157677/2.438721, and strict checkpoint reload passes. The same frozen prompts
+remain 0/12: source-continuation loss improves by 0.10734/0.09362, but prefix
+agreement does not move and visible generations retain generic templates,
+repetition, or topic substitution. Decision:
+`redesign_base_data_or_objective_after_v78_scale_only_failure`. Qualification,
+memory-field amendment, and unseen-decision SHA-256 values are
+`689016e37c6eddef2918d5c130b5845a3884605c219d77c210815f434bf37f18`,
+`f037c543d8f3e87c1ce3aae736f0a0853eae56be4ef6633c8461d139cac95854`,
+and `f9741642955eef8bce63cbaeaaa4339a3dae2be3f7c604b951ecf62668e1a79d`.
+
 **`language_source_grounding.py`** — materializes a tokenizer-bound, hashable
 subset of the public SQuAD validation split through the Hugging Face Dataset
 Viewer and evaluates visible heldout evidence. Every case fits the active context,

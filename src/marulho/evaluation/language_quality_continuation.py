@@ -576,6 +576,19 @@ def aggregate_unseen_generation(
     *,
     output_path: Path,
     human_review_coherent: bool,
+    baseline_reports: Mapping[str, tuple[Path, str]] = BASELINE_GENERATION_REPORTS,
+    candidate_reports: Mapping[str, Path] = CANDIDATE_GENERATION_REPORTS,
+    expected_checkpoint_sha256: str = V77_CHECKPOINT_SHA256,
+    surface: str = "marulho_language_quality_continuation.v77_unseen_decision",
+    coherent_decision: str = "advance_v77_to_continual_learning_validation",
+    not_coherent_decision: str = "continue_base_language_training_before_continual_learning",
+    invalid_decision: str = "reject_v77_unseen_generation_invalid_evidence",
+    delta_field_name: str = "deltas_candidate_minus_v39",
+    human_review_observations: tuple[str, ...] = (
+        "FineWeb generations substitute generic historical or commercial templates and repeat clauses.",
+        "Cosmopedia generations are locally grammatical but drift to social media, the Internet, or unrelated language topics.",
+        "Controlled decoding improves diversity but does not restore source meaning or topic stability.",
+    ),
 ) -> dict[str, Any]:
     if output_path.exists():
         raise ValueError(f"V77 generation decision already exists: {output_path}")
@@ -583,8 +596,8 @@ def aggregate_unseen_generation(
     checks: dict[str, bool] = {}
     total_passed = 0
     total_cases = 0
-    for name, (baseline_path, expected_hash) in BASELINE_GENERATION_REPORTS.items():
-        candidate_path = CANDIDATE_GENERATION_REPORTS[name]
+    for name, (baseline_path, expected_hash) in baseline_reports.items():
+        candidate_path = candidate_reports[name]
         if file_sha256(baseline_path) != expected_hash:
             raise RuntimeError(f"V77 frozen baseline report changed: {baseline_path}")
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
@@ -612,7 +625,7 @@ def aggregate_unseen_generation(
             "source_sha256_exact": baseline["source"]["sha256"]
             == candidate["source"]["sha256"],
             "checkpoint_sha256_exact": candidate["checkpoint"]["sha256"]
-            == V77_CHECKPOINT_SHA256,
+            == expected_checkpoint_sha256,
             "tokenizer_sha256_exact": candidate["checkpoint"]["tokenizer_hash"]
             == TOKENIZER_SHA256,
             "marulho_owned": candidate.get("owned_by_marulho") is True,
@@ -637,7 +650,7 @@ def aggregate_unseen_generation(
             "checks": panel_checks,
             "baseline_summary": baseline_summary,
             "candidate_summary": candidate_summary,
-            "deltas_candidate_minus_v39": {
+            delta_field_name: {
                 "mean_source_continuation_loss": float(
                     candidate_summary["mean_source_continuation_loss"]
                 )
@@ -653,12 +666,15 @@ def aggregate_unseen_generation(
             },
         }
     validity_passed = all(checks.values())
-    decision = unseen_generation_decision(
-        validity_passed=validity_passed,
-        human_review_coherent=human_review_coherent,
+    decision = (
+        invalid_decision
+        if not validity_passed
+        else coherent_decision
+        if human_review_coherent
+        else not_coherent_decision
     )
     payload = {
-        "surface": "marulho_language_quality_continuation.v77_unseen_decision",
+        "surface": surface,
         "artifact_kind": "marulho_language_unseen_generation_decision",
         "owned_by_marulho": True,
         "external_llm_used": False,
@@ -675,18 +691,13 @@ def aggregate_unseen_generation(
             "grammatical_multi_sentence_fragments_present": True,
             "semantic_topic_stability": False,
             "repetition_or_template_collapse_present": True,
-            "observations": [
-                "FineWeb generations substitute generic historical or commercial templates and repeat clauses.",
-                "Cosmopedia generations are locally grammatical but drift to social media, the Internet, or unrelated language topics.",
-                "Controlled decoding improves diversity but does not restore source meaning or topic stability.",
-            ],
+            "observations": list(human_review_observations),
         },
         "decision": decision,
         "checkpoint_boundary": {
             "retained_as_strongest_quantitative_base": validity_passed,
             "coherent_generation_claimed": human_review_coherent,
-            "continual_learning_admitted": decision
-            == "advance_v77_to_continual_learning_validation",
+            "continual_learning_admitted": decision == coherent_decision,
             "runtime_install_allowed": False,
         },
     }

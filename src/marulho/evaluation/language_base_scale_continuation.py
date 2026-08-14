@@ -32,6 +32,7 @@ from marulho.evaluation.language_quality_continuation import (
     _gradient_audit,
     _select_batch,
     _select_documents,
+    aggregate_unseen_generation,
     checkpoint_fidelity,
     evaluate_continuation,
     file_sha256,
@@ -69,6 +70,29 @@ REFERENCE_V77_SOURCE_LOSSES = {
     "fineweb_edu": 3.2497100830078125,
     "cosmopedia_v2": 2.5544891357421875,
 }
+V77_GENERATION_REPORTS = {
+    "fineweb_greedy": (
+        ROOT / "reports/language_scaling/v77-unseen-fineweb-greedy-20260813.json",
+        "afb6c259cea58c10bc4fded2a25b8d598a77ef850388cdefd346ca6b78b679f8",
+    ),
+    "cosmopedia_greedy": (
+        ROOT / "reports/language_scaling/v77-unseen-cosmopedia-greedy-20260813.json",
+        "c420bae82bae182a1068e2d68426f2e175723f3c5d24f5574fb1c02f79f9c574",
+    ),
+    "cosmopedia_controlled": (
+        ROOT / "reports/language_scaling/v77-unseen-cosmopedia-controlled-20260813.json",
+        "08b112c96ac918f535f08ebe8a42be3c293df962140a063fda596dc544b5af68",
+    ),
+}
+V78_GENERATION_REPORTS = {
+    "fineweb_greedy": ROOT
+    / "reports/language_scaling/v78-unseen-fineweb-greedy-20260814.json",
+    "cosmopedia_greedy": ROOT
+    / "reports/language_scaling/v78-unseen-cosmopedia-greedy-20260814.json",
+    "cosmopedia_controlled": ROOT
+    / "reports/language_scaling/v78-unseen-cosmopedia-controlled-20260814.json",
+}
+V78_CHECKPOINT_SHA256 = "b66753983316b5a0cf61b293d36e4fda9b15929168067a59ed95ef816da4313b"
 
 
 def load_v78_parent(
@@ -513,6 +537,30 @@ def qualification_checks(
     }
 
 
+def aggregate_v78_unseen_generation(
+    *,
+    output_path: Path,
+    human_review_coherent: bool,
+) -> dict[str, Any]:
+    return aggregate_unseen_generation(
+        output_path=output_path,
+        human_review_coherent=human_review_coherent,
+        baseline_reports=V77_GENERATION_REPORTS,
+        candidate_reports=V78_GENERATION_REPORTS,
+        expected_checkpoint_sha256=V78_CHECKPOINT_SHA256,
+        surface="marulho_language_base_scale_continuation.v78_unseen_decision",
+        coherent_decision="advance_v78_to_continual_learning_validation",
+        not_coherent_decision="redesign_base_data_or_objective_after_v78_scale_only_failure",
+        invalid_decision="reject_v78_unseen_generation_invalid_evidence",
+        delta_field_name="deltas_candidate_minus_v77",
+        human_review_observations=(
+            "FineWeb continuation loss improves, but generations still substitute generic history and location templates with repeated clauses.",
+            "Cosmopedia continuation loss improves, but generations drift to augmented reality, generic Internet prose, or unrelated brain topics.",
+            "Controlled decoding reduces exact repetition in some cases but does not restore source meaning or stable topic continuation.",
+        ),
+    )
+
+
 def run_training(
     *,
     parent_path: Path,
@@ -660,7 +708,31 @@ def main() -> None:
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--aggregate-generation-decision", type=Path)
+    parser.add_argument(
+        "--human-review-verdict",
+        choices=("coherent", "not_coherent"),
+    )
     args = parser.parse_args()
+    if args.aggregate_generation_decision is not None:
+        if args.human_review_verdict is None:
+            parser.error("--human-review-verdict is required for generation aggregation")
+        result = aggregate_v78_unseen_generation(
+            output_path=args.aggregate_generation_decision,
+            human_review_coherent=args.human_review_verdict == "coherent",
+        )
+        print(
+            json.dumps(
+                {
+                    "decision": result["decision"],
+                    "validity_passed": result["validity_passed"],
+                    "passed_cases": result["aggregate"]["passed_cases"],
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        return
     if args.validate_contract_only:
         parent, tokenizer, parent_audit = load_v78_parent(args.parent)
         data = prepare_v78_data(tokenizer, enforce_frozen_hashes=False)

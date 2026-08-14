@@ -10,6 +10,7 @@ from marulho.evaluation.language_base_scale_continuation import (
     TRAIN_STEPS,
     WARMUP_STEPS,
     _learning_rate,
+    aggregate_v78_unseen_generation,
     qualification_checks,
 )
 
@@ -68,3 +69,7 @@ def test_v78_quality_gate_requires_total_and_per_source_gains(monkeypatch) -> No
     )
     assert checks["final_improves_by_0_08"]
     assert not checks["cosmopedia_improves_by_0_03"]
+
+
+def test_v78_unseen_aggregation_is_reusable_without_changing_v77_contract() -> None:
+    assert callable(aggregate_v78_unseen_generation)
