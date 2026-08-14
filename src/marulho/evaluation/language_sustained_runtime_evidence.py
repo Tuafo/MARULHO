@@ -161,7 +161,7 @@ def _observed_active_compute(
         "conditional_parameter_routing_present": False,
         "structural_sparsity_observed": False,
         "structural_sparsity_fraction": 0.0,
-        "interpretation": "the maintained V39 Transformer executes densely",
+        "interpretation": "the maintained MARULHO Transformer executes densely",
     }
 
 

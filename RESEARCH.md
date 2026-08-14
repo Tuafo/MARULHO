@@ -4069,9 +4069,12 @@ boundaries and no mechanism arm validly improves it. Reptile replaces it only if
 it also passes and either lowers retained general loss by at least 0.01 while
 staying within four oracle answers, or gains at least eight oracle answers while
 staying within 0.005 retained loss, against **both** ordinary and low-rate replay.
-Otherwise Reptile is retired. Any saved winner includes model, optimizer, RNG,
-completed schedule, tokenizer, and exact reload evidence so the mutation is
-durable and rollbackable. A result where no replay arm learns and retains decides
+Otherwise Reptile is retired. Any saved winner writes both a standard exact model
+checkpoint for generation/runtime and a training snapshot containing model,
+optimizer, RNG, completed schedule, tokenizer, and exact reload evidence. The
+standard checkpoint hash is the one later consumed by the same-checkpoint
+524,288-token sustained runner; the training snapshot owns rollback and further
+continual mutation. A result where no replay arm learns and retains decides
 `redesign_v81_learning_objective`; a result that learns only by forgetting
 decides `advance_v81_to_stronger_retention_not_structural_growth`.
 
