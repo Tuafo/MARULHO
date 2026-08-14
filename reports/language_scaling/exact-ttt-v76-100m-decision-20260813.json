@@ -1,0 +1,56 @@
+{
+  "arm_reports": [
+    {
+      "path": "reports\\language_scaling\\exact-ttt-v76-100m-immutable-20260813.json",
+      "sha256": "4cf74e3742a6333941b825f1b657c9d2058c3178764bc040d86efa4288fa6fed"
+    },
+    {
+      "path": "reports\\language_scaling\\exact-ttt-v76-100m-static-20260813.json",
+      "sha256": "33cd96625d81f1a84a27665d9d2d639d047a534cbc4785299acf79a59ec5f8e9"
+    },
+    {
+      "path": "reports\\language_scaling\\exact-ttt-v76-100m-first-order-20260813.json",
+      "sha256": "fb006157027c8bf441a0c875652f3b55aac8b7a10836815e34e537f978bc0251"
+    },
+    {
+      "path": "reports\\language_scaling\\exact-ttt-v76-100m-exact-20260813.json",
+      "sha256": "ea147c4a58b7844ccae95241fd3124876dc94c5bfa21af37eebf362debb185b7"
+    }
+  ],
+  "checks": {
+    "all_gradients_complete": true,
+    "contracts_match": true,
+    "discard_worsens_by_0_02": false,
+    "each_source_within_static_0_02": true,
+    "exact_beats_first_order_by_0_02": false,
+    "exact_beats_immutable_by_0_02": true,
+    "exact_beats_static_by_0_02": false,
+    "exact_first_order_initial_state_matches": true,
+    "exact_peak_below_10_gib": true,
+    "first_segment_within_static_0_02": true,
+    "parents_match": true,
+    "shuffled_worsens_by_0_02": false,
+    "test_time_throughput_at_least_50_percent": false,
+    "training_schedules_match": true
+  },
+  "decision": "retire_v76_exact_ttt_100m_language_failure",
+  "exact_later_loss_by_source": {
+    "cosmopedia_v2": 2.5623550415039062,
+    "fineweb_edu": 3.2551727294921875
+  },
+  "exact_later_segment_loss": 2.908763885498047,
+  "exact_test_time_throughput_ratio": 0.36175407398349785,
+  "later_loss_margins_over_exact": {
+    "discard": 0.001003265380859375,
+    "first_order": 0.000370025634765625,
+    "immutable": 1.0544395446777344,
+    "shuffled": 0.00130462646484375,
+    "static": -0.006427764892578125
+  },
+  "passed": false,
+  "source_checks": {
+    "cosmopedia_v2": true,
+    "fineweb_edu": true
+  },
+  "surface": "marulho_exact_ttt_v76.stage_a1_100m_decision.v1"
+}
