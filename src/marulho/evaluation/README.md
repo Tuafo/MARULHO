@@ -1112,6 +1112,12 @@ The next production transaction at update 3,072 writes and strict-reloads a
 428,213,141-byte snapshot (`13049e42...aeb3022`), deletes update 1,024, retains
 only updates 2,048/3,072, and continues training. This verifies live rolling
 retention without changing the quality interpretation.
+At update 4,096, overall later loss reaches 2.877130 and all three sources again
+improve: FineWeb-Edu/Cosmopedia/DCLM are 3.083427/2.394356/3.153606. The overall
+gain is 42.29% of the terminal target and DCLM is 99.29% of its required gain.
+The 428,213,333-byte state strict-reloads at `7106aa33...ec7c96`, rotates update
+2,048 away, and successfully resumes past 4,128 under the current code at about
+19.74k positions/s. These remain intermediate curve and recovery facts.
 On terminal quantitative qualification, finalization retains exactly the last
 verified optimizer-bearing BF16 snapshot and deletes older rollback points. The
 separate FP32 checkpoint remains the inference/generation artifact. The terminal

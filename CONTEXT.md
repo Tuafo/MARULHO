@@ -1264,6 +1264,17 @@ update-3,072 state strict-reloads at 428,213,141 bytes and SHA-256
 and training continues. This establishes the bounded two-rollback contract, not
 additional model quality.
 
+The update-4,096 curve remains positive after 125,829,120 new positions. Overall
+later loss is 2.877130, a 0.105735 gain or 42.29% of the terminal 0.25 target.
+FineWeb-Edu/Cosmopedia/DCLM are 3.083427/2.394356/3.153606, improving their own
+initial values by 0.074173/0.044449/0.198582; DCLM is 99.29% of its required
+0.20 gain without trading away either old source. The 428,213,333-byte snapshot
+strict-reloads at SHA-256 `7106aa33...ec7c96`, rotates update 2,048 away, and
+becomes a controlled resume boundary. Training advances past update 4,128 under
+the terminal-retention code at about 19.74k positions/s. This strengthens the
+curve and optimizer-continuity evidence, not the still-unmet terminal or visible
+language claims.
+
 Terminal ownership is split deliberately. If V80 passes its quantitative gate,
 the FP32 checkpoint owns generation/runtime while exactly one verified BF16
 training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed

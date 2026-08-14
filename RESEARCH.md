@@ -3983,6 +3983,18 @@ the update-2,048 and update-3,072 states on disk. Training continues through
 update 3,104 at about 19.86k positions/s. This proves the two-snapshot disk bound
 under production optimizer state; it adds no language-quality evidence.
 
+The second authoritative curve at update 4,096 covers 125,829,120 new positions,
+12.5% of the frozen schedule. Overall later loss reaches 2.877130, improving the
+initial 2.982864 by 0.105735 or 42.29% of the terminal target. FineWeb-Edu,
+Cosmopedia, and DCLM independently reach 3.083427, 2.394356, and 3.153606, gains
+of 0.074173/0.044449/0.198582. DCLM is only 0.001418 short of its complete 0.20
+terminal requirement while both retained sources continue to improve. Snapshot
+4,096 strict-reloads at 428,213,333 bytes and SHA-256 `7106aa33...ec7c96` and
+rotates update 2,048 away. A controlled stop at that verified boundary then
+resumes through update 4,128 under the terminal-snapshot-retention code at about
+19.74k positions/s. This is positive scaling and exact continuation evidence;
+it does not replace the final cooldown, checkpoint, or visible-generation gates.
+
 ### V80 Stage 3 preregistration: direct unseen-language decision
 
 **Admission before generation.** The generation runner must refuse execution
