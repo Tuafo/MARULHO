@@ -4153,7 +4153,52 @@ an early decision. The 428,215,317-byte optimizer snapshot strict-reloads at
 SHA-256 `d659778e...7596c7e`, rotates update 18,432 away, retains exactly
 19,456/20,480, and training advances through 20,576 at about 20.01k positions/s.
 
-### V80 Stage 3 preregistration: direct unseen-language decision
+### V80 terminal result: fixed-mixture scale is insufficient
+
+V80 completes all 32,768 updates and 1,006,632,960 new positions in
+49,040.2229 seconds (13.6223 hours), sustaining 20,526.68 positions/s at
+4,266,935,808 peak CUDA bytes. Final overall later loss is 2.7957305908 versus
+2.9828643799 initially, a gain of 0.1871337891. That reaches only 74.8535% of
+the frozen 0.25 gate and leaves 0.0628662109 unresolved. FineWeb-Edu,
+Cosmopedia, and DCLM finish at 3.0087280273/2.3159637451/3.0625000000, gains of
+0.1488723755/0.1228408813/0.2896881104. DCLM clears its 0.20 source gate; the
+joint quality gate does not.
+
+The cooldown improves overall loss from 2.8165829976 at update 26,624 to the
+best 2.7956809998 at update 30,720, but the final interval reverses slightly to
+2.7957305908. The report at SHA-256 `968891b2...997d7` therefore validly decides
+`stop_v80_billion_continuation_quality_gate`. It creates no FP32 checkpoint and
+does not admit generation, continual learning, runtime, or coherence review.
+The exact update-32,768 BF16 optimizer snapshot remains only for forensic or
+matched-redesign use at SHA-256 `286fb90b...cd73`; update 31,744 is deleted.
+
+The scientific conclusion is narrow: repeating 261.3M unique positions for an
+average 3.85 epochs under the fixed 40/30/30 objective is not enough. The
+Transformer survives as the strongest substrate; another blind extension of
+this curriculum does not.
+
+### Protocol correction: long-run futility must be frozen upfront
+
+V80 should have been able to stop before fourteen hours. At update 18,432 the
+remaining intervals already needed 2.56 times the latest interval gain; at
+20,480 the curve regressed and required 0.015058 per remaining interval. The
+run continued only because adding a stop rule after seeing those measurements
+would have changed the frozen experiment.
+
+Future scale experiments are staged. A trajectory bank, separate from the
+untouched terminal bank, is evaluated at rung boundaries. After at least three
+intervals, two consecutive observations where the required mean remaining gain
+is more than twice the best positive gain in the previous three intervals stop
+the run or authorize one bounded, preregistered cooldown probe. A probe that
+still cannot restore a winning trajectory stops. Two consecutive overall
+regressions or a retention-gate breach also stop. The first next-branch rung is
+budgeted near 31M positions; only a matched improvement earns a larger rung.
+
+### V80 Stage 3 not executed: direct unseen-language decision
+
+The terminal quantitative failure closes this stage before generation. The
+preregistered contract below is retained as the record of what would have run
+after a pass; it is not evidence that any V80 text was generated or reviewed.
 
 **Admission before generation.** The generation runner must refuse execution
 unless the terminal V80 training report passes every quantitative quality check,

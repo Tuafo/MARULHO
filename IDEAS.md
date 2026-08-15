@@ -7,7 +7,29 @@ into an operation, prediction, control, and kill condition before implementation
 
 ## Current synthesis
 
-### Current post-V80 bet: grounded self-challenge
+### Current post-V80 bet: fresh-data learning-progress curriculum
+
+V80 rejects another long repetition of one fixed mixture as the immediate path
+to coherent language. Its 261.3M unique predicted positions were traversed an
+average 3.85 times; loss improved substantially but plateaued below admission.
+The next question is whether MARULHO can spend the same compute on examples that
+still teach it something without over-selecting noise.
+
+Build a fresh, deduplicated real-document pool and estimate learning progress on
+a trajectory-only sample: prefer medium-loss examples whose loss improves after
+a small probe, preserve source and semantic diversity, and reject examples that
+are already mastered or remain high-loss without learning. Compare this
+model-guided curriculum with uniform fresh-data sampling from the identical pool,
+starting checkpoint, update budget, optimizer, and evaluation contract. The
+first rung is approximately 31M positions. Selection survives only if it
+improves heldout quality per position over uniform sampling without a source
+retention regression; otherwise keep uniform fresh data and retire the selector.
+
+The run is not allowed to become another fourteen-hour monolith. Preregistered
+trajectory futility gates decide whether either arm earns the next rung, while
+an untouched terminal bank remains unavailable for tuning.
+
+### Deferred bet: grounded self-challenge after coherent language
 
 Do not train MARULHO indiscriminately on its own prose. Recursive synthetic-data
 training can erase distribution tails and amplify errors even when generations
@@ -35,7 +57,7 @@ SPICE's published evidence starts at 3B--8B models, 20,000 documents, group size
 that MARULHO's 100.679M base can generate valid challenges. The first local gate
 therefore spends no training:
 
-1. After V80 passes quantitative and visible coherence gates, sample 256 new
+1. After a future base passes quantitative and visible coherence gates, sample 256 new
    corpus documents excluded from training and evaluation.
 2. Let the unchanged checkpoint generate four structured question/answer
    attempts per document. The answer must be an exact span or typed value in the
@@ -68,7 +90,7 @@ MARULHO-owned cognition and outrun the language competence evidence. Structural
 self-modification remains downstream of grounded self-challenge and independent
 promotion.
 
-### Continual-learning mechanism after a coherent V80
+### Continual-learning mechanism after a coherent base
 
 The strongest immediate continual baseline is still **real replay**, not a new
 memory metaphor. A 2025 continual-pretraining study is unusually relevant to
@@ -101,7 +123,7 @@ Two later mechanisms remain distinct follow-ups rather than ingredients in the
 same first experiment. GeRe preserves coarse positive/neutral/negative final
 activation states on a fixed general replay set with a threshold-margin loss
 ([Zhang et al.](https://arxiv.org/abs/2508.04676)); it is worth testing only if
-ordinary replay learns the new domain but cannot retain V80. SuRe selects
+ordinary replay learns the new domain but cannot retain the qualified base. SuRe selects
 high-negative-log-likelihood replay and combines fast/slow adapters
 ([Hazard et al.](https://arxiv.org/abs/2511.22367)); surprise-based selection
 should be compared with uniform replay under the same buffer and token budget
@@ -120,17 +142,18 @@ source without BOS/EOS. FineWeb-Edu uses 690,584 tokens for 2,637,367 characters
 (3.819 characters/token), Cosmopedia-v2 uses 420,830 for 1,853,846 (4.405), and
 DCLM uses 1,482,139 for 5,403,155 (3.646). The corresponding UTF-8 byte rates are
 3.842, 4.410, and 3.669 bytes/token. This is not catastrophic byte-like
-fragmentation, so tokenizer replacement is not the default explanation for V80
-quality and must not interrupt the billion-position run.
+fragmentation, so tokenizer replacement is not the default explanation for
+V80's terminal miss.
 
-If V80 passes loss but fails visible generation, tokenizer size remains one
-matched redesign arm rather than an assumption: train a balanced three-source
+Tokenizer size remains a possible matched redesign arm rather than an
+assumption: train a balanced three-source
 16K or 32K MARULHO BPE, hold model parameters and processed source bytes as
 closely matched as possible, and compare loss in bits per UTF-8 byte as well as
 ordinary token loss, throughput, and direct prose. It survives only if the
 source-byte-normalized quality gain repays the larger embedding/output compute.
-If V80 is coherent, retain the exact tokenizer so continual-learning evidence
-starts from the qualified state instead of resetting 1.264B positions.
+A tokenizer replacement must earn restarting training; V80 does not justify it
+by itself, and no continual-learning experiment may start from its unqualified
+terminal state.
 
 ### Post-continual structural bet: conflict-grown cloned experts
 

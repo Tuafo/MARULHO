@@ -6,39 +6,30 @@ evaluation are owned by this repository. The research target is a model that can
 learn from an ongoing stream, recall useful past experience under bounded active
 compute, and remain rollbackable while it changes.
 
-MARULHO is not currently an AGI or a frontier model. Its strongest current
-research checkpoint is a 100.679M-parameter decoder-only Transformer trained for
-257.43M cumulative positions. It reaches 2.7982 loss on a disjoint long-document
-continuation contract and reloads every tensor, tokenizer field, configuration,
-tied weight, metadata field, and sample logit exactly. On genuinely unseen prose,
-however, it remains grammatical but generic, repetitive, and topic-unstable,
-passing 0/12 frozen exact-continuation cases even after a four-times-larger
-unique-document continuation. Continual learning, structural
-plasticity, memory, and runtime installation remain closed until the base model
-demonstrates coherent unseen generation.
+MARULHO is not currently an AGI or a frontier model. Its strongest qualified
+research checkpoint remains the 100.679M-parameter V78 decoder-only Transformer
+trained for 257.43M cumulative positions. It reaches 2.7982 loss on a disjoint
+long-document continuation contract and reloads exactly, but its genuinely
+unseen prose remains grammatical yet generic, repetitive, and topic-unstable.
+Continual learning, structural plasticity, memory, and runtime installation
+remain closed until the base model demonstrates coherent unseen generation.
 
-The latest V79 data intervention is also negative: replacing Cosmopedia with
-DCLM improves DCLM loss but causes a larger Cosmopedia regression, worsening the
-joint three-source result. This rules out naive source substitution. It supports
-the next direction—train longer on a curriculum that keeps all useful sources—
-without claiming that data alone has solved coherence.
+V80 tested whether much more ordinary next-token training was enough. It
+continued V78 for 1,006,632,960 positions on a deduplicated 40/30/30 mixture of
+FineWeb-Edu, Cosmopedia, and DCLM. The run finished in 13.62 hours at 20.53k
+positions/s and about 3.97 GiB peak CUDA allocation. Overall heldout loss
+improved from 2.982864 to 2.795731, and every source improved, but the 0.187134
+gain missed the frozen 0.25 admission gate. The curve peaked at update 30,720
+and then flattened. V80 therefore stops before FP32 checkpoint creation,
+generation review, continual learning, or runtime promotion.
 
-V80 therefore keeps the Transformer and scales the strongest checkpoint on a
-deduplicated 40/30/30 FineWeb-Edu, Cosmopedia, and DCLM curriculum for 1.007B
-new positions. Its crash-safe trainer reloads model, optimizer, RNG, and schedule
-state exactly, stays near 4.26 GB peak allocation on the RTX 3060, and retains
-only two rolling snapshots. This reflects the current research bet: the
-Transformer is MARULHO's proven causal-compute substrate, while the new work is
-to make the surrounding system choose, verify, remember, and learn from better
-experience. A different core earns adoption only by beating that substrate in a
-matched experiment. If V80 passes its loss gates, its frozen review reruns the
-old unseen prompts and adds DCLM holdouts; only visibly coherent, topic-stable
-multi-sentence text can reopen continual learning.
-
-V80's first heldout curve point is encouraging but nonterminal: after 6.25% of
-the schedule, overall loss improves from 2.98286 to 2.90456 and FineWeb-Edu,
-Cosmopedia, and DCLM all improve. The full run, cooldown, strict checkpoint, and
-visible generation review still decide whether this becomes a qualified base.
+This rejects repeated fixed-mixture scaling as a sufficient solution; it does
+not reject the Transformer, which remains MARULHO's strongest causal-compute
+substrate. The next branch will compare fresh unique real data selected by
+measured learning progress against a matched uniform-fresh-data control. Large
+runs must now proceed through short preregistered rungs with a trajectory-based
+futility stop, so an idea must earn additional compute instead of receiving a
+fourteen-hour budget upfront.
 
 ## Current architecture
 

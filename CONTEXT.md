@@ -1203,7 +1203,7 @@ failure. No candidate checkpoint exists and the failed runner is deleted. The
 content-addressed DCLM text/tensors remain reusable. This rejects substitution,
 not DCLM or a future curriculum that keeps all learned sources represented.
 
-**V80 active scale run** — packed segments gave a real 1.0849x speedup
+**V80 terminal scale result: STOP** — packed segments gave a real 1.0849x speedup
 but missed the frozen 1.10x gate and its BF16 forward-loss delta missed parity;
 the temporary runner is deleted and sequential segment training remains. The
 capability run retains FineWeb-Edu, Cosmopedia, and DCLM together on one
@@ -1427,23 +1427,35 @@ continues rather than converting that projection into an early decision. The
 `d659778e...7596c7e`, rotates update 18,432 away, retains updates
 19,456/20,480, and training advances through 20,576 at about 20.01k positions/s.
 
-Terminal ownership is split deliberately. If V80 passes its quantitative gate,
-the FP32 checkpoint owns generation/runtime while exactly one verified BF16
-training snapshot retains model, Muon/Adam state, RNG, tokenizer, and completed
-schedule for rollback and genuine optimizer-continuous learning. Older snapshots
-are deleted. That terminal state cannot start V81 unless the direct language
-review also passes, and it is deletable if visible generation rejects V80.
+V80 completes at update 32,768 after 1,006,632,960 new positions and
+1,264,062,720 cumulative positions. Training takes 49,040.22 seconds (13.62
+hours), sustains 20,526.68 positions/s, and peaks at 4,266,935,808 CUDA bytes.
+Final overall later loss is 2.795731 versus 2.982864 initially: a 0.187134 gain,
+or 74.85% of the frozen 0.25 requirement. FineWeb-Edu, Cosmopedia, and DCLM
+finish at 3.008728/2.315964/3.062500, improving by
+0.148872/0.122841/0.289688. DCLM clears its individual gate, but the overall
+gate fails. The best overall curve is 2.795681 at update 30,720; the last
+interval reverses by 0.000050 after the cooldown's earlier improvement. The
+terminal report is `reports/language_scaling/v80-billion-position-continuation-20260814.json`
+at SHA-256 `968891b2...997d7` and decides
+`stop_v80_billion_continuation_quality_gate`.
 
-V80's post-training language audit is also frozen before a candidate exists. It
-will refuse an unqualified checkpoint, rerun all twelve V78 FineWeb/Cosmopedia
-cases, and add twelve generations over four DCLM holdout documents under greedy,
-repetition-controlled, and seeded nucleus decoding. The sampled panel freezes
-temperature 0.8, top-p 0.9, repetition penalty 1.05, and seed 80080. Those raw
-DCLM documents must encode exactly to their frozen evaluation rows. A readable
-direct-review sheet and explicit observation
-are mandatory; automatic prefix scores cannot claim coherence. Coherent text
-opens continual and grounded self-challenge validation, incoherent text forces
-an objective/tokenizer redesign, and invalid provenance rejects the evidence.
+Because the quantitative gate fails, V80 intentionally writes no FP32 model
+checkpoint and the frozen unseen-generation review refuses admission. V81,
+grounded self-challenge, continual learning, runtime promotion, and coherence
+claims all remain closed. The exact terminal BF16 model/optimizer/RNG snapshot
+is retained only as a 428,216,533-byte forensic and redesign boundary at
+SHA-256 `286fb90b...cd73`; the redundant update-31,744 snapshot is deleted.
+
+V80 also exposes a protocol flaw: its frozen design had no futility stop, so a
+trajectory already very unlikely to pass at updates 18,432--20,480 consumed the
+remaining compute. Future long runs must use preregistered rungs and a separate
+trajectory heldout bank. After at least three intervals, two consecutive checks
+where the required mean remaining gain exceeds twice the best positive gain in
+the prior three intervals trigger STOP or one already-budgeted cooldown probe;
+if that probe cannot restore a winning trajectory, the run stops. Two
+consecutive overall regressions or a retention-gate breach also stop. The
+untouched terminal bank remains unavailable until an arm survives this process.
 
 **Dynamic byte hierarchy (deferred scale-aware direction)** — MEGABYTE,
 SpaceByte, BLT, and H-Net establish that multiscale byte processing can beat or
